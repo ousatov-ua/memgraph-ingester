@@ -1,4 +1,3 @@
-
 ## Code knowledge graph (Memgraph MCP)
 
 This repo is indexed in Memgraph under the project name **`{{PROJECT_NAME}}`**.
@@ -30,15 +29,15 @@ will include other projects.
 
 **Nodes**
 
-| Label | Key | Notable properties |
-|---|---|---|
-| `:Project` | `name` | `sourceRoot`, `lastIngested` |
-| `:Package` | `(name, project)` | — |
-| `:File` | `(path, project)` | — |
-| `:Class` | `(fqn, project)` | `name`, `packageName`, `isAbstract` |
-| `:Interface` | `(fqn, project)` | `name`, `packageName` |
-| `:Method` | `(signature, project)` | `name`, `returnType`, `isStatic`, `startLine`, `endLine` |
-| `:Field` | `(fqn, project)` | `name`, `type`, `isStatic` |
+| Label        | Key                    | Notable properties                                       |
+|--------------|------------------------|----------------------------------------------------------|
+| `:Project`   | `name`                 | `sourceRoots`, `lastIngested`                            |
+| `:Package`   | `(name, project)`      | —                                                        |
+| `:File`      | `(path, project)`      | —                                                        |
+| `:Class`     | `(fqn, project)`       | `name`, `packageName`, `isAbstract`                      |
+| `:Interface` | `(fqn, project)`       | `name`, `packageName`                                    |
+| `:Method`    | `(signature, project)` | `name`, `returnType`, `isStatic`, `startLine`, `endLine` |
+| `:Field`     | `(fqn, project)`       | `name`, `type`, `isStatic`                               |
 
 **Relationships**
 
@@ -56,11 +55,13 @@ will include other projects.
 ### Query recipes
 
 **Discover available projects (if `{{PROJECT_NAME}}` is unset)**
+
 ```cypher
-MATCH (p:Project) RETURN p.name, p.sourceRoot, p.lastIngested;
+MATCH (p:Project) RETURN p.name, p.sourceRoots, p.lastIngested;
 ```
 
 **All implementations of an interface**
+
 ```cypher
 MATCH (i:Interface {name: 'OrderRepository', project: '{{PROJECT_NAME}}'})
       <-[:IMPLEMENTS]-(c:Class)
@@ -68,6 +69,7 @@ RETURN c.fqn;
 ```
 
 **Callers of a method**
+
 ```cypher
 MATCH (caller:Method)-[:CALLS]->(m:Method {name: 'save', project: '{{PROJECT_NAME}}'})
 RETURN DISTINCT caller.signature
@@ -75,6 +77,7 @@ ORDER BY caller.signature;
 ```
 
 **Methods of a class**
+
 ```cypher
 MATCH (c:Class {fqn: 'com.example.OrderService', project: '{{PROJECT_NAME}}'})
       -[:DECLARES]->(m:Method)
@@ -83,6 +86,7 @@ ORDER BY m.startLine;
 ```
 
 **Full inheritance chain**
+
 ```cypher
 MATCH path = (c:Class {name: 'OrderServiceImpl', project: '{{PROJECT_NAME}}'})
              -[:EXTENDS*]->(ancestor:Class)
@@ -90,12 +94,14 @@ RETURN [n IN nodes(path) | n.fqn] AS chain;
 ```
 
 **Transitive callers (who eventually reaches this method?)**
+
 ```cypher
 MATCH (caller:Method)-[:CALLS*1..5]->(m:Method {name: 'deleteAll', project: '{{PROJECT_NAME}}'})
 RETURN DISTINCT caller.signature;
 ```
 
 **Classes in a package**
+
 ```cypher
 MATCH (:Package {name: 'com.example.order', project: '{{PROJECT_NAME}}'})
       -[:CONTAINS]->(c:Class)
