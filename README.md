@@ -80,19 +80,19 @@ This repo ships a `CLAUDE-memgraph-template.md` designed to be dropped into any 
 
 ### Per-repo setup
 
-Use the bundled `init-memgraph-claude.sh` script, which fetches the template, substitutes the project name, and appends the result to the local `CLAUDE.md`. The script lives at `src/main/resources/init-memgraph-claude.sh` in this repo.
+Use the bundled `init-memgraph-claude.sh` script, which fetches the template, substitutes the project name, and appends the result to the local `CLAUDE.md`. The script lives at `src/main/script/init-memgraph-claude.sh` in this repo.
 
 Run it from inside the repo you just ingested:
 
 ```bash
 # Point at the script in your local checkout
-/path/to/memgraph-ingester/src/main/resources/init-memgraph-claude.sh my-project
+/path/to/memgraph-ingester/src/main/script/init-memgraph-claude.sh my-project
 ```
 
 Or fetch-and-run straight from GitHub:
 
 ```bash
-curl -s https://raw.githubusercontent.com/ousatov-ua/memgraph-ingester/main/src/main/resources/init-memgraph-claude.sh \
+curl -s https://raw.githubusercontent.com/ousatov-ua/memgraph-ingester/main/src/main/script/init-memgraph-claude.sh \
   | bash -s -- my-project
 ```
 
@@ -190,8 +190,6 @@ ORDER BY p.lastIngested DESC;
 ```
 .
 ├── src/main/java/                          # Ingester source (IngesterCli + support)
-├── src/main/resources/
-│   └── init-memgraph-claude.sh             # Helper: appends Memgraph section to a repo's CLAUDE.md
 ├── pom.xml                                 # Maven build (shaded fat JAR, spotless-enforced)
 ├── schema.cypher                           # Memgraph DDL (constraints + indexes)
 ├── SCHEMA.md                               # Graph model reference (human-readable)
