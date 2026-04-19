@@ -37,8 +37,8 @@ import picocli.CommandLine.Option;
  * Walks a Java source tree, parses each file with JavaParser, and writes a structural code graph
  * into Memgraph via the Bolt protocol.
  *
- * <p>Usage: java -jar memgraph-ingester.jar \ --source src/main/java \ --bolt
- * bolt://memgraph.example:7687 \ --user memgraph \ --pass secret
+ * <p>All nodes are namespaced by {@code project} so multiple codebases can share a single Memgraph
+ * instance. Every MERGE and MATCH scopes by project.
  */
 @Command(name = "ingest", mixinStandardHelpOptions = true, version = "1.0")
 public final class IngesterCli implements Callable<Integer> {
@@ -80,7 +80,7 @@ public final class IngesterCli implements Callable<Integer> {
       description = "Delete all nodes belonging to this project before ingesting")
   private boolean wipe;
 
-  static void main(String[] args) {
+  public static void main(String[] args) {
     int exit = new CommandLine(new IngesterCli()).execute(args);
     System.exit(exit);
   }
@@ -108,10 +108,6 @@ public final class IngesterCli implements Callable<Integer> {
       return Optional.empty();
     }
   }
-
-  // ----------------------------------------------------------------
-  // File-level ingestion
-  // ----------------------------------------------------------------
 
   private static String buildSignature(String ownerFqn, MethodDeclaration m) {
     String params =
@@ -141,20 +137,41 @@ public final class IngesterCli implements Callable<Integer> {
         Session session = driver.session()) {
 
       if (wipe) {
-        log.info("Wiping existing graph...");
-        session.run("MATCH (n) DETACH DELETE n");
+        log.info("Wiping existing graph for project '{}'...", project);
+        // Wipe both property-scoped nodes and the Project anchor itself.
+        session.run(
+            "MATCH (n) WHERE n.project = $project DETACH DELETE n", Map.of("project", project));
+        session.run(
+            "MATCH (p:Project {name: $project}) DETACH DELETE p", Map.of("project", project));
       }
+
+      upsertProject(session);
 
       try (Stream<Path> files = Files.walk(sourceRoot)) {
         files.filter(p -> p.toString().endsWith(".java")).forEach(p -> ingestFile(session, p));
       }
     }
-    log.info("Ingestion complete.");
+    log.info("Ingestion complete for project '{}'.", project);
     return 0;
   }
 
+  /**
+   * Creates or refreshes the {@code :Project} anchor node. This is the natural entry point for
+   * Claude Code and other clients exploring the graph — they can discover projects via the schema
+   * rather than having to guess at property values.
+   */
+  private void upsertProject(Session session) {
+    session.run(
+        """
+        MERGE (proj:Project {name: $project})
+          SET proj.sourceRoot   = $sourceRoot,
+              proj.lastIngested = timestamp()
+        """,
+        Map.of("project", project, "sourceRoot", sourceRoot.toString()));
+  }
+
   // ----------------------------------------------------------------
-  // Members
+  // File-level ingestion
   // ----------------------------------------------------------------
 
   private void ingestFile(Session session, Path file) {
@@ -169,7 +186,7 @@ public final class IngesterCli implements Callable<Integer> {
     String pkg = cu.getPackageDeclaration().map(pd -> pd.getName().asString()).orElse("");
 
     try {
-      log.debug("Ingesting {} (project={})", file, project);
+      log.info("Ingesting {} (project={})", file, project);
       upsertFile(session, file);
       upsertPackage(session, pkg);
 
@@ -180,6 +197,32 @@ public final class IngesterCli implements Callable<Integer> {
     }
   }
 
+  private void upsertFile(Session session, Path file) {
+    session.run(
+        """
+        MERGE (f:File {path: $path, project: $project})
+        WITH f
+        MATCH (proj:Project {name: $project})
+        MERGE (proj)-[:CONTAINS]->(f)
+        """,
+        Map.of("path", file.toString(), "project", project));
+  }
+
+  private void upsertPackage(Session session, String pkg) {
+    session.run(
+        """
+        MERGE (p:Package {name: $name, project: $project})
+        WITH p
+        MATCH (proj:Project {name: $project})
+        MERGE (proj)-[:CONTAINS]->(p)
+        """,
+        Map.of("name", pkg, "project", project));
+  }
+
+  // ----------------------------------------------------------------
+  // Type-level ingestion
+  // ----------------------------------------------------------------
+
   private void ingestType(
       Session session, Path file, String pkg, ClassOrInterfaceDeclaration decl) {
     String fqn = pkg.isEmpty() ? decl.getNameAsString() : pkg + "." + decl.getNameAsString();
@@ -187,15 +230,15 @@ public final class IngesterCli implements Callable<Integer> {
 
     session.run(
         """
-        MERGE (t:%s {fqn: $fqn})
+        MERGE (t:%s {fqn: $fqn, project: $project})
           SET t.name = $name,
               t.packageName = $pkg,
               t.isAbstract = $isAbstract
         WITH t
-        MATCH (p:Package {name: $pkg})
+        MATCH (p:Package {name: $pkg, project: $project})
         MERGE (p)-[:CONTAINS]->(t)
         WITH t
-        MATCH (f:File {path: $path})
+        MATCH (f:File {path: $path, project: $project})
         MERGE (f)-[:DEFINES]->(t)
         """
             .formatted(label),
@@ -209,7 +252,9 @@ public final class IngesterCli implements Callable<Integer> {
             "path",
             file.toString(),
             "isAbstract",
-            decl.isAbstract()));
+            decl.isAbstract(),
+            "project",
+            project));
 
     ingestInheritance(session, fqn, decl);
     decl.getFields().forEach(f -> ingestField(session, fqn, f));
@@ -221,41 +266,45 @@ public final class IngesterCli implements Callable<Integer> {
         .forEach(
             ext ->
                 tryRun(
-                    () -> {
-                      resolveQualifiedName(ext)
-                          .ifPresent(
-                              parent ->
-                                  session.run(
-                                      """
-                                      MERGE (parent:Class {fqn: $parent})
-                                      WITH parent
-                                      MATCH (child {fqn: $child})
-                                      MERGE (child)-[:EXTENDS]->(parent)
-                                      """,
-                                      Map.of("child", fqn, "parent", parent)));
-                    }));
+                    () ->
+                        resolveQualifiedName(ext)
+                            .ifPresent(
+                                parent ->
+                                    session.run(
+                                        """
+                                        MERGE (parent:Class {fqn: $parent, project: $project})
+                                        WITH parent
+                                        MATCH (child {fqn: $child, project: $project})
+                                        MERGE (child)-[:EXTENDS]->(parent)
+                                        """,
+                                        Map.of(
+                                            "child", fqn,
+                                            "parent", parent,
+                                            "project", project)))));
 
     decl.getImplementedTypes()
         .forEach(
             impl ->
                 tryRun(
-                    () -> {
-                      resolveQualifiedName(impl)
-                          .ifPresent(
-                              iface ->
-                                  session.run(
-                                      """
-                                      MERGE (i:Interface {fqn: $iface})
-                                      WITH i
-                                      MATCH (c:Class {fqn: $child})
-                                      MERGE (c)-[:IMPLEMENTS]->(i)
-                                      """,
-                                      Map.of("child", fqn, "iface", iface)));
-                    }));
+                    () ->
+                        resolveQualifiedName(impl)
+                            .ifPresent(
+                                iface ->
+                                    session.run(
+                                        """
+                                        MERGE (i:Interface {fqn: $iface, project: $project})
+                                        WITH i
+                                        MATCH (c:Class {fqn: $child, project: $project})
+                                        MERGE (c)-[:IMPLEMENTS]->(i)
+                                        """,
+                                        Map.of(
+                                            "child", fqn,
+                                            "iface", iface,
+                                            "project", project)))));
   }
 
   // ----------------------------------------------------------------
-  // Helpers
+  // Members
   // ----------------------------------------------------------------
 
   private void ingestField(Session session, String ownerFqn, FieldDeclaration field) {
@@ -306,22 +355,14 @@ public final class IngesterCli implements Callable<Integer> {
         MERGE (owner)-[:DECLARES]->(m)
         """,
         Map.of(
-            "sig",
-            signature,
-            "name",
-            method.getNameAsString(),
-            "ret",
-            method.getTypeAsString(),
-            "isStatic",
-            method.isStatic(),
-            "start",
-            method.getBegin().map(p -> p.line).orElse(0),
-            "end",
-            method.getEnd().map(p -> p.line).orElse(0),
-            "owner",
-            ownerFqn,
-            "project",
-            project));
+            "sig", signature,
+            "name", method.getNameAsString(),
+            "ret", method.getTypeAsString(),
+            "isStatic", method.isStatic(),
+            "start", method.getBegin().map(p -> p.line).orElse(0),
+            "end", method.getEnd().map(p -> p.line).orElse(0),
+            "owner", ownerFqn,
+            "project", project));
 
     ingestCalls(session, signature, method);
   }
@@ -335,21 +376,16 @@ public final class IngesterCli implements Callable<Integer> {
             String calleeSig = resolved.getQualifiedSignature();
             session.run(
                 """
-                MERGE (callee:Method {signature: $callee})
+                MERGE (callee:Method {signature: $callee, project: $project})
                 WITH callee
-                MATCH (caller:Method {signature: $caller})
+                MATCH (caller:Method {signature: $caller, project: $project})
                 MERGE (caller)-[:CALLS]->(callee)
                 """,
-                Map.of("caller", callerSig, "callee", calleeSig));
+                Map.of(
+                    "caller", callerSig,
+                    "callee", calleeSig,
+                    "project", project));
           });
     }
-  }
-
-  private void upsertFile(Session session, Path file) {
-    session.run("MERGE (f:File {path: $path})", Map.of("path", file.toString()));
-  }
-
-  private void upsertPackage(Session session, String pkg) {
-    session.run("MERGE (p:Package {name: $name})", Map.of("name", pkg));
   }
 }
