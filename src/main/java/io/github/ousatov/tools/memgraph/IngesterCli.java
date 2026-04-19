@@ -1,4 +1,4 @@
-package io.github.osatov.tools.memgraph;
+package io.github.ousatov.tools.memgraph;
 
 import com.github.javaparser.ParserConfiguration;
 import com.github.javaparser.ParserConfiguration.LanguageLevel;
@@ -138,14 +138,15 @@ public final class IngesterCli implements Callable<Integer> {
 
       if (wipe) {
         log.info("Wiping existing graph for project '{}'...", project);
-        // Wipe both property-scoped nodes and the Project anchor itself.
         session.run(
             "MATCH (n) WHERE n.project = $project DETACH DELETE n", Map.of("project", project));
         session.run(
-            "MATCH (p:Project {name: $project}) DETACH DELETE p", Map.of("project", project));
+            "MATCH (p:Project {name: $project}) SET p.sourceRoots = [] DETACH DELETE p",
+            Map.of("project", project));
       }
 
       upsertProject(session);
+      log.info("Upserted :Project anchor for '{}'", project);
 
       try (Stream<Path> files = Files.walk(sourceRoot)) {
         files.filter(p -> p.toString().endsWith(".java")).forEach(p -> ingestFile(session, p));
@@ -161,10 +162,16 @@ public final class IngesterCli implements Callable<Integer> {
    * rather than having to guess at property values.
    */
   private void upsertProject(Session session) {
+    // Append sourceRoot to sourceRoots list only if not already present.
+    // coalesce() handles the first run where sourceRoots does not exist yet.
     session.run(
         """
         MERGE (proj:Project {name: $project})
-          SET proj.sourceRoot   = $sourceRoot,
+          SET proj.sourceRoots  = CASE
+                WHEN $sourceRoot IN coalesce(proj.sourceRoots, [])
+                THEN coalesce(proj.sourceRoots, [])
+                ELSE coalesce(proj.sourceRoots, []) + $sourceRoot
+              END,
               proj.lastIngested = timestamp()
         """,
         Map.of("project", project, "sourceRoot", sourceRoot.toString()));
