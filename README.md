@@ -6,7 +6,7 @@ Ingests the structural model of a Java codebase into [Memgraph](https://memgraph
 
 Walks a Java source tree, parses each file with [JavaParser](https://github.com/javaparser/javaparser) (with symbol resolution), and writes a graph of packages, files, classes, interfaces, methods, fields, inheritance, and call relationships. Every node is scoped by a `project` property and anchored by a `:Project` node, so **multiple codebases can share one Memgraph instance** without collisions.
 
-See [`SCHEMA.md`](SCHEMA.md) for the full graph model.
+See [`SCHEMA.md`](schema/SCHEMA.md) for the full graph model.
 
 ## Requirements
 
