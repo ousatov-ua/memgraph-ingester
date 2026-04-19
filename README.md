@@ -4,7 +4,7 @@ Ingests the structural model of a Java codebase into [Memgraph](https://memgraph
 queryable code knowledge graph. Pair it with
 the [Memgraph MCP server](https://github.com/memgraph/ai-toolkit/tree/main/integrations/mcp-memgraph) to let Claude Code (or any
 MCP-aware client) reason about your code through graph queries instead of raw text search which can
-significantly refuce money spending.
+significantly reduce money spending and speed up processing.
 
 ## What it does
 
