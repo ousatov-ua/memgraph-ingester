@@ -13,10 +13,10 @@
 
 This repo is indexed in Memgraph under the project name **`{{PROJECT_NAME}}`**.
 
-For questions about code structure, dependencies, call graphs, inheritance,
-or any cross-file relationship, **query the graph via the Memgraph MCP
-server first**. It's faster than filesystem search and resolves symbols
-properly (type inference, fully-qualified names, inherited members).
+**Before starting any task that involves understanding code structure,
+finding where something is implemented, tracing a call chain, or
+identifying what implements an interface — run at least one Memgraph
+query first to orient yourself. Do not rely solely on filesystem search**
 
 ### Required scoping
 
