@@ -11,6 +11,7 @@ import com.github.javaparser.ast.expr.MethodCallExpr;
 import com.github.javaparser.ast.type.ClassOrInterfaceType;
 import com.github.javaparser.resolution.UnsolvedSymbolException;
 import com.github.javaparser.resolution.declarations.ResolvedMethodDeclaration;
+import com.github.javaparser.resolution.declarations.ResolvedTypeDeclaration;
 import com.github.javaparser.resolution.types.ResolvedReferenceType;
 import com.github.javaparser.symbolsolver.JavaSymbolSolver;
 import com.github.javaparser.symbolsolver.resolution.typesolvers.CombinedTypeSolver;
@@ -111,7 +112,7 @@ public final class IngesterCli implements Callable<Integer> {
   private static Optional<String> resolveQualifiedName(ClassOrInterfaceType type) {
     try {
       ResolvedReferenceType resolved = type.resolve().asReferenceType();
-      return resolved.getTypeDeclaration().map(td -> td.getQualifiedName());
+      return resolved.getTypeDeclaration().map(ResolvedTypeDeclaration::getQualifiedName);
     } catch (RuntimeException e) {
       return Optional.empty();
     }
@@ -134,6 +135,41 @@ public final class IngesterCli implements Callable<Integer> {
       // External libs or generics we can't resolve — skip silently.
     } catch (RuntimeException e) {
       log.debug("Skipping due to: {}", e.getMessage());
+    }
+  }
+
+  /**
+   * Runs a Cypher statement with retry-on-conflict. Memgraph returns "Cannot resolve conflicting
+   * transactions" when two threads MERGE the same node concurrently — the loser must retry.
+   */
+  private static void runWithRetry(Session session, String cypher, Map<String, Object> params) {
+    int maxAttempts = 8;
+    long backoffMs = 10;
+    for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        session.run(cypher, params).consume();
+        return;
+      } catch (RuntimeException e) {
+        String msg = e.getMessage() == null ? "" : e.getMessage();
+        boolean retryable =
+            msg.contains("conflicting transactions")
+                || msg.contains("Cannot resolve conflicting")
+                || msg.contains("deadlock")
+                || msg.contains("SerializationError");
+        if (!retryable || attempt == maxAttempts) {
+          throw e;
+        }
+        try {
+          // Exponential backoff with jitter: 10, 20, 40, 80... plus random 0–50%
+          long jitter = (long) (backoffMs * Math.random() * 0.5);
+          Thread.sleep(backoffMs + jitter);
+        } catch (InterruptedException ie) {
+          Thread.currentThread().interrupt();
+          throw new RuntimeException("Interrupted during retry", ie);
+        }
+        backoffMs = Math.min(backoffMs * 2, 500);
+        log.debug("Retry attempt {} after conflict: {}", attempt + 1, msg);
+      }
     }
   }
 
@@ -173,9 +209,12 @@ public final class IngesterCli implements Callable<Integer> {
       try (Session bootstrap = driver.session()) {
         if (wipe) {
           log.info("Wiping existing graph for project '{}'...", project);
-          bootstrap.run(
-              "MATCH (n) WHERE n.project = $project DETACH DELETE n", Map.of("project", project));
-          bootstrap.run(
+          runWithRetry(
+              bootstrap,
+              "MATCH (n) WHERE n.project = $project DETACH DELETE n",
+              Map.of("project", project));
+          runWithRetry(
+              bootstrap,
               "MATCH (p:Project {name: $project}) SET p.sourceRoots = [] DETACH DELETE p",
               Map.of("project", project));
         }
@@ -273,9 +312,8 @@ public final class IngesterCli implements Callable<Integer> {
    * rather than having to guess at property values.
    */
   private void upsertProject(Session session) {
-    // Append sourceRoot to sourceRoots list only if not already present.
-    // coalesce() handles the first run where sourceRoots does not exist yet.
-    session.run(
+    runWithRetry(
+        session,
         """
         MERGE (proj:Project {name: $project})
           SET proj.sourceRoots  = CASE
@@ -321,7 +359,8 @@ public final class IngesterCli implements Callable<Integer> {
   }
 
   private void upsertFile(Session session, Path file) {
-    session.run(
+    runWithRetry(
+        session,
         """
         MERGE (f:File {path: $path, project: $project})
         WITH f
@@ -332,7 +371,8 @@ public final class IngesterCli implements Callable<Integer> {
   }
 
   private void upsertPackage(Session session, String pkg) {
-    session.run(
+    runWithRetry(
+        session,
         """
         MERGE (p:Package {name: $name, project: $project})
         WITH p
@@ -351,7 +391,8 @@ public final class IngesterCli implements Callable<Integer> {
     String fqn = pkg.isEmpty() ? decl.getNameAsString() : pkg + "." + decl.getNameAsString();
     String label = decl.isInterface() ? "Interface" : "Class";
 
-    session.run(
+    runWithRetry(
+        session,
         """
         MERGE (t:%s {fqn: $fqn, project: $project})
           SET t.name = $name,
@@ -393,7 +434,8 @@ public final class IngesterCli implements Callable<Integer> {
                         resolveQualifiedName(ext)
                             .ifPresent(
                                 parent ->
-                                    session.run(
+                                    runWithRetry(
+                                        session,
                                         """
                                         MERGE (parent:Class {fqn: $parent, project: $project})
                                         WITH parent
@@ -411,7 +453,8 @@ public final class IngesterCli implements Callable<Integer> {
                         resolveQualifiedName(impl)
                             .ifPresent(
                                 iface ->
-                                    session.run(
+                                    runWithRetry(
+                                        session,
                                         """
                                         MERGE (i:Interface {fqn: $iface, project: $project})
                                         WITH i
@@ -432,7 +475,8 @@ public final class IngesterCli implements Callable<Integer> {
         .forEach(
             v -> {
               String fqn = ownerFqn + "#" + v.getNameAsString();
-              session.run(
+              runWithRetry(
+                  session,
                   """
                   MERGE (f:Field {fqn: $fqn, project: $project})
                     SET f.name = $name,
@@ -461,7 +505,8 @@ public final class IngesterCli implements Callable<Integer> {
   private void ingestMethod(Session session, String ownerFqn, MethodDeclaration method) {
     String signature = buildSignature(ownerFqn, method);
 
-    session.run(
+    runWithRetry(
+        session,
         """
         MERGE (m:Method {signature: $sig, project: $project})
           SET m.name = $name,
@@ -501,7 +546,8 @@ public final class IngesterCli implements Callable<Integer> {
           () -> {
             ResolvedMethodDeclaration resolved = call.resolve();
             String calleeSig = resolved.getQualifiedSignature();
-            session.run(
+            runWithRetry(
+                session,
                 """
                 MERGE (callee:Method {signature: $callee, project: $project})
                 WITH callee
