@@ -193,18 +193,6 @@ java -jar memgraph-ingester.jar \
   # not --wipe here!!!!
 ```
 
-## Project layout
-
-```
-.
-├── src/main/java/                          # Ingester source (IngesterCli + support)
-├── pom.xml                                 # Maven build (shaded fat JAR, spotless-enforced)
-├── schema.cypher                           # Memgraph DDL (constraints + indexes)
-├── SCHEMA.md                               # Graph model reference (human-readable)
-├── CLAUDE-memgraph-template.md             # Template appended to project CLAUDE.md files
-└── README.md
-```
-
 ## License
 
 MIT — see [`LICENSE`](LICENSE).
