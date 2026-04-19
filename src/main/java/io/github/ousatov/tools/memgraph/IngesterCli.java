@@ -1,8 +1,8 @@
 package io.github.ousatov.tools.memgraph;
 
+import com.github.javaparser.JavaParser;
 import com.github.javaparser.ParserConfiguration;
 import com.github.javaparser.ParserConfiguration.LanguageLevel;
-import com.github.javaparser.StaticJavaParser;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.FieldDeclaration;
@@ -22,6 +22,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
 import org.neo4j.driver.AuthTokens;
 import org.neo4j.driver.Driver;
@@ -44,6 +48,9 @@ import picocli.CommandLine.Option;
 public final class IngesterCli implements Callable<Integer> {
 
   private static final Logger log = LoggerFactory.getLogger(IngesterCli.class);
+
+  /** Per-thread JavaParser holder so concurrent parsing doesn't share state. */
+  private static final ThreadLocal<JavaParser> PARSER = new ThreadLocal<>();
 
   @Option(
       names = {"-s", "--source"},
@@ -80,20 +87,21 @@ public final class IngesterCli implements Callable<Integer> {
       description = "Delete all nodes belonging to this project before ingesting")
   private boolean wipe;
 
+  @Option(
+      names = {"-t", "--threads"},
+      defaultValue = "1",
+      description =
+          "Number of parser threads. Each thread gets its own Bolt session. "
+              + "Defaults to 1 (sequential). Values above the number of CPU cores rarely help "
+              + "because Memgraph serializes writes internally.")
+  private int threads;
+
+  /** Shared symbol solver configuration — computed once, reused per-thread. */
+  private ParserConfiguration parserConfig;
+
   public static void main(String[] args) {
     int exit = new CommandLine(new IngesterCli()).execute(args);
     System.exit(exit);
-  }
-
-  /** Enables JavaParser to resolve types across the project and parse modern Java. */
-  private static void configureSymbolSolver(Path sourceRoot) {
-    CombinedTypeSolver solver = new CombinedTypeSolver();
-    solver.add(new ReflectionTypeSolver());
-    solver.add(new JavaParserTypeSolver(sourceRoot));
-
-    ParserConfiguration config = StaticJavaParser.getParserConfiguration();
-    config.setSymbolResolver(new JavaSymbolSolver(solver));
-    config.setLanguageLevel(LanguageLevel.JAVA_25);
   }
 
   /**
@@ -129,31 +137,134 @@ public final class IngesterCli implements Callable<Integer> {
     }
   }
 
+  /** Builds the shared ParserConfiguration. Each thread will wrap its own JavaParser around it. */
+  private ParserConfiguration buildParserConfig(Path sourceRoot) {
+    CombinedTypeSolver solver = new CombinedTypeSolver();
+    solver.add(new ReflectionTypeSolver());
+    solver.add(new JavaParserTypeSolver(sourceRoot));
+
+    ParserConfiguration config = new ParserConfiguration();
+    config.setSymbolResolver(new JavaSymbolSolver(solver));
+    config.setLanguageLevel(LanguageLevel.JAVA_25);
+    return config;
+  }
+
+  /** Returns the JavaParser for the current thread, creating one on first access. */
+  private JavaParser parserForCurrentThread() {
+    JavaParser parser = PARSER.get();
+    if (parser == null) {
+      parser = new JavaParser(parserConfig);
+      PARSER.set(parser);
+    }
+    return parser;
+  }
+
   @Override
   public Integer call() throws Exception {
-    configureSymbolSolver(sourceRoot);
+    if (threads < 1) {
+      log.error("--threads must be >= 1 (got {})", threads);
+      return 1;
+    }
+    parserConfig = buildParserConfig(sourceRoot);
 
-    try (Driver driver = GraphDatabase.driver(boltUrl, AuthTokens.basic(user, pass));
-        Session session = driver.session()) {
+    try (Driver driver = GraphDatabase.driver(boltUrl, AuthTokens.basic(user, pass))) {
 
-      if (wipe) {
-        log.info("Wiping existing graph for project '{}'...", project);
-        session.run(
-            "MATCH (n) WHERE n.project = $project DETACH DELETE n", Map.of("project", project));
-        session.run(
-            "MATCH (p:Project {name: $project}) SET p.sourceRoots = [] DETACH DELETE p",
-            Map.of("project", project));
+      // Wipe and upsert-project run on a single dedicated session.
+      try (Session bootstrap = driver.session()) {
+        if (wipe) {
+          log.info("Wiping existing graph for project '{}'...", project);
+          bootstrap.run(
+              "MATCH (n) WHERE n.project = $project DETACH DELETE n", Map.of("project", project));
+          bootstrap.run(
+              "MATCH (p:Project {name: $project}) SET p.sourceRoots = [] DETACH DELETE p",
+              Map.of("project", project));
+        }
+        upsertProject(bootstrap);
+        log.info("Upserted :Project anchor for '{}'", project);
       }
 
-      upsertProject(session);
-      log.info("Upserted :Project anchor for '{}'", project);
+      List<Path> files;
+      try (Stream<Path> walk = Files.walk(sourceRoot)) {
+        files = walk.filter(p -> p.toString().endsWith(".java")).toList();
+      }
+      log.info("Found {} Java files. Ingesting with {} thread(s).", files.size(), threads);
 
-      try (Stream<Path> files = Files.walk(sourceRoot)) {
-        files.filter(p -> p.toString().endsWith(".java")).forEach(p -> ingestFile(session, p));
+      if (threads == 1) {
+        ingestSequential(driver, files);
+      } else {
+        ingestParallel(driver, files);
       }
     }
     log.info("Ingestion complete for project '{}'.", project);
     return 0;
+  }
+
+  private void ingestSequential(Driver driver, List<Path> files) {
+    try (Session session = driver.session()) {
+      files.forEach(p -> ingestFile(session, p));
+    }
+  }
+
+  private void ingestParallel(Driver driver, List<Path> files) throws InterruptedException {
+    // Collect per-thread sessions so we can close them deterministically at the end.
+    List<Session> sessions = java.util.Collections.synchronizedList(new java.util.ArrayList<>());
+    ThreadLocal<Session> threadSession =
+        ThreadLocal.withInitial(
+            () -> {
+              Session s = driver.session();
+              sessions.add(s);
+              return s;
+            });
+
+    // Daemon threads so they never block JVM exit.
+    AtomicInteger threadCounter = new AtomicInteger();
+    ExecutorService pool =
+        Executors.newFixedThreadPool(
+            threads,
+            r -> {
+              Thread t = new Thread(r, "ingester-" + threadCounter.incrementAndGet());
+              t.setDaemon(true);
+              return t;
+            });
+
+    AtomicInteger done = new AtomicInteger();
+    int total = files.size();
+    // Log roughly every 5% of progress, with sensible floor/ceiling.
+    int step = Math.clamp(total / 20, 1, 100);
+
+    try {
+      for (Path file : files) {
+        pool.submit(
+            () -> {
+              try {
+                ingestFile(threadSession.get(), file);
+              } catch (Exception e) {
+                log.warn("Thread ingestion failure on {}: {}", file, e.getMessage());
+              } finally {
+                int n = done.incrementAndGet();
+                if (n % step == 0 || n == total) {
+                  log.info("Progress: {}/{} files", n, total);
+                }
+              }
+            });
+      }
+      pool.shutdown();
+      if (!pool.awaitTermination(10, TimeUnit.MINUTES)) {
+        log.warn("Ingestion tasks did not complete within 10 minutes; forcing shutdown.");
+        pool.shutdownNow();
+      }
+    } finally {
+      // Close all worker sessions explicitly before driver.close() runs.
+      synchronized (sessions) {
+        for (Session s : sessions) {
+          try {
+            s.close();
+          } catch (Exception e) {
+            log.debug("Error closing worker session: {}", e.getMessage());
+          }
+        }
+      }
+    }
   }
 
   /**
@@ -184,7 +295,12 @@ public final class IngesterCli implements Callable<Integer> {
   private void ingestFile(Session session, Path file) {
     CompilationUnit cu;
     try {
-      cu = StaticJavaParser.parse(file);
+      var parseResult = parserForCurrentThread().parse(file);
+      if (!parseResult.isSuccessful() || parseResult.getResult().isEmpty()) {
+        log.warn("Failed to parse {}: {}", file, parseResult.getProblems());
+        return;
+      }
+      cu = parseResult.getResult().get();
     } catch (Exception e) {
       log.warn("Failed to parse {}: {}", file, e.getMessage());
       return;
@@ -193,7 +309,7 @@ public final class IngesterCli implements Callable<Integer> {
     String pkg = cu.getPackageDeclaration().map(pd -> pd.getName().asString()).orElse("");
 
     try {
-      log.info("Ingesting {} (project={})", file, project);
+      log.debug("Ingesting {} (project={})", file, project);
       upsertFile(session, file);
       upsertPackage(session, pkg);
 
@@ -285,9 +401,7 @@ public final class IngesterCli implements Callable<Integer> {
                                         MERGE (child)-[:EXTENDS]->(parent)
                                         """,
                                         Map.of(
-                                            "child", fqn,
-                                            "parent", parent,
-                                            "project", project)))));
+                                            "child", fqn, "parent", parent, "project", project)))));
 
     decl.getImplementedTypes()
         .forEach(
@@ -305,9 +419,7 @@ public final class IngesterCli implements Callable<Integer> {
                                         MERGE (c)-[:IMPLEMENTS]->(i)
                                         """,
                                         Map.of(
-                                            "child", fqn,
-                                            "iface", iface,
-                                            "project", project)))));
+                                            "child", fqn, "iface", iface, "project", project)))));
   }
 
   // ----------------------------------------------------------------
@@ -362,14 +474,22 @@ public final class IngesterCli implements Callable<Integer> {
         MERGE (owner)-[:DECLARES]->(m)
         """,
         Map.of(
-            "sig", signature,
-            "name", method.getNameAsString(),
-            "ret", method.getTypeAsString(),
-            "isStatic", method.isStatic(),
-            "start", method.getBegin().map(p -> p.line).orElse(0),
-            "end", method.getEnd().map(p -> p.line).orElse(0),
-            "owner", ownerFqn,
-            "project", project));
+            "sig",
+            signature,
+            "name",
+            method.getNameAsString(),
+            "ret",
+            method.getTypeAsString(),
+            "isStatic",
+            method.isStatic(),
+            "start",
+            method.getBegin().map(p -> p.line).orElse(0),
+            "end",
+            method.getEnd().map(p -> p.line).orElse(0),
+            "owner",
+            ownerFqn,
+            "project",
+            project));
 
     ingestCalls(session, signature, method);
   }
@@ -388,10 +508,7 @@ public final class IngesterCli implements Callable<Integer> {
                 MATCH (caller:Method {signature: $caller, project: $project})
                 MERGE (caller)-[:CALLS]->(callee)
                 """,
-                Map.of(
-                    "caller", callerSig,
-                    "callee", calleeSig,
-                    "project", project));
+                Map.of("caller", callerSig, "callee", calleeSig, "project", project));
           });
     }
   }
