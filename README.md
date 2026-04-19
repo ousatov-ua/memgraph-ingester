@@ -86,13 +86,13 @@ Run it from inside the repo you just ingested:
 
 ```bash
 # Point at the script in your local checkout
-/path/to/memgraph-ingester/src/main/script/init-memgraph-claude.sh my-project
+/path/to/memgraph-ingester/script/init-memgraph-claude.sh my-project
 ```
 
 Or fetch-and-run straight from GitHub:
 
 ```bash
-curl -s https://raw.githubusercontent.com/ousatov-ua/memgraph-ingester/main/src/main/script/init-memgraph-claude.sh \
+curl -s https://raw.githubusercontent.com/ousatov-ua/memgraph-ingester/script/init-memgraph-claude.sh \
   | bash -s -- my-project
 ```
 
