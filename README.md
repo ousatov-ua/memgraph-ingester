@@ -183,7 +183,15 @@ ORDER BY p.lastIngested DESC;
 
 - **`CALLS` is best-effort.** JavaParser can't always resolve callees (external libraries without classpath, complex generics, lambdas). Transitive call queries may miss edges — a missing edge does not prove the call doesn't happen.
 - **External types get tagged with your project.** When a class extends or implements something from outside your source tree (e.g. `RuntimeException`, Spring interfaces), the ingester creates a `:Class` or `:Interface` node for it and scopes it to your project. This keeps inheritance edges intact but means those nodes are placeholders without full metadata.
-- **Annotations and generated code are not indexed** in v1.0.0. Annotation processors, Lombok-generated members, and similar won't appear in the graph.
+- **Annotations and generated code are not indexed** in v1.0.0. Annotation processors, Lombok-generated members, and similar won't appear in the graph. To index them too, you just need to run the ingester again:
+
+```shell
+java -jar memgraph-ingester.jar \
+  --source target/generated-sources/annotations \
+  --bolt bolt://localhost:7687 \
+  --project work
+  # not --wipe here!!!!
+```
 
 ## Project layout
 
