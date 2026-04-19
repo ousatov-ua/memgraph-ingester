@@ -16,13 +16,6 @@ import com.github.javaparser.symbolsolver.JavaSymbolSolver;
 import com.github.javaparser.symbolsolver.resolution.typesolvers.CombinedTypeSolver;
 import com.github.javaparser.symbolsolver.resolution.typesolvers.JavaParserTypeSolver;
 import com.github.javaparser.symbolsolver.resolution.typesolvers.ReflectionTypeSolver;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-import java.util.concurrent.Callable;
-import java.util.stream.Stream;
 import org.neo4j.driver.AuthTokens;
 import org.neo4j.driver.Driver;
 import org.neo4j.driver.GraphDatabase;
@@ -32,6 +25,14 @@ import org.slf4j.LoggerFactory;
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
+
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.Callable;
+import java.util.stream.Stream;
 
 /**
  * Walks a Java source tree, parses each file with JavaParser, and writes
@@ -43,8 +44,6 @@ import picocli.CommandLine.Option;
  *        --bolt   bolt://memgraph.example:7687 \
  *        --user   memgraph \
  *        --pass   secret
- *
- * @author Oleksii Usatov
  */
 @Command(name = "ingest", mixinStandardHelpOptions = true, version = "1.0")
 public final class IngesterCli implements Callable<Integer> {
@@ -65,59 +64,18 @@ public final class IngesterCli implements Callable<Integer> {
     @Option(names = {"-p", "--pass"}, defaultValue = "")
     private String pass;
 
-    @Option(names = "--wipe", description = "Delete all nodes before ingesting")
+    @Option(names = {"-P", "--project"}, required = true,
+        description = "Logical project name; namespaces all nodes so multiple "
+            + "projects can share one Memgraph instance")
+    private String project;
+
+    @Option(names = "--wipe",
+        description = "Delete all nodes belonging to this project before ingesting")
     private boolean wipe;
 
     public static void main(String[] args) {
         int exit = new CommandLine(new IngesterCli()).execute(args);
         System.exit(exit);
-    }
-
-    /** Enables JavaParser to resolve types across the project and parse modern Java. */
-    private static void configureSymbolSolver(Path sourceRoot) {
-        CombinedTypeSolver solver = new CombinedTypeSolver();
-        solver.add(new ReflectionTypeSolver());
-        solver.add(new JavaParserTypeSolver(sourceRoot));
-
-        ParserConfiguration config = StaticJavaParser.getParserConfiguration();
-        config.setSymbolResolver(new JavaSymbolSolver(solver));
-        config.setLanguageLevel(LanguageLevel.JAVA_25);
-    }
-
-    /**
-     * Resolves a class/interface reference to its fully-qualified name.
-     * Returns empty when the type cannot be resolved (e.g. generics,
-     * missing classpath entries).
-     */
-    private static Optional<String> resolveQualifiedName(ClassOrInterfaceType type) {
-        try {
-            ResolvedReferenceType resolved = type.resolve().asReferenceType();
-            return resolved.getTypeDeclaration().map(td -> td.getQualifiedName());
-        } catch (RuntimeException e) {
-            return Optional.empty();
-        }
-    }
-
-    // ----------------------------------------------------------------
-    // File-level ingestion
-    // ----------------------------------------------------------------
-
-    private static String buildSignature(String ownerFqn, MethodDeclaration m) {        String params = m.getParameters().stream()
-        .map(p -> p.getType().asString())
-        .reduce((a, b) -> a + "," + b)
-        .orElse("");
-        return ownerFqn + "." + m.getNameAsString() + "(" + params + ")";
-    }
-
-    /** Swallows symbol-resolution failures — not every callee can be resolved. */
-    private static void tryRun(Runnable action) {
-        try {
-            action.run();
-        } catch (UnsolvedSymbolException | UnsupportedOperationException e) {
-            // External libs or generics we can't resolve — skip silently.
-        } catch (RuntimeException e) {
-            log.debug("Skipping due to: {}", e.getMessage());
-        }
     }
 
     @Override
@@ -141,25 +99,43 @@ public final class IngesterCli implements Callable<Integer> {
         return 0;
     }
 
+    /** Enables JavaParser to resolve types across the project and parse modern Java. */
+    private static void configureSymbolSolver(Path sourceRoot) {
+        CombinedTypeSolver solver = new CombinedTypeSolver();
+        solver.add(new ReflectionTypeSolver());
+        solver.add(new JavaParserTypeSolver(sourceRoot));
+
+        ParserConfiguration config = StaticJavaParser.getParserConfiguration();
+        config.setSymbolResolver(new JavaSymbolSolver(solver));
+        config.setLanguageLevel(LanguageLevel.JAVA_25);
+    }
+
     // ----------------------------------------------------------------
-    // Members
+    // File-level ingestion
     // ----------------------------------------------------------------
 
     private void ingestFile(Session session, Path file) {
+        CompilationUnit cu;
         try {
-            CompilationUnit cu = StaticJavaParser.parse(file);
-            String pkg = cu.getPackageDeclaration()
-                .map(pd -> pd.getName().asString())
-                .orElse("");
+            cu = StaticJavaParser.parse(file);
+        } catch (Exception e) {
+            log.warn("Failed to parse {}: {}", file, e.getMessage());
+            return;
+        }
 
+        String pkg = cu.getPackageDeclaration()
+            .map(pd -> pd.getName().asString())
+            .orElse("");
+
+        try {
+            log.debug("Ingesting {} (project={})", file, project);
             upsertFile(session, file);
             upsertPackage(session, pkg);
 
             cu.findAll(ClassOrInterfaceDeclaration.class)
                 .forEach(decl -> ingestType(session, file, pkg, decl));
-
         } catch (Exception e) {
-            log.warn("Failed to parse {}: {}", file, e.getMessage());
+            log.warn("Failed to ingest {}: {}", file, e.getMessage());
         }
     }
 
@@ -215,26 +191,27 @@ public final class IngesterCli implements Callable<Integer> {
     }
 
     // ----------------------------------------------------------------
-    // Helpers
+    // Members
     // ----------------------------------------------------------------
 
     private void ingestField(Session session, String ownerFqn, FieldDeclaration field) {
         field.getVariables().forEach(v -> {
             String fqn = ownerFqn + "#" + v.getNameAsString();
             session.run("""
-                MERGE (f:Field {fqn: $fqn})
+                MERGE (f:Field {fqn: $fqn, project: $project})
                   SET f.name = $name,
                       f.type = $type,
                       f.isStatic = $isStatic
                 WITH f
-                MATCH (owner {fqn: $owner})
+                MATCH (owner {fqn: $owner, project: $project})
                 MERGE (owner)-[:DECLARES]->(f)
                 """,
                 Map.of("fqn", fqn,
                     "name", v.getNameAsString(),
                     "type", v.getTypeAsString(),
                     "isStatic", field.isStatic(),
-                    "owner", ownerFqn));
+                    "owner", ownerFqn,
+                    "project", project));
         });
     }
 
@@ -242,14 +219,14 @@ public final class IngesterCli implements Callable<Integer> {
         String signature = buildSignature(ownerFqn, method);
 
         session.run("""
-            MERGE (m:Method {signature: $sig})
+            MERGE (m:Method {signature: $sig, project: $project})
               SET m.name = $name,
                   m.returnType = $ret,
                   m.isStatic = $isStatic,
                   m.startLine = $start,
                   m.endLine = $end
             WITH m
-            MATCH (owner {fqn: $owner})
+            MATCH (owner {fqn: $owner, project: $project})
             MERGE (owner)-[:DECLARES]->(m)
             """,
             Map.of("sig", signature,
@@ -258,7 +235,8 @@ public final class IngesterCli implements Callable<Integer> {
                 "isStatic", method.isStatic(),
                 "start", method.getBegin().map(p -> p.line).orElse(0),
                 "end", method.getEnd().map(p -> p.line).orElse(0),
-                "owner", ownerFqn));
+                "owner", ownerFqn,
+                "project", project));
 
         ingestCalls(session, signature, method);
     }
@@ -280,11 +258,47 @@ public final class IngesterCli implements Callable<Integer> {
         }
     }
 
+    // ----------------------------------------------------------------
+    // Helpers
+    // ----------------------------------------------------------------
+
+    /**
+     * Resolves a class/interface reference to its fully-qualified name.
+     * Returns empty when the type cannot be resolved (e.g. generics,
+     * missing classpath entries).
+     */
+    private static Optional<String> resolveQualifiedName(ClassOrInterfaceType type) {
+        try {
+            ResolvedReferenceType resolved = type.resolve().asReferenceType();
+            return resolved.getTypeDeclaration().map(td -> td.getQualifiedName());
+        } catch (RuntimeException e) {
+            return Optional.empty();
+        }
+    }
+
+    private static String buildSignature(String ownerFqn, MethodDeclaration m) {        String params = m.getParameters().stream()
+        .map(p -> p.getType().asString())
+        .reduce((a, b) -> a + "," + b)
+        .orElse("");
+        return ownerFqn + "." + m.getNameAsString() + "(" + params + ")";
+    }
+
     private void upsertFile(Session session, Path file) {
         session.run("MERGE (f:File {path: $path})", Map.of("path", file.toString()));
     }
 
     private void upsertPackage(Session session, String pkg) {
         session.run("MERGE (p:Package {name: $name})", Map.of("name", pkg));
+    }
+
+    /** Swallows symbol-resolution failures — not every callee can be resolved. */
+    private static void tryRun(Runnable action) {
+        try {
+            action.run();
+        } catch (UnsolvedSymbolException | UnsupportedOperationException e) {
+            // External libs or generics we can't resolve — skip silently.
+        } catch (RuntimeException e) {
+            log.debug("Skipping due to: {}", e.getMessage());
+        }
     }
 }
