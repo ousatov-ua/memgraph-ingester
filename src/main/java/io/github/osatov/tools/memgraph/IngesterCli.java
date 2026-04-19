@@ -1,4 +1,4 @@
-package com.olus.tools.memgraph;
+package io.github.osatov.tools.memgraph;
 
 import com.github.javaparser.ParserConfiguration;
 import com.github.javaparser.ParserConfiguration.LanguageLevel;
