@@ -137,7 +137,7 @@ Run it from inside the repo you just ingested:
 Or fetch-and-run straight from GitHub:
 
 ```bash
-curl -s https://raw.githubusercontent.com/ousatov-ua/memgraph-ingester/refs/heads/main/scripts/init-memgraph-claude.sh \
+curl -s https://raw.githubusercontent.com/ousatov-ua/memgraph-ingester/refs/heads/main/script/init-memgraph-claude.sh \
   | bash -s -- my-project
 ```
 
