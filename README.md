@@ -131,7 +131,7 @@ Run it from inside the repo you just ingested:
 
 ```bash
 # Point at the script in your local checkout
-/path/to/memgraph-ingester/scripts/init-memgraph-claude.sh my-project
+/path/to/memgraph-ingester/script/init-memgraph-claude.sh my-project
 ```
 
 Or fetch-and-run straight from GitHub:
