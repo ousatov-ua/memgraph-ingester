@@ -80,7 +80,7 @@ This repo ships a `CLAUDE-memgraph-template.md` designed to be dropped into any 
 
 ### Per-repo setup
 
-Use the bundled `init-memgraph-claude.sh` script, which fetches the template, substitutes the project name, and appends the result to the local `CLAUDE.md`. The script lives at `src/main/script/init-memgraph-claude.sh` in this repo.
+Use the bundled `init-memgraph-claude.sh` script, which fetches the template, substitutes the project name, and appends the result to the local `CLAUDE.md`. The script lives at `script/init-memgraph-claude.sh` in this repo.
 
 Run it from inside the repo you just ingested:
 
