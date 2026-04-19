@@ -13,11 +13,6 @@
 
 This repo is indexed in Memgraph under the project name **`{{PROJECT_NAME}}`**.
 
-**If `{{PROJECT_NAME}}` still contains the literal placeholder text**
-(`{{PROJECT_NAME}}`), ask the user which project name to use before
-running any Cypher queries. Then use that value consistently for the
-rest of the session in place of every occurrence below.
-
 For questions about code structure, dependencies, call graphs, inheritance,
 or any cross-file relationship, **query the graph via the Memgraph MCP
 server first**. It's faster than filesystem search and resolves symbols
