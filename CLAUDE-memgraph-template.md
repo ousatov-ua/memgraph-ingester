@@ -1,15 +1,5 @@
+
 ## Code knowledge graph (Memgraph MCP)
-
-<!--
-  TEMPLATE: replace {{PROJECT_NAME}} with the actual Memgraph project name
-  used at ingestion time, e.g. `work`, `olus-platform`.
-
-  Quick replace:
-      sed -i '' 's/{{PROJECT_NAME}}/work/g' CLAUDE.md
-
-  If you leave the placeholder unreplaced, Claude will ask for the name
-  on the first turn and use it for the rest of the session.
--->
 
 This repo is indexed in Memgraph under the project name **`{{PROJECT_NAME}}`**.
 
