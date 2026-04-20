@@ -13,6 +13,8 @@ import com.github.javaparser.resolution.UnsolvedSymbolException;
 import com.github.javaparser.resolution.declarations.ResolvedMethodDeclaration;
 import com.github.javaparser.resolution.declarations.ResolvedTypeDeclaration;
 import com.github.javaparser.resolution.types.ResolvedReferenceType;
+import io.github.ousatov.tools.memgraph.def.Const.Cypher;
+import io.github.ousatov.tools.memgraph.def.Const.Labels;
 import io.github.ousatov.tools.memgraph.exception.ProcessingException;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -41,118 +43,6 @@ public final class GraphWriter {
   private static final int MAX_RETRY_ATTEMPTS = 8;
   private static final long INITIAL_BACKOFF_MS = 10L;
   private static final long MAX_BACKOFF_MS = 500L;
-
-  private static final String CYPHER_WIPE_NODES =
-      "MATCH (n) WHERE n.project = $project DETACH DELETE n";
-  private static final String CYPHER_WIPE_PROJECT =
-      "MATCH (p:Project {name: $project}) DETACH DELETE p";
-  private static final String CYPHER_UPSERT_PROJECT =
-      """
-      MERGE (proj:Project {name: $project})
-        SET proj.sourceRoots  = CASE
-              WHEN $sourceRoot IN coalesce(proj.sourceRoots, [])
-              THEN coalesce(proj.sourceRoots, [])
-              ELSE coalesce(proj.sourceRoots, []) + $sourceRoot
-            END,
-            proj.lastIngested = timestamp()
-      """;
-  private static final String CYPHER_UPSERT_FILE =
-      """
-      MERGE (f:File {path: $path, project: $project})
-        SET f.lastModified = $lastModified
-      WITH f
-      MATCH (proj:Project {name: $project})
-      MERGE (proj)-[:CONTAINS]->(f)
-      """;
-  private static final String CYPHER_UPSERT_PACKAGE =
-      """
-      MERGE (p:Package {name: $name, project: $project})
-      WITH p
-      MATCH (proj:Project {name: $project})
-      MERGE (proj)-[:CONTAINS]->(p)
-      """;
-
-  /**
-   * Template for class/interface upsert — {@code %s} is replaced with {@code Class} or {@code
-   * Interface} at call time.
-   */
-  private static final String CYPHER_UPSERT_TYPE_TEMPLATE =
-      """
-      MERGE (t:%s {fqn: $fqn, project: $project})
-        SET t.name = $name,
-            t.packageName = $pkg,
-            t.isAbstract = $isAbstract,
-            t.visibility = $visibility,
-            t.isEnum = $isEnum,
-            t.isRecord = $isRecord
-      WITH t
-      MATCH (p:Package {name: $pkg, project: $project})
-      MERGE (p)-[:CONTAINS]->(t)
-      WITH t
-      MATCH (f:File {path: $path, project: $project})
-      MERGE (f)-[:DEFINES]->(t)
-      """;
-
-  private static final String CYPHER_UPSERT_EXTENDS =
-      """
-      MERGE (parent:Class {fqn: $parent, project: $project})
-      WITH parent
-      MATCH (child {fqn: $child, project: $project})
-      MERGE (child)-[:EXTENDS]->(parent)
-      """;
-
-  /** Used when an interface extends another interface — parent must be {@code :Interface}. */
-  private static final String CYPHER_UPSERT_INTERFACE_EXTENDS =
-      """
-      MERGE (parent:Interface {fqn: $parent, project: $project})
-      WITH parent
-      MATCH (child {fqn: $child, project: $project})
-      MERGE (child)-[:EXTENDS]->(parent)
-      """;
-
-  private static final String CYPHER_UPSERT_IMPLEMENTS =
-      """
-      MERGE (i:Interface {fqn: $iface, project: $project})
-      WITH i
-      MATCH (c:Class {fqn: $child, project: $project})
-      MERGE (c)-[:IMPLEMENTS]->(i)
-      """;
-  private static final String CYPHER_UPSERT_FIELD =
-      """
-      MERGE (f:Field {fqn: $fqn, project: $project})
-        SET f.name = $name,
-            f.type = $type,
-            f.isStatic = $isStatic,
-            f.visibility = $visibility
-      WITH f
-      MATCH (owner {fqn: $owner, project: $project})
-      MERGE (owner)-[:DECLARES]->(f)
-      """;
-  private static final String CYPHER_UPSERT_METHOD =
-      """
-      MERGE (m:Method {signature: $sig, project: $project})
-        SET m.name = $name,
-            m.returnType = $ret,
-            m.isStatic = $isStatic,
-            m.visibility = $visibility,
-            m.startLine = $start,
-            m.endLine = $end
-      WITH m
-      MATCH (owner {fqn: $owner, project: $project})
-      MERGE (owner)-[:DECLARES]->(m)
-      """;
-
-  /**
-   * Callee is matched (not merged) so external library methods are never created as project-scoped
-   * phantom nodes. Cross-file in-project calls missed on the first pass are filled in by a
-   * subsequent wipe-less re-ingestion.
-   */
-  private static final String CYPHER_UPSERT_CALL =
-      """
-      MATCH (caller:Method {signature: $caller, project: $project})
-      MATCH (callee:Method {signature: $callee, project: $project})
-      MERGE (caller)-[:CALLS]->(callee)
-      """;
 
   private final Session session;
   private final String project;
@@ -216,14 +106,14 @@ public final class GraphWriter {
       // "com.example.Widget(java.lang.String, int)" → extract params
       int parenIdx = resolved.indexOf('(');
       String params = resolved.substring(parenIdx + 1, resolved.length() - 1);
-      return ownerFqn + ".<init>(" + params + ")";
+      return ownerFqn + "." + Labels.INIT + "(" + params + ")";
     } catch (UnsolvedSymbolException | UnsupportedOperationException | IllegalStateException _) {
       String params =
           ctor.getParameters().stream()
               .map(p -> p.getType().asString())
               .reduce((a, b) -> a + ", " + b)
               .orElse("");
-      return ownerFqn + ".<init>(" + params + ")";
+      return ownerFqn + "." + Labels.INIT + "(" + params + ")";
     }
   }
 
@@ -238,13 +128,13 @@ public final class GraphWriter {
 
   /** Deletes all project-scoped nodes, then deletes the {@code :Project} anchor. */
   public void wipe() {
-    runWithRetry(CYPHER_WIPE_NODES, Map.of());
-    runWithRetry(CYPHER_WIPE_PROJECT, Map.of());
+    runWithRetry(Cypher.CYPHER_WIPE_NODES, Map.of());
+    runWithRetry(Cypher.CYPHER_WIPE_PROJECT, Map.of());
   }
 
   /** Creates or refreshes the {@code :Project} anchor node. */
   public void upsertProject(Path sourceRoot) {
-    runWithRetry(CYPHER_UPSERT_PROJECT, Map.of("sourceRoot", sourceRoot.toString()));
+    runWithRetry(Cypher.CYPHER_UPSERT_PROJECT, Map.of("sourceRoot", sourceRoot.toString()));
   }
 
   /** Upserts a {@code :File} node and links it to the project anchor. */
@@ -255,12 +145,14 @@ public final class GraphWriter {
     } catch (IOException _) {
       lastModified = -1L;
     }
-    runWithRetry(CYPHER_UPSERT_FILE, Map.of("path", file.toString(), "lastModified", lastModified));
+    runWithRetry(
+        Cypher.CYPHER_UPSERT_FILE,
+        Map.of(Labels.PATH, file.toString(), "lastModified", lastModified));
   }
 
   /** Upserts a {@code :Package} node and links it to the project anchor. */
   public void upsertPackage(String pkg) {
-    runWithRetry(CYPHER_UPSERT_PACKAGE, Map.of("name", pkg));
+    runWithRetry(Cypher.CYPHER_UPSERT_PACKAGE, Map.of(Labels.NAME, pkg));
   }
 
   /**
@@ -278,23 +170,23 @@ public final class GraphWriter {
   public void upsertEnum(Path file, String pkg, EnumDeclaration decl) {
     String fqn = pkg.isEmpty() ? decl.getNameAsString() : pkg + "." + decl.getNameAsString();
     runWithRetry(
-        CYPHER_UPSERT_TYPE_TEMPLATE.formatted("Class"),
+        Cypher.CYPHER_UPSERT_TYPE_TEMPLATE.formatted(Labels.CLASS),
         Map.of(
-            "fqn",
+            Labels.FQN,
             fqn,
-            "name",
+            Labels.NAME,
             decl.getNameAsString(),
-            "pkg",
+            Labels.PKG,
             pkg,
-            "path",
+            Labels.PATH,
             file.toString(),
-            "isAbstract",
+            Labels.IS_ABSTRACT,
             false,
-            "visibility",
+            Labels.VISIBILITY,
             decl.getAccessSpecifier().asString(),
-            "isEnum",
+            Labels.IS_ENUM,
             true,
-            "isRecord",
+            Labels.IS_RECORD,
             false));
     decl.getMethods().forEach(m -> upsertMethod(fqn, m));
     decl.getConstructors().forEach(c -> upsertConstructor(fqn, c));
@@ -307,23 +199,23 @@ public final class GraphWriter {
   public void upsertRecord(Path file, String pkg, RecordDeclaration decl) {
     String fqn = pkg.isEmpty() ? decl.getNameAsString() : pkg + "." + decl.getNameAsString();
     runWithRetry(
-        CYPHER_UPSERT_TYPE_TEMPLATE.formatted("Class"),
+        Cypher.CYPHER_UPSERT_TYPE_TEMPLATE.formatted(Labels.CLASS),
         Map.of(
-            "fqn",
+            Labels.FQN,
             fqn,
-            "name",
+            Labels.NAME,
             decl.getNameAsString(),
-            "pkg",
+            Labels.PKG,
             pkg,
-            "path",
+            Labels.PATH,
             file.toString(),
-            "isAbstract",
+            Labels.IS_ABSTRACT,
             false,
-            "visibility",
+            Labels.VISIBILITY,
             decl.getAccessSpecifier().asString(),
-            "isEnum",
+            Labels.IS_ENUM,
             false,
-            "isRecord",
+            Labels.IS_RECORD,
             true));
     decl.getMethods().forEach(m -> upsertMethod(fqn, m));
     decl.getConstructors().forEach(c -> upsertConstructor(fqn, c));
@@ -335,25 +227,25 @@ public final class GraphWriter {
         outerFqn != null
             ? outerFqn + "$" + decl.getNameAsString()
             : (pkg.isEmpty() ? decl.getNameAsString() : pkg + "." + decl.getNameAsString());
-    String label = decl.isInterface() ? "Interface" : "Class";
+    String label = decl.isInterface() ? Labels.INTERFACE : Labels.CLASS;
     runWithRetry(
-        CYPHER_UPSERT_TYPE_TEMPLATE.formatted(label),
+        Cypher.CYPHER_UPSERT_TYPE_TEMPLATE.formatted(label),
         Map.of(
-            "fqn",
+            Labels.FQN,
             fqn,
-            "name",
+            Labels.NAME,
             decl.getNameAsString(),
-            "pkg",
+            Labels.PKG,
             pkg,
-            "path",
+            Labels.PATH,
             file.toString(),
-            "isAbstract",
+            Labels.IS_ABSTRACT,
             decl.isAbstract(),
-            "visibility",
+            Labels.VISIBILITY,
             decl.getAccessSpecifier().asString(),
-            "isEnum",
+            Labels.IS_ENUM,
             false,
-            "isRecord",
+            Labels.IS_RECORD,
             false));
     upsertInheritance(fqn, decl);
     decl.getFields().forEach(f -> upsertField(fqn, f));
@@ -368,13 +260,15 @@ public final class GraphWriter {
 
   private void upsertInheritance(String fqn, ClassOrInterfaceDeclaration decl) {
     String extendsCypher =
-        decl.isInterface() ? CYPHER_UPSERT_INTERFACE_EXTENDS : CYPHER_UPSERT_EXTENDS;
+        decl.isInterface() ? Cypher.CYPHER_UPSERT_INTERFACE_EXTENDS : Cypher.CYPHER_UPSERT_EXTENDS;
     decl.getExtendedTypes()
         .forEach(
             ext ->
                 withResolvedType(
                     ext,
-                    parent -> runWithRetry(extendsCypher, Map.of("child", fqn, "parent", parent))));
+                    parent ->
+                        runWithRetry(
+                            extendsCypher, Map.of(Labels.CHILD, fqn, Labels.PARENT, parent))));
     decl.getImplementedTypes()
         .forEach(
             impl ->
@@ -382,7 +276,8 @@ public final class GraphWriter {
                     impl,
                     iface ->
                         runWithRetry(
-                            CYPHER_UPSERT_IMPLEMENTS, Map.of("child", fqn, "iface", iface))));
+                            Cypher.CYPHER_UPSERT_IMPLEMENTS,
+                            Map.of(Labels.CHILD, fqn, Labels.IFACE, iface))));
   }
 
   private void upsertField(String ownerFqn, FieldDeclaration field) {
@@ -392,53 +287,59 @@ public final class GraphWriter {
             v -> {
               String fqn = ownerFqn + "#" + v.getNameAsString();
               runWithRetry(
-                  CYPHER_UPSERT_FIELD,
+                  Cypher.CYPHER_UPSERT_FIELD,
                   Map.of(
-                      "fqn", fqn,
-                      "name", v.getNameAsString(),
-                      "type", v.getTypeAsString(),
-                      "isStatic", field.isStatic(),
-                      "visibility", field.getAccessSpecifier().asString(),
-                      "owner", ownerFqn));
+                      Labels.FQN,
+                      fqn,
+                      Labels.NAME,
+                      v.getNameAsString(),
+                      "type",
+                      v.getTypeAsString(),
+                      Labels.IS_STATIC,
+                      field.isStatic(),
+                      Labels.VISIBILITY,
+                      field.getAccessSpecifier().asString(),
+                      Labels.OWNER,
+                      ownerFqn));
             });
   }
 
   private void upsertMethod(String ownerFqn, MethodDeclaration method) {
     String signature = buildSignature(ownerFqn, method);
     runWithRetry(
-        CYPHER_UPSERT_METHOD,
+        Cypher.CYPHER_UPSERT_METHOD,
         Map.of(
-            "sig", signature,
-            "name", method.getNameAsString(),
-            "ret", method.getTypeAsString(),
-            "isStatic", method.isStatic(),
-            "visibility", method.getAccessSpecifier().asString(),
-            "start", method.getBegin().map(p -> p.line).orElse(0),
-            "end", method.getEnd().map(p -> p.line).orElse(0),
-            "owner", ownerFqn));
+            Labels.SIG, signature,
+            Labels.NAME, method.getNameAsString(),
+            Labels.RET, method.getTypeAsString(),
+            Labels.IS_STATIC, method.isStatic(),
+            Labels.VISIBILITY, method.getAccessSpecifier().asString(),
+            Labels.START, method.getBegin().map(p -> p.line).orElse(0),
+            Labels.END, method.getEnd().map(p -> p.line).orElse(0),
+            Labels.OWNER, ownerFqn));
     upsertCallEdges(signature, method);
   }
 
   private void upsertConstructor(String ownerFqn, ConstructorDeclaration ctor) {
     String signature = buildConstructorSignature(ownerFqn, ctor);
     runWithRetry(
-        CYPHER_UPSERT_METHOD,
+        Cypher.CYPHER_UPSERT_METHOD,
         Map.of(
-            "sig",
+            Labels.SIG,
             signature,
-            "name",
-            "<init>",
-            "ret",
-            "void",
-            "isStatic",
+            Labels.NAME,
+            Labels.INIT,
+            Labels.RET,
+            Labels.VOID,
+            Labels.IS_STATIC,
             false,
-            "visibility",
+            Labels.VISIBILITY,
             ctor.getAccessSpecifier().asString(),
-            "start",
+            Labels.START,
             ctor.getBegin().map(p -> p.line).orElse(0),
-            "end",
+            Labels.END,
             ctor.getEnd().map(p -> p.line).orElse(0),
-            "owner",
+            Labels.OWNER,
             ownerFqn));
     upsertCallEdges(signature, ctor);
   }
@@ -458,7 +359,8 @@ public final class GraphWriter {
                       ResolvedMethodDeclaration resolved = call.resolve();
                       String calleeSig = resolved.getQualifiedSignature();
                       runWithRetry(
-                          CYPHER_UPSERT_CALL, Map.of("caller", callerSig, "callee", calleeSig));
+                          Cypher.CYPHER_UPSERT_CALL,
+                          Map.of(Labels.CALLER, callerSig, Labels.CALLEE, calleeSig));
                     }));
   }
 
