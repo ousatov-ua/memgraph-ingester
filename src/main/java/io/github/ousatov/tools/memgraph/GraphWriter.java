@@ -1,6 +1,7 @@
 package io.github.ousatov.tools.memgraph;
 
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
+import com.github.javaparser.ast.body.ConstructorDeclaration;
 import com.github.javaparser.ast.body.FieldDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.expr.MethodCallExpr;
@@ -225,6 +226,7 @@ public final class GraphWriter {
     upsertInheritance(fqn, decl);
     decl.getFields().forEach(f -> upsertField(fqn, f));
     decl.getMethods().forEach(m -> upsertMethod(fqn, m));
+    decl.getConstructors().forEach(c -> upsertConstructor(fqn, c));
   }
 
   private void upsertInheritance(String fqn, ClassOrInterfaceDeclaration decl) {
@@ -292,6 +294,49 @@ public final class GraphWriter {
 
   private void upsertCalls(String callerSig, MethodDeclaration method) {
     List<MethodCallExpr> calls = method.findAll(MethodCallExpr.class);
+    for (MethodCallExpr call : calls) {
+      tryRun(
+          () -> {
+            ResolvedMethodDeclaration resolved = call.resolve();
+            String calleeSig = resolved.getQualifiedSignature();
+            runWithRetry(CYPHER_UPSERT_CALL, Map.of("caller", callerSig, "callee", calleeSig));
+          });
+    }
+  }
+
+  private static String buildConstructorSignature(String ownerFqn, ConstructorDeclaration ctor) {
+    String params =
+        ctor.getParameters().stream()
+            .map(p -> p.getType().asString())
+            .reduce((a, b) -> a + "," + b)
+            .orElse("");
+    return ownerFqn + ".<init>(" + params + ")";
+  }
+
+  private void upsertConstructor(String ownerFqn, ConstructorDeclaration ctor) {
+    String signature = buildConstructorSignature(ownerFqn, ctor);
+    runWithRetry(
+        CYPHER_UPSERT_METHOD,
+        Map.of(
+            "sig",
+            signature,
+            "name",
+            "<init>",
+            "ret",
+            "void",
+            "isStatic",
+            false,
+            "start",
+            ctor.getBegin().map(p -> p.line).orElse(0),
+            "end",
+            ctor.getEnd().map(p -> p.line).orElse(0),
+            "owner",
+            ownerFqn));
+    upsertConstructorCalls(signature, ctor);
+  }
+
+  private void upsertConstructorCalls(String callerSig, ConstructorDeclaration ctor) {
+    List<MethodCallExpr> calls = ctor.findAll(MethodCallExpr.class);
     for (MethodCallExpr call : calls) {
       tryRun(
           () -> {

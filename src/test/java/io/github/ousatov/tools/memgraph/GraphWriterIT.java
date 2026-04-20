@@ -314,6 +314,82 @@ class GraphWriterIT {
   }
 
   @Test
+  void upsertTypeCreatesConstructorNode() {
+    writer.upsertFile(TEST_FILE);
+    writer.upsertPackage(PKG);
+    ClassOrInterfaceDeclaration decl =
+        parseDecl(
+            "package com.example;" + " public class Widget {" + "   public Widget() {}" + " }");
+
+    writer.upsertType(TEST_FILE, PKG, decl);
+
+    long count =
+        session
+            .run(
+                "MATCH (:Class {fqn: $fqn, project: $p})-[:DECLARES]->(m:Method {name: '<init>'})"
+                    + " RETURN count(m) AS n",
+                Map.of("fqn", "com.example.Widget", "p", PROJECT))
+            .single()
+            .get("n")
+            .asLong();
+
+    assertEquals(1, count);
+  }
+
+  @Test
+  void upsertTypeCreatesMultipleConstructors() {
+    writer.upsertFile(TEST_FILE);
+    writer.upsertPackage(PKG);
+    ClassOrInterfaceDeclaration decl =
+        parseDecl(
+            "package com.example;"
+                + " public class Widget {"
+                + "   public Widget() {}"
+                + "   public Widget(String name) {}"
+                + " }");
+
+    writer.upsertType(TEST_FILE, PKG, decl);
+
+    long count =
+        session
+            .run(
+                "MATCH (:Class {fqn: $fqn, project: $p})-[:DECLARES]->(m:Method {name: '<init>'})"
+                    + " RETURN count(m) AS n",
+                Map.of("fqn", "com.example.Widget", "p", PROJECT))
+            .single()
+            .get("n")
+            .asLong();
+
+    assertEquals(2, count);
+  }
+
+  @Test
+  void upsertTypeConstructorSignatureIncludesParams() {
+    writer.upsertFile(TEST_FILE);
+    writer.upsertPackage(PKG);
+    ClassOrInterfaceDeclaration decl =
+        parseDecl(
+            "package com.example;"
+                + " public class Widget {"
+                + "   public Widget(String name, int count) {}"
+                + " }");
+
+    writer.upsertType(TEST_FILE, PKG, decl);
+
+    String sig =
+        session
+            .run(
+                "MATCH (:Class {fqn: $fqn, project: $p})-[:DECLARES]->(m:Method {name: '<init>'})"
+                    + " RETURN m.signature AS s",
+                Map.of("fqn", "com.example.Widget", "p", PROJECT))
+            .single()
+            .get("s")
+            .asString();
+
+    assertEquals("com.example.Widget.<init>(String,int)", sig);
+  }
+
+  @Test
   void wipeDeletesAllProjectScopedNodes() {
     writer.upsertFile(TEST_FILE);
     writer.upsertPackage(PKG);
