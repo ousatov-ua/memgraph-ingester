@@ -155,10 +155,9 @@ public final class GraphWriter {
     try {
       ResolvedReferenceType resolved = type.resolve().asReferenceType();
       return resolved.getTypeDeclaration().map(ResolvedTypeDeclaration::getQualifiedName);
-    } catch (UnsolvedSymbolException | UnsupportedOperationException e) {
+    } catch (UnsolvedSymbolException | UnsupportedOperationException _) {
       return Optional.empty();
     } catch (RuntimeException e) {
-      log.warn("Unexpected resolution failure for {}: {}", type, e.getMessage());
       throw new ProcessingException("Unexpected resolution failure", e);
     }
   }
@@ -176,7 +175,7 @@ public final class GraphWriter {
   private static void tryRun(Runnable action) {
     try {
       action.run();
-    } catch (UnsolvedSymbolException | UnsupportedOperationException ignored) {
+    } catch (UnsolvedSymbolException | UnsupportedOperationException _) {
       // External libs or generics we can't resolve — skip silently.
     }
   }
