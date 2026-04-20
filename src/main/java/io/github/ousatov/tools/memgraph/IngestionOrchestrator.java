@@ -1,0 +1,184 @@
+package io.github.ousatov.tools.memgraph;
+
+import com.github.javaparser.ast.CompilationUnit;
+import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Stream;
+import org.neo4j.driver.Driver;
+import org.neo4j.driver.Session;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+/**
+ * Walks the source tree and dispatches files to {@link ParseService} and {@link GraphWriter}.
+ *
+ * <p>Tracks parse and ingest failures independently and returns the total count so {@link
+ * IngesterCli} can return a non-zero exit code when any file fails.
+ *
+ * @author Oleksii Usatov
+ */
+public final class IngestionOrchestrator {
+
+  private static final Logger log = LoggerFactory.getLogger(IngestionOrchestrator.class);
+
+  private static final long SHUTDOWN_TIMEOUT_MINUTES = 10L;
+  private static final int PROGRESS_DIVISOR = 20;
+
+  private final Path sourceRoot;
+  private final String project;
+  private final int threads;
+  private final Driver driver;
+  private final ParseService parseService;
+
+  /**
+   * @param sourceRoot root directory to walk for {@code .java} files
+   * @param project project name used to scope all graph writes
+   * @param threads number of parallel worker threads (1 = sequential)
+   * @param driver shared Bolt driver — not closed by this orchestrator
+   * @param parseService per-thread parser service
+   */
+  public IngestionOrchestrator(
+      Path sourceRoot, String project, int threads, Driver driver, ParseService parseService) {
+    this.sourceRoot = sourceRoot;
+    this.project = project;
+    this.threads = threads;
+    this.driver = driver;
+    this.parseService = parseService;
+  }
+
+  /**
+   * Runs the full ingestion and returns the number of files that failed.
+   *
+   * @param wipe if true, deletes all project nodes before ingesting
+   * @return number of failed files; 0 means complete success
+   * @throws Exception if file walking or thread management fails
+   */
+  public int run(boolean wipe) throws Exception {
+    try (Session bootstrap = driver.session()) {
+      GraphWriter bootstrapWriter = new GraphWriter(bootstrap, project);
+      if (wipe) {
+        log.info("Wiping existing graph for project '{}'...", project);
+        bootstrapWriter.wipe();
+      }
+      bootstrapWriter.upsertProject(sourceRoot);
+      log.info("Upserted :Project anchor for '{}'", project);
+    }
+
+    List<Path> files;
+    try (Stream<Path> walk = Files.walk(sourceRoot)) {
+      files = walk.filter(p -> p.toString().endsWith(".java")).toList();
+    }
+    log.info("Found {} Java files. Ingesting with {} thread(s).", files.size(), threads);
+
+    return threads == 1 ? ingestSequential(files) : ingestParallel(files);
+  }
+
+  private int ingestSequential(List<Path> files) {
+    int failures = 0;
+    try (Session session = driver.session()) {
+      GraphWriter writer = new GraphWriter(session, project);
+      for (Path file : files) {
+        if (!ingestFile(writer, file)) {
+          failures++;
+        }
+      }
+    }
+    return failures;
+  }
+
+  private int ingestParallel(List<Path> files) throws InterruptedException {
+    CopyOnWriteArrayList<Session> sessions = new CopyOnWriteArrayList<>();
+    ThreadLocal<GraphWriter> threadWriter =
+        ThreadLocal.withInitial(
+            () -> {
+              Session s = driver.session();
+              sessions.add(s);
+              return new GraphWriter(s, project);
+            });
+
+    AtomicInteger threadCounter = new AtomicInteger();
+    ExecutorService pool =
+        Executors.newFixedThreadPool(
+            threads,
+            r -> {
+              Thread t = new Thread(r, "ingester-" + threadCounter.incrementAndGet());
+              t.setDaemon(true);
+              return t;
+            });
+
+    AtomicInteger done = new AtomicInteger();
+    AtomicInteger failures = new AtomicInteger();
+    int total = files.size();
+    int step = Math.clamp(total / PROGRESS_DIVISOR, 1, 100);
+
+    try {
+      for (Path file : files) {
+        pool.submit(
+            () -> {
+              boolean success;
+              try {
+                success = ingestFile(threadWriter.get(), file);
+              } catch (Exception e) {
+                log.warn("Thread failure on {}: {}", file, e.getMessage());
+                success = false;
+              }
+              if (!success) {
+                failures.incrementAndGet();
+              }
+              int n = done.incrementAndGet();
+              if (n % step == 0 || n == total) {
+                log.info("Progress: {}/{} files", n, total);
+              }
+            });
+      }
+      pool.shutdown();
+      if (!pool.awaitTermination(SHUTDOWN_TIMEOUT_MINUTES, TimeUnit.MINUTES)) {
+        log.warn(
+            "Ingestion tasks did not complete within {} minutes; forcing shutdown.",
+            SHUTDOWN_TIMEOUT_MINUTES);
+        pool.shutdownNow();
+      }
+    } finally {
+      for (Session s : sessions) {
+        try {
+          s.close();
+        } catch (Exception e) {
+          log.debug("Error closing worker session: {}", e.getMessage());
+        }
+      }
+    }
+    return failures.get();
+  }
+
+  /**
+   * Parses and ingests a single file.
+   *
+   * @return true on success, false if parsing or graph write fails
+   */
+  private boolean ingestFile(GraphWriter writer, Path file) {
+    var cuOpt = parseService.parse(file);
+    if (cuOpt.isEmpty()) {
+      return false;
+    }
+    CompilationUnit cu = cuOpt.get();
+    String pkg = cu.getPackageDeclaration().map(pd -> pd.getName().asString()).orElse("");
+    try {
+      log.debug("Ingesting {} (project={})", file, project);
+      writer.upsertFile(file);
+      writer.upsertPackage(pkg);
+      cu.findAll(ClassOrInterfaceDeclaration.class)
+          .forEach(decl -> writer.upsertType(file, pkg, decl));
+      return true;
+    } catch (Exception e) {
+      log.warn("Failed to ingest {}: {}", file, e.getMessage());
+      return false;
+    }
+  }
+}
