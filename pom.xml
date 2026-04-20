@@ -2,16 +2,16 @@
 <project xmlns="http://maven.apache.org/POM/4.0.0">
   <modelVersion>4.0.0</modelVersion>
 
-  <groupId>com.olus.tools</groupId>
+  <groupId>io.github.ousatov.tools</groupId>
   <artifactId>memgraph-ingester</artifactId>
-  <version>1.0.0</version>
+  <version>4.0.0</version>
   <packaging>jar</packaging>
 
   <properties>
     <maven.compiler.release>25</maven.compiler.release>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <javaparser.version>3.28.0</javaparser.version>
-    <neo4j.driver.version>5.26.0</neo4j.driver.version>
+    <neo4j.driver.version>6.0.5</neo4j.driver.version>
     <picocli.version>4.7.6</picocli.version>
     <spotless.version>3.3.0</spotless.version>
   </properties>

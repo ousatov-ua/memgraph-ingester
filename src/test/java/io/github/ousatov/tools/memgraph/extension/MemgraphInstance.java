@@ -19,7 +19,7 @@ public final class MemgraphInstance implements ExtensionContext.Store.CloseableR
 
   private static final Logger log = LoggerFactory.getLogger(MemgraphInstance.class);
   private static final int BOLT_PORT = 7687;
-  private static final String IMAGE = "memgraph/memgraph:latest";
+  private static final String IMAGE = "memgraph/memgraph:2.20.0";
 
   private final GenericContainer<?> container;
 

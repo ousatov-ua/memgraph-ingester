@@ -221,8 +221,6 @@ class IngestionOrchestratorIT {
     }
   }
 
-  // --- helpers ---
-
   @Test
   void reingestionWithoutWipeIsIdempotent() throws Exception {
     currentProject = PROJECT_BASE + "-idem";
@@ -324,6 +322,74 @@ class IngestionOrchestratorIT {
               .get("n")
               .asLong();
       assertTrue(ifaceCount >= 1, "At least one :Interface node expected");
+    }
+  }
+
+  @Test
+  void ingestsInterfaceExtendsAsInterfaceParent() throws Exception {
+    currentProject = PROJECT_BASE + "-iext";
+    sourceDir = Files.createTempDirectory("orch-iext-src-");
+    Path pkgDir = sourceDir.resolve("com/example");
+    Files.createDirectories(pkgDir);
+    Files.writeString(
+        pkgDir.resolve("Printable.java"), "package com.example; public interface Printable {}");
+    Files.writeString(
+        pkgDir.resolve("Describable.java"),
+        "package com.example; public interface Describable extends Printable {}");
+
+    new IngestionOrchestrator(sourceDir, currentProject, 1, driver, new ParseService(sourceDir))
+        .run(false);
+
+    try (Session s = driver.session()) {
+      long count =
+          s.run(
+                  "MATCH (:Interface {project: $p})-[:EXTENDS]->(parent:Interface)"
+                      + " RETURN count(parent) AS n",
+                  Map.of("p", currentProject))
+              .single()
+              .get("n")
+              .asLong();
+      assertTrue(count >= 1, "Interface parent must be stored as :Interface, not :Class");
+    }
+  }
+
+  @Test
+  void ingestsNestedClassWithCorrectFqn() throws Exception {
+    currentProject = PROJECT_BASE + "-nested";
+    sourceDir = Files.createTempDirectory("orch-nested-src-");
+    Path pkgDir = sourceDir.resolve("com/example");
+    Files.createDirectories(pkgDir);
+    Files.writeString(
+        pkgDir.resolve("Outer.java"),
+        """
+        package com.example;
+        public class Outer {
+          public class Inner {}
+        }
+        """);
+
+    new IngestionOrchestrator(sourceDir, currentProject, 1, driver, new ParseService(sourceDir))
+        .run(false);
+
+    try (Session s = driver.session()) {
+      long outerCount =
+          s.run(
+                  "MATCH (c:Class {fqn: 'com.example.Outer', project: $p}) RETURN count(c) AS n",
+                  Map.of("p", currentProject))
+              .single()
+              .get("n")
+              .asLong();
+      assertEquals(1, outerCount, "Outer class must have correct FQN");
+
+      long innerCount =
+          s.run(
+                  "MATCH (c:Class {fqn: 'com.example.Outer$Inner', project: $p})"
+                      + " RETURN count(c) AS n",
+                  Map.of("p", currentProject))
+              .single()
+              .get("n")
+              .asLong();
+      assertEquals(1, innerCount, "Nested class must use $-separated FQN");
     }
   }
 }

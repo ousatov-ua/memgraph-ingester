@@ -29,15 +29,15 @@ will include other projects.
 
 **Nodes**
 
-| Label        | Key                    | Notable properties                                       |
-|--------------|------------------------|----------------------------------------------------------|
-| `:Project`   | `name`                 | `sourceRoots`, `lastIngested`                            |
-| `:Package`   | `(name, project)`      | —                                                        |
-| `:File`      | `(path, project)`      | —                                                        |
-| `:Class`     | `(fqn, project)`       | `name`, `packageName`, `isAbstract`                      |
-| `:Interface` | `(fqn, project)`       | `name`, `packageName`                                    |
-| `:Method`    | `(signature, project)` | `name`, `returnType`, `isStatic`, `startLine`, `endLine` — constructors stored with `name = '<init>'` |
-| `:Field`     | `(fqn, project)`       | `name`, `type`, `isStatic`                               |
+| Label        | Key                    | Notable properties                                                                                                  |
+|--------------|------------------------|---------------------------------------------------------------------------------------------------------------------|
+| `:Project`   | `name`                 | `sourceRoots`, `lastIngested`                                                                                       |
+| `:Package`   | `(name, project)`      | —                                                                                                                   |
+| `:File`      | `(path, project)`      | `lastModified` (epoch millis)                                                                                       |
+| `:Class`     | `(fqn, project)`       | `name`, `packageName`, `isAbstract`, `visibility`, `isEnum`, `isRecord`                                             |
+| `:Interface` | `(fqn, project)`       | `name`, `packageName`, `visibility`                                                                                 |
+| `:Method`    | `(signature, project)` | `name`, `returnType`, `visibility`, `isStatic`, `startLine`, `endLine` — constructors stored with `name = '<init>'` |
+| `:Field`     | `(fqn, project)`       | `name`, `type`, `visibility`, `isStatic`                                                                            |
 
 **Relationships**
 
@@ -133,11 +133,15 @@ to find relevant files, filesystem to read them.
 
 ### Caveats
 
-- `CALLS` edges are best-effort. JavaParser can't always resolve callees
-  (external libs, generics, lambdas), so transitive call queries may
-  have gaps. Missing edges don't mean no call exists.
+- `CALLS` edges are best-effort and **within-project only**. External library
+  calls are intentionally dropped (no phantom nodes). Cross-file in-project
+  calls missed due to ingestion ordering are filled in by a second wipe-less
+  re-ingestion pass. Missing edges don't mean no call exists.
+- Nested/inner classes use `$` as separator in FQN, e.g. `com.example.Outer$Inner`.
 - `DECLARES` is used for both methods and fields. Always filter by label
   when you only want one: `-[:DECLARES]->(m:Method)` not `-[:DECLARES]->()`.
+- `visibility` values are lowercase Java keywords: `"public"`, `"protected"`,
+  `"private"`, or `""` (package-private).
 
 ### Staleness
 

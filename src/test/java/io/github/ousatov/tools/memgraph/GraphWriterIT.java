@@ -8,6 +8,8 @@ import com.github.javaparser.JavaParser;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import io.github.ousatov.tools.memgraph.extension.MemgraphExtension;
 import io.github.ousatov.tools.memgraph.extension.MemgraphInstance;
+import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
@@ -127,6 +129,27 @@ class GraphWriterIT {
   }
 
   @Test
+  void upsertFileWritesLastModified() throws IOException {
+    Path tempFile = Files.createTempFile("widget-", ".java");
+    try {
+      writer.upsertFile(tempFile);
+
+      long lastModified =
+          session
+              .run(
+                  "MATCH (f:File {path: $path, project: $p}) RETURN f.lastModified AS lm",
+                  Map.of("path", tempFile.toString(), "p", PROJECT))
+              .single()
+              .get("lm")
+              .asLong();
+
+      assertTrue(lastModified > 0, "lastModified must be a positive epoch-millis value");
+    } finally {
+      Files.deleteIfExists(tempFile);
+    }
+  }
+
+  @Test
   void upsertPackageCreatesPackageWithContainsEdge() {
     writer.upsertPackage(PKG);
 
@@ -162,6 +185,26 @@ class GraphWriterIT {
 
     assertEquals("Widget", rec.get("name").asString());
     assertFalse(rec.get("isAbs").asBoolean());
+  }
+
+  @Test
+  void upsertTypeWritesVisibility() {
+    writer.upsertFile(TEST_FILE);
+    writer.upsertPackage(PKG);
+    ClassOrInterfaceDeclaration decl = parseDecl("package com.example; public class Widget {}");
+
+    writer.upsertType(TEST_FILE, PKG, decl);
+
+    String visibility =
+        session
+            .run(
+                "MATCH (c:Class {project: $p, fqn: $fqn}) RETURN c.visibility AS v",
+                Map.of("p", PROJECT, "fqn", "com.example.Widget"))
+            .single()
+            .get("v")
+            .asString();
+
+    assertEquals("public", visibility);
   }
 
   @Test
@@ -386,7 +429,8 @@ class GraphWriterIT {
             .get("s")
             .asString();
 
-    assertEquals("com.example.Widget.<init>(String,int)", sig);
+    // Without symbol resolution the fallback uses simple type names.
+    assertEquals("com.example.Widget.<init>(String, int)", sig);
   }
 
   @Test
