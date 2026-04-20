@@ -25,6 +25,7 @@ public final class ParseService {
 
   private static final Logger log = LoggerFactory.getLogger(ParseService.class);
 
+  @SuppressWarnings("java:S5164")
   private static final ThreadLocal<JavaParser> PARSER = new ThreadLocal<>();
 
   private final ParserConfiguration config;

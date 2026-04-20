@@ -2,6 +2,8 @@ package io.github.ousatov.tools.memgraph;
 
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
+import io.github.ousatov.tools.memgraph.exception.ProcessingException;
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -29,7 +31,7 @@ public final class IngestionOrchestrator {
   private static final Logger log = LoggerFactory.getLogger(IngestionOrchestrator.class);
 
   private static final long SHUTDOWN_TIMEOUT_MINUTES = 10L;
-  private static final int PROGRESS_DIVISOR = 20;
+  private static final int PROGRESS_DIVISOR = 10;
 
   private final Path sourceRoot;
   private final String project;
@@ -60,7 +62,7 @@ public final class IngestionOrchestrator {
    * @return number of failed files; 0 means complete success
    * @throws Exception if file walking or thread management fails
    */
-  public int run(boolean wipe) throws Exception {
+  public int run(boolean wipe) {
     try (Session bootstrap = driver.session()) {
       GraphWriter bootstrapWriter = new GraphWriter(bootstrap, project);
       if (wipe) {
@@ -74,10 +76,21 @@ public final class IngestionOrchestrator {
     List<Path> files;
     try (Stream<Path> walk = Files.walk(sourceRoot)) {
       files = walk.filter(p -> p.toString().endsWith(".java")).toList();
+    } catch (IOException e) {
+      throw new ProcessingException("Cannot walk source root", e);
     }
     log.info("Found {} Java files. Ingesting with {} thread(s).", files.size(), threads);
 
-    return threads == 1 ? ingestSequential(files) : ingestParallel(files);
+    if (threads == 1) {
+      return ingestSequential(files);
+    } else {
+      try {
+        return ingestParallel(files);
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+        throw new ProcessingException("Interrupted during ingestion", e);
+      }
+    }
   }
 
   private int ingestSequential(List<Path> files) {
