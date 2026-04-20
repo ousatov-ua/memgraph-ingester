@@ -254,6 +254,47 @@ class IngestionOrchestratorIT {
   }
 
   @Test
+  void ingestsConstructorNodes() throws Exception {
+    currentProject = PROJECT_BASE + "-ctor";
+    sourceDir = Files.createTempDirectory("orch-ctor-src-");
+    Path pkgDir = sourceDir.resolve("com/example");
+    Files.createDirectories(pkgDir);
+    Files.writeString(
+        pkgDir.resolve("Service.java"),
+        """
+        package com.example;
+
+        public class Service {
+          private final String name;
+
+          public Service(String name) {
+            this.name = name;
+          }
+
+          public Service() {
+            this("default");
+          }
+        }
+        """);
+
+    new IngestionOrchestrator(sourceDir, currentProject, 1, driver, new ParseService(sourceDir))
+        .run(false);
+
+    try (Session s = driver.session()) {
+      long ctorCount =
+          s.run(
+                  "MATCH (:Class {fqn: 'com.example.Service', project: $p})"
+                      + "-[:DECLARES]->(m:Method {name: '<init>'})"
+                      + " RETURN count(m) AS n",
+                  Map.of("p", currentProject))
+              .single()
+              .get("n")
+              .asLong();
+      assertEquals(2, ctorCount, "Both constructors of Service must be ingested");
+    }
+  }
+
+  @Test
   void returnsNonZeroFailureCountForUnparsableFile() throws Exception {
     currentProject = PROJECT_BASE + "-fail";
     sourceDir = Files.createTempDirectory("orch-bad-src-");

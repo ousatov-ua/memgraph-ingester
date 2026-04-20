@@ -36,7 +36,7 @@ will include other projects.
 | `:File`      | `(path, project)`      | —                                                        |
 | `:Class`     | `(fqn, project)`       | `name`, `packageName`, `isAbstract`                      |
 | `:Interface` | `(fqn, project)`       | `name`, `packageName`                                    |
-| `:Method`    | `(signature, project)` | `name`, `returnType`, `isStatic`, `startLine`, `endLine` |
+| `:Method`    | `(signature, project)` | `name`, `returnType`, `isStatic`, `startLine`, `endLine` — constructors stored with `name = '<init>'` |
 | `:Field`     | `(fqn, project)`       | `name`, `type`, `isStatic`                               |
 
 **Relationships**
@@ -82,6 +82,15 @@ ORDER BY caller.signature;
 MATCH (c:Class {fqn: 'com.example.OrderService', project: '{{PROJECT_NAME}}'})
       -[:DECLARES]->(m:Method)
 RETURN m.name, m.returnType, m.startLine
+ORDER BY m.startLine;
+```
+
+**Constructors of a class**
+
+```cypher
+MATCH (c:Class {name: 'MyClass', project: '{{PROJECT_NAME}}'})
+      -[:DECLARES]->(m:Method {name: '<init>'})
+RETURN m.signature, m.startLine, m.endLine
 ORDER BY m.startLine;
 ```
 
