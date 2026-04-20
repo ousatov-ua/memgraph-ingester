@@ -2,6 +2,8 @@ package io.github.ousatov.tools.memgraph;
 
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
+import com.github.javaparser.ast.body.EnumDeclaration;
+import com.github.javaparser.ast.body.RecordDeclaration;
 import io.github.ousatov.tools.memgraph.exception.ProcessingException;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -60,7 +62,6 @@ public final class IngestionOrchestrator {
    *
    * @param wipe if true, deletes all project nodes before ingesting
    * @return number of failed files; 0 means complete success
-   * @throws Exception if file walking or thread management fails
    */
   public int run(boolean wipe) {
     try (Session bootstrap = driver.session()) {
@@ -95,11 +96,18 @@ public final class IngestionOrchestrator {
 
   private int ingestSequential(List<Path> files) {
     int failures = 0;
+    int total = files.size();
+    int step = Math.clamp(total / PROGRESS_DIVISOR, 1, 100);
+    int done = 0;
     try (Session session = driver.session()) {
       GraphWriter writer = new GraphWriter(session, project);
       for (Path file : files) {
         if (!ingestFile(writer, file)) {
           failures++;
+        }
+        done++;
+        if (done % step == 0 || done == total) {
+          log.info("Progress: {}/{} files", done, total);
         }
       }
     }
@@ -186,8 +194,17 @@ public final class IngestionOrchestrator {
       log.debug("Ingesting {} (project={})", file, project);
       writer.upsertFile(file);
       writer.upsertPackage(pkg);
-      cu.findAll(ClassOrInterfaceDeclaration.class)
-          .forEach(decl -> writer.upsertType(file, pkg, decl));
+      cu.getTypes()
+          .forEach(
+              typeDecl -> {
+                if (typeDecl instanceof ClassOrInterfaceDeclaration ci) {
+                  writer.upsertType(file, pkg, ci);
+                } else if (typeDecl instanceof EnumDeclaration en) {
+                  writer.upsertEnum(file, pkg, en);
+                } else if (typeDecl instanceof RecordDeclaration rec) {
+                  writer.upsertRecord(file, pkg, rec);
+                }
+              });
       return true;
     } catch (Exception e) {
       log.warn("Failed to ingest {}: {}", file, e.getMessage());

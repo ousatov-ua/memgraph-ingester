@@ -6,7 +6,7 @@ package io.github.ousatov.tools.memgraph.exception;
  * @author Oleksii Usatov
  * @since 20.04.2026
  */
-public class ProcessingException extends RuntimeException {
+public final class ProcessingException extends RuntimeException {
 
   public ProcessingException(String message) {
     super(message);

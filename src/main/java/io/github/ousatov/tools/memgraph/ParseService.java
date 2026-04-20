@@ -17,7 +17,9 @@ import org.slf4j.LoggerFactory;
  * Configures JavaParser once and vends a per-thread parser instance.
  *
  * <p>{@link JavaParser} is not thread-safe; each thread receives its own instance via a {@link
- * ThreadLocal}, sharing only the immutable {@link ParserConfiguration}.
+ * ThreadLocal}, sharing only the immutable {@link ParserConfiguration}. The {@code ThreadLocal} is
+ * an instance field so multiple {@code ParseService} instances (with different source roots) each
+ * maintain independent per-thread parsers.
  *
  * @author Oleksii Usatov
  */
@@ -25,10 +27,8 @@ public final class ParseService {
 
   private static final Logger log = LoggerFactory.getLogger(ParseService.class);
 
-  @SuppressWarnings("java:S5164")
-  private static final ThreadLocal<JavaParser> PARSER = new ThreadLocal<>();
-
   private final ParserConfiguration config;
+  private final ThreadLocal<JavaParser> parser;
 
   /**
    * @param sourceRoot root source directory, used by {@link JavaParserTypeSolver} for symbol
@@ -36,6 +36,7 @@ public final class ParseService {
    */
   public ParseService(Path sourceRoot) {
     this.config = buildConfig(sourceRoot);
+    this.parser = ThreadLocal.withInitial(() -> new JavaParser(config));
   }
 
   /**
@@ -44,12 +45,7 @@ public final class ParseService {
    * @return thread-local parser instance
    */
   public JavaParser parserForCurrentThread() {
-    JavaParser parser = PARSER.get();
-    if (parser == null) {
-      parser = new JavaParser(config);
-      PARSER.set(parser);
-    }
-    return parser;
+    return parser.get();
   }
 
   /**

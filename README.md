@@ -41,7 +41,7 @@ cd memgraph-ingester
 mvn clean package
 ```
 
-Produces a shaded fat JAR at `target/memgraph-ingester-1.0.0.jar`.
+Produces a shaded fat JAR at `target/memgraph-ingester-<version>.jar`.
 
 ### 3. Apply the schema (one-time per Memgraph instance)
 
@@ -55,7 +55,7 @@ reported and skipped.
 ### 4. Ingest a project
 
 ```bash
-java -jar target/memgraph-ingester-1.0.0.jar \
+java -jar target/memgraph-ingester.jar \
   --source /path/to/your/java/project/src/main/java \
   --bolt bolt://localhost:7687 \
   --project my-project \
@@ -90,7 +90,7 @@ instance are untouched.
 Large codebases ingest faster with multiple parser threads:
 
 ```bash
-java -jar target/memgraph-ingester-1.0.0.jar \
+java -jar target/memgraph-ingester.jar \
   --source /path/to/your/java/project/src/main/java \
   --bolt bolt://localhost:7687 \
   --project my-project \
@@ -175,7 +175,7 @@ claude mcp list
 The graph goes stale as code changes. Re-run the ingester with `--wipe` to refresh:
 
 ```bash
-java -jar target/memgraph-ingester-1.0.0.jar \
+java -jar target/memgraph-ingester.jar \
   --source /path/to/your/java/project/src/main/java \
   --bolt bolt://localhost:7687 \
   --project my-project \
@@ -194,8 +194,8 @@ Run the ingester once per codebase with different `--project` values. Each gets 
 anchor; nodes are composite-keyed by `(key, project)`, so nothing collides.
 
 ```bash
-java -jar target/memgraph-ingester-1.0.0.jar -s ~/code/repo-a/src/main/java -b bolt://localhost:7687 -P repo-a --wipe
-java -jar target/memgraph-ingester-1.0.0.jar -s ~/code/repo-b/src/main/java -b bolt://localhost:7687 -P repo-b --wipe
+java -jar target/memgraph-ingester.jar -s ~/code/repo-a/src/main/java -b bolt://localhost:7687 -P repo-a --wipe
+java -jar target/memgraph-ingester.jar -s ~/code/repo-b/src/main/java -b bolt://localhost:7687 -P repo-b --wipe
 ```
 
 List everything that's indexed:
@@ -237,7 +237,7 @@ ORDER BY p.lastIngested DESC;
   outside your source tree (e.g. `RuntimeException`, Spring interfaces), the ingester creates a
   `:Class` or `:Interface` node for it and scopes it to your project. This keeps inheritance edges
   intact but means those nodes are placeholders without full metadata.
-- **Annotations and generated code are not indexed** in v1.0.0. Annotation processors,
+- **Annotations and generated code are not indexed** in v4.0.0. Annotation processors,
   Lombok-generated members, and similar won't appear in the graph. To index them too, you just need
   to run the ingester again:
 

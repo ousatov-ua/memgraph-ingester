@@ -1,5 +1,6 @@
 package io.github.ousatov.tools.memgraph;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.concurrent.Callable;
 import org.neo4j.driver.AuthTokens;
@@ -75,9 +76,13 @@ public final class IngesterCli implements Callable<Integer> {
   }
 
   @Override
-  public Integer call() throws Exception {
+  public Integer call() {
     if (threads < 1) {
       log.error("--threads must be >= 1 (got {})", threads);
+      return 1;
+    }
+    if (!Files.isDirectory(sourceRoot)) {
+      log.error("--source must be an existing directory: {}", sourceRoot);
       return 1;
     }
     try (Driver driver = GraphDatabase.driver(boltUrl, AuthTokens.basic(user, pass))) {
