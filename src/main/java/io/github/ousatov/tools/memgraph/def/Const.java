@@ -155,7 +155,7 @@ public class Const {
         """;
 
     /**
-     * Callee is matched (not merged) so external library methods are never created as
+     * Callee is matched (not merged), so external library methods are never created as
      * project-scoped phantom nodes. Cross-file in-project calls missed on the first pass are filled
      * in by a subsequent wipe-less re-ingestion.
      */
@@ -179,7 +179,6 @@ public class Const {
     public static final String FQN = "fqn";
     public static final String NAME = "name";
     public static final String CLASS = "Class";
-    public static final String ANNOTATION = "Annotation";
     public static final String ANNOT_FQN = "annotFqn";
     public static final String PKG = "pkg";
     public static final String PATH = "path";
