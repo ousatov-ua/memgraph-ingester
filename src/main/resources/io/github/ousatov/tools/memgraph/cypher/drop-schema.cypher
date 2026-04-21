@@ -1,9 +1,10 @@
-DROP CONSTRAINT ON (p:Package)   ASSERT p.name, p.project       IS UNIQUE;
-DROP CONSTRAINT ON (c:Class)     ASSERT c.fqn, c.project        IS UNIQUE;
-DROP CONSTRAINT ON (i:Interface) ASSERT i.fqn, i.project        IS UNIQUE;
-DROP CONSTRAINT ON (m:Method)    ASSERT m.signature, m.project  IS UNIQUE;
-DROP CONSTRAINT ON (f:Field)     ASSERT f.fqn, f.project        IS UNIQUE;
-DROP CONSTRAINT ON (file:File)   ASSERT file.path, file.project IS UNIQUE;
+DROP CONSTRAINT ON (p:Package)    ASSERT p.name, p.project        IS UNIQUE;
+DROP CONSTRAINT ON (c:Class)      ASSERT c.fqn, c.project         IS UNIQUE;
+DROP CONSTRAINT ON (i:Interface)  ASSERT i.fqn, i.project         IS UNIQUE;
+DROP CONSTRAINT ON (a:Annotation) ASSERT a.fqn, a.project         IS UNIQUE;
+DROP CONSTRAINT ON (m:Method)     ASSERT m.signature, m.project   IS UNIQUE;
+DROP CONSTRAINT ON (f:Field)      ASSERT f.fqn, f.project         IS UNIQUE;
+DROP CONSTRAINT ON (file:File)    ASSERT file.path, file.project  IS UNIQUE;
 
 DROP CONSTRAINT ON (c:Class)     ASSERT EXISTS (c.project);
 DROP CONSTRAINT ON (i:Interface) ASSERT EXISTS (i.project);

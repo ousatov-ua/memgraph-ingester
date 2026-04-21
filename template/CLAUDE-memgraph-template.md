@@ -2,154 +2,66 @@
 
 This repo is indexed in Memgraph under the project name **`{{PROJECT_NAME}}`**.
 
-**Before starting any task that involves understanding code structure,
-finding where something is implemented, tracing a call chain, or
-identifying what implements an interface — run at least one Memgraph
-query first to orient yourself. Do not rely solely on filesystem search**
+**Before any structural task — call graphs, inheritance, implementations, annotation usage — run at least one Memgraph query first. Do not rely solely on filesystem search.**
 
-### Required scoping
+### Scoping
 
-The Memgraph instance hosts multiple projects. **Every query must be
-scoped to `{{PROJECT_NAME}}`** via one of these patterns:
+Every query must include `project: '{{PROJECT_NAME}}'`. The instance hosts multiple projects.
 
-- Direct property filter (preferred for simple lookups):
-  ```cypher
-  MATCH (c:Class {project: '{{PROJECT_NAME}}'}) ...
-  ```
+```cypher
+// direct property filter (simple lookups)
+MATCH (c:Class {project: '{{PROJECT_NAME}}'}) ...
 
-- Anchor traversal (preferred when exploring from a starting point):
-  ```cypher
-  MATCH (:Project {name: '{{PROJECT_NAME}}'})-[:CONTAINS*]->(x) ...
-  ```
+// anchor traversal (exploration)
+MATCH (:Project {name: '{{PROJECT_NAME}}'})-[:CONTAINS*]->(x) ...
+```
 
-Never run unfiltered queries like `MATCH (c:Class) RETURN c` — results
-will include other projects.
-
-### Graph schema
+### Schema
 
 **Nodes**
 
-| Label        | Key                    | Notable properties                                                                                                  |
-|--------------|------------------------|---------------------------------------------------------------------------------------------------------------------|
-| `:Project`   | `name`                 | `sourceRoots`, `lastIngested`                                                                                       |
-| `:Package`   | `(name, project)`      | —                                                                                                                   |
-| `:File`      | `(path, project)`      | `lastModified` (epoch millis)                                                                                       |
-| `:Class`     | `(fqn, project)`       | `name`, `packageName`, `isAbstract`, `visibility`, `isEnum`, `isRecord`                                             |
-| `:Interface` | `(fqn, project)`       | `name`, `packageName`, `visibility`                                                                                 |
-| `:Method`    | `(signature, project)` | `name`, `returnType`, `visibility`, `isStatic`, `startLine`, `endLine` — constructors stored with `name = '<init>'` |
-| `:Field`     | `(fqn, project)`       | `name`, `type`, `visibility`, `isStatic`                                                                            |
+| Label         | Key                    | Notable properties                                                                        |
+|---------------|------------------------|-------------------------------------------------------------------------------------------|
+| `:Project`    | `name`                 | `sourceRoots`, `lastIngested`                                                             |
+| `:Package`    | `(name, project)`      | —                                                                                         |
+| `:File`       | `(path, project)`      | `lastModified` (epoch ms)                                                                 |
+| `:Class`      | `(fqn, project)`       | `name`, `packageName`, `isAbstract`, `visibility`, `isEnum`, `isRecord`                   |
+| `:Interface`  | `(fqn, project)`       | `name`, `packageName`, `visibility`                                                       |
+| `:Annotation` | `(fqn, project)`       | `name`, `packageName`, `visibility`                                                       |
+| `:Method`     | `(signature, project)` | `name`, `returnType`, `visibility`, `isStatic`, `startLine`, `endLine`                    |
+| `:Field`      | `(fqn, project)`       | `name`, `type`, `visibility`, `isStatic`                                                  |
 
 **Relationships**
 
 ```
-(:Project)          -[:CONTAINS]->   (:Package | :File)
-(:Package)          -[:CONTAINS]->   (:Class | :Interface)
-(:File)             -[:DEFINES]->    (:Class | :Interface)
-(:Class)            -[:EXTENDS]->    (:Class)
-(:Class)            -[:IMPLEMENTS]-> (:Interface)
-(:Interface)        -[:EXTENDS]->    (:Interface)
-(:Class|:Interface) -[:DECLARES]->   (:Method | :Field)
-(:Method)           -[:CALLS]->      (:Method)
+(:Project)                                     -[:CONTAINS]->      (:Package | :File)
+(:Package)                                     -[:CONTAINS]->      (:Class | :Interface | :Annotation)
+(:File)                                        -[:DEFINES]->       (:Class | :Interface | :Annotation)
+(:Class)                                       -[:EXTENDS]->       (:Class)
+(:Class)                                       -[:IMPLEMENTS]->    (:Interface)
+(:Interface)                                   -[:EXTENDS]->       (:Interface)
+(:Class | :Interface)                          -[:DECLARES]->      (:Method | :Field)
+(:Method)                                      -[:CALLS]->         (:Method)
+(:Class | :Interface | :Annotation | :Method | :Field) -[:ANNOTATED_WITH]-> (:Annotation)
 ```
-
-### Query recipes
-
-**Discover available projects (if `{{PROJECT_NAME}}` is unset)**
-
-```cypher
-MATCH (p:Project) RETURN p.name, p.sourceRoots, p.lastIngested;
-```
-
-**All implementations of an interface**
-
-```cypher
-MATCH (i:Interface {name: 'OrderRepository', project: '{{PROJECT_NAME}}'})
-      <-[:IMPLEMENTS]-(c:Class)
-RETURN c.fqn;
-```
-
-**Callers of a method**
-
-```cypher
-MATCH (caller:Method)-[:CALLS]->(m:Method {name: 'save', project: '{{PROJECT_NAME}}'})
-RETURN DISTINCT caller.signature
-ORDER BY caller.signature;
-```
-
-**Methods of a class**
-
-```cypher
-MATCH (c:Class {fqn: 'com.example.OrderService', project: '{{PROJECT_NAME}}'})
-      -[:DECLARES]->(m:Method)
-RETURN m.name, m.returnType, m.startLine
-ORDER BY m.startLine;
-```
-
-**Constructors of a class**
-
-```cypher
-MATCH (c:Class {name: 'MyClass', project: '{{PROJECT_NAME}}'})
-      -[:DECLARES]->(m:Method {name: '<init>'})
-RETURN m.signature, m.startLine, m.endLine
-ORDER BY m.startLine;
-```
-
-**Full inheritance chain**
-
-```cypher
-MATCH path = (c:Class {name: 'OrderServiceImpl', project: '{{PROJECT_NAME}}'})
-             -[:EXTENDS*]->(ancestor:Class)
-RETURN [n IN nodes(path) | n.fqn] AS chain;
-```
-
-**Transitive callers (who eventually reaches this method?)**
-
-```cypher
-MATCH (caller:Method)-[:CALLS*1..5]->(m:Method {name: 'deleteAll', project: '{{PROJECT_NAME}}'})
-RETURN DISTINCT caller.signature;
-```
-
-**Classes in a package**
-
-```cypher
-MATCH (:Package {name: 'com.example.order', project: '{{PROJECT_NAME}}'})
-      -[:CONTAINS]->(c:Class)
-RETURN c.name
-ORDER BY c.name;
-```
-
-### When NOT to use the graph
-
-The graph only knows Java AST structure. Use filesystem tools for:
-
-- Reading actual source code (method bodies, comments, Javadoc)
-- Searching string literals, log messages, or TODOs
-- Anything in non-Java files: YAML, properties, SQL, Dockerfiles, `pom.xml`
-- Anything the parser skipped (annotation processors, generated code)
-
-Rule of thumb: **graph answers "what's related to what"; filesystem
-answers "what does it actually do".** Usually you'll use both — graph
-to find relevant files, filesystem to read them.
 
 ### Caveats
 
-- `CALLS` edges are best-effort and **within-project only**. External library
-  calls are intentionally dropped (no phantom nodes). Cross-file in-project
-  calls missed due to ingestion ordering are filled in by a second wipe-less
-  re-ingestion pass. Missing edges don't mean no call exists.
-- Nested/inner classes use `$` as separator in FQN, e.g. `com.example.Outer$Inner`.
-- `DECLARES` is used for both methods and fields. Always filter by label
-  when you only want one: `-[:DECLARES]->(m:Method)` not `-[:DECLARES]->()`.
-- `visibility` values are lowercase Java keywords: `"public"`, `"protected"`,
-  `"private"`, or `""` (package-private).
+- **Best-effort edges** — `CALLS` and `ANNOTATED_WITH` are within-project only and only for resolvable symbols. Missing edges don't mean no relationship exists.
+- **Constructors** — stored as `:Method` with `name = '<init>'`.
+- **Nested classes** — FQN uses `$`: `com.example.Outer$Inner`.
+- **`DECLARES`** — covers both methods and fields; always add a label filter: `-[:DECLARES]->(m:Method)`.
+- **`visibility`** — lowercase Java keywords: `"public"`, `"protected"`, `"private"`, `""` (package-private).
+
+### Graph vs. filesystem
+
+Use the graph for **structure**: call chains, inheritance, implementations, annotation usage, class locations.  
+Use filesystem tools for **content**: method bodies, Javadoc, string literals, non-Java files (`pom.xml`, YAML, SQL).
 
 ### Staleness
-
-The graph can drift after code changes. Check freshness with:
 
 ```cypher
 MATCH (p:Project {name: '{{PROJECT_NAME}}'}) RETURN p.lastIngested;
 ```
 
-Re-ingestion is a separate tool — ask me to run it rather than attempting
-to trigger it from Claude Code.
+Re-ingestion is a separate tool — ask to run it rather than triggering it from Claude Code.

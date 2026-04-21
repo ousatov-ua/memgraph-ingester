@@ -4,7 +4,7 @@
 
   <groupId>io.github.ousatov-ua</groupId>
   <artifactId>memgraph-ingester</artifactId>
-  <version>5.0.8</version>
+  <version>5.0.9</version>
   <packaging>jar</packaging>
 
   <name>pooltergeist</name>
