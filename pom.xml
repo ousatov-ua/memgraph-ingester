@@ -7,7 +7,7 @@
   <version>5.0.10</version>
   <packaging>jar</packaging>
 
-  <name>pooltergeist</name>
+  <name>Memgraph Ingester</name>
   <description>Ingester of Java structure in Memgraph. Speed-up Claude Code!</description>
   <url>https://github.com/ousatov-ua/memgraph-ingester</url>
 
