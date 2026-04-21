@@ -242,6 +242,49 @@ public final class GraphWriter {
     upsertAnnotationsByFqn(fqn, decl);
   }
 
+  /**
+   * Upserts {@code CALLS} edges for all methods and constructors in {@code decl}, including
+   * directly nested types. Call this after all structural upserts for the file are complete so
+   * every callee node already exists.
+   */
+  public void upsertTypeCallEdges(String pkg, ClassOrInterfaceDeclaration decl) {
+    upsertTypeCallEdgesInternal(pkg, null, decl);
+  }
+
+  /**
+   * Upserts {@code CALLS} edges for all methods and constructors in {@code decl}. Call this after
+   * all structural upserts for the file are complete.
+   */
+  public void upsertEnumCallEdges(String pkg, EnumDeclaration decl) {
+    String fqn = pkg.isEmpty() ? decl.getNameAsString() : pkg + "." + decl.getNameAsString();
+    decl.getMethods().forEach(m -> upsertCallEdges(buildSignature(fqn, m), m));
+    decl.getConstructors().forEach(c -> upsertCallEdges(buildConstructorSignature(fqn, c), c));
+  }
+
+  /**
+   * Upserts {@code CALLS} edges for all methods and constructors in {@code decl}. Call this after
+   * all structural upserts for the file are complete.
+   */
+  public void upsertRecordCallEdges(String pkg, RecordDeclaration decl) {
+    String fqn = pkg.isEmpty() ? decl.getNameAsString() : pkg + "." + decl.getNameAsString();
+    decl.getMethods().forEach(m -> upsertCallEdges(buildSignature(fqn, m), m));
+    decl.getConstructors().forEach(c -> upsertCallEdges(buildConstructorSignature(fqn, c), c));
+  }
+
+  private void upsertTypeCallEdgesInternal(
+      String pkg, String outerFqn, ClassOrInterfaceDeclaration decl) {
+    String fqn =
+        outerFqn != null
+            ? outerFqn + "$" + decl.getNameAsString()
+            : (pkg.isEmpty() ? decl.getNameAsString() : pkg + "." + decl.getNameAsString());
+    decl.getMethods().forEach(m -> upsertCallEdges(buildSignature(fqn, m), m));
+    decl.getConstructors().forEach(c -> upsertCallEdges(buildConstructorSignature(fqn, c), c));
+    decl.getMembers().stream()
+        .filter(ClassOrInterfaceDeclaration.class::isInstance)
+        .map(m -> (ClassOrInterfaceDeclaration) m)
+        .forEach(nested -> upsertTypeCallEdgesInternal(pkg, fqn, nested));
+  }
+
   private void upsertTypeInternal(
       Path file, String pkg, String outerFqn, ClassOrInterfaceDeclaration decl) {
     String fqn =
@@ -341,7 +384,6 @@ public final class GraphWriter {
             Labels.END, method.getEnd().map(p -> p.line).orElse(0),
             Labels.OWNER, ownerFqn));
     upsertAnnotationsBySig(signature, method);
-    upsertCallEdges(signature, method);
   }
 
   private void upsertConstructor(String ownerFqn, ConstructorDeclaration ctor) {
@@ -366,7 +408,6 @@ public final class GraphWriter {
             Labels.OWNER,
             ownerFqn));
     upsertAnnotationsBySig(signature, ctor);
-    upsertCallEdges(signature, ctor);
   }
 
   /**
@@ -391,36 +432,48 @@ public final class GraphWriter {
 
   /**
    * Resolves each annotation on {@code node} and writes an {@code ANNOTATED_WITH} edge from the
-   * element identified by {@code ownerFqn}. Silently skips unresolvable annotations.
+   * element identified by {@code ownerFqn}. Falls back to the simple annotation name when the
+   * symbol resolver cannot determine the FQN.
    */
   private void upsertAnnotationsByFqn(String ownerFqn, NodeWithAnnotations<?> node) {
     node.getAnnotations()
         .forEach(
-            ann ->
-                tryRun(
-                    () -> {
-                      String annotFqn = ann.resolve().getQualifiedName();
-                      runWithRetry(
-                          Cypher.CYPHER_UPSERT_ANNOTATED_WITH_BY_FQN,
-                          Map.of(Labels.OWNER, ownerFqn, Labels.ANNOT_FQN, annotFqn));
-                    }));
+            ann -> {
+              String annotFqn;
+              try {
+                annotFqn = ann.resolve().getQualifiedName();
+              } catch (UnsolvedSymbolException
+                  | UnsupportedOperationException
+                  | IllegalStateException _) {
+                annotFqn = ann.getNameAsString();
+              }
+              runWithRetry(
+                  Cypher.CYPHER_UPSERT_ANNOTATED_WITH_BY_FQN,
+                  Map.of(Labels.OWNER, ownerFqn, Labels.ANNOT_FQN, annotFqn));
+            });
   }
 
   /**
    * Resolves each annotation on {@code node} and writes an {@code ANNOTATED_WITH} edge from the
-   * method identified by {@code sig}. Silently skips unresolvable annotations.
+   * method identified by {@code sig}. Falls back to the simple annotation name when the symbol
+   * resolver cannot determine the FQN.
    */
   private void upsertAnnotationsBySig(String sig, NodeWithAnnotations<?> node) {
     node.getAnnotations()
         .forEach(
-            ann ->
-                tryRun(
-                    () -> {
-                      String annotFqn = ann.resolve().getQualifiedName();
-                      runWithRetry(
-                          Cypher.CYPHER_UPSERT_ANNOTATED_WITH_BY_SIG,
-                          Map.of(Labels.SIG, sig, Labels.ANNOT_FQN, annotFqn));
-                    }));
+            ann -> {
+              String annotFqn;
+              try {
+                annotFqn = ann.resolve().getQualifiedName();
+              } catch (UnsolvedSymbolException
+                  | UnsupportedOperationException
+                  | IllegalStateException _) {
+                annotFqn = ann.getNameAsString();
+              }
+              runWithRetry(
+                  Cypher.CYPHER_UPSERT_ANNOTATED_WITH_BY_SIG,
+                  Map.of(Labels.SIG, sig, Labels.ANNOT_FQN, annotFqn));
+            });
   }
 
   /** Resolves {@code type} and invokes {@code action} with the FQN; silently skips on failure. */

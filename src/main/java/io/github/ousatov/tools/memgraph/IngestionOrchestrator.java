@@ -229,6 +229,17 @@ public final class IngestionOrchestrator {
                   writer.upsertAnnotation(file, pkg, ann);
                 }
               });
+      cu.getTypes()
+          .forEach(
+              typeDecl -> {
+                if (typeDecl instanceof ClassOrInterfaceDeclaration ci) {
+                  writer.upsertTypeCallEdges(pkg, ci);
+                } else if (typeDecl instanceof EnumDeclaration en) {
+                  writer.upsertEnumCallEdges(pkg, en);
+                } else if (typeDecl instanceof RecordDeclaration rec) {
+                  writer.upsertRecordCallEdges(pkg, rec);
+                }
+              });
       return true;
     } catch (Exception e) {
       log.warn("Failed to ingest {}: {}", file, e.getMessage());
