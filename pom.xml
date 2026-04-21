@@ -4,7 +4,7 @@
 
   <groupId>io.github.ousatov-ua</groupId>
   <artifactId>memgraph-ingester</artifactId>
-  <version>5.0.6</version>
+  <version>5.0.7</version>
   <packaging>jar</packaging>
 
   <name>pooltergeist</name>
@@ -89,7 +89,7 @@
         </includes>
       </resource>
       <resource>
-        <directory>.</directory>
+        <directory>template</directory>
         <includes>
           <include>CLAUDE-memgraph-template.md</include>
         </includes>

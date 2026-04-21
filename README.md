@@ -134,19 +134,18 @@ well, but Memgraph Community serializes writes internally, so the write path bot
 4–8 threads is the sweet spot on most machines. Values higher than your CPU core count rarely help.
 
 **Determinism note**: with `--threads > 1`, file processing order is non-deterministic. MERGE is
-idempotent so results are identical, but log order will vary between runs.
+idempotent, so results are identical, but log order will vary between runs.
 
 ## Using with Claude Code
 
-This repo ships a `CLAUDE-memgraph-template.md` designed to be dropped into any project that's been
+This repo ships a [`CLAUDE-memgraph-template.md`](template/CLAUDE-memgraph-template.md) designed to be dropped into any project that's been
 ingested. It tells Claude Code how to scope queries to the right project, how the schema is shaped,
 and when to reach for the graph vs. filesystem search.
 
 ### Per-repo setup
 
-Use the bundled `init-memgraph-claude.sh` script, which fetches the template, substitutes the
-project name, and appends the result to the local `CLAUDE.md`. The script lives at
-`scripts/init-memgraph-claude.sh` in this repo.
+Use the bundled [`init-memgraph-claude.sh`](script/init-memgraph-claude.sh) script, which fetches the template, substitutes the
+project name, and appends the result to the local `CLAUDE.md`.
 
 Run it from inside the repo you just ingested:
 
@@ -280,8 +279,9 @@ java -jar memgraph-ingester.jar \
 ├── schema/
 │   ├── schema.cypher                       # Memgraph DDL (constraints + indexes)
 │   └── SCHEMA.md                           # Graph model reference (human-readable)
+├── template/
+│   └── CLAUDE-memgraph-template.md         # Template appended to project CLAUDE.md files
 ├── pom.xml                                 # Maven build (shaded fat JAR, spotless-enforced)
-├── CLAUDE-memgraph-template.md             # Template appended to project CLAUDE.md files
 └── README.md
 ```
 
