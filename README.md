@@ -1,10 +1,22 @@
-# memgraph-ingester
+# Memgraph Ingester. Speed up your AI agent!
+
+[![Build](https://github.com/ousatov-ua/memgraph-ingester/actions/workflows/maven.yml/badge.svg)](https://github.com/ousatov-ua/memgraph-ingester/actions/workflows/maven.yml)
+[![Maven Central](https://img.shields.io/maven-central/v/io.github.ousatov-ua/memgraph-ingester)](https://central.sonatype.com/artifact/io.github.ousatov-ua/memgraph-ingester)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Visitors](https://visitor-badge.laobi.icu/badge?page_id=ousatov-ua.memgraph-ingester)](https://github.com/ousatov-ua/memgraph-ingester)
+[![GitHub commits](https://img.shields.io/github/commit-activity/t/ousatov-ua/memgraph-ingester)](https://github.com/ousatov-ua/memgraph-ingester/commits/main)
+[![GitHub last commit](https://img.shields.io/github/last-commit/ousatov-ua/memgraph-ingester)](https://github.com/ousatov-ua/memgraph-ingester/commits/main)
+
 
 Ingests the structural model of a Java codebase into [Memgraph](https://memgraph.com/) as a
 queryable code knowledge graph. Pair it with
 the [Memgraph MCP server](https://github.com/memgraph/ai-toolkit/tree/main/integrations/mcp-memgraph) to let Claude Code (or any
 MCP-aware client) reason about your code through graph queries instead of raw text search which can
 significantly reduce money spending and speed up processing.
+
+You can use the code in this repo as-is, or fork it and customize it to your needs.
+[Memgraph](https://memgraph.com/) is free too.
+Please submit any issues or pull requests.
 
 ## What it does
 
@@ -22,6 +34,15 @@ See [`SCHEMA.md`](schema/SCHEMA.md) for the full graph model.
 - **Maven 3.9+**
 - A running **Memgraph** instance (local Docker works fine)
 - Optional: `mgconsole` for applying the schema
+- Optional: you can use the code from this repo by including it as a Maven dependency:
+
+```xml
+<dependency>
+  <groupId>io.github.ousatov-ua</groupId>
+  <artifactId>memgraph-ingester</artifactId>
+  <version><<!-- see latest on Maven Central --></version>
+</dependency>
+```
 
 ## Quick start
 
@@ -38,10 +59,10 @@ Bolt listens on `localhost:7687`.
 ```bash
 git clone https://github.com/ousatov-ua/memgraph-ingester.git
 cd memgraph-ingester
-mvn clean package
+mvn clean package -Pshade
 ```
 
-Produces a shaded fat JAR at `target/memgraph-ingester-<version>.jar`.
+Produces a shaded fat JAR at `target/memgraph-ingester.jar`.
 
 ### 3. Apply the schema (one-time per Memgraph instance)
 
