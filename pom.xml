@@ -2,10 +2,29 @@
 <project xmlns="http://maven.apache.org/POM/4.0.0">
   <modelVersion>4.0.0</modelVersion>
 
-  <groupId>io.github.ousatov</groupId>
+  <groupId>io.github.ousatov-ua</groupId>
   <artifactId>memgraph-ingester</artifactId>
   <version>4.0.0</version>
   <packaging>jar</packaging>
+
+  <name>pooltergeist</name>
+  <description>Ingester of Java structure in Memgraph. Speed-up Claude Code!</description>
+  <url>https://github.com/ousatov-ua/memgraph-ingester</url>
+
+  <licenses>
+    <license>
+      <name>MIT License</name>
+      <url>https://opensource.org/licenses/MIT</url>
+    </license>
+  </licenses>
+
+  <developers>
+    <developer>
+      <id>ousatov-ua</id>
+      <name>Oleksii Usatov</name>
+      <email>oleksii.usatov@proton.me</email>
+    </developer>
+  </developers>
 
   <properties>
     <maven.compiler.release>25</maven.compiler.release>
@@ -207,4 +226,10 @@
       </plugin>
     </plugins>
   </build>
+
+  <scm>
+    <connection>scm:git:git://github.com/ousatov-ua/memgraph-ingester.git</connection>
+    <developerConnection>scm:git:ssh://github.com/ousatov-ua/memgraph-ingester.git</developerConnection>
+    <url>https://github.com/ousatov-ua/memgraph-ingester/tree/main</url>
+  </scm>
 </project>
