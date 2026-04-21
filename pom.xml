@@ -2,7 +2,7 @@
 <project xmlns="http://maven.apache.org/POM/4.0.0">
   <modelVersion>4.0.0</modelVersion>
 
-  <groupId>io.github.ousatov.tools</groupId>
+  <groupId>io.github.ousatov</groupId>
   <artifactId>memgraph-ingester</artifactId>
   <version>4.0.0</version>
   <packaging>jar</packaging>
@@ -62,6 +62,14 @@
   </dependencies>
 
   <build>
+    <resources>
+      <resource>
+        <directory>schema</directory>
+        <includes>
+          <include>schema.cypher</include>
+        </includes>
+      </resource>
+    </resources>
     <plugins>
       <plugin>
         <groupId>com.diffplug.spotless</groupId>
@@ -109,6 +117,12 @@
             <goals>
               <goal>jar-no-fork</goal>
             </goals>
+            <configuration>
+              <includes>
+                <include>**/*.java</include>
+                <include>**/*.cypher</include>
+              </includes>
+            </configuration>
           </execution>
         </executions>
       </plugin>
@@ -170,6 +184,7 @@
           </includes>
         </configuration>
       </plugin>
+
       <plugin>
         <artifactId>maven-shade-plugin</artifactId>
         <version>3.6.0</version>
