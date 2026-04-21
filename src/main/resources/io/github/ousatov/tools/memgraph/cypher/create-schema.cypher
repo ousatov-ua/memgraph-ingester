@@ -1,8 +1,3 @@
-// Memgraph schema for a Java codebase knowledge graph.
-// Multi-project: uniqueness keys include `project` so multiple
-// codebases can coexist in one Memgraph instance. A (:Project)
-// anchor node gives clients a discoverable entry point.
-// Run once against your Memgraph instance before ingestion.
 CREATE CONSTRAINT ON (p:Project)   ASSERT p.name                  IS UNIQUE;
 CREATE CONSTRAINT ON (p:Package)   ASSERT p.name, p.project       IS UNIQUE;
 CREATE CONSTRAINT ON (c:Class)     ASSERT c.fqn, c.project        IS UNIQUE;

@@ -118,6 +118,46 @@ class IngestionOrchestratorIT {
   }
 
   @Test
+  void ingestsSequentiallyWithZeroFailuresInitSchema() throws Exception {
+    currentProject = PROJECT_BASE + "-seq";
+    sourceDir = buildSampleSourceTree();
+
+    int failures =
+        new IngestionOrchestrator(sourceDir, currentProject, 1, driver, new ParseService(sourceDir))
+            .run(false, true, false);
+
+    assertEquals(0, failures);
+    try (Session s = driver.session()) {
+      long classCount =
+          s.run("MATCH (c:Class {project: $p}) RETURN count(c) AS n", Map.of("p", currentProject))
+              .single()
+              .get("n")
+              .asLong();
+      assertTrue(classCount >= 1, "At least one :Class node expected after ingestion");
+    }
+  }
+
+  @Test
+  void ingestsSequentiallyWithZeroFailuresWipeAll() throws Exception {
+    currentProject = PROJECT_BASE + "-seq";
+    sourceDir = buildSampleSourceTree();
+
+    int failures =
+        new IngestionOrchestrator(sourceDir, currentProject, 1, driver, new ParseService(sourceDir))
+            .run(true, true, false);
+
+    assertEquals(0, failures);
+    try (Session s = driver.session()) {
+      long classCount =
+          s.run("MATCH (c:Class {project: $p}) RETURN count(c) AS n", Map.of("p", currentProject))
+              .single()
+              .get("n")
+              .asLong();
+      assertTrue(classCount >= 1, "At least one :Class node expected after ingestion");
+    }
+  }
+
+  @Test
   void ingestsSequentiallyWithZeroFailures() throws Exception {
     currentProject = PROJECT_BASE + "-seq";
     sourceDir = buildSampleSourceTree();
