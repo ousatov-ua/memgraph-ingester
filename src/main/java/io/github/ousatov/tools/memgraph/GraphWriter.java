@@ -1,6 +1,7 @@
 package io.github.ousatov.tools.memgraph;
 
 import com.github.javaparser.ast.Node;
+import com.github.javaparser.ast.body.AnnotationDeclaration;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.ConstructorDeclaration;
 import com.github.javaparser.ast.body.EnumDeclaration;
@@ -8,6 +9,7 @@ import com.github.javaparser.ast.body.FieldDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.body.RecordDeclaration;
 import com.github.javaparser.ast.expr.MethodCallExpr;
+import com.github.javaparser.ast.nodeTypes.NodeWithAnnotations;
 import com.github.javaparser.ast.type.ClassOrInterfaceType;
 import com.github.javaparser.resolution.UnsolvedSymbolException;
 import com.github.javaparser.resolution.declarations.ResolvedMethodDeclaration;
@@ -188,6 +190,7 @@ public final class GraphWriter {
             true,
             Labels.IS_RECORD,
             false));
+    upsertAnnotationsByFqn(fqn, decl);
     decl.getMethods().forEach(m -> upsertMethod(fqn, m));
     decl.getConstructors().forEach(c -> upsertConstructor(fqn, c));
   }
@@ -217,8 +220,26 @@ public final class GraphWriter {
             false,
             Labels.IS_RECORD,
             true));
+    upsertAnnotationsByFqn(fqn, decl);
     decl.getMethods().forEach(m -> upsertMethod(fqn, m));
     decl.getConstructors().forEach(c -> upsertConstructor(fqn, c));
+  }
+
+  /**
+   * Upserts an {@code @interface} declaration as an {@code :Annotation} node, including {@code
+   * ANNOTATED_WITH} edges for any meta-annotations applied to it.
+   */
+  public void upsertAnnotation(Path file, String pkg, AnnotationDeclaration decl) {
+    String fqn = pkg.isEmpty() ? decl.getNameAsString() : pkg + "." + decl.getNameAsString();
+    runWithRetry(
+        Cypher.CYPHER_UPSERT_ANNOTATION,
+        Map.of(
+            Labels.FQN, fqn,
+            Labels.NAME, decl.getNameAsString(),
+            Labels.PKG, pkg,
+            Labels.PATH, file.toString(),
+            Labels.VISIBILITY, decl.getAccessSpecifier().asString()));
+    upsertAnnotationsByFqn(fqn, decl);
   }
 
   private void upsertTypeInternal(
@@ -247,6 +268,7 @@ public final class GraphWriter {
             false,
             Labels.IS_RECORD,
             false));
+    upsertAnnotationsByFqn(fqn, decl);
     upsertInheritance(fqn, decl);
     decl.getFields().forEach(f -> upsertField(fqn, f));
     decl.getMethods().forEach(m -> upsertMethod(fqn, m));
@@ -301,6 +323,7 @@ public final class GraphWriter {
                       field.getAccessSpecifier().asString(),
                       Labels.OWNER,
                       ownerFqn));
+              upsertAnnotationsByFqn(fqn, field);
             });
   }
 
@@ -317,6 +340,7 @@ public final class GraphWriter {
             Labels.START, method.getBegin().map(p -> p.line).orElse(0),
             Labels.END, method.getEnd().map(p -> p.line).orElse(0),
             Labels.OWNER, ownerFqn));
+    upsertAnnotationsBySig(signature, method);
     upsertCallEdges(signature, method);
   }
 
@@ -341,6 +365,7 @@ public final class GraphWriter {
             ctor.getEnd().map(p -> p.line).orElse(0),
             Labels.OWNER,
             ownerFqn));
+    upsertAnnotationsBySig(signature, ctor);
     upsertCallEdges(signature, ctor);
   }
 
@@ -361,6 +386,40 @@ public final class GraphWriter {
                       runWithRetry(
                           Cypher.CYPHER_UPSERT_CALL,
                           Map.of(Labels.CALLER, callerSig, Labels.CALLEE, calleeSig));
+                    }));
+  }
+
+  /**
+   * Resolves each annotation on {@code node} and writes an {@code ANNOTATED_WITH} edge from the
+   * element identified by {@code ownerFqn}. Silently skips unresolvable annotations.
+   */
+  private void upsertAnnotationsByFqn(String ownerFqn, NodeWithAnnotations<?> node) {
+    node.getAnnotations()
+        .forEach(
+            ann ->
+                tryRun(
+                    () -> {
+                      String annotFqn = ann.resolve().getQualifiedName();
+                      runWithRetry(
+                          Cypher.CYPHER_UPSERT_ANNOTATED_WITH_BY_FQN,
+                          Map.of(Labels.OWNER, ownerFqn, Labels.ANNOT_FQN, annotFqn));
+                    }));
+  }
+
+  /**
+   * Resolves each annotation on {@code node} and writes an {@code ANNOTATED_WITH} edge from the
+   * method identified by {@code sig}. Silently skips unresolvable annotations.
+   */
+  private void upsertAnnotationsBySig(String sig, NodeWithAnnotations<?> node) {
+    node.getAnnotations()
+        .forEach(
+            ann ->
+                tryRun(
+                    () -> {
+                      String annotFqn = ann.resolve().getQualifiedName();
+                      runWithRetry(
+                          Cypher.CYPHER_UPSERT_ANNOTATED_WITH_BY_SIG,
+                          Map.of(Labels.SIG, sig, Labels.ANNOT_FQN, annotFqn));
                     }));
   }
 

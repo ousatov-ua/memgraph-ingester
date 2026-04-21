@@ -1,6 +1,7 @@
 package io.github.ousatov.tools.memgraph;
 
 import com.github.javaparser.ast.CompilationUnit;
+import com.github.javaparser.ast.body.AnnotationDeclaration;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.EnumDeclaration;
 import com.github.javaparser.ast.body.RecordDeclaration;
@@ -224,6 +225,8 @@ public final class IngestionOrchestrator {
                   writer.upsertEnum(file, pkg, en);
                 } else if (typeDecl instanceof RecordDeclaration rec) {
                   writer.upsertRecord(file, pkg, rec);
+                } else if (typeDecl instanceof AnnotationDeclaration ann) {
+                  writer.upsertAnnotation(file, pkg, ann);
                 }
               });
       return true;

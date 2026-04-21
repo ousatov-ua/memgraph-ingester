@@ -15,21 +15,23 @@ Documentation for the Java codebase knowledge graph. The DDL lives in `schema.cy
 | `:File` | `path`, `project` | `lastModified` (epoch millis) |
 | `:Class` | `fqn`, `project` | `name`, `packageName`, `isAbstract`, `visibility`, `isEnum`, `isRecord` |
 | `:Interface` | `fqn`, `project` | `name`, `packageName`, `visibility` |
+| `:Annotation` | `fqn`, `project` | `name`, `packageName`, `visibility` |
 | `:Method` | `signature`, `project` | `name`, `returnType`, `visibility`, `isStatic`, `startLine`, `endLine` |
 | `:Field` | `fqn`, `project` | `name`, `type`, `visibility`, `isStatic` |
 
 ## Relationships
 
 ```
-(Project)   -[:CONTAINS]->  (Package)
-(Project)   -[:CONTAINS]->  (File)
-(Package)   -[:CONTAINS]->  (Class | Interface)
-(File)      -[:DEFINES]->   (Class | Interface)
-(Class)     -[:EXTENDS]->   (Class)
-(Interface) -[:EXTENDS]->   (Interface)
-(Class)     -[:IMPLEMENTS]->(Interface)
+(Project)   -[:CONTAINS]->      (Package)
+(Project)   -[:CONTAINS]->      (File)
+(Package)   -[:CONTAINS]->      (Class | Interface | Annotation)
+(File)      -[:DEFINES]->       (Class | Interface | Annotation)
+(Class)     -[:EXTENDS]->       (Class)
+(Interface) -[:EXTENDS]->       (Interface)
+(Class)     -[:IMPLEMENTS]->    (Interface)
 (Class | Interface) -[:DECLARES]-> (Method | Field)
-(Method)    -[:CALLS]->     (Method)
+(Method)    -[:CALLS]->         (Method)
+(Class | Interface | Annotation | Method | Field) -[:ANNOTATED_WITH]-> (Annotation)
 ```
 
 ## Notes on constraints

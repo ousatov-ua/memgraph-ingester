@@ -15,6 +15,45 @@ public class Const {
 
   public static class Cypher {
 
+    /** Upserts an {@code @interface} declaration as an {@code :Annotation} node. */
+    public static final String CYPHER_UPSERT_ANNOTATION =
+        """
+        MERGE (a:Annotation {fqn: $fqn, project: $project})
+          SET a.name = $name,
+              a.packageName = $pkg,
+              a.visibility = $visibility
+        WITH a
+        MATCH (p:Package {name: $pkg, project: $project})
+        MERGE (p)-[:CONTAINS]->(a)
+        WITH a
+        MATCH (f:File {path: $path, project: $project})
+        MERGE (f)-[:DEFINES]->(a)
+        """;
+
+    /**
+     * Merges an {@code [:ANNOTATED_WITH]} edge from an element identified by {@code fqn} (Class,
+     * Interface, Annotation, or Field) to an {@code :Annotation} node.
+     */
+    public static final String CYPHER_UPSERT_ANNOTATED_WITH_BY_FQN =
+        """
+        MERGE (a:Annotation {fqn: $annotFqn, project: $project})
+        WITH a
+        MATCH (owner {fqn: $owner, project: $project})
+        MERGE (owner)-[:ANNOTATED_WITH]->(a)
+        """;
+
+    /**
+     * Merges an {@code [:ANNOTATED_WITH]} edge from a {@code :Method} identified by {@code
+     * signature} to an {@code :Annotation} node.
+     */
+    public static final String CYPHER_UPSERT_ANNOTATED_WITH_BY_SIG =
+        """
+        MERGE (a:Annotation {fqn: $annotFqn, project: $project})
+        WITH a
+        MATCH (m:Method {signature: $sig, project: $project})
+        MERGE (m)-[:ANNOTATED_WITH]->(a)
+        """;
+
     public static final String CYPHER_WIPE_NODES =
         "MATCH (n) WHERE n.project = $project DETACH DELETE n";
     public static final String CYPHER_WIPE_PROJECT =
@@ -140,6 +179,8 @@ public class Const {
     public static final String FQN = "fqn";
     public static final String NAME = "name";
     public static final String CLASS = "Class";
+    public static final String ANNOTATION = "Annotation";
+    public static final String ANNOT_FQN = "annotFqn";
     public static final String PKG = "pkg";
     public static final String PATH = "path";
     public static final String IS_ABSTRACT = "isAbstract";
