@@ -7,10 +7,10 @@
 [![GitHub commits](https://img.shields.io/github/commit-activity/t/ousatov-ua/memgraph-ingester)](https://github.com/ousatov-ua/memgraph-ingester/commits/main)
 [![GitHub last commit](https://img.shields.io/github/last-commit/ousatov-ua/memgraph-ingester)](https://github.com/ousatov-ua/memgraph-ingester/commits/main)
 
-
 Ingests the structural model of a Java codebase into [Memgraph](https://memgraph.com/) as a
 queryable code knowledge graph. Pair it with
-the [Memgraph MCP server](https://github.com/memgraph/ai-toolkit/tree/main/integrations/mcp-memgraph) to let Claude Code (or any
+the [Memgraph MCP server](https://github.com/memgraph/ai-toolkit/tree/main/integrations/mcp-memgraph)
+to let Claude Code (or any
 MCP-aware client) reason about your code through graph queries instead of raw text search which can
 significantly reduce money spending and speed up processing.
 
@@ -37,10 +37,13 @@ See [`SCHEMA.md`](schema/SCHEMA.md) for the full graph model.
 - Optional: you can use the code from this repo by including it as a Maven dependency:
 
 ```xml
+
 <dependency>
   <groupId>io.github.ousatov-ua</groupId>
   <artifactId>memgraph-ingester</artifactId>
-  <version><<!-- see latest on Maven Central --></version>
+  <version>
+    <<!-- see latest on Maven Central -->
+  </version>
 </dependency>
 ```
 
@@ -67,11 +70,34 @@ Produces a shaded fat JAR at `target/memgraph-ingester.jar`.
 ### 3. Apply the schema (one-time per Memgraph instance)
 
 ```bash
-cat schema/schema.cypher | mgconsole --host localhost --port 7687
+cat src/main/resources/io/github/ousatov/tools/memgraph/cypher/schema.cypher | mgconsole --host localhost --port 7687
 ```
 
 Creates uniqueness constraints and lookup indexes. Safe to re-run — existing constraints are
 reported and skipped.
+
+You can also use the CLI. This command will apply the schema to the `memgraph` database first, then
+ingest the project:
+
+```bash
+java -jar target/memgraph-ingester.jar \
+  --source /path/to/your/java/project/src/main/java \
+  --bolt bolt://localhost:7687 \
+  --project my-project \
+  --apply-schema
+  ```
+
+Next command will also wipe **all** data in the `memgraph` database first, then will apply the
+schema and ingest the project:
+
+```bash
+java -jar target/memgraph-ingester.jar \
+  --source /path/to/your/java/project/src/main/java \
+  --bolt bolt://localhost:7687 \
+  --project my-project \
+  --wipe-all \
+  --apply-schema 
+  ```
 
 ### 4. Ingest a project
 
@@ -80,30 +106,35 @@ java -jar target/memgraph-ingester.jar \
   --source /path/to/your/java/project/src/main/java \
   --bolt bolt://localhost:7687 \
   --project my-project \
-  --wipe
+  --wipe-project
 ```
 
 ### 5. Verify
 
 ```cypher
-MATCH (p:Project) RETURN p.name, p.sourceRoots, p.lastIngested;
+
+MATCH (p:Project)
+RETURN p.name, p.sourceRoots, p.lastIngested;
 ```
 
 You should see your project with a fresh `lastIngested` timestamp.
 
 ## CLI options
 
-| Option      | Short | Required | Description                                                          |
-|-------------|-------|----------|----------------------------------------------------------------------|
-| `--source`  | `-s`  | yes      | Root directory to scan (e.g. `src/main/java`)                        |
-| `--bolt`    | `-b`  | yes      | Bolt URL, e.g. `bolt://localhost:7687`                               |
-| `--project` | `-P`  | yes      | Logical project name. Namespaces all nodes.                          |
-| `--user`    | `-u`  | no       | Memgraph username (empty by default)                                 |
-| `--pass`    | `-p`  | no       | Memgraph password (empty by default)                                 |
-| `--wipe`    |       | no       | Delete everything under this project before ingesting                |
-| `--threads` | `-t`  | no       | Parser threads (default `1`). Each thread gets its own Bolt session. |
+| Option           | Short | Required | Default | Description                                                          |
+|------------------|-------|----------|---------|----------------------------------------------------------------------|
+| `--source`       | `-s`  | yes      |         | Root directory to scan (e.g. `src/main/java`)                        |
+| `--bolt`         | `-b`  | yes      |         | Bolt URL, e.g. `bolt://localhost:7687`                               |
+| `--project`      | `-P`  | yes      |         | Logical project name. Namespaces all nodes.                          |
+| `--user`         | `-u`  | no       |         | Memgraph username (empty by default)                                 |
+| `--pass`         | `-p`  | no       |         | Memgraph password (empty by default)                                 |
+| `--threads`      | `-t`  | no       | 1       | Parser threads (default `1`). Each thread gets its own Bolt session. |
+| `--wipe-project` | no    | no       | false   | Delete everything under this project before ingesting                |
+| `--init`         | no    | no       | false   | Re(init) Memgraph: apply schema (will be dropped first)              |
+| `--wipe-all`     | no    | no       | false   | Wipe all data (schema will be dropped first)                         |
 
-`--wipe` only affects nodes matching the given `--project`; other codebases in the same Memgraph
+`--wipe-project` only affects nodes matching the given `--project`; other codebases in the same
+Memgraph
 instance are untouched.
 
 ### Parallel ingestion
@@ -115,7 +146,7 @@ java -jar target/memgraph-ingester.jar \
   --source /path/to/your/java/project/src/main/java \
   --bolt bolt://localhost:7687 \
   --project my-project \
-  --wipe \
+  --wipe-project \
   --threads 8
 ```
 
@@ -124,12 +155,12 @@ Each thread holds its own `JavaParser` and its own Bolt session. The `Driver` it
 **Realistic speedup** — don't expect linear scaling. JavaParser work is CPU-bound and parallelizes
 well, but Memgraph Community serializes writes internally, so the write path bottlenecks quickly:
 
-| Threads | Typical speedup | Bottleneck                  |
-|---------|-----------------|-----------------------------|
-| 1       | 1× (baseline)   | Sequential parse + write    |
-| 4       | ~2.5–3×         | Write serialization starts  |
-| 8       | ~3–4×           | Diminishing returns         |
-| 16+     | ~3–4×           | Writes fully saturated      |
+| Threads | Typical speedup | Bottleneck                 |
+|---------|-----------------|----------------------------|
+| 1       | 1× (baseline)   | Sequential parse + write   |
+| 4       | ~2.5–3×         | Write serialization starts |
+| 8       | ~3–4×           | Diminishing returns        |
+| 16+     | ~3–4×           | Writes fully saturated     |
 
 4–8 threads is the sweet spot on most machines. Values higher than your CPU core count rarely help.
 
@@ -138,13 +169,15 @@ idempotent, so results are identical, but log order will vary between runs.
 
 ## Using with Claude Code
 
-This repo ships a [`CLAUDE-memgraph-template.md`](template/CLAUDE-memgraph-template.md) designed to be dropped into any project that's been
+This repo ships a [`CLAUDE-memgraph-template.md`](template/CLAUDE-memgraph-template.md) designed to
+be dropped into any project that's been
 ingested. It tells Claude Code how to scope queries to the right project, how the schema is shaped,
 and when to reach for the graph vs. filesystem search.
 
 ### Per-repo setup
 
-Use the bundled [`init-memgraph-claude.sh`](script/init-memgraph-claude.sh) script, which fetches the template, substitutes the
+Use the bundled [`init-memgraph-claude.sh`](script/init-memgraph-claude.sh) script, which fetches
+the template, substitutes the
 project name, and appends the result to the local `CLAUDE.md`.
 
 Run it from inside the repo you just ingested:
@@ -192,20 +225,22 @@ claude mcp list
 
 ## Re-ingesting after code changes
 
-The graph goes stale as code changes. Re-run the ingester with `--wipe` to refresh:
+The graph goes stale as code changes. Re-run the ingester with `--wipe-project` to refresh:
 
 ```bash
 java -jar target/memgraph-ingester.jar \
   --source /path/to/your/java/project/src/main/java \
   --bolt bolt://localhost:7687 \
   --project my-project \
-  --wipe
+  --wipe-project
 ```
 
 Check freshness anytime:
 
 ```cypher
-MATCH (p:Project {name: 'my-project'}) RETURN p.sourceRoots, p.lastIngested;
+
+MATCH (p:Project {name: 'my-project'})
+RETURN p.sourceRoots, p.lastIngested;
 ```
 
 ## Multiple projects in one Memgraph instance
@@ -214,15 +249,17 @@ Run the ingester once per codebase with different `--project` values. Each gets 
 anchor; nodes are composite-keyed by `(key, project)`, so nothing collides.
 
 ```bash
-java -jar target/memgraph-ingester.jar -s ~/code/repo-a/src/main/java -b bolt://localhost:7687 -P repo-a --wipe
-java -jar target/memgraph-ingester.jar -s ~/code/repo-b/src/main/java -b bolt://localhost:7687 -P repo-b --wipe
+java -jar target/memgraph-ingester.jar -s ~/code/repo-a/src/main/java -b bolt://localhost:7687 -P repo-a --wipe-project
+java -jar target/memgraph-ingester.jar -s ~/code/repo-b/src/main/java -b bolt://localhost:7687 -P repo-b --wipe-project
 ```
 
 List everything that's indexed:
 
 ```cypher
-MATCH (p:Project) RETURN p.name, p.sourceRoots, p.lastIngested
-ORDER BY p.lastIngested DESC;
+
+MATCH (p:Project)
+RETURN p.name, p.sourceRoots, p.lastIngested
+  ORDER BY p.lastIngested DESC;
 ```
 
 ## What gets captured
@@ -266,7 +303,7 @@ java -jar memgraph-ingester.jar \
   --source target/generated-sources/annotations \
   --bolt bolt://localhost:7687 \
   --project work
-  # not --wipe here!!!!
+  # no --wipe-project here!!!!
 ```
 
 ## Project layout
@@ -274,10 +311,10 @@ java -jar memgraph-ingester.jar \
 ```
 .
 ├── src/main/java/                          # Ingester source (IngesterCli + support)
+├── src/main/resources/io/github/ousatov/tools/memgraph/cypher/schema # Memgraph cypher
 ├── scripts/
 │   └── init-memgraph-claude.sh             # Helper: appends Memgraph section to a repo's CLAUDE.md
 ├── schema/
-│   ├── schema.cypher                       # Memgraph DDL (constraints + indexes)
 │   └── SCHEMA.md                           # Graph model reference (human-readable)
 ├── template/
 │   └── CLAUDE-memgraph-template.md         # Template appended to project CLAUDE.md files

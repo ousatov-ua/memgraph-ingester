@@ -5,6 +5,7 @@ import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.EnumDeclaration;
 import com.github.javaparser.ast.body.RecordDeclaration;
 import io.github.ousatov.tools.memgraph.exception.ProcessingException;
+import io.github.ousatov.tools.memgraph.schema.Memgraph;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -60,12 +61,32 @@ public final class IngestionOrchestrator {
   /**
    * Runs the full ingestion and returns the number of files that failed.
    *
+   * @param wipeProject if true, deletes all project nodes before ingesting
+   * @return number of failed files; 0 means complete success
+   */
+  public int run(boolean wipeProject) {
+    return run(false, false, wipeProject);
+  }
+
+  /**
+   * Runs the full ingestion and returns the number of files that failed.
+   *
+   * @param wipeAllData if true, deletes all data before ingesting
+   * @param applySchema if true, applies schema first
    * @param wipe if true, deletes all project nodes before ingesting
    * @return number of failed files; 0 means complete success
    */
-  public int run(boolean wipe) {
+  public int run(boolean wipeAllData, boolean applySchema, boolean wipe) {
     try (Session bootstrap = driver.session()) {
       GraphWriter bootstrapWriter = new GraphWriter(bootstrap, project);
+      if (wipeAllData) {
+        Memgraph.wipeAllData(bootstrap);
+        log.info("Wiped all data from Memgraph");
+      }
+      if (applySchema) {
+        Memgraph.applySchema(bootstrap);
+        log.info("Applying schema to Memgraph");
+      }
       if (wipe) {
         log.info("Wiping existing graph for project '{}'...", project);
         bootstrapWriter.wipe();

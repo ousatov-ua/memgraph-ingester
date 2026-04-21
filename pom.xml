@@ -4,7 +4,7 @@
 
   <groupId>io.github.ousatov-ua</groupId>
   <artifactId>memgraph-ingester</artifactId>
-  <version>5.0.7</version>
+  <version>5.0.8</version>
   <packaging>jar</packaging>
 
   <name>pooltergeist</name>
@@ -83,9 +83,9 @@
   <build>
     <resources>
       <resource>
-        <directory>schema</directory>
+        <directory>src/main/resources</directory>
         <includes>
-          <include>schema.cypher</include>
+          <include>**/*.*</include>
         </includes>
       </resource>
       <resource>

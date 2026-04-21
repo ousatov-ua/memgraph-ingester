@@ -56,7 +56,7 @@ public final class IngesterCli implements Callable<Integer> {
   private String project;
 
   @Option(
-      names = "--wipe",
+      names = "--wipe-project",
       description = "Delete all nodes belonging to this project before ingesting")
   private boolean wipe;
 
@@ -69,8 +69,18 @@ public final class IngesterCli implements Callable<Integer> {
               + "because Memgraph serializes writes internally.")
   private int threads;
 
+  @Option(
+      names = {"--apply-schema"},
+      description = "Apply schema on Memgraph")
+  private boolean applySchema;
+
+  @Option(
+      names = {"--wipe-all"},
+      description = "Wipe all data from Memgraph")
+  private boolean wipeAllData;
+
   /** Entry point. */
-  public static void main(String[] args) {
+  static void main(String[] args) {
     int exit = new CommandLine(new IngesterCli()).execute(args);
     System.exit(exit);
   }
@@ -89,7 +99,7 @@ public final class IngesterCli implements Callable<Integer> {
       ParseService parseService = new ParseService(sourceRoot);
       IngestionOrchestrator orchestrator =
           new IngestionOrchestrator(sourceRoot, project, threads, driver, parseService);
-      int failures = orchestrator.run(wipe);
+      int failures = orchestrator.run(wipeAllData, applySchema, wipe);
       if (failures > 0) {
         log.error("Ingestion finished with {} file failure(s).", failures);
         return 2;
