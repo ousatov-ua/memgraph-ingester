@@ -80,4 +80,4 @@ MATCH (p:Project {name: '{{PROJECT_NAME}}'})
 RETURN p.lastIngested;
 ```
 
-Re-ingestion is a separate tool — ask to run it rather than triggering it automatically.
+Re-ingestion is a separate tool — ask to run it rather than triggering it from automatically.
