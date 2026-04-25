@@ -222,6 +222,8 @@ Commit the updated `AGENTS.md`. Codex reads it on every session start.
 
 ### MCP server setup
 
+#### CLAUDE
+
 Claude Code needs the Memgraph MCP server to actually run queries. Minimal project-scoped config in
 `.mcp.json`:
 
@@ -245,6 +247,35 @@ Verify it's registered:
 
 ```bash
 claude mcp list
+```
+
+#### CODEX
+
+Codex needs the Memgraph MCP server to actually run queries. Minimal project-scoped config in
+`~/.codex/config.toml`:
+
+```toml
+[mcp_servers.memgraph]
+
+command = "uv"
+args = [
+  "run",
+  "--with",
+  "mcp-memgraph",
+  "--python",
+  "3.13",
+  "mcp-memgraph"
+]
+[mcp_servers.memgraph.env]
+MCP_TRANSPORT = "stdio"
+MEMGRAPH_URL = "bolt://localhost:7687"
+MEMGRAPH_USER = "memgraph"
+MEMGRAPH_PASSWORD = ""
+MEMGRAPH_DATABASE = "memgraph"
+MCP_READ_ONLY = "true"
+
+[mcp_servers.memgraph.tools.run_query]
+approval_mode = "approve"
 ```
 
 ## Re-ingesting after code changes
