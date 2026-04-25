@@ -167,21 +167,23 @@ well, but Memgraph Community serializes writes internally, so the write path bot
 **Determinism note**: with `--threads > 1`, file processing order is non-deterministic. MERGE is
 idempotent, so results are identical, but log order will vary between runs.
 
-## Using with Claude Code
+## Using with AI agents
 
-This repo ships a [`CLAUDE-memgraph-template.md`](template/CLAUDE-memgraph-template.md) designed to
+This repo ships scripts designed to
 be dropped into any project that's been
-ingested. It tells Claude Code how to scope queries to the right project, how the schema is shaped,
+ingested. It tells AI agents how to scope queries to the right project, how the schema is shaped,
 and when to reach for the graph vs. filesystem search.
 
 ### Per-repo setup
 
 #### CLAUDE.md
+
 Use the bundled [`init-memgraph-claude.sh`](script/init-memgraph-claude.sh) script, which fetches
 the template, substitutes the
 project name, and appends the result to the local `CLAUDE.md`
 
 #### AGENTS.md
+
 Use the bundled [`init-memgraph-codex.sh`](script/init-memgraph-codex.sh) script, which fetches
 the template, substitutes the
 project name, and appends the result to the local `AGENTS.md`
