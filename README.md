@@ -182,12 +182,6 @@ Use the bundled [`init-memgraph-claude.sh`](script/init-memgraph-claude.sh) scri
 the template, substitutes the
 project name, and appends the result to the local `CLAUDE.md`
 
-#### AGENTS.md
-
-Use the bundled [`init-memgraph-codex.sh`](script/init-memgraph-codex.sh) script, which fetches
-the template, substitutes the
-project name, and appends the result to the local `AGENTS.md`
-
 Run it from inside the repo you just ingested:
 
 ```bash
@@ -203,6 +197,28 @@ curl -s https://raw.githubusercontent.com/ousatov-ua/memgraph-ingester/refs/head
 ```
 
 Commit the updated `CLAUDE.md`. Claude Code reads it on every session start.
+
+#### AGENTS.md
+
+Use the bundled [`init-memgraph-codex.sh`](script/init-memgraph-codex.sh) script, which fetches
+the template, substitutes the
+project name, and appends the result to the local `AGENTS.md`
+
+Run it from inside the repo you just ingested:
+
+```bash
+# Point at the script in your local checkout
+/path/to/memgraph-ingester/script/init-memgraph-codex.sh my-project
+```
+
+Or fetch-and-run straight from GitHub:
+
+```bash
+curl -s https://raw.githubusercontent.com/ousatov-ua/memgraph-ingester/refs/heads/main/script/init-memgraph-codex.sh \
+  | bash -s -- my-project
+```
+
+Commit the updated `AGENTS.md`. Codex reads it on every session start.
 
 ### MCP server setup
 
