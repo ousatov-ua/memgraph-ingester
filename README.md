@@ -176,7 +176,7 @@ and when to reach for the graph vs. filesystem search.
 
 ### Per-repo setup
 
-#### CLAUDE.md
+#### CLAUDE
 
 Use the bundled [`init-memgraph-claude.sh`](script/init-memgraph-claude.sh) script, which fetches
 the template, substitutes the
@@ -198,7 +198,7 @@ curl -s https://raw.githubusercontent.com/ousatov-ua/memgraph-ingester/refs/head
 
 Commit the updated `CLAUDE.md`. Claude Code reads it on every session start.
 
-#### AGENTS.md
+#### CODEX 
 
 Use the bundled [`init-memgraph-codex.sh`](script/init-memgraph-codex.sh) script, which fetches
 the template, substitutes the
