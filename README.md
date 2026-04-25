@@ -278,6 +278,12 @@ MCP_READ_ONLY = "true"
 approval_mode = "approve"
 ```
 
+Verify it's registered:
+
+```bash
+codex mcp list
+```
+
 ## Re-ingesting after code changes
 
 The graph goes stale as code changes. Re-run the ingester with `--wipe-project` to refresh:
