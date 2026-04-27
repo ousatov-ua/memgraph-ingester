@@ -22,6 +22,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashMap;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.Consumer;
@@ -58,11 +59,12 @@ public final class GraphWriter {
     this.project = project;
   }
 
-  private static boolean isRetryable(RuntimeException e) {
-    String msg = e.getMessage() == null ? "" : e.getMessage();
+  static boolean isRetryable(RuntimeException e) {
+    String msg = e.getMessage() == null ? "" : e.getMessage().toLowerCase(Locale.ROOT);
     return msg.contains("conflicting transactions")
         || msg.contains("deadlock")
-        || msg.contains("SerializationError");
+        || msg.contains("serializationerror")
+        || msg.contains("unique constraint violation");
   }
 
   /**
