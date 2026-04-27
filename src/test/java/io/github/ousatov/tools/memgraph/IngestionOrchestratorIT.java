@@ -198,6 +198,42 @@ class IngestionOrchestratorIT {
   }
 
   @Test
+  void ingestsRepeatedAnnotationsInParallelWithZeroFailures() throws Exception {
+    currentProject = PROJECT_BASE + "-ann-par";
+    sourceDir = Files.createTempDirectory("orch-ann-src-");
+    Path pkgDir = sourceDir.resolve("com/example");
+    Files.createDirectories(pkgDir);
+    for (int i = 0; i < 40; i++) {
+      Files.writeString(
+          pkgDir.resolve("Annotated" + i + ".java"),
+          """
+          package com.example;
+
+          @Deprecated
+          public class Annotated%s {}
+          """
+              .formatted(i));
+    }
+
+    int failures =
+        new IngestionOrchestrator(sourceDir, currentProject, 8, driver, new ParseService(sourceDir))
+            .run(true, true, false);
+
+    assertEquals(0, failures);
+    try (Session s = driver.session()) {
+      long annotationCount =
+          s.run(
+                  "MATCH (a:Annotation {project: $p, fqn: 'java.lang.Deprecated'})"
+                      + " RETURN count(a) AS n",
+                  Map.of("p", currentProject))
+              .single()
+              .get("n")
+              .asLong();
+      assertEquals(1, annotationCount, "Repeated annotations must converge to one node");
+    }
+  }
+
+  @Test
   void parallelAndSequentialIngestSameNodeCount() throws Exception {
     Path seqDir = buildSampleSourceTree();
     Path parDir = buildSampleSourceTree();
