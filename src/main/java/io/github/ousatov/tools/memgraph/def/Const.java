@@ -1,5 +1,10 @@
 package io.github.ousatov.tools.memgraph.def;
 
+import io.github.ousatov.tools.memgraph.exception.ProcessingException;
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
+
 /**
  * Const
  *
@@ -15,156 +20,66 @@ public class Const {
 
   public static class Cypher {
 
+    private static final String ACTION_RESOURCE_BASE =
+        "/io/github/ousatov/tools/memgraph/cypher/action/";
+
     /** Upserts an {@code @interface} declaration as an {@code :Annotation} node. */
-    public static final String CYPHER_UPSERT_ANNOTATION =
-        """
-        MERGE (a:Annotation {fqn: $fqn, project: $project})
-          SET a.name = $name,
-              a.packageName = $pkg,
-              a.visibility = $visibility
-        WITH a
-        MATCH (p:Package {name: $pkg, project: $project})
-        MERGE (p)-[:CONTAINS]->(a)
-        WITH a
-        MATCH (f:File {path: $path, project: $project})
-        MERGE (f)-[:DEFINES]->(a)
-        """;
+    public static final String CYPHER_UPSERT_ANNOTATION = action("upsert-annotation.cypher");
 
     /**
      * Merges an {@code [:ANNOTATED_WITH]} edge from an element identified by {@code fqn} (Class,
      * Interface, Annotation, or Field) to an {@code :Annotation} node.
      */
     public static final String CYPHER_UPSERT_ANNOTATED_WITH_BY_FQN =
-        """
-        MERGE (a:Annotation {fqn: $annotFqn, project: $project})
-        WITH a
-        MATCH (owner {fqn: $owner, project: $project})
-        MERGE (owner)-[:ANNOTATED_WITH]->(a)
-        """;
+        action("upsert-annotated-with-by-fqn.cypher");
 
     /**
      * Merges an {@code [:ANNOTATED_WITH]} edge from a {@code :Method} identified by {@code
      * signature} to an {@code :Annotation} node.
      */
     public static final String CYPHER_UPSERT_ANNOTATED_WITH_BY_SIG =
-        """
-        MERGE (a:Annotation {fqn: $annotFqn, project: $project})
-        WITH a
-        MATCH (m:Method {signature: $sig, project: $project})
-        MERGE (m)-[:ANNOTATED_WITH]->(a)
-        """;
+        action("upsert-annotated-with-by-sig.cypher");
 
-    public static final String CYPHER_WIPE_NODES =
-        "MATCH (n) WHERE n.project = $project DETACH DELETE n";
-    public static final String CYPHER_WIPE_PROJECT =
-        "MATCH (p:Project {name: $project}) DETACH DELETE p";
-    public static final String CYPHER_UPSERT_PROJECT =
-        """
-        MERGE (proj:Project {name: $project})
-          SET proj.sourceRoots  = CASE
-                WHEN $sourceRoot IN coalesce(proj.sourceRoots, [])
-                THEN coalesce(proj.sourceRoots, [])
-                ELSE coalesce(proj.sourceRoots, []) + $sourceRoot
-              END,
-              proj.lastIngested = timestamp()
-        """;
-    public static final String CYPHER_UPSERT_FILE =
-        """
-        MERGE (f:File {path: $path, project: $project})
-          SET f.lastModified = $lastModified
-        WITH f
-        MATCH (proj:Project {name: $project})
-        MERGE (proj)-[:CONTAINS]->(f)
-        """;
-    public static final String CYPHER_UPSERT_PACKAGE =
-        """
-        MERGE (p:Package {name: $name, project: $project})
-        WITH p
-        MATCH (proj:Project {name: $project})
-        MERGE (proj)-[:CONTAINS]->(p)
-        """;
+    public static final String CYPHER_WIPE_NODES = action("wipe-nodes.cypher");
+    public static final String CYPHER_WIPE_PROJECT = action("wipe-project.cypher");
+    public static final String CYPHER_UPSERT_PROJECT = action("upsert-project.cypher");
+    public static final String CYPHER_UPSERT_FILE = action("upsert-file.cypher");
+    public static final String CYPHER_UPSERT_PACKAGE = action("upsert-package.cypher");
 
     /**
      * Template for class/interface upsert — {@code %s} is replaced with {@code Class} or {@code
      * Interface} at call time.
      */
-    public static final String CYPHER_UPSERT_TYPE_TEMPLATE =
-        """
-        MERGE (t:%s {fqn: $fqn, project: $project})
-          SET t.name = $name,
-              t.packageName = $pkg,
-              t.isAbstract = $isAbstract,
-              t.visibility = $visibility,
-              t.isEnum = $isEnum,
-              t.isRecord = $isRecord
-        WITH t
-        MATCH (p:Package {name: $pkg, project: $project})
-        MERGE (p)-[:CONTAINS]->(t)
-        WITH t
-        MATCH (f:File {path: $path, project: $project})
-        MERGE (f)-[:DEFINES]->(t)
-        """;
+    public static final String CYPHER_UPSERT_TYPE_TEMPLATE = action("upsert-type-template.cypher");
 
-    public static final String CYPHER_UPSERT_EXTENDS =
-        """
-        MERGE (parent:Class {fqn: $parent, project: $project})
-        WITH parent
-        MATCH (child {fqn: $child, project: $project})
-        MERGE (child)-[:EXTENDS]->(parent)
-        """;
+    public static final String CYPHER_UPSERT_EXTENDS = action("upsert-extends.cypher");
 
     /** Used when an interface extends another interface — parent must be {@code :Interface}. */
     public static final String CYPHER_UPSERT_INTERFACE_EXTENDS =
-        """
-        MERGE (parent:Interface {fqn: $parent, project: $project})
-        WITH parent
-        MATCH (child {fqn: $child, project: $project})
-        MERGE (child)-[:EXTENDS]->(parent)
-        """;
+        action("upsert-interface-extends.cypher");
 
-    public static final String CYPHER_UPSERT_IMPLEMENTS =
-        """
-        MERGE (i:Interface {fqn: $iface, project: $project})
-        WITH i
-        MATCH (c:Class {fqn: $child, project: $project})
-        MERGE (c)-[:IMPLEMENTS]->(i)
-        """;
-    public static final String CYPHER_UPSERT_FIELD =
-        """
-        MERGE (f:Field {fqn: $fqn, project: $project})
-          SET f.name = $name,
-              f.type = $type,
-              f.isStatic = $isStatic,
-              f.visibility = $visibility
-        WITH f
-        MATCH (owner {fqn: $owner, project: $project})
-        MERGE (owner)-[:DECLARES]->(f)
-        """;
-    public static final String CYPHER_UPSERT_METHOD =
-        """
-        MERGE (m:Method {signature: $sig, project: $project})
-          SET m.name = $name,
-              m.returnType = $ret,
-              m.isStatic = $isStatic,
-              m.visibility = $visibility,
-              m.startLine = $start,
-              m.endLine = $end
-        WITH m
-        MATCH (owner {fqn: $owner, project: $project})
-        MERGE (owner)-[:DECLARES]->(m)
-        """;
+    public static final String CYPHER_UPSERT_IMPLEMENTS = action("upsert-implements.cypher");
+    public static final String CYPHER_UPSERT_FIELD = action("upsert-field.cypher");
+    public static final String CYPHER_UPSERT_METHOD = action("upsert-method.cypher");
 
     /**
      * Callee is matched (not merged), so external library methods are never created as
      * project-scoped phantom nodes. Cross-file in-project calls missed on the first pass are filled
      * in by a subsequent wipe-less re-ingestion.
      */
-    public static final String CYPHER_UPSERT_CALL =
-        """
-        MATCH (caller:Method {signature: $caller, project: $project})
-        MATCH (callee:Method {signature: $callee, project: $project})
-        MERGE (caller)-[:CALLS]->(callee)
-        """;
+    public static final String CYPHER_UPSERT_CALL = action("upsert-call.cypher");
+
+    private static String action(String file) {
+      String resource = ACTION_RESOURCE_BASE + file;
+      try (InputStream in = Const.class.getResourceAsStream(resource)) {
+        if (in == null) {
+          throw new ProcessingException(resource + " is missing from jar");
+        }
+        return new String(in.readAllBytes(), StandardCharsets.UTF_8);
+      } catch (IOException e) {
+        throw new ProcessingException(resource + " could not be loaded from jar", e);
+      }
+    }
 
     private Cypher() {
 
