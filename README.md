@@ -77,7 +77,7 @@ docker-compose up -d
 - No UI
 
 ```bash
-docker run -p 7687:7687 -p 7444:7444 --name memgraph memgraph/memgraph-mage:latest
+docker run -p 7687:7687 -p 7444:7444 --name memgraph memgraph/memgraph-mage:3.9.0
 ```
 
 Bolt listens on `localhost:7687`.
