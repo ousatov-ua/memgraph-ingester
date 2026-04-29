@@ -46,6 +46,7 @@ All memory item labels are unique by `(id, project)`. Most memory items also use
 | `:Risk` | `id`, `project` | `title`, `topic`, `severity`, `status`, `mitigation`, `createdAt`, `updatedAt` |
 | `:Question` | `id`, `project` | `title`, `status`, `answer`, `createdAt`, `updatedAt` |
 | `:Idea` | `id`, `project` | `title`, `topic`, `status`, `notes`, `createdAt`, `updatedAt` |
+| `:CodeRef` | `project`, `targetType`, `key` | Stable code reference resolved after ingestion |
 
 ## Code relationships
 
@@ -78,14 +79,14 @@ All memory item labels are unique by `(id, project)`. Most memory items also use
 (Memory)  -[:HAS_QUESTION]-> (Question)
 (Memory)  -[:HAS_IDEA]->     (Idea)
 
-(Decision | ADR) -[:APPLIES_TO]->  (Code | Package | File | Class | Interface | Annotation | Method | Field)
-(Rule)           -[:GOVERNS]->     (Code | Package | File | Class | Interface | Annotation | Method | Field)
-(Context)        -[:DESCRIBES]->   (Code | Package | File | Class | Interface | Annotation | Method | Field)
-(Finding)        -[:OBSERVED_IN]-> (Code | Package | File | Class | Interface | Annotation | Method | Field)
-(Task)           -[:CHANGES]->     (Code | Package | File | Class | Interface | Annotation | Method | Field)
-(Risk)           -[:AFFECTS]->     (Code | Package | File | Class | Interface | Annotation | Method | Field)
-(Idea)           -[:RELATES_TO]->  (Code | Package | File | Class | Interface | Annotation | Method | Field)
+(Decision | ADR | Rule | Context | Finding | Task | Risk | Idea) -[:REFERS_TO]-> (CodeRef)
+(CodeRef) -[:RESOLVES_TO]-> (Code | Package | File | Class | Interface | Annotation | Method | Field)
 ```
+
+`CodeRef.targetType` is one of `Code`, `Package`, `File`, `Class`, `Interface`, `Annotation`,
+`Method`, or `Field`. `CodeRef.key` uses the target identity: project name for `Code`, package name
+for `Package`, path for `File`, FQN for `Class`/`Interface`/`Annotation`/`Field`, and signature for
+`Method`. The ingester deletes and recreates `RESOLVES_TO` edges after each run.
 
 Common memory-to-memory links:
 
@@ -115,10 +116,10 @@ Common memory-to-memory links:
 ## Notes on constraints
 
 - No existence constraints are enforced. Earlier versions used them, but they caused failures when ingesting partial graphs or when external types were referenced without a `project`. The composite uniqueness constraints are sufficient — the ingester always sets `project`.
-- `:Project`, `:Code`, and `:Memory` each use a single-property uniqueness constraint. Code and memory item nodes use composite `(key, project)` uniqueness.
+- `:Project`, `:Code`, and `:Memory` each use a single-property uniqueness constraint. Code and memory item nodes use composite `(key, project)` uniqueness. `:CodeRef` is unique by `(project, targetType, key)`.
 - Nested/inner classes use `$` as separator in FQN (e.g. `com.example.Outer$Inner`).
 - `CALLS` edges only connect methods within the same project. External library calls are dropped to avoid phantom nodes. A second wipe-less re-ingestion pass fills in any cross-file edges missed due to ingestion ordering.
-- Memory relationships are conventional, not constrained by DDL. Agents should keep memory scoped with `project` and link memory back to the most concrete applicable code node.
+- Memory relationships are conventional, not constrained by DDL. Agents should keep memory scoped with `project` and link memory to `:CodeRef`, not directly to code nodes.
 
 ## Memory controlled values
 
@@ -166,9 +167,8 @@ RETURN d.id, d.title, d.rationale
 Find memory linked to a file:
 ```cypher
 MATCH (file:File {path: 'src/main/java/com/example/Widget.java', project: 'olus-dev'})
-MATCH (memory {project: 'olus-dev'})-[rel]->(file)
-WHERE type(rel) IN ['APPLIES_TO', 'GOVERNS', 'DESCRIBES', 'OBSERVED_IN', 'CHANGES', 'AFFECTS', 'RELATES_TO']
-RETURN labels(memory), memory.id, memory.title, type(rel);
+MATCH (memory {project: 'olus-dev'})-[:REFERS_TO]->(:CodeRef)-[:RESOLVES_TO]->(file)
+RETURN labels(memory), memory.id, memory.title;
 ```
 
 Create a decision memory:
@@ -183,4 +183,17 @@ SET d.title = 'Use JavaParser symbol resolution',
     d.updatedAt = datetime(),
     d.createdAt = coalesce(d.createdAt, datetime())
 MERGE (m)-[:HAS_DECISION]->(d);
+```
+
+Create a decision memory that refers to a class:
+```cypher
+MERGE (m:Memory {project: 'olus-dev'})
+MERGE (d:Decision {id: 'DEC-parser-symbol-resolution', project: 'olus-dev'})
+SET d.title = 'Use JavaParser symbol resolution',
+    d.status = 'accepted',
+    d.updatedAt = datetime(),
+    d.createdAt = coalesce(d.createdAt, datetime())
+MERGE (ref:CodeRef {project: 'olus-dev', targetType: 'Class', key: 'com.example.Widget'})
+MERGE (m)-[:HAS_DECISION]->(d)
+MERGE (d)-[:REFERS_TO]->(ref);
 ```

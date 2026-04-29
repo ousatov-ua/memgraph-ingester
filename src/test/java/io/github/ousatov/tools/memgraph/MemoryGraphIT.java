@@ -95,26 +95,29 @@ class MemoryGraphIT {
   }
 
   @Test
-  void memoryItemsCanLinkToCodeNodes() {
+  void memoryItemsCanReferToCodeRefsResolvedToCodeNodes() {
     writer.upsertFile(TEST_FILE);
 
     session
         .run(
             "MATCH (m:Memory {project: $p})"
-                + " MATCH (f:File {path: $path, project: $p})"
-                + " MERGE (d:Decision {id: 'DEC-test-applies-to-file', project: $p})"
+                + " MERGE (d:Decision {id: 'DEC-test-refers-to-file', project: $p})"
                 + " SET d.title = 'Document file-specific decision', d.status = 'accepted'"
+                + " MERGE (ref:CodeRef {project: $p, targetType: 'File', key: $path})"
                 + " MERGE (m)-[:HAS_DECISION]->(d)"
-                + " MERGE (d)-[:APPLIES_TO]->(f)",
+                + " MERGE (d)-[:REFERS_TO]->(ref)",
             Map.of("p", PROJECT, "path", TEST_FILE.toString()))
         .consume();
+
+    writer.resolveCodeRefs();
 
     long count =
         session
             .run(
                 "MATCH (:Memory {project: $p})-[:HAS_DECISION]->"
-                    + "(:Decision {id: 'DEC-test-applies-to-file', project: $p})"
-                    + "-[:APPLIES_TO]->(:File {path: $path, project: $p})"
+                    + "(:Decision {id: 'DEC-test-refers-to-file', project: $p})"
+                    + "-[:REFERS_TO]->(:CodeRef {project: $p, targetType: 'File', key: $path})"
+                    + "-[:RESOLVES_TO]->(:File {path: $path, project: $p})"
                     + " RETURN count(*) AS n",
                 Map.of("p", PROJECT, "path", TEST_FILE.toString()))
             .single()
@@ -145,6 +148,26 @@ class MemoryGraphIT {
   }
 
   @Test
+  @SuppressWarnings("java:S5778")
+  void codeRefIdentityConstraintRejectsDuplicateTargetsWithinProject() {
+    session
+        .run(
+            "CREATE (:CodeRef {project: $p, targetType: 'Class', key: 'com.example.Widget'})",
+            Map.of("p", PROJECT))
+        .consume();
+
+    assertThrows(
+        RuntimeException.class,
+        () ->
+            session
+                .run(
+                    "CREATE (:CodeRef {project: $p,"
+                        + " targetType: 'Class', key: 'com.example.Widget'})",
+                    Map.of("p", PROJECT))
+                .consume());
+  }
+
+  @Test
   void wipeMemoriesDeletesProjectMemoryGraphAndPreservesCodeGraph() {
     writer.upsertFile(TEST_FILE);
     session
@@ -152,8 +175,10 @@ class MemoryGraphIT {
             "MATCH (m:Memory {project: $p})"
                 + " MERGE (d:Decision {id: 'DEC-test-wipe-memories', project: $p})"
                 + " SET d.status = 'accepted'"
-                + " MERGE (m)-[:HAS_DECISION]->(d)",
-            Map.of("p", PROJECT))
+                + " MERGE (ref:CodeRef {project: $p, targetType: 'File', key: $path})"
+                + " MERGE (m)-[:HAS_DECISION]->(d)"
+                + " MERGE (d)-[:REFERS_TO]->(ref)",
+            Map.of("p", PROJECT, "path", TEST_FILE.toString()))
         .consume();
 
     writer.wipeMemories();
@@ -163,7 +188,8 @@ class MemoryGraphIT {
             .run(
                 "MATCH (n) WHERE n.project = $p"
                     + " AND (n:Memory OR n:Decision OR n:Idea OR n:Context OR n:Rule"
-                    + " OR n:Task OR n:Finding OR n:Question OR n:Risk OR n:ADR)"
+                    + " OR n:Task OR n:Finding OR n:Question OR n:Risk OR n:ADR"
+                    + " OR n:CodeRef)"
                     + " RETURN count(n) AS n",
                 Map.of("p", PROJECT))
             .single()

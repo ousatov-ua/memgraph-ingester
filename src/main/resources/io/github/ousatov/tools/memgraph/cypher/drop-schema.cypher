@@ -13,6 +13,7 @@ DROP CONSTRAINT ON (f:Finding) ASSERT f.id, f.project IS UNIQUE;
 DROP CONSTRAINT ON (q:Question) ASSERT q.id, q.project IS UNIQUE;
 DROP CONSTRAINT ON (risk:Risk) ASSERT risk.id, risk.project IS UNIQUE;
 DROP CONSTRAINT ON (adr:ADR) ASSERT adr.id, adr.project IS UNIQUE;
+DROP CONSTRAINT ON (ref:CodeRef) ASSERT ref.project, ref.targetType, ref.key IS UNIQUE;
 
 
 // =====================================================
@@ -36,6 +37,9 @@ DROP CONSTRAINT ON (file:File) ASSERT file.path, file.project IS UNIQUE;
 // =====================================================
 
 DROP INDEX ON :Memory(project);
+DROP INDEX ON :CodeRef(project);
+DROP INDEX ON :CodeRef(targetType);
+DROP INDEX ON :CodeRef(key);
 
 DROP INDEX ON :Decision(project);
 DROP INDEX ON :Decision(status);

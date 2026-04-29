@@ -33,7 +33,8 @@ Each code graph is scoped by a `project` property and anchored under `:Project -
 
 In addition, the schema includes a project-scoped **Memory graph** (`:Project -> :Memory`) for
 persistent engineering context. It stores decisions, ADRs, rules, findings, tasks, risks, questions,
-ideas, and domain context, all linked back to relevant code nodes. This enables graph-based reasoning
+ideas, and domain context, all linked back to relevant code nodes. This enables graph-based
+reasoning
 over both **structure (code)** and **knowledge (memory)**.
 
 See [`SCHEMA.md`](schema/SCHEMA.md) for the full graph model.
@@ -48,6 +49,7 @@ See [`SCHEMA.md`](schema/SCHEMA.md) for the full graph model.
 ### Maven dependency (optional)
 
 ```xml
+
 <dependency>
   <groupId>io.github.ousatov-ua</groupId>
   <artifactId>memgraph-ingester</artifactId>
@@ -384,32 +386,34 @@ RETURN p.name, c.sourceRoots, c.lastIngested
 
 Memory nodes are manually authored by agents or clients and share the same project namespace:
 
-| Node label  | Identity        | Typical use                       |
-|-------------|-----------------|-----------------------------------|
-| `:Memory`   | `project`       | Root for project memory           |
-| `:Decision` | `(id, project)` | Accepted or rejected decisions    |
-| `:ADR`      | `(id, project)` | Architecture decision records     |
-| `:Rule`     | `(id, project)` | Hard or soft project constraints  |
-| `:Context`  | `(id, project)` | Durable explanatory context       |
-| `:Finding`  | `(id, project)` | Bugs, risks, performance findings |
-| `:Task`     | `(id, project)` | Follow-up work                    |
-| `:Risk`     | `(id, project)` | Known risks and mitigations       |
-| `:Question` | `(id, project)` | Open or answered questions        |
-| `:Idea`     | `(id, project)` | Proposed ideas and alternatives   |
+| Node label  | Identity                     | Typical use                                      |
+|-------------|------------------------------|--------------------------------------------------|
+| `:Memory`   | `project`                    | Root for project memory                          |
+| `:Decision` | `(id, project)`              | Accepted or rejected decisions                   |
+| `:ADR`      | `(id, project)`              | Architecture decision records                    |
+| `:Rule`     | `(id, project)`              | Hard or soft project constraints                 |
+| `:Context`  | `(id, project)`              | Durable explanatory context                      |
+| `:Finding`  | `(id, project)`              | Bugs, risks, performance findings                |
+| `:Task`     | `(id, project)`              | Follow-up work                                   |
+| `:Risk`     | `(id, project)`              | Known risks and mitigations                      |
+| `:Question` | `(id, project)`              | Open or answered questions                       |
+| `:Idea`     | `(id, project)`              | Proposed ideas and alternatives                  |
+| `:CodeRef`  | `(project, targetType, key)` | Stable reference to code that may be re-ingested |
 
-| Relationship                                                                           | Meaning                   |
-|----------------------------------------------------------------------------------------|---------------------------|
-| `(:Project)-[:HAS_MEMORY]->(:Memory)`                                                  | Memory graph anchor       |
-| `(:Memory)-[:HAS_DECISION \| :HAS_ADR \| :HAS_RULE \| :HAS_CONTEXT]->(:*)`             | Memory item ownership     |
-| `(:Memory)-[:HAS_FINDING \| :HAS_TASK \| :HAS_RISK \| :HAS_QUESTION]->(:*)`            | Memory item ownership     |
-| `(:Memory)-[:HAS_IDEA]->(:Idea)`                                                       | Memory item ownership     |
-| `(:Decision \| :ADR)-[:APPLIES_TO]->(:Code \| :Package \| :File \| :Class \| :Method)` | Decision/code link        |
-| `(:Rule)-[:GOVERNS]->(:*)`                                                             | Constraint target         |
-| `(:Finding)-[:OBSERVED_IN]->(:*)`                                                      | Finding target            |
-| `(:Task)-[:CHANGES]->(:*)`                                                             | Planned or completed work |
-| `(:Risk)-[:AFFECTS]->(:*)`                                                             | Risk target               |
-| `(:Context)-[:DESCRIBES]->(:*)`                                                        | Context target            |
-| `(:Idea)-[:RELATES_TO]->(:*)`                                                          | Idea target               |
+| Relationship                                                                                                          | Meaning                                    |
+|-----------------------------------------------------------------------------------------------------------------------|--------------------------------------------|
+| `(:Project)-[:HAS_MEMORY]->(:Memory)`                                                                                 | Memory graph anchor                        |
+| `(:Memory)-[:HAS_DECISION \| :HAS_ADR \| :HAS_RULE \| :HAS_CONTEXT]->(:*)`                                            | Memory item ownership                      |
+| `(:Memory)-[:HAS_FINDING \| :HAS_TASK \| :HAS_RISK \| :HAS_QUESTION]->(:*)`                                           | Memory item ownership                      |
+| `(:Memory)-[:HAS_IDEA]->(:Idea)`                                                                                      | Memory item ownership                      |
+| `(:Decision \| :ADR \| :Rule \| :Context \| :Finding \| :Task \| :Risk \| :Idea)-[:REFERS_TO]->(:CodeRef)`            | Memory-to-code reference                   |
+| `(:CodeRef)-[:RESOLVES_TO]->(:Code \| :Package \| :File \| :Class \| :Interface \| :Annotation \| :Method \| :Field)` | Current code node resolved after ingestion |
+
+`CodeRef.targetType` is one of `Code`, `Package`, `File`, `Class`, `Interface`, `Annotation`,
+`Method`, or `Field`. `CodeRef.key` uses the matching code identity: project name for `Code`,
+package name for `Package`, path for `File`, FQN for types/annotations/fields, and signature for
+`Method`. The ingester refreshes `RESOLVES_TO` edges after each run, so memory can survive code
+graph wipes and re-ingestion.
 
 ## Caveats
 
