@@ -73,18 +73,19 @@ All queries MUST include `project: '{{PROJECT_NAME}}'`.
 
 #### Nodes
 
-| Label       | Key             | Notable properties             |
-|-------------|-----------------|--------------------------------|
-| `:Memory`   | `project`       | root                           |
-| `:Decision` | `(id, project)` | `title`, `status`, `rationale` |
-| `:ADR`      | `(id, project)` | `number`, `status`, `decision` |
-| `:Rule`     | `(id, project)` | `severity`, `description`      |
-| `:Context`  | `(id, project)` | `content`, `source`            |
-| `:Finding`  | `(id, project)` | `type`, `summary`              |
-| `:Task`     | `(id, project)` | `status`, `priority`           |
-| `:Risk`     | `(id, project)` | `severity`, `status`           |
-| `:Question` | `(id, project)` | `status`, `answer`             |
-| `:Idea`     | `(id, project)` | `status`, `notes`              |
+| Label       | Key                          | Notable properties             |
+|-------------|------------------------------|--------------------------------|
+| `:Memory`   | `project`                    | root                           |
+| `:Decision` | `(id, project)`              | `title`, `status`, `rationale` |
+| `:ADR`      | `(id, project)`              | `number`, `status`, `decision` |
+| `:Rule`     | `(id, project)`              | `severity`, `description`      |
+| `:Context`  | `(id, project)`              | `content`, `source`            |
+| `:Finding`  | `(id, project)`              | `type`, `summary`              |
+| `:Task`     | `(id, project)`              | `status`, `priority`           |
+| `:Risk`     | `(id, project)`              | `severity`, `status`           |
+| `:Question` | `(id, project)`              | `status`, `answer`             |
+| `:Idea`     | `(id, project)`              | `status`, `notes`              |
+| `:CodeRef`  | `(project, targetType, key)` | stable code reference          |
 
 #### Controlled values
 
@@ -117,14 +118,14 @@ IDEA-<topic>-<name>
 (:Project)- [:HAS_MEMORY] - >(:Memory)
 (:Memory)- [:HAS_ * ] - >(:Decision|:ADR|:Rule|:Context|:Finding|:Task|:Risk|:Question|:Idea)
 
-(:Decision|:ADR)- [:APPLIES_TO] - >(:Code|:Package|:File|:Class|:Method)
-(:Rule)- [:GOVERNS] - >(:*)
-(:Finding)- [:OBSERVED_IN] - >(:*)
-(:Task)- [:CHANGES] - >(:*)
-(:Risk)- [:AFFECTS] - >(:*)
-(:Context)- [:DESCRIBES] - >(:*)
-(:Idea)- [:RELATES_TO] - >(:*)
+(:Decision|:ADR|:Rule|:Context|:Finding|:Task|:Risk|:Idea)- [:REFERS_TO] - >(:CodeRef)
+(:CodeRef)- [:RESOLVES_TO] - >(:Code|:Package|:File|:Class|:Interface|:Annotation|:Method|:Field)
 ```
+
+`CodeRef.targetType` is one of `Code`, `Package`, `File`, `Class`, `Interface`, `Annotation`,
+`Method`, or `Field`. `CodeRef.key` uses the matching code identity: project name for `Code`,
+package name for `Package`, path for `File`, FQN for types/annotations/fields, and signature for
+`Method`.
 
 ---
 
@@ -164,6 +165,14 @@ MERGE (m:Memory {project: '{{PROJECT_NAME}}'})
 MERGE (d:Decision {id: $id, project: '{{PROJECT_NAME}}'})
 SET d.title = $title, d.status = 'accepted', d.createdAt = datetime(), d.updatedAt = datetime()
 MERGE (m)-[:HAS_DECISION]->(d)
+```
+
+#### Create code reference
+
+```cypher
+
+MERGE (ref:CodeRef {project: '{{PROJECT_NAME}}', targetType: 'Class', key: $fqn})
+MERGE (d)-[:REFERS_TO]->(ref)
 ```
 
 ---

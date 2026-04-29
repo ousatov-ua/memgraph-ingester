@@ -43,6 +43,7 @@ public class Const {
     public static final String CYPHER_WIPE_PROJECT_CODE = action("wipe-project-code.cypher");
     public static final String CYPHER_WIPE_PROJECT_MEMORIES =
         action("wipe-project-memories.cypher");
+    public static final String CYPHER_RESOLVE_CODE_REFS = action("resolve-code-refs.cypher");
     public static final String CYPHER_UPSERT_PROJECT = action("upsert-project.cypher");
     public static final String CYPHER_UPSERT_FILE = action("upsert-file.cypher");
     public static final String CYPHER_UPSERT_PACKAGE = action("upsert-package.cypher");

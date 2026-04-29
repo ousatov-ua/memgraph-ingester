@@ -140,6 +140,11 @@ public final class GraphWriter {
     runWithRetry(Cypher.CYPHER_WIPE_PROJECT_MEMORIES, Map.of());
   }
 
+  /** Refreshes {@code :CodeRef} resolution edges to the current project-scoped code graph. */
+  public void resolveCodeRefs() {
+    runWithRetry(Cypher.CYPHER_RESOLVE_CODE_REFS, Map.of());
+  }
+
   /** Creates or refreshes the {@code :Project -> :Code} and {@code :Project -> :Memory} anchors. */
   public void upsertProject(Path sourceRoot) {
     runWithRetry(Cypher.CYPHER_UPSERT_PROJECT, Map.of("sourceRoot", sourceRoot.toString()));

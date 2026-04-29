@@ -125,16 +125,23 @@ public final class IngestionOrchestrator {
     }
     log.info("Found {} Java files. Ingesting with {} thread(s).", files.size(), threads);
 
+    int failures;
     if (threads == 1) {
-      return ingestSequential(files);
+      failures = ingestSequential(files);
     } else {
       try {
-        return ingestParallel(files);
+        failures = ingestParallel(files);
       } catch (InterruptedException e) {
         Thread.currentThread().interrupt();
         throw new ProcessingException("Interrupted during ingestion", e);
       }
     }
+
+    try (Session session = driver.session()) {
+      new GraphWriter(session, project).resolveCodeRefs();
+      log.info("Refreshed :CodeRef resolution edges for '{}'", project);
+    }
+    return failures;
   }
 
   private int ingestSequential(List<Path> files) {

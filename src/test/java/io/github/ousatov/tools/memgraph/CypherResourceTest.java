@@ -41,6 +41,7 @@ class CypherResourceTest {
     assertTrue(schema.contains("CREATE CONSTRAINT ON (q:Question)"));
     assertTrue(schema.contains("CREATE CONSTRAINT ON (risk:Risk)"));
     assertTrue(schema.contains("CREATE CONSTRAINT ON (adr:ADR)"));
+    assertTrue(schema.contains("CREATE CONSTRAINT ON (ref:CodeRef)"));
   }
 
   @Test
@@ -58,6 +59,8 @@ class CypherResourceTest {
     assertTrue(schema.contains("CREATE INDEX ON :Question(status)"));
     assertTrue(schema.contains("CREATE INDEX ON :Risk(status)"));
     assertTrue(schema.contains("CREATE INDEX ON :ADR(status)"));
+    assertTrue(schema.contains("CREATE INDEX ON :CodeRef(targetType)"));
+    assertTrue(schema.contains("CREATE INDEX ON :CodeRef(key)"));
   }
 
   @Test
@@ -74,6 +77,7 @@ class CypherResourceTest {
     assertTrue(cypher.contains("n:Field"));
     assertFalse(cypher.contains("n:Memory"));
     assertFalse(cypher.contains("n:Decision"));
+    assertFalse(cypher.contains("n:CodeRef"));
   }
 
   @Test
@@ -90,7 +94,8 @@ class CypherResourceTest {
     assertTrue(cypher.contains("n:Question"));
     assertTrue(cypher.contains("n:Risk"));
     assertTrue(cypher.contains("n:ADR"));
-    assertFalse(cypher.contains("n:Code"));
+    assertTrue(cypher.contains("n:CodeRef"));
+    assertFalse(cypher.matches("(?s).*\\bn:Code(?!Ref)\\b.*"));
     assertFalse(cypher.contains("n:Class"));
   }
 }

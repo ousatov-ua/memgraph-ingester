@@ -34,8 +34,12 @@ CREATE CONSTRAINT ON (f:Finding)   ASSERT f.id, f.project IS UNIQUE;
 CREATE CONSTRAINT ON (q:Question)  ASSERT q.id, q.project IS UNIQUE;
 CREATE CONSTRAINT ON (risk:Risk)   ASSERT risk.id, risk.project IS UNIQUE;
 CREATE CONSTRAINT ON (adr:ADR)     ASSERT adr.id, adr.project IS UNIQUE;
+CREATE CONSTRAINT ON (ref:CodeRef) ASSERT ref.project, ref.targetType, ref.key IS UNIQUE;
 
 CREATE INDEX ON :Memory(project);
+CREATE INDEX ON :CodeRef(project);
+CREATE INDEX ON :CodeRef(targetType);
+CREATE INDEX ON :CodeRef(key);
 
 CREATE INDEX ON :Decision(project);
 CREATE INDEX ON :Decision(status);
