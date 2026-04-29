@@ -7,9 +7,11 @@ import com.github.javaparser.ast.body.ConstructorDeclaration;
 import com.github.javaparser.ast.body.EnumDeclaration;
 import com.github.javaparser.ast.body.FieldDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
+import com.github.javaparser.ast.body.Parameter;
 import com.github.javaparser.ast.body.RecordDeclaration;
 import com.github.javaparser.ast.expr.MethodCallExpr;
 import com.github.javaparser.ast.nodeTypes.NodeWithAnnotations;
+import com.github.javaparser.ast.nodeTypes.NodeWithImplements;
 import com.github.javaparser.ast.type.ClassOrInterfaceType;
 import com.github.javaparser.resolution.UnsolvedSymbolException;
 import com.github.javaparser.resolution.declarations.ResolvedMethodDeclaration;
@@ -17,6 +19,7 @@ import com.github.javaparser.resolution.declarations.ResolvedTypeDeclaration;
 import com.github.javaparser.resolution.types.ResolvedReferenceType;
 import io.github.ousatov.tools.memgraph.def.Const.Cypher;
 import io.github.ousatov.tools.memgraph.def.Const.Labels;
+import io.github.ousatov.tools.memgraph.def.Const.Params;
 import io.github.ousatov.tools.memgraph.exception.ProcessingException;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -47,6 +50,7 @@ public final class GraphWriter {
   private static final int MAX_RETRY_ATTEMPTS = 8;
   private static final long INITIAL_BACKOFF_MS = 10L;
   private static final long MAX_BACKOFF_MS = 500L;
+  private static final int WIPE_BATCH_SIZE = 10_000;
 
   private final Session session;
   private final String project;
@@ -76,7 +80,7 @@ public final class GraphWriter {
     try {
       ResolvedReferenceType resolved = type.resolve().asReferenceType();
       return resolved.getTypeDeclaration().map(ResolvedTypeDeclaration::getQualifiedName);
-    } catch (UnsolvedSymbolException | UnsupportedOperationException _) {
+    } catch (UnsolvedSymbolException | UnsupportedOperationException | IllegalStateException _) {
       return Optional.empty();
     } catch (RuntimeException e) {
       throw new ProcessingException("Unexpected resolution failure", e);
@@ -129,9 +133,14 @@ public final class GraphWriter {
     }
   }
 
-  /** Deletes the project-scoped {@code :Code} graph while keeping the {@code :Project} anchor. */
+  /** Deletes the project-scoped {@code :Code} graph in batches, keeping the {@code :Project}. */
   public void wipe() {
-    runWithRetry(Cypher.CYPHER_WIPE_PROJECT_CODE, Map.of());
+    long deleted;
+    do {
+      deleted =
+          runCountWithRetry(
+              Cypher.CYPHER_WIPE_PROJECT_CODE_BATCH, "batchSize", WIPE_BATCH_SIZE, "deleted");
+    } while (deleted > 0);
   }
 
   /** Deletes the project-scoped {@code :Memory} graph while keeping the {@code :Project} anchor. */
@@ -141,7 +150,33 @@ public final class GraphWriter {
 
   /** Refreshes {@code :CodeRef} resolution edges to the current project-scoped code graph. */
   public void resolveCodeRefs() {
-    runWithRetry(Cypher.CYPHER_RESOLVE_CODE_REFS, Map.of());
+    runWithRetry(Cypher.CYPHER_RESOLVE_CODE_REFS_CODE, Map.of());
+    runWithRetry(Cypher.CYPHER_RESOLVE_CODE_REFS_PACKAGE, Map.of());
+    runWithRetry(Cypher.CYPHER_RESOLVE_CODE_REFS_FILE, Map.of());
+    runWithRetry(Cypher.CYPHER_RESOLVE_CODE_REFS_CLASS, Map.of());
+    runWithRetry(Cypher.CYPHER_RESOLVE_CODE_REFS_INTERFACE, Map.of());
+    runWithRetry(Cypher.CYPHER_RESOLVE_CODE_REFS_ANNOTATION, Map.of());
+    runWithRetry(Cypher.CYPHER_RESOLVE_CODE_REFS_METHOD, Map.of());
+    runWithRetry(Cypher.CYPHER_RESOLVE_CODE_REFS_FIELD, Map.of());
+  }
+
+  /**
+   * Returns the stored {@code lastModified} epoch-millis for the given file path, or {@code -1} if
+   * the file has no graph node.
+   */
+  public long getFileLastModified(Path file) {
+    Map<String, Object> params = Map.of(Params.PATH, file.toString(), "project", project);
+    try {
+      var result = session.run(Cypher.CYPHER_GET_FILE_LAST_MODIFIED, params);
+      if (!result.hasNext()) {
+        return -1L;
+      }
+      var value = result.single().get("lastModified");
+      return value.isNull() ? -1L : value.asLong();
+    } catch (RuntimeException e) {
+      log.debug("Could not fetch lastModified for {}: {}", file, e.getMessage());
+      return -1L;
+    }
   }
 
   /** Creates or refreshes the {@code :Project -> :Code} and {@code :Project -> :Memory} anchors. */
@@ -159,12 +194,12 @@ public final class GraphWriter {
     }
     runWithRetry(
         Cypher.CYPHER_UPSERT_FILE,
-        Map.of(Labels.PATH, file.toString(), "lastModified", lastModified));
+        Map.of(Params.PATH, file.toString(), "lastModified", lastModified));
   }
 
   /** Upserts a {@code :Package} node and links it to the code anchor. */
   public void upsertPackage(String pkg) {
-    runWithRetry(Cypher.CYPHER_UPSERT_PACKAGE, Map.of(Labels.NAME, pkg));
+    runWithRetry(Cypher.CYPHER_UPSERT_PACKAGE, Map.of(Params.NAME, pkg));
   }
 
   /**
@@ -177,62 +212,75 @@ public final class GraphWriter {
 
   /**
    * Upserts an enum declaration as a {@code :Class} with {@code isEnum = true}, including its
-   * methods and constructors.
+   * fields, methods, constructors, implemented interfaces, and nested types.
    */
   public void upsertEnum(Path file, String pkg, EnumDeclaration decl) {
     String fqn = buildFqn(pkg, decl.getNameAsString());
     runWithRetry(
-        Cypher.CYPHER_UPSERT_TYPE_TEMPLATE.formatted(Labels.CLASS),
+        Cypher.CYPHER_UPSERT_CLASS,
         Map.of(
-            Labels.FQN,
+            Params.FQN,
             fqn,
-            Labels.NAME,
+            Params.NAME,
             decl.getNameAsString(),
-            Labels.PKG,
+            Params.PKG,
             pkg,
-            Labels.PATH,
+            Params.PATH,
             file.toString(),
-            Labels.IS_ABSTRACT,
+            Params.IS_ABSTRACT,
             false,
-            Labels.VISIBILITY,
+            Params.VISIBILITY,
             decl.getAccessSpecifier().asString(),
-            Labels.IS_ENUM,
+            Params.IS_ENUM,
             true,
-            Labels.IS_RECORD,
+            Params.IS_RECORD,
             false));
     upsertAnnotationsByFqn(fqn, decl);
+    upsertImplementedTypes(fqn, decl);
+    decl.getFields().forEach(f -> upsertField(fqn, f));
     decl.getMethods().forEach(m -> upsertMethod(fqn, m));
     decl.getConstructors().forEach(c -> upsertConstructor(fqn, c));
+    decl.getMembers().stream()
+        .filter(ClassOrInterfaceDeclaration.class::isInstance)
+        .map(m -> (ClassOrInterfaceDeclaration) m)
+        .forEach(nested -> upsertTypeInternal(file, pkg, fqn, nested));
   }
 
   /**
    * Upserts a record declaration as a {@code :Class} with {@code isRecord = true}, including its
-   * methods and constructors.
+   * fields, methods, constructors, implemented interfaces, and nested types.
    */
   public void upsertRecord(Path file, String pkg, RecordDeclaration decl) {
     String fqn = buildFqn(pkg, decl.getNameAsString());
     runWithRetry(
-        Cypher.CYPHER_UPSERT_TYPE_TEMPLATE.formatted(Labels.CLASS),
+        Cypher.CYPHER_UPSERT_CLASS,
         Map.of(
-            Labels.FQN,
+            Params.FQN,
             fqn,
-            Labels.NAME,
+            Params.NAME,
             decl.getNameAsString(),
-            Labels.PKG,
+            Params.PKG,
             pkg,
-            Labels.PATH,
+            Params.PATH,
             file.toString(),
-            Labels.IS_ABSTRACT,
+            Params.IS_ABSTRACT,
             false,
-            Labels.VISIBILITY,
+            Params.VISIBILITY,
             decl.getAccessSpecifier().asString(),
-            Labels.IS_ENUM,
+            Params.IS_ENUM,
             false,
-            Labels.IS_RECORD,
+            Params.IS_RECORD,
             true));
     upsertAnnotationsByFqn(fqn, decl);
+    upsertImplementedTypes(fqn, decl);
+    decl.getFields().forEach(f -> upsertField(fqn, f));
+    upsertRecordComponents(fqn, decl);
     decl.getMethods().forEach(m -> upsertMethod(fqn, m));
     decl.getConstructors().forEach(c -> upsertConstructor(fqn, c));
+    decl.getMembers().stream()
+        .filter(ClassOrInterfaceDeclaration.class::isInstance)
+        .map(m -> (ClassOrInterfaceDeclaration) m)
+        .forEach(nested -> upsertTypeInternal(file, pkg, fqn, nested));
   }
 
   /**
@@ -244,15 +292,15 @@ public final class GraphWriter {
     runWithRetry(
         Cypher.CYPHER_UPSERT_ANNOTATION,
         Map.of(
-            Labels.FQN,
+            Params.FQN,
             fqn,
-            Labels.NAME,
+            Params.NAME,
             decl.getNameAsString(),
-            Labels.PKG,
+            Params.PKG,
             pkg,
-            Labels.PATH,
+            Params.PATH,
             file.toString(),
-            Labels.VISIBILITY,
+            Params.VISIBILITY,
             decl.getAccessSpecifier().asString()));
     upsertAnnotationsByFqn(fqn, decl);
   }
@@ -267,23 +315,31 @@ public final class GraphWriter {
   }
 
   /**
-   * Upserts {@code CALLS} edges for all methods and constructors in {@code decl}. Call this after
-   * all structural upserts for the file are complete.
+   * Upserts {@code CALLS} edges for all methods and constructors in {@code decl}, including nested
+   * types. Call this after all structural upserts for the file are complete.
    */
   public void upsertEnumCallEdges(String pkg, EnumDeclaration decl) {
     String fqn = buildFqn(pkg, decl.getNameAsString());
     decl.getMethods().forEach(m -> upsertCallEdges(buildSignature(fqn, m), m));
     decl.getConstructors().forEach(c -> upsertCallEdges(buildConstructorSignature(fqn, c), c));
+    decl.getMembers().stream()
+        .filter(ClassOrInterfaceDeclaration.class::isInstance)
+        .map(m -> (ClassOrInterfaceDeclaration) m)
+        .forEach(nested -> upsertTypeCallEdgesInternal(pkg, fqn, nested));
   }
 
   /**
-   * Upserts {@code CALLS} edges for all methods and constructors in {@code decl}. Call this after
-   * all structural upserts for the file are complete.
+   * Upserts {@code CALLS} edges for all methods and constructors in {@code decl}, including nested
+   * types. Call this after all structural upserts for the file are complete.
    */
   public void upsertRecordCallEdges(String pkg, RecordDeclaration decl) {
     String fqn = buildFqn(pkg, decl.getNameAsString());
     decl.getMethods().forEach(m -> upsertCallEdges(buildSignature(fqn, m), m));
     decl.getConstructors().forEach(c -> upsertCallEdges(buildConstructorSignature(fqn, c), c));
+    decl.getMembers().stream()
+        .filter(ClassOrInterfaceDeclaration.class::isInstance)
+        .map(m -> (ClassOrInterfaceDeclaration) m)
+        .forEach(nested -> upsertTypeCallEdgesInternal(pkg, fqn, nested));
   }
 
   private void upsertTypeCallEdgesInternal(
@@ -302,26 +358,43 @@ public final class GraphWriter {
       Path file, String pkg, String outerFqn, ClassOrInterfaceDeclaration decl) {
     String fqn =
         outerFqn != null ? outerFqn + "$" + decl.getNameAsString() : genDeclName(pkg, decl);
-    String label = decl.isInterface() ? Labels.INTERFACE : Labels.CLASS;
-    runWithRetry(
-        Cypher.CYPHER_UPSERT_TYPE_TEMPLATE.formatted(label),
-        Map.of(
-            Labels.FQN,
-            fqn,
-            Labels.NAME,
-            decl.getNameAsString(),
-            Labels.PKG,
-            pkg,
-            Labels.PATH,
-            file.toString(),
-            Labels.IS_ABSTRACT,
-            decl.isAbstract(),
-            Labels.VISIBILITY,
-            decl.getAccessSpecifier().asString(),
-            Labels.IS_ENUM,
-            false,
-            Labels.IS_RECORD,
-            false));
+    if (decl.isInterface()) {
+      runWithRetry(
+          Cypher.CYPHER_UPSERT_INTERFACE,
+          Map.of(
+              Params.FQN,
+              fqn,
+              Params.NAME,
+              decl.getNameAsString(),
+              Params.PKG,
+              pkg,
+              Params.PATH,
+              file.toString(),
+              Params.IS_ABSTRACT,
+              decl.isAbstract(),
+              Params.VISIBILITY,
+              decl.getAccessSpecifier().asString()));
+    } else {
+      runWithRetry(
+          Cypher.CYPHER_UPSERT_CLASS,
+          Map.of(
+              Params.FQN,
+              fqn,
+              Params.NAME,
+              decl.getNameAsString(),
+              Params.PKG,
+              pkg,
+              Params.PATH,
+              file.toString(),
+              Params.IS_ABSTRACT,
+              decl.isAbstract(),
+              Params.VISIBILITY,
+              decl.getAccessSpecifier().asString(),
+              Params.IS_ENUM,
+              false,
+              Params.IS_RECORD,
+              false));
+    }
     upsertAnnotationsByFqn(fqn, decl);
     upsertInheritance(fqn, decl);
     decl.getFields().forEach(f -> upsertField(fqn, f));
@@ -353,7 +426,7 @@ public final class GraphWriter {
                     ext,
                     parent ->
                         runWithRetry(
-                            extendsCypher, Map.of(Labels.CHILD, fqn, Labels.PARENT, parent))));
+                            extendsCypher, Map.of(Params.CHILD, fqn, Params.PARENT, parent))));
     decl.getImplementedTypes()
         .forEach(
             impl ->
@@ -362,7 +435,43 @@ public final class GraphWriter {
                     iface ->
                         runWithRetry(
                             Cypher.CYPHER_UPSERT_IMPLEMENTS,
-                            Map.of(Labels.CHILD, fqn, Labels.IFACE, iface))));
+                            Map.of(Params.CHILD, fqn, Params.IFACE, iface))));
+  }
+
+  /** Writes {@code IMPLEMENTS} edges for enums and records that implement interfaces. */
+  private void upsertImplementedTypes(String fqn, NodeWithImplements<?> decl) {
+    decl.getImplementedTypes()
+        .forEach(
+            impl ->
+                withResolvedType(
+                    impl,
+                    iface ->
+                        runWithRetry(
+                            Cypher.CYPHER_UPSERT_IMPLEMENTS,
+                            Map.of(Params.CHILD, fqn, Params.IFACE, iface))));
+  }
+
+  /** Upserts record components (parameters) as {@code :Field} nodes. */
+  private void upsertRecordComponents(String ownerFqn, RecordDeclaration decl) {
+    for (Parameter param : decl.getParameters()) {
+      String fqn = ownerFqn + "#" + param.getNameAsString();
+      runWithRetry(
+          Cypher.CYPHER_UPSERT_FIELD,
+          Map.of(
+              Params.FQN,
+              fqn,
+              Params.NAME,
+              param.getNameAsString(),
+              "type",
+              param.getTypeAsString(),
+              Params.IS_STATIC,
+              false,
+              Params.VISIBILITY,
+              "private",
+              Params.OWNER,
+              ownerFqn));
+      upsertAnnotationsByFqn(fqn, param);
+    }
   }
 
   private void upsertField(String ownerFqn, FieldDeclaration field) {
@@ -374,17 +483,17 @@ public final class GraphWriter {
               runWithRetry(
                   Cypher.CYPHER_UPSERT_FIELD,
                   Map.of(
-                      Labels.FQN,
+                      Params.FQN,
                       fqn,
-                      Labels.NAME,
+                      Params.NAME,
                       v.getNameAsString(),
                       "type",
                       v.getTypeAsString(),
-                      Labels.IS_STATIC,
+                      Params.IS_STATIC,
                       field.isStatic(),
-                      Labels.VISIBILITY,
+                      Params.VISIBILITY,
                       field.getAccessSpecifier().asString(),
-                      Labels.OWNER,
+                      Params.OWNER,
                       ownerFqn));
               upsertAnnotationsByFqn(fqn, field);
             });
@@ -395,21 +504,21 @@ public final class GraphWriter {
     runWithRetry(
         Cypher.CYPHER_UPSERT_METHOD,
         Map.of(
-            Labels.SIG,
+            Params.SIG,
             signature,
-            Labels.NAME,
+            Params.NAME,
             method.getNameAsString(),
-            Labels.RET,
+            Params.RET,
             method.getTypeAsString(),
-            Labels.IS_STATIC,
+            Params.IS_STATIC,
             method.isStatic(),
-            Labels.VISIBILITY,
+            Params.VISIBILITY,
             method.getAccessSpecifier().asString(),
-            Labels.START,
+            Params.START,
             method.getBegin().map(p -> p.line).orElse(0),
-            Labels.END,
+            Params.END,
             method.getEnd().map(p -> p.line).orElse(0),
-            Labels.OWNER,
+            Params.OWNER,
             ownerFqn));
     upsertAnnotationsBySig(signature, method);
   }
@@ -419,21 +528,21 @@ public final class GraphWriter {
     runWithRetry(
         Cypher.CYPHER_UPSERT_METHOD,
         Map.of(
-            Labels.SIG,
+            Params.SIG,
             signature,
-            Labels.NAME,
+            Params.NAME,
             Labels.INIT,
-            Labels.RET,
+            Params.RET,
             Labels.VOID,
-            Labels.IS_STATIC,
+            Params.IS_STATIC,
             false,
-            Labels.VISIBILITY,
+            Params.VISIBILITY,
             ctor.getAccessSpecifier().asString(),
-            Labels.START,
+            Params.START,
             ctor.getBegin().map(p -> p.line).orElse(0),
-            Labels.END,
+            Params.END,
             ctor.getEnd().map(p -> p.line).orElse(0),
-            Labels.OWNER,
+            Params.OWNER,
             ownerFqn));
     upsertAnnotationsBySig(signature, ctor);
   }
@@ -454,7 +563,7 @@ public final class GraphWriter {
                       String calleeSig = resolved.getQualifiedSignature();
                       runWithRetry(
                           Cypher.CYPHER_UPSERT_CALL,
-                          Map.of(Labels.CALLER, callerSig, Labels.CALLEE, calleeSig));
+                          Map.of(Params.CALLER, callerSig, Params.CALLEE, calleeSig));
                     }));
   }
 
@@ -464,7 +573,7 @@ public final class GraphWriter {
    * symbol resolver cannot determine the FQN.
    */
   private void upsertAnnotationsByFqn(String ownerFqn, NodeWithAnnotations<?> node) {
-    upsertAnnotations(Labels.OWNER, ownerFqn, node, Cypher.CYPHER_UPSERT_ANNOTATED_WITH_BY_FQN);
+    upsertAnnotations(Params.OWNER, ownerFqn, node, Cypher.CYPHER_UPSERT_ANNOTATED_WITH_BY_FQN);
   }
 
   /**
@@ -473,7 +582,7 @@ public final class GraphWriter {
    * resolver cannot determine the FQN.
    */
   private void upsertAnnotationsBySig(String sig, NodeWithAnnotations<?> node) {
-    upsertAnnotations(Labels.SIG, sig, node, Cypher.CYPHER_UPSERT_ANNOTATED_WITH_BY_SIG);
+    upsertAnnotations(Params.SIG, sig, node, Cypher.CYPHER_UPSERT_ANNOTATED_WITH_BY_SIG);
   }
 
   private void upsertAnnotations(
@@ -489,7 +598,7 @@ public final class GraphWriter {
                   | IllegalStateException _) {
                 annotFqn = ann.getNameAsString();
               }
-              runWithRetry(cypher, Map.of(paramKey, paramValue, Labels.ANNOT_FQN, annotFqn));
+              runWithRetry(cypher, Map.of(paramKey, paramValue, Params.ANNOT_FQN, annotFqn));
             });
   }
 
@@ -529,5 +638,38 @@ public final class GraphWriter {
         log.debug("Conflict on attempt {}; will retry: {}", attempt, e.getMessage());
       }
     }
+  }
+
+  /**
+   * Runs a Cypher query that returns a single numeric result column, with retry-on-conflict.
+   * Auto-injects the {@code project} parameter.
+   */
+  private long runCountWithRetry(
+      String cypher, String extraKey, Object extraValue, String resultKey) {
+    Map<String, Object> allParams = new HashMap<>(Map.of(extraKey, extraValue, "project", project));
+    long backoffMs = INITIAL_BACKOFF_MS;
+    for (int attempt = 1; attempt <= MAX_RETRY_ATTEMPTS; attempt++) {
+      try {
+        return session.run(cypher, allParams).single().get(resultKey).asLong();
+      } catch (RuntimeException e) {
+        if (!isRetryable(e)) {
+          throw e;
+        }
+        if (attempt == MAX_RETRY_ATTEMPTS) {
+          throw new ProcessingException(
+              "Cypher failed after " + MAX_RETRY_ATTEMPTS + " attempts: " + cypher, e);
+        }
+        try {
+          long jitter = (long) (backoffMs * Math.random() * 0.5);
+          Thread.sleep(backoffMs + jitter);
+        } catch (InterruptedException ie) {
+          Thread.currentThread().interrupt();
+          throw new ProcessingException("Interrupted during retry", ie);
+        }
+        backoffMs = Math.min(backoffMs * 2, MAX_BACKOFF_MS);
+        log.debug("Conflict on attempt {}; will retry: {}", attempt, e.getMessage());
+      }
+    }
+    return 0L;
   }
 }

@@ -42,6 +42,7 @@ public final class IngestionOrchestrator {
   private final int threads;
   private final Driver driver;
   private final ParseService parseService;
+  private boolean incremental;
 
   /**
    * @param sourceRoot root directory to walk for {@code .java} files
@@ -95,6 +96,26 @@ public final class IngestionOrchestrator {
       boolean applySchema,
       boolean wipeProjectCode,
       boolean wipeProjectMemories) {
+    return run(wipeAllData, applySchema, wipeProjectCode, wipeProjectMemories, false);
+  }
+
+  /**
+   * Runs the full ingestion and returns the number of files that failed.
+   *
+   * @param wipeAllData if true, deletes all data before ingesting
+   * @param applySchema if true, applies schema first
+   * @param wipeProjectCode if true, deletes this project's code graph before ingesting
+   * @param wipeProjectMemories if true, deletes this project's memory graph before ingesting
+   * @param incremental if true, skips files whose lastModified matches the stored value
+   * @return number of failed files; 0 means complete success
+   */
+  public int run(
+      boolean wipeAllData,
+      boolean applySchema,
+      boolean wipeProjectCode,
+      boolean wipeProjectMemories,
+      boolean incremental) {
+    this.incremental = incremental;
     try (Session bootstrap = driver.session()) {
       GraphWriter bootstrapWriter = new GraphWriter(bootstrap, project);
       if (wipeAllData) {
@@ -230,11 +251,26 @@ public final class IngestionOrchestrator {
   }
 
   /**
-   * Parses and ingests a single file.
+   * Parses and ingests a single file. In incremental mode, skips files whose filesystem {@code
+   * lastModified} matches the value stored in the graph.
    *
-   * @return true on success, false if parsing or graph write fails
+   * @return true on success (or skip), false if parsing or graph write fails
    */
   private boolean ingestFile(GraphWriter writer, Path file) {
+    if (incremental) {
+      long storedModified = writer.getFileLastModified(file);
+      if (storedModified > 0) {
+        try {
+          long fsModified = Files.getLastModifiedTime(file).toMillis();
+          if (fsModified == storedModified) {
+            log.debug("Skipping unchanged file: {}", file);
+            return true;
+          }
+        } catch (IOException _) {
+          // Cannot read mtime — proceed with full ingest.
+        }
+      }
+    }
     var cuOpt = parseService.parse(file);
     if (cuOpt.isEmpty()) {
       return false;

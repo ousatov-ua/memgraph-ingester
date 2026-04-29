@@ -84,6 +84,11 @@ public final class IngesterCli implements Callable<Integer> {
       description = "Wipe all data from Memgraph")
   private boolean wipeAllData;
 
+  @Option(
+      names = {"--incremental"},
+      description = "Skip files whose last-modified timestamp matches the stored value")
+  private boolean incremental;
+
   /** Entry point. */
   public static void main(String[] args) {
     int exit = new CommandLine(new IngesterCli()).execute(args);
@@ -105,7 +110,8 @@ public final class IngesterCli implements Callable<Integer> {
       IngestionOrchestrator orchestrator =
           new IngestionOrchestrator(sourceRoot, project, threads, driver, parseService);
       int failures =
-          orchestrator.run(wipeAllData, applySchema, wipeProjectCode, wipeProjectMemories);
+          orchestrator.run(
+              wipeAllData, applySchema, wipeProjectCode, wipeProjectMemories, incremental);
       if (failures > 0) {
         log.error("Ingestion finished with {} file failure(s).", failures);
         return 2;
