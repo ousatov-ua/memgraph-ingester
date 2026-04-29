@@ -1,6 +1,6 @@
 services:
   memgraph:
-    image: memgraph/memgraph-mage:latest
+    image: memgraph/memgraph-mage:3.9.0
     container_name: memgraph-mage
     pull_policy: always
     ports:
