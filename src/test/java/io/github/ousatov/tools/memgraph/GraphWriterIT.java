@@ -5,7 +5,12 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.github.javaparser.JavaParser;
+import com.github.javaparser.ParserConfiguration;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
+import com.github.javaparser.ast.body.EnumDeclaration;
+import com.github.javaparser.ast.body.RecordDeclaration;
+import com.github.javaparser.symbolsolver.JavaSymbolSolver;
+import com.github.javaparser.symbolsolver.resolution.typesolvers.ReflectionTypeSolver;
 import io.github.ousatov.tools.memgraph.extension.MemgraphExtension;
 import io.github.ousatov.tools.memgraph.extension.MemgraphInstance;
 import java.io.IOException;
@@ -550,6 +555,101 @@ class GraphWriterIT {
     assertEquals(1, memoryCount);
   }
 
+  @Test
+  void upsertEnumCreatesFieldNodes() {
+    writer.upsertFile(TEST_FILE);
+    writer.upsertPackage(PKG);
+    EnumDeclaration decl =
+        parseEnum(
+            "package com.example;"
+                + " public enum Status {"
+                + "   ACTIVE, INACTIVE;"
+                + "   private final String label = \"x\";"
+                + " }");
+
+    writer.upsertEnum(TEST_FILE, PKG, decl);
+
+    List<String> fieldNames =
+        session
+            .run(
+                "MATCH (:Class {fqn: $fqn, project: $p})-[:DECLARES]->(f:Field)"
+                    + " RETURN f.name AS n ORDER BY f.name",
+                Map.of("fqn", "com.example.Status", "p", PROJECT))
+            .list(r -> r.get("n").asString());
+
+    assertEquals(List.of("label"), fieldNames);
+  }
+
+  @Test
+  void upsertEnumWritesImplementsEdge() {
+    writer.upsertFile(TEST_FILE);
+    writer.upsertPackage(PKG);
+    EnumDeclaration decl =
+        parseEnumResolved(
+            "package com.example;"
+                + " public enum Status implements java.io.Serializable {"
+                + "   ACTIVE, INACTIVE;"
+                + " }");
+
+    writer.upsertEnum(TEST_FILE, PKG, decl);
+
+    long count =
+        session
+            .run(
+                "MATCH (:Class {fqn: $fqn, project: $p})-[:IMPLEMENTS]->(i:Interface)"
+                    + " RETURN count(i) AS n",
+                Map.of("fqn", "com.example.Status", "p", PROJECT))
+            .single()
+            .get("n")
+            .asLong();
+
+    assertEquals(1, count);
+  }
+
+  @Test
+  void upsertRecordCreatesFieldNodes() {
+    writer.upsertFile(TEST_FILE);
+    writer.upsertPackage(PKG);
+    RecordDeclaration decl =
+        parseRecord("package com.example;" + " public record Point(int x, int y) {}");
+
+    writer.upsertRecord(TEST_FILE, PKG, decl);
+
+    List<String> fieldNames =
+        session
+            .run(
+                "MATCH (:Class {fqn: $fqn, project: $p})-[:DECLARES]->(f:Field)"
+                    + " RETURN f.name AS n ORDER BY f.name",
+                Map.of("fqn", "com.example.Point", "p", PROJECT))
+            .list(r -> r.get("n").asString());
+
+    assertEquals(List.of("x", "y"), fieldNames);
+  }
+
+  @Test
+  void upsertRecordWritesImplementsEdge() {
+    writer.upsertFile(TEST_FILE);
+    writer.upsertPackage(PKG);
+    RecordDeclaration decl =
+        parseRecordResolved(
+            "package com.example;"
+                + " public record Point(int x, int y) implements java.io.Serializable {}");
+
+    writer.upsertRecord(TEST_FILE, PKG, decl);
+
+    long count =
+        session
+            .run(
+                "MATCH (:Class {fqn: $fqn, project: $p})-[:IMPLEMENTS]->(i:Interface)"
+                    + " RETURN count(i) AS n",
+                Map.of("fqn", "com.example.Point", "p", PROJECT))
+            .single()
+            .get("n")
+            .asLong();
+
+    assertEquals(1, count);
+  }
+
   private static ClassOrInterfaceDeclaration parseDecl(String src) {
     return new JavaParser()
         .parse(src)
@@ -557,5 +657,48 @@ class GraphWriterIT {
         .flatMap(cu -> cu.findFirst(ClassOrInterfaceDeclaration.class))
         .orElseThrow(
             () -> new IllegalArgumentException("Could not parse declaration from: " + src));
+  }
+
+  private static EnumDeclaration parseEnum(String src) {
+    return new JavaParser()
+        .parse(src)
+        .getResult()
+        .flatMap(cu -> cu.findFirst(EnumDeclaration.class))
+        .orElseThrow(
+            () -> new IllegalArgumentException("Could not parse enum declaration from: " + src));
+  }
+
+  private static RecordDeclaration parseRecord(String src) {
+    return new JavaParser()
+        .parse(src)
+        .getResult()
+        .flatMap(cu -> cu.findFirst(RecordDeclaration.class))
+        .orElseThrow(
+            () -> new IllegalArgumentException("Could not parse record declaration from: " + src));
+  }
+
+  private static JavaParser resolvingParser() {
+    ParserConfiguration config = new ParserConfiguration();
+    config.setLanguageLevel(ParserConfiguration.LanguageLevel.JAVA_17);
+    config.setSymbolResolver(new JavaSymbolSolver(new ReflectionTypeSolver()));
+    return new JavaParser(config);
+  }
+
+  private static EnumDeclaration parseEnumResolved(String src) {
+    return resolvingParser()
+        .parse(src)
+        .getResult()
+        .flatMap(cu -> cu.findFirst(EnumDeclaration.class))
+        .orElseThrow(
+            () -> new IllegalArgumentException("Could not parse enum declaration from: " + src));
+  }
+
+  private static RecordDeclaration parseRecordResolved(String src) {
+    return resolvingParser()
+        .parse(src)
+        .getResult()
+        .flatMap(cu -> cu.findFirst(RecordDeclaration.class))
+        .orElseThrow(
+            () -> new IllegalArgumentException("Could not parse record declaration from: " + src));
   }
 }

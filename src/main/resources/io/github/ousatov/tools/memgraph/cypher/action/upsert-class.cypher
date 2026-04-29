@@ -1,4 +1,4 @@
-MERGE (t:%s {fqn: $fqn, project: $project})
+MERGE (t:Class {fqn: $fqn, project: $project})
   SET t.name = $name,
       t.packageName = $pkg,
       t.isAbstract = $isAbstract,

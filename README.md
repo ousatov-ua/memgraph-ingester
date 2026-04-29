@@ -212,6 +212,7 @@ You should see your project with a fresh `lastIngested` timestamp.
 | `--wipe-project-memories` | no    | no       | false   | Delete this project's memory graph before ingesting                  |
 | `--apply-schema`          | no    | no       | false   | Apply schema before ingesting                                        |
 | `--wipe-all`              | no    | no       | false   | Wipe all data (schema will be dropped first)                         |
+| `--incremental`           | no    | no       | false   | Skip files whose last-modified timestamp matches the stored value    |
 
 `--wipe-project-code` only affects code nodes matching the given `--project`; other codebases in the
 same Memgraph instance are untouched, and the `:Project` anchor remains.
@@ -489,6 +490,17 @@ java -jar target/memgraph-ingester.jar \
   --bolt bolt://localhost:7687 \
   --project my-project \
   --wipe-project-code
+```
+
+For faster re-runs, use `--incremental` to skip files that haven't changed since the last ingestion
+(compared by filesystem `lastModified` timestamp):
+
+```bash
+java -jar target/memgraph-ingester.jar \
+  --source /path/to/your/java/project/src/main/java \
+  --bolt bolt://localhost:7687 \
+  --project my-project \
+  --incremental
 ```
 
 Check freshness anytime:

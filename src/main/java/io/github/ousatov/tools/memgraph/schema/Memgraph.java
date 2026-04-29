@@ -4,6 +4,8 @@ import io.github.ousatov.tools.memgraph.exception.ProcessingException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
 import org.neo4j.driver.Session;
 
 /**
@@ -46,11 +48,32 @@ public final class Memgraph {
   }
 
   private static void applyTo(String cypher, Session session) {
-    for (String stmt : cypher.split(";\\s*\\n")) {
-      if (!stmt.isBlank()) {
-        session.run(stmt);
+    for (String stmt : splitStatements(cypher)) {
+      session.run(stmt);
+    }
+  }
+
+  /**
+   * Splits a multi-statement Cypher file on semicolons, strips comment lines, and returns only
+   * non-blank statements.
+   */
+  static List<String> splitStatements(String cypher) {
+    List<String> result = new ArrayList<>();
+    for (String raw : cypher.split(";[ \\t]*(?:\\r?\\n|$)")) {
+      StringBuilder cleaned = new StringBuilder();
+      for (String line : raw.split("\\r?\\n")) {
+        if (!line.stripLeading().startsWith("//")) {
+          if (!cleaned.isEmpty()) {
+            cleaned.append('\n');
+          }
+          cleaned.append(line);
+        }
+      }
+      if (!cleaned.isEmpty() && !cleaned.toString().isBlank()) {
+        result.add(cleaned.toString().strip());
       }
     }
+    return result;
   }
 
   /**

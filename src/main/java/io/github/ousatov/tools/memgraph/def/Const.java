@@ -41,18 +41,37 @@ public final class Const {
         action("upsert-annotated-with-by-sig.cypher");
 
     public static final String CYPHER_WIPE_PROJECT_CODE = action("wipe-project-code.cypher");
+    public static final String CYPHER_WIPE_PROJECT_CODE_BATCH =
+        action("wipe-project-code-batch.cypher");
+    public static final String CYPHER_GET_FILE_LAST_MODIFIED =
+        action("get-file-last-modified.cypher");
     public static final String CYPHER_WIPE_PROJECT_MEMORIES =
         action("wipe-project-memories.cypher");
-    public static final String CYPHER_RESOLVE_CODE_REFS = action("resolve-code-refs.cypher");
+    public static final String CYPHER_RESOLVE_CODE_REFS_CODE =
+        action("resolve-code-refs-code.cypher");
+    public static final String CYPHER_RESOLVE_CODE_REFS_PACKAGE =
+        action("resolve-code-refs-package.cypher");
+    public static final String CYPHER_RESOLVE_CODE_REFS_FILE =
+        action("resolve-code-refs-file.cypher");
+    public static final String CYPHER_RESOLVE_CODE_REFS_CLASS =
+        action("resolve-code-refs-class.cypher");
+    public static final String CYPHER_RESOLVE_CODE_REFS_INTERFACE =
+        action("resolve-code-refs-interface.cypher");
+    public static final String CYPHER_RESOLVE_CODE_REFS_ANNOTATION =
+        action("resolve-code-refs-annotation.cypher");
+    public static final String CYPHER_RESOLVE_CODE_REFS_METHOD =
+        action("resolve-code-refs-method.cypher");
+    public static final String CYPHER_RESOLVE_CODE_REFS_FIELD =
+        action("resolve-code-refs-field.cypher");
     public static final String CYPHER_UPSERT_PROJECT = action("upsert-project.cypher");
     public static final String CYPHER_UPSERT_FILE = action("upsert-file.cypher");
     public static final String CYPHER_UPSERT_PACKAGE = action("upsert-package.cypher");
 
-    /**
-     * Template for class/interface upsert — {@code %s} is replaced with {@code Class} or {@code
-     * Interface} at call time.
-     */
-    public static final String CYPHER_UPSERT_TYPE_TEMPLATE = action("upsert-type-template.cypher");
+    /** Upserts a class (including enums and records) as a {@code :Class} node. */
+    public static final String CYPHER_UPSERT_CLASS = action("upsert-class.cypher");
+
+    /** Upserts an interface as an {@code :Interface} node. */
+    public static final String CYPHER_UPSERT_INTERFACE = action("upsert-interface.cypher");
 
     public static final String CYPHER_UPSERT_EXTENDS = action("upsert-extends.cypher");
 
@@ -89,13 +108,27 @@ public final class Const {
     }
   }
 
+  /** Graph node label constants. */
   public static class Labels {
+
+    public static final String CLASS = "Class";
+    public static final String INTERFACE = "Interface";
+    public static final String INIT = "<init>";
+    public static final String VOID = "void";
+
+    private Labels() {
+
+      // Empty
+    }
+  }
+
+  /** Cypher parameter name constants. */
+  public static class Params {
 
     public static final String CALLER = "caller";
     public static final String CALLEE = "callee";
     public static final String FQN = "fqn";
     public static final String NAME = "name";
-    public static final String CLASS = "Class";
     public static final String ANNOT_FQN = "annotFqn";
     public static final String PKG = "pkg";
     public static final String PATH = "path";
@@ -112,11 +145,8 @@ public final class Const {
     public static final String RET = "ret";
     public static final String START = "start";
     public static final String END = "end";
-    public static final String INIT = "<init>";
-    public static final String VOID = "void";
-    public static final String INTERFACE = "Interface";
 
-    private Labels() {
+    private Params() {
 
       // Empty
     }
