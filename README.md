@@ -66,9 +66,9 @@ docker run -p 7687:7687 -p 7444:7444 --name memgraph memgraph/memgraph-mage:3.9.
 ```
 - Ingest the project
 ```bash
-cd $your_project
+cd /path/to/your/java/project
 java -jar path/to/memgraph-ingester.jar \
-  --source /path/to/your/java/project/src/main/java \
+  --source path/to/src \
   --bolt bolt://localhost:7687 \
   --project my-project \
   --wipe-project-code \
