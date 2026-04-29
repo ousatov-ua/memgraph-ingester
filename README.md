@@ -246,6 +246,27 @@ curl -s https://raw.githubusercontent.com/ousatov-ua/memgraph-ingester/refs/head
 
 Commit the updated `AGENTS.md`. Codex reads it on every session start.
 
+#### GEMINI
+
+Use the bundled [`init-memgraph-gemini.sh`](script/init-memgraph-gemini.sh) script, which fetches
+the template, substitutes the
+project name, and appends the result to the local `AGENTS.md`
+
+Run it from inside the repo you just ingested:
+
+```bash
+# Point at the script in your local checkout
+/path/to/memgraph-ingester/script/init-memgraph-gemini.sh my-project
+```
+
+Or fetch-and-run straight from GitHub:
+
+```bash
+curl -s https://raw.githubusercontent.com/ousatov-ua/memgraph-ingester/refs/heads/main/script/init-memgraph-gemini.sh \
+  | bash -s -- my-project
+```
+
+
 ### MCP server setup
 
 #### CLAUDE
@@ -315,6 +336,38 @@ Verify it's registered:
 
 ```bash
 codex mcp list
+```
+
+#### GEMINI
+
+Codex needs the Memgraph MCP server to actually run queries. Minimal project-scoped config in
+`~/.gemini/settings.json`:
+
+```json
+{
+  "mcpServers": {
+    "mcp-memgraph": {
+      "command": "uvx",
+      "args": [
+        "mcp-memgraph"
+      ],
+      "env": {
+        "MEMGRAPH_URL": "bolt://localhost:7687"
+      },
+      "timeout": 5000,
+      "trust": true
+    }
+  }
+}
+```
+The example is read-only. To let an agent create or update Memory nodes, use a writable MCP
+connection, for example, by setting `MCP_READ_ONLY = "false"` and keeping `run_query` approval
+enabled.
+
+Verify it's registered:
+
+```bash
+gemini mcp list
 ```
 
 ## Re-ingesting after code changes
