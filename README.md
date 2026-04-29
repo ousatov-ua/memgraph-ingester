@@ -353,7 +353,7 @@ Commit the updated `AGENTS.md`. GitHub Copilot reads it on every session start.
 #### CLAUDE
 
 Claude Code needs the Memgraph MCP server to actually run queries. Minimal project-scoped config in
-`.mcp.json`:
+`.claude.json` for the target project:
 
 ```json
 {
@@ -365,7 +365,7 @@ Claude Code needs the Memgraph MCP server to actually run queries. Minimal proje
       ],
       "env": {
         "MEMGRAPH_URL": "bolt://localhost:7687",
-        "MCP_READ_ONLY": "true"
+        "MCP_READ_ONLY": "false"
       }
     }
   }
@@ -614,14 +614,34 @@ java -jar memgraph-ingester.jar \
 
 ```
 .
-├── src/main/java/                          # Ingester source (IngesterCli + support)
-├── src/main/resources/io/github/ousatov/tools/memgraph/cypher/schema # Memgraph cypher
-├── scripts/
-│   └── init-memgraph-claude.sh             # Helper: appends Memgraph section to a repo's CLAUDE.md
+├── src/main/java/io/github/ousatov/tools/memgraph/
+│   ├── IngesterCli.java                    # CLI entry point (picocli Callable)
+│   ├── IngestionOrchestrator.java          # Orchestrates sequential / parallel ingestion
+│   ├── ParseService.java                   # JavaParser + symbol resolution
+│   ├── GraphWriter.java                    # Cypher MERGE writes to Memgraph
+│   ├── def/Const.java                      # Shared constants
+│   ├── exception/ProcessingException.java  # Checked processing error
+│   └── schema/Memgraph.java               # Schema loader (create / drop / wipe)
+├── src/main/resources/io/github/ousatov/tools/memgraph/cypher/
+│   ├── action/                             # Per-operation Cypher templates (upsert, wipe, resolve)
+│   ├── create-schema.cypher                # Uniqueness constraints + indexes
+│   ├── drop-schema.cypher                  # Schema teardown
+│   └── wipe-all-data.cypher               # Full data wipe
+├── src/test/java/                          # Unit + integration tests (JUnit 5, Testcontainers)
 ├── schema/
 │   └── SCHEMA.md                           # Graph model reference (human-readable)
+├── script/
+│   ├── init-memgraph-claude.sh             # Appends Memgraph section to a repo's CLAUDE.md
+│   ├── init-memgraph-codex.sh              # Appends Memgraph section to a repo's AGENTS.md (Codex)
+│   ├── init-memgraph-gemini.sh             # Appends Memgraph section to a repo's AGENTS.md (Gemini)
+│   └── init-memgraph-github.sh             # Appends Memgraph section to a repo's AGENTS.md (Copilot)
 ├── template/
-│   └── CLAUDE-memgraph-template.md         # Template appended to project CLAUDE.md files
+│   ├── CLAUDE-memgraph-template.md         # Template for CLAUDE.md injection
+│   ├── CODEX-memgraph-template.md          # Template for Codex AGENTS.md injection
+│   ├── GEMINI-memgraph-template.md         # Template for Gemini AGENTS.md injection
+│   └── GITHUB-memgraph-template.md         # Template for Copilot AGENTS.md injection
+├── memgraph-platform/
+│   └── docker-compose.yml                  # Memgraph + Lab (with UI)
 ├── pom.xml                                 # Maven build (shaded fat JAR, spotless-enforced)
 └── README.md
 ```
