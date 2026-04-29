@@ -26,6 +26,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.Consumer;
+import java.util.stream.Collectors;
 import org.neo4j.driver.Session;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -94,8 +95,7 @@ public final class GraphWriter {
       String params =
           m.getParameters().stream()
               .map(p -> p.getType().asString())
-              .reduce((a, b) -> a + ", " + b)
-              .orElse("");
+              .collect(Collectors.joining(", "));
       return ownerFqn + "." + m.getNameAsString() + "(" + params + ")";
     }
   }
@@ -115,8 +115,7 @@ public final class GraphWriter {
       String params =
           ctor.getParameters().stream()
               .map(p -> p.getType().asString())
-              .reduce((a, b) -> a + ", " + b)
-              .orElse("");
+              .collect(Collectors.joining(", "));
       return ownerFqn + "." + Labels.INIT + "(" + params + ")";
     }
   }
@@ -181,7 +180,7 @@ public final class GraphWriter {
    * methods and constructors.
    */
   public void upsertEnum(Path file, String pkg, EnumDeclaration decl) {
-    String fqn = pkg.isEmpty() ? decl.getNameAsString() : pkg + "." + decl.getNameAsString();
+    String fqn = buildFqn(pkg, decl.getNameAsString());
     runWithRetry(
         Cypher.CYPHER_UPSERT_TYPE_TEMPLATE.formatted(Labels.CLASS),
         Map.of(
@@ -211,7 +210,7 @@ public final class GraphWriter {
    * methods and constructors.
    */
   public void upsertRecord(Path file, String pkg, RecordDeclaration decl) {
-    String fqn = pkg.isEmpty() ? decl.getNameAsString() : pkg + "." + decl.getNameAsString();
+    String fqn = buildFqn(pkg, decl.getNameAsString());
     runWithRetry(
         Cypher.CYPHER_UPSERT_TYPE_TEMPLATE.formatted(Labels.CLASS),
         Map.of(
@@ -241,7 +240,7 @@ public final class GraphWriter {
    * ANNOTATED_WITH} edges for any meta-annotations applied to it.
    */
   public void upsertAnnotation(Path file, String pkg, AnnotationDeclaration decl) {
-    String fqn = pkg.isEmpty() ? decl.getNameAsString() : pkg + "." + decl.getNameAsString();
+    String fqn = buildFqn(pkg, decl.getNameAsString());
     runWithRetry(
         Cypher.CYPHER_UPSERT_ANNOTATION,
         Map.of(
@@ -272,7 +271,7 @@ public final class GraphWriter {
    * all structural upserts for the file are complete.
    */
   public void upsertEnumCallEdges(String pkg, EnumDeclaration decl) {
-    String fqn = pkg.isEmpty() ? decl.getNameAsString() : pkg + "." + decl.getNameAsString();
+    String fqn = buildFqn(pkg, decl.getNameAsString());
     decl.getMethods().forEach(m -> upsertCallEdges(buildSignature(fqn, m), m));
     decl.getConstructors().forEach(c -> upsertCallEdges(buildConstructorSignature(fqn, c), c));
   }
@@ -282,7 +281,7 @@ public final class GraphWriter {
    * all structural upserts for the file are complete.
    */
   public void upsertRecordCallEdges(String pkg, RecordDeclaration decl) {
-    String fqn = pkg.isEmpty() ? decl.getNameAsString() : pkg + "." + decl.getNameAsString();
+    String fqn = buildFqn(pkg, decl.getNameAsString());
     decl.getMethods().forEach(m -> upsertCallEdges(buildSignature(fqn, m), m));
     decl.getConstructors().forEach(c -> upsertCallEdges(buildConstructorSignature(fqn, c), c));
   }
@@ -335,8 +334,13 @@ public final class GraphWriter {
         .forEach(nested -> upsertTypeInternal(file, pkg, fqn, nested));
   }
 
+  /** Constructs a fully qualified name from {@code pkg} and {@code simpleName}. */
+  private static String buildFqn(String pkg, String simpleName) {
+    return pkg.isEmpty() ? simpleName : pkg + "." + simpleName;
+  }
+
   private String genDeclName(String pkg, ClassOrInterfaceDeclaration decl) {
-    return pkg.isEmpty() ? decl.getNameAsString() : pkg + "." + decl.getNameAsString();
+    return buildFqn(pkg, decl.getNameAsString());
   }
 
   private void upsertInheritance(String fqn, ClassOrInterfaceDeclaration decl) {
@@ -460,21 +464,7 @@ public final class GraphWriter {
    * symbol resolver cannot determine the FQN.
    */
   private void upsertAnnotationsByFqn(String ownerFqn, NodeWithAnnotations<?> node) {
-    node.getAnnotations()
-        .forEach(
-            ann -> {
-              String annotFqn;
-              try {
-                annotFqn = ann.resolve().getQualifiedName();
-              } catch (UnsolvedSymbolException
-                  | UnsupportedOperationException
-                  | IllegalStateException _) {
-                annotFqn = ann.getNameAsString();
-              }
-              runWithRetry(
-                  Cypher.CYPHER_UPSERT_ANNOTATED_WITH_BY_FQN,
-                  Map.of(Labels.OWNER, ownerFqn, Labels.ANNOT_FQN, annotFqn));
-            });
+    upsertAnnotations(Labels.OWNER, ownerFqn, node, Cypher.CYPHER_UPSERT_ANNOTATED_WITH_BY_FQN);
   }
 
   /**
@@ -483,6 +473,11 @@ public final class GraphWriter {
    * resolver cannot determine the FQN.
    */
   private void upsertAnnotationsBySig(String sig, NodeWithAnnotations<?> node) {
+    upsertAnnotations(Labels.SIG, sig, node, Cypher.CYPHER_UPSERT_ANNOTATED_WITH_BY_SIG);
+  }
+
+  private void upsertAnnotations(
+      String paramKey, String paramValue, NodeWithAnnotations<?> node, String cypher) {
     node.getAnnotations()
         .forEach(
             ann -> {
@@ -494,9 +489,7 @@ public final class GraphWriter {
                   | IllegalStateException _) {
                 annotFqn = ann.getNameAsString();
               }
-              runWithRetry(
-                  Cypher.CYPHER_UPSERT_ANNOTATED_WITH_BY_SIG,
-                  Map.of(Labels.SIG, sig, Labels.ANNOT_FQN, annotFqn));
+              runWithRetry(cypher, Map.of(paramKey, paramValue, Labels.ANNOT_FQN, annotFqn));
             });
   }
 
@@ -518,12 +511,12 @@ public final class GraphWriter {
         session.run(cypher, allParams).consume();
         return;
       } catch (RuntimeException e) {
-        if (!isRetryable(e) || attempt == MAX_RETRY_ATTEMPTS) {
-          if (isRetryable(e)) {
-            throw new ProcessingException(
-                "Cypher failed after " + MAX_RETRY_ATTEMPTS + " attempts: " + cypher, e);
-          }
+        if (!isRetryable(e)) {
           throw e;
+        }
+        if (attempt == MAX_RETRY_ATTEMPTS) {
+          throw new ProcessingException(
+              "Cypher failed after " + MAX_RETRY_ATTEMPTS + " attempts: " + cypher, e);
         }
         try {
           long jitter = (long) (backoffMs * Math.random() * 0.5);

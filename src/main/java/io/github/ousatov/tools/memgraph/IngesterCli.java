@@ -85,7 +85,7 @@ public final class IngesterCli implements Callable<Integer> {
   private boolean wipeAllData;
 
   /** Entry point. */
-  static void main(String[] args) {
+  public static void main(String[] args) {
     int exit = new CommandLine(new IngesterCli()).execute(args);
     System.exit(exit);
   }
