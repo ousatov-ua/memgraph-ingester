@@ -69,9 +69,15 @@ See [`SCHEMA.md`](schema/SCHEMA.md) for the full graph model.
 
 ### 1. Start Memgraph
 
+- With UI:
 ```bash
 cd memgraph-platform
 docker-compose up -d
+```
+- No UI
+
+```bash
+docker run -p 7687:7687 -p 7444:7444 --name memgraph memgraph/memgraph-mage:latest
 ```
 
 Bolt listens on `localhost:7687`.
