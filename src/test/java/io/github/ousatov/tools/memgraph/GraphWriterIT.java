@@ -70,7 +70,7 @@ class GraphWriterIT {
   }
 
   @Test
-  void upsertProjectCreatesProjectNode() {
+  void upsertProjectCreatesProjectCodeAndMemoryNodes() {
     long count =
         session
             .run("MATCH (p:Project {name: $name}) RETURN count(p) AS n", Map.of("name", PROJECT))
@@ -79,6 +79,30 @@ class GraphWriterIT {
             .asLong();
 
     assertEquals(1, count);
+
+    long codeCount =
+        session
+            .run(
+                "MATCH (:Project {name: $name})-[:CONTAINS]->(c:Code {project: $name})"
+                    + " RETURN count(c) AS n",
+                Map.of("name", PROJECT))
+            .single()
+            .get("n")
+            .asLong();
+
+    assertEquals(1, codeCount);
+
+    long memoryCount =
+        session
+            .run(
+                "MATCH (:Project {name: $name})-[:HAS_MEMORY]->(m:Memory {project: $name})"
+                    + " RETURN count(m) AS n",
+                Map.of("name", PROJECT))
+            .single()
+            .get("n")
+            .asLong();
+
+    assertEquals(1, memoryCount);
   }
 
   @Test
@@ -94,6 +118,36 @@ class GraphWriterIT {
             .asLong();
 
     assertEquals(1, count);
+
+    long codeCount =
+        session
+            .run("MATCH (c:Code {project: $name}) RETURN count(c) AS n", Map.of("name", PROJECT))
+            .single()
+            .get("n")
+            .asLong();
+
+    assertEquals(1, codeCount);
+
+    long memoryCount =
+        session
+            .run("MATCH (m:Memory {project: $name}) RETURN count(m) AS n", Map.of("name", PROJECT))
+            .single()
+            .get("n")
+            .asLong();
+
+    assertEquals(1, memoryCount);
+
+    long memoryLinkCount =
+        session
+            .run(
+                "MATCH (:Project {name: $name})-[r:HAS_MEMORY]->(:Memory {project: $name})"
+                    + " RETURN count(r) AS n",
+                Map.of("name", PROJECT))
+            .single()
+            .get("n")
+            .asLong();
+
+    assertEquals(1, memoryLinkCount);
   }
 
   @Test
@@ -103,7 +157,8 @@ class GraphWriterIT {
     long count =
         session
             .run(
-                "MATCH (:Project {name: $p})-[:CONTAINS]->(f:File {path: $path})"
+                "MATCH (:Project {name: $p})-[:CONTAINS]->(:Code)-[:CONTAINS]->"
+                    + "(f:File {path: $path})"
                     + " RETURN count(f) AS n",
                 Map.of("p", PROJECT, "path", TEST_FILE.toString()))
             .single()
@@ -156,7 +211,8 @@ class GraphWriterIT {
     long count =
         session
             .run(
-                "MATCH (:Project {name: $p})-[:CONTAINS]->(pkg:Package {name: $name})"
+                "MATCH (:Project {name: $p})-[:CONTAINS]->(:Code)-[:CONTAINS]->"
+                    + "(pkg:Package {name: $name})"
                     + " RETURN count(pkg) AS n",
                 Map.of("p", PROJECT, "name", PKG))
             .single()
@@ -434,20 +490,64 @@ class GraphWriterIT {
   }
 
   @Test
-  void wipeDeletesAllProjectScopedNodes() {
+  void wipeDeletesOnlyProjectCodeNodes() {
     writer.upsertFile(TEST_FILE);
     writer.upsertPackage(PKG);
+    session
+        .run(
+            "MATCH (m:Memory {project: $p})"
+                + " MERGE (d:Decision {id: 'DEC-test-preserved', project: $p})"
+                + " SET d.status = 'accepted', d.title = 'Preserved decision'"
+                + " MERGE (m)-[:HAS_DECISION]->(d)",
+            Map.of("p", PROJECT))
+        .consume();
 
     writer.wipe();
 
-    long count =
+    long codeCount =
         session
             .run("MATCH (n) WHERE n.project = $p RETURN count(n) AS n", Map.of("p", PROJECT))
             .single()
             .get("n")
             .asLong();
 
-    assertEquals(0, count);
+    assertEquals(2, codeCount);
+
+    long remainingCodeCount =
+        session
+            .run(
+                "MATCH (n) WHERE n.project = $p"
+                    + " AND (n:Code OR n:Package OR n:File OR n:Class OR n:Interface"
+                    + " OR n:Annotation OR n:Method OR n:Field)"
+                    + " RETURN count(n) AS n",
+                Map.of("p", PROJECT))
+            .single()
+            .get("n")
+            .asLong();
+
+    assertEquals(0, remainingCodeCount);
+
+    long projectCount =
+        session
+            .run("MATCH (p:Project {name: $p}) RETURN count(p) AS n", Map.of("p", PROJECT))
+            .single()
+            .get("n")
+            .asLong();
+
+    assertEquals(1, projectCount);
+
+    long memoryCount =
+        session
+            .run(
+                "MATCH (:Project {name: $p})-[:HAS_MEMORY]->(:Memory {project: $p})"
+                    + "-[:HAS_DECISION]->(:Decision {id: 'DEC-test-preserved', project: $p})"
+                    + " RETURN count(*) AS n",
+                Map.of("p", PROJECT))
+            .single()
+            .get("n")
+            .asLong();
+
+    assertEquals(1, memoryCount);
   }
 
   private static ClassOrInterfaceDeclaration parseDecl(String src) {

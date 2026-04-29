@@ -40,8 +40,9 @@ public class Const {
     public static final String CYPHER_UPSERT_ANNOTATED_WITH_BY_SIG =
         action("upsert-annotated-with-by-sig.cypher");
 
-    public static final String CYPHER_WIPE_NODES = action("wipe-nodes.cypher");
-    public static final String CYPHER_WIPE_PROJECT = action("wipe-project.cypher");
+    public static final String CYPHER_WIPE_PROJECT_CODE = action("wipe-project-code.cypher");
+    public static final String CYPHER_WIPE_PROJECT_MEMORIES =
+        action("wipe-project-memories.cypher");
     public static final String CYPHER_UPSERT_PROJECT = action("upsert-project.cypher");
     public static final String CYPHER_UPSERT_FILE = action("upsert-file.cypher");
     public static final String CYPHER_UPSERT_PACKAGE = action("upsert-package.cypher");
