@@ -56,7 +56,7 @@ See [`SCHEMA.md`](schema/SCHEMA.md) for the full graph model.
 
 ## Quick start
 
-- Download the latest jar (v5.0.21 the latest for now)
+- Download the latest jar (v5.1.1 the latest for now)
 ```bash
 wget https://github.com/ousatov-ua/memgraph-ingester/releases/download/v5.1.1/memgraph-ingester.jar
 ```
