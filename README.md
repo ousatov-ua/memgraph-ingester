@@ -23,15 +23,18 @@ Please submit any issues or pull requests.
 
 ## What it does
 
-Walks a Java source tree, parses each file
-with [JavaParser](https://github.com/javaparser/javaparser) (with symbol resolution), and writes a
+Walks a Java source tree and parses each file
+with [JavaParser](https://github.com/javaparser/javaparser) (with symbol resolution), building a
 graph of packages, files, classes, interfaces, annotations, methods, fields, inheritance, and call
-relationships. Every code graph is scoped by a `project` property and anchored under
-`:Project -> :Code`, so **multiple codebases can share one Memgraph instance** without collisions.
+relationships.
 
-The schema also includes an optional project-scoped **Memory** graph for durable agent context:
-decisions, ADRs, rules, findings, tasks, risks, questions, ideas, and supporting context can be
-stored under `:Project -> :Memory` and linked back to concrete code nodes.
+Each code graph is scoped by a `project` property and anchored under `:Project -> :Code`, allowing
+**multiple codebases to coexist in a single Memgraph instance** without collisions.
+
+In addition, the schema includes a project-scoped **Memory graph** (`:Project -> :Memory`) for
+persistent engineering context. It stores decisions, ADRs, rules, findings, tasks, risks, questions,
+ideas, and domain context, all linked back to relevant code nodes. This enables graph-based reasoning
+over both **structure (code)** and **knowledge (memory)**.
 
 See [`SCHEMA.md`](schema/SCHEMA.md) for the full graph model.
 
@@ -39,18 +42,16 @@ See [`SCHEMA.md`](schema/SCHEMA.md) for the full graph model.
 
 - **Java 25** to build and run
 - **Maven 3.9+**
-- A running **Memgraph** instance (local Docker works fine)
+- A running **Memgraph** instance (Docker is sufficient)
 - Optional: `mgconsole` for applying the schema
-- Optional: you can use the code from this repo by including it as a Maven dependency:
+
+### Maven dependency (optional)
 
 ```xml
-
 <dependency>
   <groupId>io.github.ousatov-ua</groupId>
   <artifactId>memgraph-ingester</artifactId>
-  <version>
-    <<!-- see latest on Maven Central -->
-  </version>
+  <version><!-- see latest on Maven Central --></version>
 </dependency>
 ```
 
