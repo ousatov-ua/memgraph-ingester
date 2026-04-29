@@ -23,19 +23,27 @@ Please submit any issues or pull requests.
 
 ## What it does
 
-Walks a Java source tree and parses each file
-with [JavaParser](https://github.com/javaparser/javaparser) (with symbol resolution), building a
-graph of packages, files, classes, interfaces, annotations, methods, fields, inheritance, and call
-relationships.
+Memgraph Ingester creates two project-scoped graphs for a Java codebase:
 
-Each code graph is scoped by a `project` property and anchored under `:Project -> :Code`, allowing
-**multiple codebases to coexist in a single Memgraph instance** without collisions.
+- A **Code graph** under `(:Project)-[:CONTAINS]->(:Code)`
+- A **Memory graph** under `(:Project)-[:HAS_MEMORY]->(:Memory)`
 
-In addition, the schema includes a project-scoped **Memory graph** (`:Project -> :Memory`) for
-persistent engineering context. It stores decisions, ADRs, rules, findings, tasks, risks, questions,
-ideas, and domain context, all linked back to relevant code nodes. This enables graph-based
-reasoning
-over both **structure (code)** and **knowledge (memory)**.
+Every code and memory node is scoped by a `project` property, so multiple Java codebases can share
+the same Memgraph instance without collisions.
+
+The **Code graph** stores Java source structure in a queryable, persistent form. The ingester walks
+the source tree with [JavaParser](https://github.com/javaparser/javaparser) and symbol resolution,
+then writes packages, files, classes, interfaces, annotations, methods, fields, inheritance,
+and within-project call relationships.
+
+The parser is configured for Java 25 syntax. It should handle most sources written for earlier Java
+versions too, but JavaParser is not a `javac` replacement and may still miss unsupported or
+edge-case constructs.
+
+The **Memory graph** stores durable engineering context: decisions, ADRs, rules, findings, tasks,
+risks, questions, ideas, and domain notes. Memory items can refer to stable `:CodeRef` nodes, which
+are resolved back to the current code graph after ingestion. This lets agents query both
+**structure (code)** and **knowledge (memory)** without relying only on raw text search.
 
 See [`SCHEMA.md`](schema/SCHEMA.md) for the full graph model.
 
@@ -159,7 +167,7 @@ You should see your project with a fresh `lastIngested` timestamp.
 
 `--wipe-project-code` only affects code nodes matching the given `--project`; other codebases in the
 same Memgraph instance are untouched, and the `:Project` anchor remains.
-`--wipe-all-memories` only affects memory nodes matching the given `--project`; the code graph and
+`--wipe-project-memories` only affects memory nodes matching the given `--project`; the code graph and
 the `:Project` anchor remain.
 
 ### Parallel ingestion
