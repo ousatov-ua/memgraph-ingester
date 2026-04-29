@@ -111,10 +111,9 @@ public final class Const {
   /** Graph node label constants. */
   public static class Labels {
 
-    public static final String CLASS = "Class";
-    public static final String INTERFACE = "Interface";
     public static final String INIT = "<init>";
     public static final String VOID = "void";
+    public static final String PROJECT = "project";
 
     private Labels() {
 

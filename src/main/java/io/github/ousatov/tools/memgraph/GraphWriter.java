@@ -133,6 +133,11 @@ public final class GraphWriter {
     }
   }
 
+  /** Constructs a fully qualified name from {@code pkg} and {@code simpleName}. */
+  private static String buildFqn(String pkg, String simpleName) {
+    return pkg.isEmpty() ? simpleName : pkg + "." + simpleName;
+  }
+
   /** Deletes the project-scoped {@code :Code} graph in batches, keeping the {@code :Project}. */
   public void wipe() {
     long deleted;
@@ -165,7 +170,7 @@ public final class GraphWriter {
    * the file has no graph node.
    */
   public long getFileLastModified(Path file) {
-    Map<String, Object> params = Map.of(Params.PATH, file.toString(), "project", project);
+    Map<String, Object> params = Map.of(Params.PATH, file.toString(), Labels.PROJECT, project);
     try {
       var result = session.run(Cypher.CYPHER_GET_FILE_LAST_MODIFIED, params);
       if (!result.hasNext()) {
@@ -407,11 +412,6 @@ public final class GraphWriter {
         .forEach(nested -> upsertTypeInternal(file, pkg, fqn, nested));
   }
 
-  /** Constructs a fully qualified name from {@code pkg} and {@code simpleName}. */
-  private static String buildFqn(String pkg, String simpleName) {
-    return pkg.isEmpty() ? simpleName : pkg + "." + simpleName;
-  }
-
   private String genDeclName(String pkg, ClassOrInterfaceDeclaration decl) {
     return buildFqn(pkg, decl.getNameAsString());
   }
@@ -613,29 +613,14 @@ public final class GraphWriter {
    */
   private void runWithRetry(String cypher, Map<String, Object> params) {
     Map<String, Object> allParams = new HashMap<>(params);
-    allParams.put("project", project);
+    allParams.put(Labels.PROJECT, project);
     long backoffMs = INITIAL_BACKOFF_MS;
     for (int attempt = 1; attempt <= MAX_RETRY_ATTEMPTS; attempt++) {
       try {
         session.run(cypher, allParams).consume();
         return;
       } catch (RuntimeException e) {
-        if (!isRetryable(e)) {
-          throw e;
-        }
-        if (attempt == MAX_RETRY_ATTEMPTS) {
-          throw new ProcessingException(
-              "Cypher failed after " + MAX_RETRY_ATTEMPTS + " attempts: " + cypher, e);
-        }
-        try {
-          long jitter = (long) (backoffMs * Math.random() * 0.5);
-          Thread.sleep(backoffMs + jitter);
-        } catch (InterruptedException ie) {
-          Thread.currentThread().interrupt();
-          throw new ProcessingException("Interrupted during retry", ie);
-        }
-        backoffMs = Math.min(backoffMs * 2, MAX_BACKOFF_MS);
-        log.debug("Conflict on attempt {}; will retry: {}", attempt, e.getMessage());
+        backoffMs = proceedException(cypher, e, attempt, backoffMs);
       }
     }
   }
@@ -646,30 +631,45 @@ public final class GraphWriter {
    */
   private long runCountWithRetry(
       String cypher, String extraKey, Object extraValue, String resultKey) {
-    Map<String, Object> allParams = new HashMap<>(Map.of(extraKey, extraValue, "project", project));
+    Map<String, Object> allParams =
+        new HashMap<>(Map.of(extraKey, extraValue, Labels.PROJECT, project));
     long backoffMs = INITIAL_BACKOFF_MS;
     for (int attempt = 1; attempt <= MAX_RETRY_ATTEMPTS; attempt++) {
       try {
         return session.run(cypher, allParams).single().get(resultKey).asLong();
       } catch (RuntimeException e) {
-        if (!isRetryable(e)) {
-          throw e;
-        }
-        if (attempt == MAX_RETRY_ATTEMPTS) {
-          throw new ProcessingException(
-              "Cypher failed after " + MAX_RETRY_ATTEMPTS + " attempts: " + cypher, e);
-        }
-        try {
-          long jitter = (long) (backoffMs * Math.random() * 0.5);
-          Thread.sleep(backoffMs + jitter);
-        } catch (InterruptedException ie) {
-          Thread.currentThread().interrupt();
-          throw new ProcessingException("Interrupted during retry", ie);
-        }
-        backoffMs = Math.min(backoffMs * 2, MAX_BACKOFF_MS);
-        log.debug("Conflict on attempt {}; will retry: {}", attempt, e.getMessage());
+        backoffMs = proceedException(cypher, e, attempt, backoffMs);
       }
     }
     return 0L;
+  }
+
+  /**
+   * Proceeds with exception handling for retryable Cypher operations.
+   *
+   * @param cypher The Cypher query that failed.
+   * @param e The caught runtime exception.
+   * @param attempt The current retry attempt number.
+   * @param backoffMs The current backoff time in milliseconds.
+   * @return The updated backoff time in milliseconds.
+   */
+  private long proceedException(String cypher, RuntimeException e, int attempt, long backoffMs) {
+    if (!isRetryable(e)) {
+      throw e;
+    }
+    if (attempt == MAX_RETRY_ATTEMPTS) {
+      throw new ProcessingException(
+          "Cypher failed after " + MAX_RETRY_ATTEMPTS + " attempts: " + cypher, e);
+    }
+    try {
+      long jitter = (long) (backoffMs * Math.random() * 0.5);
+      Thread.sleep(backoffMs + jitter);
+    } catch (InterruptedException ie) {
+      Thread.currentThread().interrupt();
+      throw new ProcessingException("Interrupted during retry", ie);
+    }
+    backoffMs = Math.min(backoffMs * 2, MAX_BACKOFF_MS);
+    log.debug("Conflict on attempt {}; will retry: {}", attempt, e.getMessage());
+    return backoffMs;
   }
 }

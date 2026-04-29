@@ -29,22 +29,26 @@ public final class IngesterCli implements Callable<Integer> {
       names = {"-s", "--source"},
       required = true,
       description = "Root source directory (e.g. src/main/java)")
+  @SuppressWarnings("unused")
   private Path sourceRoot;
 
   @Option(
       names = {"-b", "--bolt"},
       required = true,
       description = "Bolt URL, e.g. bolt://host:7687")
+  @SuppressWarnings("unused")
   private String boltUrl;
 
   @Option(
       names = {"-u", "--user"},
       defaultValue = "")
+  @SuppressWarnings("unused")
   private String user;
 
   @Option(
       names = {"-p", "--pass"},
       defaultValue = "")
+  @SuppressWarnings("unused")
   private String pass;
 
   @Option(
@@ -53,16 +57,19 @@ public final class IngesterCli implements Callable<Integer> {
       description =
           "Logical project name; namespaces all nodes so multiple "
               + "projects can share one Memgraph instance")
+  @SuppressWarnings("unused")
   private String project;
 
   @Option(
       names = "--wipe-project-code",
       description = "Delete the code graph belonging to this project before ingesting")
+  @SuppressWarnings("unused")
   private boolean wipeProjectCode;
 
   @Option(
       names = "--wipe-project-memories",
       description = "Delete the memory graph belonging to this project before ingesting")
+  @SuppressWarnings("unused")
   private boolean wipeProjectMemories;
 
   @Option(
@@ -72,21 +79,25 @@ public final class IngesterCli implements Callable<Integer> {
           "Number of parser threads. Each thread gets its own Bolt session. "
               + "Defaults to 1 (sequential). Values above the number of CPU cores rarely help "
               + "because Memgraph serializes writes internally.")
+  @SuppressWarnings("unused")
   private int threads;
 
   @Option(
       names = {"--apply-schema"},
       description = "Apply schema on Memgraph")
+  @SuppressWarnings("unused")
   private boolean applySchema;
 
   @Option(
       names = {"--wipe-all"},
       description = "Wipe all data from Memgraph")
+  @SuppressWarnings("unused")
   private boolean wipeAllData;
 
   @Option(
       names = {"--incremental"},
       description = "Skip files whose last-modified timestamp matches the stored value")
+  @SuppressWarnings("unused")
   private boolean incremental;
 
   /** Entry point. */
