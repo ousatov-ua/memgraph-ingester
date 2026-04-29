@@ -80,7 +80,7 @@ Bolt listens on `localhost:7687`.
 ```bash
 git clone https://github.com/ousatov-ua/memgraph-ingester.git
 cd memgraph-ingester
-mvn clean package -Pshade
+mvn clean package -Pshade -DskipTests
 ```
 
 Produces a shaded fat JAR at `target/memgraph-ingester.jar`.
