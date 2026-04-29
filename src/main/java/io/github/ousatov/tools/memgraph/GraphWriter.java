@@ -130,18 +130,22 @@ public final class GraphWriter {
     }
   }
 
-  /** Deletes all project-scoped nodes, then deletes the {@code :Project} anchor. */
+  /** Deletes the project-scoped {@code :Code} graph while keeping the {@code :Project} anchor. */
   public void wipe() {
-    runWithRetry(Cypher.CYPHER_WIPE_NODES, Map.of());
-    runWithRetry(Cypher.CYPHER_WIPE_PROJECT, Map.of());
+    runWithRetry(Cypher.CYPHER_WIPE_PROJECT_CODE, Map.of());
   }
 
-  /** Creates or refreshes the {@code :Project} anchor node. */
+  /** Deletes the project-scoped {@code :Memory} graph while keeping the {@code :Project} anchor. */
+  public void wipeMemories() {
+    runWithRetry(Cypher.CYPHER_WIPE_PROJECT_MEMORIES, Map.of());
+  }
+
+  /** Creates or refreshes the {@code :Project -> :Code} and {@code :Project -> :Memory} anchors. */
   public void upsertProject(Path sourceRoot) {
     runWithRetry(Cypher.CYPHER_UPSERT_PROJECT, Map.of("sourceRoot", sourceRoot.toString()));
   }
 
-  /** Upserts a {@code :File} node and links it to the project anchor. */
+  /** Upserts a {@code :File} node and links it to the code anchor. */
   public void upsertFile(Path file) {
     long lastModified;
     try {
@@ -154,7 +158,7 @@ public final class GraphWriter {
         Map.of(Labels.PATH, file.toString(), "lastModified", lastModified));
   }
 
-  /** Upserts a {@code :Package} node and links it to the project anchor. */
+  /** Upserts a {@code :Package} node and links it to the code anchor. */
   public void upsertPackage(String pkg) {
     runWithRetry(Cypher.CYPHER_UPSERT_PACKAGE, Map.of(Labels.NAME, pkg));
   }
@@ -236,11 +240,16 @@ public final class GraphWriter {
     runWithRetry(
         Cypher.CYPHER_UPSERT_ANNOTATION,
         Map.of(
-            Labels.FQN, fqn,
-            Labels.NAME, decl.getNameAsString(),
-            Labels.PKG, pkg,
-            Labels.PATH, file.toString(),
-            Labels.VISIBILITY, decl.getAccessSpecifier().asString()));
+            Labels.FQN,
+            fqn,
+            Labels.NAME,
+            decl.getNameAsString(),
+            Labels.PKG,
+            pkg,
+            Labels.PATH,
+            file.toString(),
+            Labels.VISIBILITY,
+            decl.getAccessSpecifier().asString()));
     upsertAnnotationsByFqn(fqn, decl);
   }
 
@@ -276,9 +285,7 @@ public final class GraphWriter {
   private void upsertTypeCallEdgesInternal(
       String pkg, String outerFqn, ClassOrInterfaceDeclaration decl) {
     String fqn =
-        outerFqn != null
-            ? outerFqn + "$" + decl.getNameAsString()
-            : (pkg.isEmpty() ? decl.getNameAsString() : pkg + "." + decl.getNameAsString());
+        outerFqn != null ? outerFqn + "$" + decl.getNameAsString() : genDeclName(pkg, decl);
     decl.getMethods().forEach(m -> upsertCallEdges(buildSignature(fqn, m), m));
     decl.getConstructors().forEach(c -> upsertCallEdges(buildConstructorSignature(fqn, c), c));
     decl.getMembers().stream()
@@ -290,9 +297,7 @@ public final class GraphWriter {
   private void upsertTypeInternal(
       Path file, String pkg, String outerFqn, ClassOrInterfaceDeclaration decl) {
     String fqn =
-        outerFqn != null
-            ? outerFqn + "$" + decl.getNameAsString()
-            : (pkg.isEmpty() ? decl.getNameAsString() : pkg + "." + decl.getNameAsString());
+        outerFqn != null ? outerFqn + "$" + decl.getNameAsString() : genDeclName(pkg, decl);
     String label = decl.isInterface() ? Labels.INTERFACE : Labels.CLASS;
     runWithRetry(
         Cypher.CYPHER_UPSERT_TYPE_TEMPLATE.formatted(label),
@@ -323,6 +328,10 @@ public final class GraphWriter {
         .filter(ClassOrInterfaceDeclaration.class::isInstance)
         .map(m -> (ClassOrInterfaceDeclaration) m)
         .forEach(nested -> upsertTypeInternal(file, pkg, fqn, nested));
+  }
+
+  private String genDeclName(String pkg, ClassOrInterfaceDeclaration decl) {
+    return pkg.isEmpty() ? decl.getNameAsString() : pkg + "." + decl.getNameAsString();
   }
 
   private void upsertInheritance(String fqn, ClassOrInterfaceDeclaration decl) {
@@ -377,14 +386,22 @@ public final class GraphWriter {
     runWithRetry(
         Cypher.CYPHER_UPSERT_METHOD,
         Map.of(
-            Labels.SIG, signature,
-            Labels.NAME, method.getNameAsString(),
-            Labels.RET, method.getTypeAsString(),
-            Labels.IS_STATIC, method.isStatic(),
-            Labels.VISIBILITY, method.getAccessSpecifier().asString(),
-            Labels.START, method.getBegin().map(p -> p.line).orElse(0),
-            Labels.END, method.getEnd().map(p -> p.line).orElse(0),
-            Labels.OWNER, ownerFqn));
+            Labels.SIG,
+            signature,
+            Labels.NAME,
+            method.getNameAsString(),
+            Labels.RET,
+            method.getTypeAsString(),
+            Labels.IS_STATIC,
+            method.isStatic(),
+            Labels.VISIBILITY,
+            method.getAccessSpecifier().asString(),
+            Labels.START,
+            method.getBegin().map(p -> p.line).orElse(0),
+            Labels.END,
+            method.getEnd().map(p -> p.line).orElse(0),
+            Labels.OWNER,
+            ownerFqn));
     upsertAnnotationsBySig(signature, method);
   }
 

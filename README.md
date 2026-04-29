@@ -8,11 +8,14 @@
 [![GitHub last commit](https://img.shields.io/github/last-commit/ousatov-ua/memgraph-ingester)](https://github.com/ousatov-ua/memgraph-ingester/commits/main)
 
 Ingests the structural model of a Java codebase into [Memgraph](https://memgraph.com/) as a
-queryable code knowledge graph. Pair it with
-the [Memgraph MCP server](https://github.com/memgraph/ai-toolkit/tree/main/integrations/mcp-memgraph)
-to let Claude Code (or any
-MCP-aware client) reason about your code through graph queries instead of raw text search which can
-significantly reduce money spending and speed up processing.
+queryable **code + memory knowledge graph**, combining source structure with persistent engineering
+context (decisions, rules, findings, etc.).
+
+Paired with the
+[Memgraph MCP server](https://github.com/memgraph/ai-toolkit/tree/main/integrations/mcp-memgraph),
+this enables Claude Code (or any MCP-aware client) to reason over both code and accumulated project
+knowledge via graph queries instead of raw text search — improving accuracy, reducing cost, and
+speeding up analysis.
 
 You can use the code in this repo as-is, or fork it and customize it to your needs.
 [Memgraph](https://memgraph.com/) is free too.
@@ -22,9 +25,13 @@ Please submit any issues or pull requests.
 
 Walks a Java source tree, parses each file
 with [JavaParser](https://github.com/javaparser/javaparser) (with symbol resolution), and writes a
-graph of packages, files, classes, interfaces, methods, fields, inheritance, and call relationships.
-Every node is scoped by a `project` property and anchored by a `:Project` node, so **multiple
-codebases can share one Memgraph instance** without collisions.
+graph of packages, files, classes, interfaces, annotations, methods, fields, inheritance, and call
+relationships. Every code graph is scoped by a `project` property and anchored under
+`:Project -> :Code`, so **multiple codebases can share one Memgraph instance** without collisions.
+
+The schema also includes an optional project-scoped **Memory** graph for durable agent context:
+decisions, ADRs, rules, findings, tasks, risks, questions, ideas, and supporting context can be
+stored under `:Project -> :Memory` and linked back to concrete code nodes.
 
 See [`SCHEMA.md`](schema/SCHEMA.md) for the full graph model.
 
@@ -70,11 +77,11 @@ Produces a shaded fat JAR at `target/memgraph-ingester.jar`.
 ### 3. Apply the schema (one-time per Memgraph instance)
 
 ```bash
-cat src/main/resources/io/github/ousatov/tools/memgraph/cypher/schema.cypher | mgconsole --host localhost --port 7687
+cat src/main/resources/io/github/ousatov/tools/memgraph/cypher/create-schema.cypher | mgconsole --host localhost --port 7687
 ```
 
-Creates uniqueness constraints and lookup indexes. Safe to re-run — existing constraints are
-reported and skipped.
+Creates uniqueness constraints and lookup indexes for both the code graph and the memory graph. Safe
+to re-run — existing constraints are reported and skipped.
 
 You can also use the CLI. This command will apply the schema to the `memgraph` database first, then
 ingest the project:
@@ -85,7 +92,7 @@ java -jar target/memgraph-ingester.jar \
   --bolt bolt://localhost:7687 \
   --project my-project \
   --apply-schema
-  ```
+```
 
 Next command will also wipe **all** data in the `memgraph` database first, then will apply the
 schema and ingest the project:
@@ -96,46 +103,61 @@ java -jar target/memgraph-ingester.jar \
   --bolt bolt://localhost:7687 \
   --project my-project \
   --wipe-all \
-  --apply-schema 
-  ```
+  --apply-schema
+```
 
 ### 4. Ingest a project
+
+This will wipe the Code graph for this project first:
 
 ```bash
 java -jar target/memgraph-ingester.jar \
   --source /path/to/your/java/project/src/main/java \
   --bolt bolt://localhost:7687 \
   --project my-project \
-  --wipe-project
+  --wipe-project-code
+```
+
+This will wipe the Code and Memory graph for this project first:
+
+```bash
+java -jar target/memgraph-ingester.jar \
+  --source /path/to/your/java/project/src/main/java \
+  --bolt bolt://localhost:7687 \
+  --project my-project \
+  --wipe-project-code \
+  --wipe-project-memories
 ```
 
 ### 5. Verify
 
 ```cypher
 
-MATCH (p:Project)
-RETURN p.name, p.sourceRoots, p.lastIngested;
+MATCH (p:Project)-[:CONTAINS]->(c:Code)
+RETURN p.name, c.sourceRoots, c.lastIngested;
 ```
 
 You should see your project with a fresh `lastIngested` timestamp.
 
 ## CLI options
 
-| Option           | Short | Required | Default | Description                                                          |
-|------------------|-------|----------|---------|----------------------------------------------------------------------|
-| `--source`       | `-s`  | yes      |         | Root directory to scan (e.g. `src/main/java`)                        |
-| `--bolt`         | `-b`  | yes      |         | Bolt URL, e.g. `bolt://localhost:7687`                               |
-| `--project`      | `-P`  | yes      |         | Logical project name. Namespaces all nodes.                          |
-| `--user`         | `-u`  | no       |         | Memgraph username (empty by default)                                 |
-| `--pass`         | `-p`  | no       |         | Memgraph password (empty by default)                                 |
-| `--threads`      | `-t`  | no       | 1       | Parser threads (default `1`). Each thread gets its own Bolt session. |
-| `--wipe-project` | no    | no       | false   | Delete everything under this project before ingesting                |
-| `--init`         | no    | no       | false   | Re(init) Memgraph: apply schema (will be dropped first)              |
-| `--wipe-all`     | no    | no       | false   | Wipe all data (schema will be dropped first)                         |
+| Option                    | Short | Required | Default | Description                                                          |
+|---------------------------|-------|----------|---------|----------------------------------------------------------------------|
+| `--source`                | `-s`  | yes      |         | Root directory to scan (e.g. `src/main/java`)                        |
+| `--bolt`                  | `-b`  | yes      |         | Bolt URL, e.g. `bolt://localhost:7687`                               |
+| `--project`               | `-P`  | yes      |         | Logical project name. Namespaces all nodes.                          |
+| `--user`                  | `-u`  | no       |         | Memgraph username (empty by default)                                 |
+| `--pass`                  | `-p`  | no       |         | Memgraph password (empty by default)                                 |
+| `--threads`               | `-t`  | no       | 1       | Parser threads (default `1`). Each thread gets its own Bolt session. |
+| `--wipe-project-code`     | no    | no       | false   | Delete this project's code graph before ingesting                    |
+| `--wipe-project-memories` | no    | no       | false   | Delete this project's memory graph before ingesting                  |
+| `--apply-schema`          | no    | no       | false   | Apply schema before ingesting                                        |
+| `--wipe-all`              | no    | no       | false   | Wipe all data (schema will be dropped first)                         |
 
-`--wipe-project` only affects nodes matching the given `--project`; other codebases in the same
-Memgraph
-instance are untouched.
+`--wipe-project-code` only affects code nodes matching the given `--project`; other codebases in the
+same Memgraph instance are untouched, and the `:Project` anchor remains.
+`--wipe-all-memories` only affects memory nodes matching the given `--project`; the code graph and
+the `:Project` anchor remain.
 
 ### Parallel ingestion
 
@@ -146,7 +168,7 @@ java -jar target/memgraph-ingester.jar \
   --source /path/to/your/java/project/src/main/java \
   --bolt bolt://localhost:7687 \
   --project my-project \
-  --wipe-project \
+  --wipe-project-code \
   --threads 8
 ```
 
@@ -172,7 +194,8 @@ idempotent, so results are identical, but log order will vary between runs.
 This repo ships scripts designed to
 be dropped into any project that's been
 ingested. It tells AI agents how to scope queries to the right project, how the schema is shaped,
-and when to reach for the graph vs. filesystem search.
+when to reach for the graph vs. filesystem search, and how to use Memories for durable decisions
+and follow-up context.
 
 ### Per-repo setup
 
@@ -198,7 +221,7 @@ curl -s https://raw.githubusercontent.com/ousatov-ua/memgraph-ingester/refs/head
 
 Commit the updated `CLAUDE.md`. Claude Code reads it on every session start.
 
-#### CODEX 
+#### CODEX
 
 Use the bundled [`init-memgraph-codex.sh`](script/init-memgraph-codex.sh) script, which fetches
 the template, substitutes the
@@ -236,12 +259,15 @@ Claude Code needs the Memgraph MCP server to actually run queries. Minimal proje
         "mcp-memgraph"
       ],
       "env": {
-        "MEMGRAPH_URL": "bolt://localhost:7687"
+        "MEMGRAPH_URL": "bolt://localhost:7687",
+        "MCP_READ_ONLY": "true"
       }
     }
   }
 }
 ```
+
+Please set `MCP_READ_ONLY` to `"false"` if you want to have Memories captured
 
 Verify it's registered:
 
@@ -259,12 +285,12 @@ Codex needs the Memgraph MCP server to actually run queries. Minimal project-sco
 
 command = "uv"
 args = [
-  "run",
-  "--with",
-  "mcp-memgraph",
-  "--python",
-  "3.13",
-  "mcp-memgraph"
+    "run",
+    "--with",
+    "mcp-memgraph",
+    "--python",
+    "3.13",
+    "mcp-memgraph"
 ]
 [mcp_servers.memgraph.env]
 MCP_TRANSPORT = "stdio"
@@ -272,11 +298,15 @@ MEMGRAPH_URL = "bolt://localhost:7687"
 MEMGRAPH_USER = "memgraph"
 MEMGRAPH_PASSWORD = ""
 MEMGRAPH_DATABASE = "memgraph"
-MCP_READ_ONLY = "true"
+MCP_READ_ONLY = "true" # here, you need to set this to "false" if you want to have Memories captured
 
 [mcp_servers.memgraph.tools.run_query]
 approval_mode = "approve"
 ```
+
+The Codex example is read-only. To let an agent create or update Memory nodes, use a writable MCP
+connection, for example, by setting `MCP_READ_ONLY = "false"` and keeping `run_query` approval
+enabled.
 
 Verify it's registered:
 
@@ -286,65 +316,99 @@ codex mcp list
 
 ## Re-ingesting after code changes
 
-The graph goes stale as code changes. Re-run the ingester with `--wipe-project` to refresh:
+The graph goes stale as code changes. Re-run the ingester with `--wipe-project-code` to refresh:
 
 ```bash
 java -jar target/memgraph-ingester.jar \
   --source /path/to/your/java/project/src/main/java \
   --bolt bolt://localhost:7687 \
   --project my-project \
-  --wipe-project
+  --wipe-project-code
 ```
 
 Check freshness anytime:
 
 ```cypher
 
-MATCH (p:Project {name: 'my-project'})
-RETURN p.sourceRoots, p.lastIngested;
+MATCH (:Project {name: 'my-project'})-[:CONTAINS]->(c:Code)
+RETURN c.sourceRoots, c.lastIngested;
 ```
 
 ## Multiple projects in one Memgraph instance
 
-Run the ingester once per codebase with different `--project` values. Each gets its own `:Project`
-anchor; nodes are composite-keyed by `(key, project)`, so nothing collides.
+Run the ingester once per codebase with different `--project` values. Each gets its own
+`:Project -> :Code` anchor chain; code nodes are composite-keyed by `(key, project)`, so nothing
+collides.
 
 ```bash
-java -jar target/memgraph-ingester.jar -s ~/code/repo-a/src/main/java -b bolt://localhost:7687 -P repo-a --wipe-project
-java -jar target/memgraph-ingester.jar -s ~/code/repo-b/src/main/java -b bolt://localhost:7687 -P repo-b --wipe-project
+java -jar target/memgraph-ingester.jar -s ~/code/repo-a/src/main/java -b bolt://localhost:7687 -P repo-a --wipe-project-code
+java -jar target/memgraph-ingester.jar -s ~/code/repo-b/src/main/java -b bolt://localhost:7687 -P repo-b --wipe-project-code
 ```
 
 List everything that's indexed:
 
 ```cypher
 
-MATCH (p:Project)
-RETURN p.name, p.sourceRoots, p.lastIngested
-  ORDER BY p.lastIngested DESC;
+MATCH (p:Project)-[:CONTAINS]->(c:Code)
+RETURN p.name, c.sourceRoots, c.lastIngested
+  ORDER BY c.lastIngested DESC;
 ```
 
 ## What gets captured
 
-| Node label   | Identity               |
-|--------------|------------------------|
-| `:Project`   | `name`                 |
-| `:Package`   | `(name, project)`      |
-| `:File`      | `(path, project)`      |
-| `:Class`     | `(fqn, project)`       |
-| `:Interface` | `(fqn, project)`       |
-| `:Method`    | `(signature, project)` |
-| `:Field`     | `(fqn, project)`       |
+| Node label    | Identity               |
+|---------------|------------------------|
+| `:Project`    | `name`                 |
+| `:Code`       | `project`              |
+| `:Package`    | `(name, project)`      |
+| `:File`       | `(path, project)`      |
+| `:Class`      | `(fqn, project)`       |
+| `:Interface`  | `(fqn, project)`       |
+| `:Annotation` | `(fqn, project)`       |
+| `:Method`     | `(signature, project)` |
+| `:Field`      | `(fqn, project)`       |
 
-| Relationship                                              | Meaning                  |
-|-----------------------------------------------------------|--------------------------|
-| `(:Project)-[:CONTAINS]->(:Package \| :File)`             | Top-level membership     |
-| `(:Package)-[:CONTAINS]->(:Class \| :Interface)`          | Package contents         |
-| `(:File)-[:DEFINES]->(:Class \| :Interface)`              | Source location          |
-| `(:Class)-[:EXTENDS]->(:Class)`                           | Class inheritance        |
-| `(:Class)-[:IMPLEMENTS]->(:Interface)`                    | Interface implementation |
-| `(:Interface)-[:EXTENDS]->(:Interface)`                   | Interface inheritance    |
-| `(:Class \| :Interface)-[:DECLARES]->(:Method \| :Field)` | Type members             |
-| `(:Method)-[:CALLS]->(:Method)`                           | Call graph (best-effort) |
+| Relationship                                                    | Meaning                   |
+|-----------------------------------------------------------------|---------------------------|
+| `(:Project)-[:CONTAINS]->(:Code)`                               | Code graph anchor         |
+| `(:Code)-[:CONTAINS]->(:Package \| :File)`                      | Top-level code membership |
+| `(:Package)-[:CONTAINS]->(:Class \| :Interface \| :Annotation)` | Package contents          |
+| `(:File)-[:DEFINES]->(:Class \| :Interface \| :Annotation)`     | Source location           |
+| `(:Class)-[:EXTENDS]->(:Class)`                                 | Class inheritance         |
+| `(:Class)-[:IMPLEMENTS]->(:Interface)`                          | Interface implementation  |
+| `(:Interface)-[:EXTENDS]->(:Interface)`                         | Interface inheritance     |
+| `(:Class \| :Interface)-[:DECLARES]->(:Method \| :Field)`       | Type members              |
+| `(:Method)-[:CALLS]->(:Method)`                                 | Call graph (best-effort)  |
+| `(:*)-[:ANNOTATED_WITH]->(:Annotation)`                         | Annotation usage          |
+
+Memory nodes are manually authored by agents or clients and share the same project namespace:
+
+| Node label  | Identity        | Typical use                       |
+|-------------|-----------------|-----------------------------------|
+| `:Memory`   | `project`       | Root for project memory           |
+| `:Decision` | `(id, project)` | Accepted or rejected decisions    |
+| `:ADR`      | `(id, project)` | Architecture decision records     |
+| `:Rule`     | `(id, project)` | Hard or soft project constraints  |
+| `:Context`  | `(id, project)` | Durable explanatory context       |
+| `:Finding`  | `(id, project)` | Bugs, risks, performance findings |
+| `:Task`     | `(id, project)` | Follow-up work                    |
+| `:Risk`     | `(id, project)` | Known risks and mitigations       |
+| `:Question` | `(id, project)` | Open or answered questions        |
+| `:Idea`     | `(id, project)` | Proposed ideas and alternatives   |
+
+| Relationship                                                                           | Meaning                   |
+|----------------------------------------------------------------------------------------|---------------------------|
+| `(:Project)-[:HAS_MEMORY]->(:Memory)`                                                  | Memory graph anchor       |
+| `(:Memory)-[:HAS_DECISION \| :HAS_ADR \| :HAS_RULE \| :HAS_CONTEXT]->(:*)`             | Memory item ownership     |
+| `(:Memory)-[:HAS_FINDING \| :HAS_TASK \| :HAS_RISK \| :HAS_QUESTION]->(:*)`            | Memory item ownership     |
+| `(:Memory)-[:HAS_IDEA]->(:Idea)`                                                       | Memory item ownership     |
+| `(:Decision \| :ADR)-[:APPLIES_TO]->(:Code \| :Package \| :File \| :Class \| :Method)` | Decision/code link        |
+| `(:Rule)-[:GOVERNS]->(:*)`                                                             | Constraint target         |
+| `(:Finding)-[:OBSERVED_IN]->(:*)`                                                      | Finding target            |
+| `(:Task)-[:CHANGES]->(:*)`                                                             | Planned or completed work |
+| `(:Risk)-[:AFFECTS]->(:*)`                                                             | Risk target               |
+| `(:Context)-[:DESCRIBES]->(:*)`                                                        | Context target            |
+| `(:Idea)-[:RELATES_TO]->(:*)`                                                          | Idea target               |
 
 ## Caveats
 
@@ -355,16 +419,16 @@ RETURN p.name, p.sourceRoots, p.lastIngested
   outside your source tree (e.g. `RuntimeException`, Spring interfaces), the ingester creates a
   `:Class` or `:Interface` node for it and scopes it to your project. This keeps inheritance edges
   intact but means those nodes are placeholders without full metadata.
-- **Annotations and generated code are not indexed** in v4.0.0. Annotation processors,
-  Lombok-generated members, and similar won't appear in the graph. To index them too, you just need
-  to run the ingester again:
+- **Generated code is only indexed if you ingest it.** Annotation processors, Lombok-generated
+  members, and similar won't appear in the graph unless their generated source directory is passed
+  to the ingester too:
 
 ```shell
 java -jar memgraph-ingester.jar \
   --source target/generated-sources/annotations \
   --bolt bolt://localhost:7687 \
   --project work
-  # no --wipe-project here!!!!
+  # no --wipe-project-code here!!!!
 ```
 
 ## Project layout

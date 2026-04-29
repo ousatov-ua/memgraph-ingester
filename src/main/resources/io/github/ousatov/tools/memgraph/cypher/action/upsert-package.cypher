@@ -1,4 +1,4 @@
 MERGE (p:Package {name: $name, project: $project})
 WITH p
-MATCH (proj:Project {name: $project})
-MERGE (proj)-[:CONTAINS]->(p)
+MATCH (code:Code {project: $project})
+MERGE (code)-[:CONTAINS]->(p)

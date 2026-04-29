@@ -82,7 +82,7 @@ class IngestionOrchestratorIT {
     return dir;
   }
 
-  private static void wipeProject(String project) {
+  private static void wipeProjectCode(String project) {
     try (Session s = driver.session()) {
       s.run("MATCH (n) WHERE n.project = $p DETACH DELETE n", Map.of("p", project)).consume();
       s.run("MATCH (p:Project {name: $p}) DETACH DELETE p", Map.of("p", project)).consume();
@@ -104,7 +104,7 @@ class IngestionOrchestratorIT {
   @AfterEach
   void cleanup() throws IOException {
     if (currentProject != null) {
-      wipeProject(currentProject);
+      wipeProjectCode(currentProject);
     }
     if (sourceDir != null && Files.exists(sourceDir)) {
       try (Stream<Path> walk = Files.walk(sourceDir)) {
@@ -134,6 +134,27 @@ class IngestionOrchestratorIT {
               .get("n")
               .asLong();
       assertTrue(classCount >= 1, "At least one :Class node expected after ingestion");
+
+      long codeRootCount =
+          s.run(
+                  "MATCH (:Project {name: $p})-[:CONTAINS]->(:Code {project: $p})"
+                      + "-[:CONTAINS]->(:File)-[:DEFINES]->(:Class)"
+                      + " RETURN count(*) AS n",
+                  Map.of("p", currentProject))
+              .single()
+              .get("n")
+              .asLong();
+      assertTrue(codeRootCount >= 1, "Code graph must hang under :Project -> :Code");
+
+      long memoryRootCount =
+          s.run(
+                  "MATCH (:Project {name: $p})-[:HAS_MEMORY]->(:Memory {project: $p})"
+                      + " RETURN count(*) AS n",
+                  Map.of("p", currentProject))
+              .single()
+              .get("n")
+              .asLong();
+      assertEquals(1, memoryRootCount, "Memory graph must hang under :Project -> :Memory");
     }
   }
 
@@ -259,8 +280,8 @@ class IngestionOrchestratorIT {
             seqClasses, parClasses, "Sequential and parallel must produce equal class count");
       }
     } finally {
-      wipeProject(seqProject);
-      wipeProject(parProject);
+      wipeProjectCode(seqProject);
+      wipeProjectCode(parProject);
       deleteDir(seqDir);
       deleteDir(parDir);
     }
@@ -294,6 +315,58 @@ class IngestionOrchestratorIT {
               .get("n")
               .asLong();
       assertEquals(countAfterFirst, countAfterWipe, "Wipe + reingest must yield same node count");
+    }
+  }
+
+  @Test
+  void wipeAllMemoriesDeletesMemoryGraphBeforeReingest() throws Exception {
+    currentProject = PROJECT_BASE + "-wipe-mem";
+    sourceDir = buildSampleSourceTree();
+    IngestionOrchestrator orchestrator =
+        new IngestionOrchestrator(
+            sourceDir, currentProject, 1, driver, new ParseService(sourceDir));
+
+    orchestrator.run(false);
+    try (Session s = driver.session()) {
+      s.run(
+              "MATCH (m:Memory {project: $p})"
+                  + " MERGE (d:Decision {id: 'DEC-test-orchestrator-wipe-memories', project: $p})"
+                  + " SET d.status = 'accepted'"
+                  + " MERGE (m)-[:HAS_DECISION]->(d)",
+              Map.of("p", currentProject))
+          .consume();
+    }
+
+    int failures = orchestrator.run(false, false, false, true);
+
+    assertEquals(0, failures);
+    try (Session s = driver.session()) {
+      long decisionCount =
+          s.run(
+                  "MATCH (d:Decision {id: 'DEC-test-orchestrator-wipe-memories', project: $p})"
+                      + " RETURN count(d) AS n",
+                  Map.of("p", currentProject))
+              .single()
+              .get("n")
+              .asLong();
+      assertEquals(0, decisionCount, "Memory wipe must delete existing decisions");
+
+      long memoryRootCount =
+          s.run(
+                  "MATCH (:Project {name: $p})-[:HAS_MEMORY]->(:Memory {project: $p})"
+                      + " RETURN count(*) AS n",
+                  Map.of("p", currentProject))
+              .single()
+              .get("n")
+              .asLong();
+      assertEquals(1, memoryRootCount, "Reingest must recreate an empty Memory root");
+
+      long classCount =
+          s.run("MATCH (c:Class {project: $p}) RETURN count(c) AS n", Map.of("p", currentProject))
+              .single()
+              .get("n")
+              .asLong();
+      assertTrue(classCount >= 1, "Code graph must still be present after memory-only wipe");
     }
   }
 

@@ -56,9 +56,14 @@ public final class IngesterCli implements Callable<Integer> {
   private String project;
 
   @Option(
-      names = "--wipe-project",
-      description = "Delete all nodes belonging to this project before ingesting")
-  private boolean wipe;
+      names = "--wipe-project-code",
+      description = "Delete the code graph belonging to this project before ingesting")
+  private boolean wipeProjectCode;
+
+  @Option(
+      names = "--wipe-project-memories",
+      description = "Delete the memory graph belonging to this project before ingesting")
+  private boolean wipeProjectMemories;
 
   @Option(
       names = {"-t", "--threads"},
@@ -99,7 +104,8 @@ public final class IngesterCli implements Callable<Integer> {
       ParseService parseService = new ParseService(sourceRoot);
       IngestionOrchestrator orchestrator =
           new IngestionOrchestrator(sourceRoot, project, threads, driver, parseService);
-      int failures = orchestrator.run(wipeAllData, applySchema, wipe);
+      int failures =
+          orchestrator.run(wipeAllData, applySchema, wipeProjectCode, wipeProjectMemories);
       if (failures > 0) {
         log.error("Ingestion finished with {} file failure(s).", failures);
         return 2;

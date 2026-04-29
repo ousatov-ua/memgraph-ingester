@@ -62,11 +62,11 @@ public final class IngestionOrchestrator {
   /**
    * Runs the full ingestion and returns the number of files that failed.
    *
-   * @param wipeProject if true, deletes all project nodes before ingesting
+   * @param wipeProjectCode if true, deletes this project's code graph before ingesting
    * @return number of failed files; 0 means complete success
    */
-  public int run(boolean wipeProject) {
-    return run(false, false, wipeProject);
+  public int run(boolean wipeProjectCode) {
+    return run(false, false, wipeProjectCode, false);
   }
 
   /**
@@ -74,10 +74,27 @@ public final class IngestionOrchestrator {
    *
    * @param wipeAllData if true, deletes all data before ingesting
    * @param applySchema if true, applies schema first
-   * @param wipe if true, deletes all project nodes before ingesting
+   * @param wipe if true, deletes this project's code graph before ingesting
    * @return number of failed files; 0 means complete success
    */
   public int run(boolean wipeAllData, boolean applySchema, boolean wipe) {
+    return run(wipeAllData, applySchema, wipe, false);
+  }
+
+  /**
+   * Runs the full ingestion and returns the number of files that failed.
+   *
+   * @param wipeAllData if true, deletes all data before ingesting
+   * @param applySchema if true, applies schema first
+   * @param wipeProjectCode if true, deletes this project's code graph before ingesting
+   * @param wipeProjectMemories if true, deletes this project's memory graph before ingesting
+   * @return number of failed files; 0 means complete success
+   */
+  public int run(
+      boolean wipeAllData,
+      boolean applySchema,
+      boolean wipeProjectCode,
+      boolean wipeProjectMemories) {
     try (Session bootstrap = driver.session()) {
       GraphWriter bootstrapWriter = new GraphWriter(bootstrap, project);
       if (wipeAllData) {
@@ -88,12 +105,16 @@ public final class IngestionOrchestrator {
         Memgraph.applySchema(bootstrap);
         log.info("Applying schema to Memgraph");
       }
-      if (wipe) {
-        log.info("Wiping existing graph for project '{}'...", project);
+      if (wipeProjectCode) {
+        log.info("Wiping existing code graph for project '{}'...", project);
         bootstrapWriter.wipe();
       }
+      if (wipeProjectMemories) {
+        log.info("Wiping existing memory graph for project '{}'...", project);
+        bootstrapWriter.wipeMemories();
+      }
       bootstrapWriter.upsertProject(sourceRoot);
-      log.info("Upserted :Project anchor for '{}'", project);
+      log.info("Upserted :Project -> :Code and :Project -> :Memory anchors for '{}'", project);
     }
 
     List<Path> files;
@@ -136,6 +157,7 @@ public final class IngestionOrchestrator {
     return failures;
   }
 
+  @SuppressWarnings("java:S2095")
   private int ingestParallel(List<Path> files) throws InterruptedException {
     CopyOnWriteArrayList<Session> sessions = new CopyOnWriteArrayList<>();
     ThreadLocal<GraphWriter> threadWriter =
