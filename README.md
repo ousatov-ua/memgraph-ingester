@@ -49,10 +49,48 @@ See [`SCHEMA.md`](schema/SCHEMA.md) for the full graph model.
 
 ## Requirements
 
-- **Java 25** to build and run
-- **Maven 3.9+**
-- A running **Memgraph** instance (Docker is sufficient)
-- Optional: `mgconsole` for applying the schema
+- Required: **Java 25 JRE** to run
+- Required: Memgraph instance (or Docker)
+- Optional: **Java 25 SDK**, **Maven 3.9+** to build
+- Optional: `mgconsole`
+
+## Quick start
+
+- Download the latest jar (v5.0.21 the latest for now)
+```bash
+wget https://github.com/ousatov-ua/memgraph-ingester/releases/download/v5.0.21/memgraph-ingester.jar
+```
+- Run Memgraph
+```bash
+docker run -p 7687:7687 -p 7444:7444 --name memgraph memgraph/memgraph-mage:3.9.0
+```
+- Ingest the project
+```bash
+cd $your_project
+java -jar path/to/memgraph-ingester.jar \
+  --source /path/to/your/java/project/src/main/java \
+  --bolt bolt://localhost:7687 \
+  --project my-project \
+  --wipe-all \
+  --apply-schema
+```
+- Append knowledge for your agent
+```bash
+# GitHub Copilot
+curl -s https://raw.githubusercontent.com/ousatov-ua/memgraph-ingester/refs/heads/main/script/init-memgraph-github.sh \
+  | bash -s -- my-project
+# Claude
+curl -s https://raw.githubusercontent.com/ousatov-ua/memgraph-ingester/refs/heads/main/script/init-memgraph-claude.sh \
+  | bash -s -- my-project
+# Codex
+curl -s https://raw.githubusercontent.com/ousatov-ua/memgraph-ingester/refs/heads/main/script/init-memgraph-codex.sh \
+  | bash -s -- my-project
+# Gemini
+curl -s https://raw.githubusercontent.com/ousatov-ua/memgraph-ingester/refs/heads/main/script/init-memgraph-gemini.sh \
+  | bash -s -- my-project
+```
+
+## Going further
 
 ### Maven dependency (optional)
 
