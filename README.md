@@ -167,7 +167,8 @@ You should see your project with a fresh `lastIngested` timestamp.
 
 `--wipe-project-code` only affects code nodes matching the given `--project`; other codebases in the
 same Memgraph instance are untouched, and the `:Project` anchor remains.
-`--wipe-project-memories` only affects memory nodes matching the given `--project`; the code graph and
+`--wipe-project-memories` only affects memory nodes matching the given `--project`; the code graph
+and
 the `:Project` anchor remain.
 
 ### Parallel ingestion
@@ -274,6 +275,29 @@ curl -s https://raw.githubusercontent.com/ousatov-ua/memgraph-ingester/refs/head
   | bash -s -- my-project
 ```
 
+Commit the updated `AGENTS.md`. Gemini reads it on every session start.
+
+#### GITHUB COPILOT
+
+Use the bundled [`init-memgraph-github.sh`](script/init-memgraph-github.sh) script, which fetches
+the template, substitutes the
+project name, and appends the result to the local `AGENTS.md`
+
+Run it from inside the repo you just ingested:
+
+```bash
+# Point at the script in your local checkout
+/path/to/memgraph-ingester/script/init-memgraph-github.sh my-project
+```
+
+Or fetch-and-run straight from GitHub:
+
+```bash
+curl -s https://raw.githubusercontent.com/ousatov-ua/memgraph-ingester/refs/heads/main/script/init-memgraph-github.sh \
+  | bash -s -- my-project
+```
+
+Commit the updated `AGENTS.md`. GitHub Copilot reads it on every session start.
 
 ### MCP server setup
 
@@ -330,7 +354,7 @@ MEMGRAPH_URL = "bolt://localhost:7687"
 MEMGRAPH_USER = "memgraph"
 MEMGRAPH_PASSWORD = ""
 MEMGRAPH_DATABASE = "memgraph"
-MCP_READ_ONLY = "true" # here, you need to set this to "false" if you want to have Memories captured
+MCP_READ_ONLY = "false"
 
 [mcp_servers.memgraph.tools.run_query]
 approval_mode = "approve"
@@ -360,7 +384,8 @@ Codex needs the Memgraph MCP server to actually run queries. Minimal project-sco
         "mcp-memgraph"
       ],
       "env": {
-        "MEMGRAPH_URL": "bolt://localhost:7687"
+        "MEMGRAPH_URL": "bolt://localhost:7687",
+        "MCP_READ_ONLY": "false"
       },
       "timeout": 5000,
       "trust": true
@@ -368,6 +393,7 @@ Codex needs the Memgraph MCP server to actually run queries. Minimal project-sco
   }
 }
 ```
+
 The example is read-only. To let an agent create or update Memory nodes, use a writable MCP
 connection, for example, by setting `MCP_READ_ONLY = "false"` and keeping `run_query` approval
 enabled.
@@ -376,6 +402,33 @@ Verify it's registered:
 
 ```bash
 gemini mcp list
+```
+
+#### GITHUB COPILOT
+
+GitHub Copilot needs the Memgraph MCP server to actually run queries. Minimal project-scoped config
+in
+`~/.copilot/mcp-config.json`:
+
+```json
+{
+  "mcpServers": {
+    "mcp-memgraph": {
+      "type": "local",
+      "command": "uvx",
+      "args": [
+        "mcp-memgraph"
+      ],
+      "env": {
+        "MEMGRAPH_URL": "bolt://localhost:7687",
+        "MCP_READ_ONLY": "false"
+      },
+      "tools": [
+        "*"
+      ]
+    }
+  }
+}
 ```
 
 ## Re-ingesting after code changes
