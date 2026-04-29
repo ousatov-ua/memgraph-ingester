@@ -71,9 +71,11 @@ java -jar path/to/memgraph-ingester.jar \
   --source /path/to/your/java/project/src/main/java \
   --bolt bolt://localhost:7687 \
   --project my-project \
-  --wipe-all \
+  --wipe-project-code \
+  --wipe-project-memories \
   --apply-schema
 ```
+
 - Append knowledge for your agent
 ```bash
 # GitHub Copilot
