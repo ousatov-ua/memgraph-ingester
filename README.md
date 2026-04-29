@@ -91,6 +91,7 @@ curl -s https://raw.githubusercontent.com/ousatov-ua/memgraph-ingester/refs/head
 curl -s https://raw.githubusercontent.com/ousatov-ua/memgraph-ingester/refs/heads/main/script/init-memgraph-gemini.sh \
   | bash -s -- my-project
 ```
+- Enable MCP Memgraph for your AI agent ([below](#mcp-server-setup) you can find examples)
 
 ## Going further
 
