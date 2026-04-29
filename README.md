@@ -105,9 +105,7 @@ curl -s https://raw.githubusercontent.com/ousatov-ua/memgraph-ingester/refs/head
 </dependency>
 ```
 
-## Quick start
-
-### 1. Start Memgraph
+### Start Memgraph
 
 - With UI:
 ```bash
@@ -122,7 +120,7 @@ docker run -p 7687:7687 -p 7444:7444 --name memgraph memgraph/memgraph-mage:3.9.
 
 Bolt listens on `localhost:7687`.
 
-### 2. Build the ingester
+### Build the ingester
 
 ```bash
 git clone https://github.com/ousatov-ua/memgraph-ingester.git
@@ -134,7 +132,7 @@ Produces a shaded fat JAR at `target/memgraph-ingester.jar`.
 
 Or use published shaded fat JAR in [releases](https://github.com/ousatov-ua/memgraph-ingester/releases) page.
 
-### 3. Apply the schema (one-time per Memgraph instance)
+### Apply the schema (one-time per Memgraph instance)
 
 ```bash
 cat src/main/resources/io/github/ousatov/tools/memgraph/cypher/create-schema.cypher | mgconsole --host localhost --port 7687
@@ -166,7 +164,7 @@ java -jar target/memgraph-ingester.jar \
   --apply-schema
 ```
 
-### 4. Ingest a project
+### Ingest a project
 
 This will wipe the Code graph for this project first:
 
@@ -189,7 +187,7 @@ java -jar target/memgraph-ingester.jar \
   --wipe-project-memories
 ```
 
-### 5. Verify
+### Verify
 
 ```cypher
 
