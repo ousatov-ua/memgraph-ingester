@@ -92,6 +92,8 @@ mvn clean package -Pshade -DskipTests
 
 Produces a shaded fat JAR at `target/memgraph-ingester.jar`.
 
+Or use published shaded fat JAR in [releases](https://github.com/ousatov-ua/memgraph-ingester/releases) page.
+
 ### 3. Apply the schema (one-time per Memgraph instance)
 
 ```bash
