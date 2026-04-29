@@ -258,6 +258,7 @@ public final class IngestionOrchestrator {
                   writer.upsertAnnotation(file, pkg, ann);
                 }
               });
+      // Second pass: CALLS edges. All callee nodes must already exist so MATCH succeeds.
       cu.getTypes()
           .forEach(
               typeDecl -> {

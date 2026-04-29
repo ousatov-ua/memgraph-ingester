@@ -11,7 +11,7 @@ import java.nio.charset.StandardCharsets;
  * @author Oleksii Usatov
  * @since 20.04.2026
  */
-public class Const {
+public final class Const {
 
   private Const() {
 

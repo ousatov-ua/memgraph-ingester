@@ -34,11 +34,14 @@ public final class Memgraph {
   }
 
   private static String cypher(String file) {
-    try (InputStream in =
-        Memgraph.class.getResourceAsStream("/io/github/ousatov/tools/memgraph/cypher/" + file)) {
+    String resource = "/io/github/ousatov/tools/memgraph/cypher/" + file;
+    try (InputStream in = Memgraph.class.getResourceAsStream(resource)) {
+      if (in == null) {
+        throw new ProcessingException(resource + " is missing from jar");
+      }
       return new String(in.readAllBytes(), StandardCharsets.UTF_8);
     } catch (IOException e) {
-      throw new ProcessingException(file + " is missing from jar", e);
+      throw new ProcessingException(resource + " could not be loaded from jar", e);
     }
   }
 
