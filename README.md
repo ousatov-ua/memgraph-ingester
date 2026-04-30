@@ -621,12 +621,12 @@ java -jar memgraph-ingester.jar \
 │   ├── GraphWriter.java                    # Cypher MERGE writes to Memgraph
 │   ├── def/Const.java                      # Shared constants
 │   ├── exception/ProcessingException.java  # Checked processing error
-│   └── schema/Memgraph.java               # Schema loader (create / drop / wipe)
+│   └── schema/Memgraph.java                # Schema loader (create / drop / wipe)
 ├── src/main/resources/io/github/ousatov/tools/memgraph/cypher/
 │   ├── action/                             # Per-operation Cypher templates (upsert, wipe, resolve)
 │   ├── create-schema.cypher                # Uniqueness constraints + indexes
 │   ├── drop-schema.cypher                  # Schema teardown
-│   └── wipe-all-data.cypher               # Full data wipe
+│   └── wipe-all-data.cypher                # Full data wipe
 ├── src/test/java/                          # Unit + integration tests (JUnit 5, Testcontainers)
 ├── schema/
 │   └── SCHEMA.md                           # Graph model reference (human-readable)
