@@ -157,7 +157,7 @@ class GraphWriterIT {
 
   @Test
   void upsertFileCreatesFileWithContainsEdge() {
-    writer.upsertFile(TEST_FILE);
+    writer.executeWrite(tx -> writer.upsertFile(tx, TEST_FILE));
 
     long count =
         session
@@ -175,8 +175,8 @@ class GraphWriterIT {
 
   @Test
   void upsertFileIsIdempotent() {
-    writer.upsertFile(TEST_FILE);
-    writer.upsertFile(TEST_FILE);
+    writer.executeWrite(tx -> writer.upsertFile(tx, TEST_FILE));
+    writer.executeWrite(tx -> writer.upsertFile(tx, TEST_FILE));
 
     long count =
         session
@@ -192,7 +192,7 @@ class GraphWriterIT {
   void upsertFileWritesLastModified() throws IOException {
     Path tempFile = Files.createTempFile("widget-", ".java");
     try {
-      writer.upsertFile(tempFile);
+      writer.executeWrite(tx -> writer.upsertFile(tx, tempFile));
 
       long lastModified =
           session
@@ -211,7 +211,7 @@ class GraphWriterIT {
 
   @Test
   void upsertPackageCreatesPackageWithContainsEdge() {
-    writer.upsertPackage(PKG);
+    writer.executeWrite(tx -> writer.upsertPackage(tx, PKG));
 
     long count =
         session
@@ -229,12 +229,15 @@ class GraphWriterIT {
 
   @Test
   void upsertTypeCreatesClassNode() {
-    writer.upsertFile(TEST_FILE);
-    writer.upsertPackage(PKG);
     ClassOrInterfaceDeclaration decl =
         parseDecl("package com.example; public class Widget { private String name; }");
 
-    writer.upsertType(TEST_FILE, PKG, decl);
+    writer.executeWrite(
+        tx -> {
+          writer.upsertFile(tx, TEST_FILE);
+          writer.upsertPackage(tx, PKG);
+          writer.upsertType(tx, TEST_FILE, PKG, decl);
+        });
 
     var rec =
         session
@@ -250,11 +253,14 @@ class GraphWriterIT {
 
   @Test
   void upsertTypeWritesVisibility() {
-    writer.upsertFile(TEST_FILE);
-    writer.upsertPackage(PKG);
     ClassOrInterfaceDeclaration decl = parseDecl("package com.example; public class Widget {}");
 
-    writer.upsertType(TEST_FILE, PKG, decl);
+    writer.executeWrite(
+        tx -> {
+          writer.upsertFile(tx, TEST_FILE);
+          writer.upsertPackage(tx, PKG);
+          writer.upsertType(tx, TEST_FILE, PKG, decl);
+        });
 
     String visibility =
         session
@@ -270,12 +276,15 @@ class GraphWriterIT {
 
   @Test
   void upsertTypeCreatesInterfaceNode() {
-    writer.upsertFile(TEST_FILE);
-    writer.upsertPackage(PKG);
     ClassOrInterfaceDeclaration decl =
         parseDecl("package com.example; public interface Describable { String describe(); }");
 
-    writer.upsertType(TEST_FILE, PKG, decl);
+    writer.executeWrite(
+        tx -> {
+          writer.upsertFile(tx, TEST_FILE);
+          writer.upsertPackage(tx, PKG);
+          writer.upsertType(tx, TEST_FILE, PKG, decl);
+        });
 
     long count =
         session
@@ -291,13 +300,16 @@ class GraphWriterIT {
 
   @Test
   void upsertTypeCreatesAbstractClassNode() {
-    writer.upsertFile(TEST_FILE);
-    writer.upsertPackage(PKG);
     ClassOrInterfaceDeclaration decl =
         parseDecl(
             "package com.example; public abstract class BaseWidget { abstract void init(); }");
 
-    writer.upsertType(TEST_FILE, PKG, decl);
+    writer.executeWrite(
+        tx -> {
+          writer.upsertFile(tx, TEST_FILE);
+          writer.upsertPackage(tx, PKG);
+          writer.upsertType(tx, TEST_FILE, PKG, decl);
+        });
 
     boolean isAbstract =
         session
@@ -313,8 +325,6 @@ class GraphWriterIT {
 
   @Test
   void upsertTypeCreatesFieldNodes() {
-    writer.upsertFile(TEST_FILE);
-    writer.upsertPackage(PKG);
     ClassOrInterfaceDeclaration decl =
         parseDecl(
             "package com.example;"
@@ -323,7 +333,12 @@ class GraphWriterIT {
                 + "   private static int count;"
                 + " }");
 
-    writer.upsertType(TEST_FILE, PKG, decl);
+    writer.executeWrite(
+        tx -> {
+          writer.upsertFile(tx, TEST_FILE);
+          writer.upsertPackage(tx, PKG);
+          writer.upsertType(tx, TEST_FILE, PKG, decl);
+        });
 
     List<String> fieldNames =
         session
@@ -338,12 +353,15 @@ class GraphWriterIT {
 
   @Test
   void upsertTypeCreatesStaticFieldNode() {
-    writer.upsertFile(TEST_FILE);
-    writer.upsertPackage(PKG);
     ClassOrInterfaceDeclaration decl =
         parseDecl("package com.example; public class Widget { private static int count; }");
 
-    writer.upsertType(TEST_FILE, PKG, decl);
+    writer.executeWrite(
+        tx -> {
+          writer.upsertFile(tx, TEST_FILE);
+          writer.upsertPackage(tx, PKG);
+          writer.upsertType(tx, TEST_FILE, PKG, decl);
+        });
 
     boolean isStatic =
         session
@@ -360,8 +378,6 @@ class GraphWriterIT {
 
   @Test
   void upsertTypeCreatesMethodNodes() {
-    writer.upsertFile(TEST_FILE);
-    writer.upsertPackage(PKG);
     ClassOrInterfaceDeclaration decl =
         parseDecl(
             "package com.example;"
@@ -371,7 +387,12 @@ class GraphWriterIT {
                 + "   public static int getCount() { return 0; }"
                 + " }");
 
-    writer.upsertType(TEST_FILE, PKG, decl);
+    writer.executeWrite(
+        tx -> {
+          writer.upsertFile(tx, TEST_FILE);
+          writer.upsertPackage(tx, PKG);
+          writer.upsertType(tx, TEST_FILE, PKG, decl);
+        });
 
     List<String> methodNames =
         session
@@ -387,11 +408,14 @@ class GraphWriterIT {
 
   @Test
   void upsertTypeLinksTypeToFileAndPackage() {
-    writer.upsertFile(TEST_FILE);
-    writer.upsertPackage(PKG);
     ClassOrInterfaceDeclaration decl = parseDecl("package com.example; public class Widget {}");
 
-    writer.upsertType(TEST_FILE, PKG, decl);
+    writer.executeWrite(
+        tx -> {
+          writer.upsertFile(tx, TEST_FILE);
+          writer.upsertPackage(tx, PKG);
+          writer.upsertType(tx, TEST_FILE, PKG, decl);
+        });
 
     long fileLink =
         session
@@ -419,13 +443,16 @@ class GraphWriterIT {
 
   @Test
   void upsertTypeCreatesConstructorNode() {
-    writer.upsertFile(TEST_FILE);
-    writer.upsertPackage(PKG);
     ClassOrInterfaceDeclaration decl =
         parseDecl(
             "package com.example;" + " public class Widget {" + "   public Widget() {}" + " }");
 
-    writer.upsertType(TEST_FILE, PKG, decl);
+    writer.executeWrite(
+        tx -> {
+          writer.upsertFile(tx, TEST_FILE);
+          writer.upsertPackage(tx, PKG);
+          writer.upsertType(tx, TEST_FILE, PKG, decl);
+        });
 
     long count =
         session
@@ -442,8 +469,6 @@ class GraphWriterIT {
 
   @Test
   void upsertTypeCreatesMultipleConstructors() {
-    writer.upsertFile(TEST_FILE);
-    writer.upsertPackage(PKG);
     ClassOrInterfaceDeclaration decl =
         parseDecl(
             "package com.example;"
@@ -452,7 +477,12 @@ class GraphWriterIT {
                 + "   public Widget(String name) {}"
                 + " }");
 
-    writer.upsertType(TEST_FILE, PKG, decl);
+    writer.executeWrite(
+        tx -> {
+          writer.upsertFile(tx, TEST_FILE);
+          writer.upsertPackage(tx, PKG);
+          writer.upsertType(tx, TEST_FILE, PKG, decl);
+        });
 
     long count =
         session
@@ -469,8 +499,6 @@ class GraphWriterIT {
 
   @Test
   void upsertTypeConstructorSignatureIncludesParams() {
-    writer.upsertFile(TEST_FILE);
-    writer.upsertPackage(PKG);
     ClassOrInterfaceDeclaration decl =
         parseDecl(
             "package com.example;"
@@ -478,7 +506,12 @@ class GraphWriterIT {
                 + "   public Widget(String name, int count) {}"
                 + " }");
 
-    writer.upsertType(TEST_FILE, PKG, decl);
+    writer.executeWrite(
+        tx -> {
+          writer.upsertFile(tx, TEST_FILE);
+          writer.upsertPackage(tx, PKG);
+          writer.upsertType(tx, TEST_FILE, PKG, decl);
+        });
 
     String sig =
         session
@@ -496,8 +529,11 @@ class GraphWriterIT {
 
   @Test
   void wipeDeletesOnlyProjectCodeNodes() {
-    writer.upsertFile(TEST_FILE);
-    writer.upsertPackage(PKG);
+    writer.executeWrite(
+        tx -> {
+          writer.upsertFile(tx, TEST_FILE);
+          writer.upsertPackage(tx, PKG);
+        });
     session
         .run(
             "MATCH (m:Memory {project: $p})"
@@ -557,8 +593,6 @@ class GraphWriterIT {
 
   @Test
   void upsertEnumCreatesFieldNodes() {
-    writer.upsertFile(TEST_FILE);
-    writer.upsertPackage(PKG);
     EnumDeclaration decl =
         parseEnum(
             "package com.example;"
@@ -567,7 +601,12 @@ class GraphWriterIT {
                 + "   private final String label = \"x\";"
                 + " }");
 
-    writer.upsertEnum(TEST_FILE, PKG, decl);
+    writer.executeWrite(
+        tx -> {
+          writer.upsertFile(tx, TEST_FILE);
+          writer.upsertPackage(tx, PKG);
+          writer.upsertEnum(tx, TEST_FILE, PKG, decl);
+        });
 
     List<String> fieldNames =
         session
@@ -582,8 +621,6 @@ class GraphWriterIT {
 
   @Test
   void upsertEnumWritesImplementsEdge() {
-    writer.upsertFile(TEST_FILE);
-    writer.upsertPackage(PKG);
     EnumDeclaration decl =
         parseEnumResolved(
             "package com.example;"
@@ -591,7 +628,12 @@ class GraphWriterIT {
                 + "   ACTIVE, INACTIVE;"
                 + " }");
 
-    writer.upsertEnum(TEST_FILE, PKG, decl);
+    writer.executeWrite(
+        tx -> {
+          writer.upsertFile(tx, TEST_FILE);
+          writer.upsertPackage(tx, PKG);
+          writer.upsertEnum(tx, TEST_FILE, PKG, decl);
+        });
 
     long count =
         session
@@ -608,12 +650,15 @@ class GraphWriterIT {
 
   @Test
   void upsertRecordCreatesFieldNodes() {
-    writer.upsertFile(TEST_FILE);
-    writer.upsertPackage(PKG);
     RecordDeclaration decl =
         parseRecord("package com.example;" + " public record Point(int x, int y) {}");
 
-    writer.upsertRecord(TEST_FILE, PKG, decl);
+    writer.executeWrite(
+        tx -> {
+          writer.upsertFile(tx, TEST_FILE);
+          writer.upsertPackage(tx, PKG);
+          writer.upsertRecord(tx, TEST_FILE, PKG, decl);
+        });
 
     List<String> fieldNames =
         session
@@ -628,14 +673,17 @@ class GraphWriterIT {
 
   @Test
   void upsertRecordWritesImplementsEdge() {
-    writer.upsertFile(TEST_FILE);
-    writer.upsertPackage(PKG);
     RecordDeclaration decl =
         parseRecordResolved(
             "package com.example;"
                 + " public record Point(int x, int y) implements java.io.Serializable {}");
 
-    writer.upsertRecord(TEST_FILE, PKG, decl);
+    writer.executeWrite(
+        tx -> {
+          writer.upsertFile(tx, TEST_FILE);
+          writer.upsertPackage(tx, PKG);
+          writer.upsertRecord(tx, TEST_FILE, PKG, decl);
+        });
 
     long count =
         session
