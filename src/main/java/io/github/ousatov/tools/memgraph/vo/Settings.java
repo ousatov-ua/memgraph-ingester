@@ -16,4 +16,21 @@ public record Settings(
     boolean applySchema,
     boolean wipeProjectCode,
     boolean wipeProjectMemories,
-    boolean incremental) {}
+    boolean incremental) {
+
+  public static Settings applySchemaOnly() {
+    return new Settings(false, true, false, false, false);
+  }
+
+  public static Settings wipeAllAndApplySchema() {
+    return new Settings(true, true, false, false, false);
+  }
+
+  public static Settings def() {
+    return new Settings(false, false, false, false, false);
+  }
+
+  public static Settings wipeProjCodeOnly() {
+    return new Settings(false, false, true, false, false);
+  }
+}
