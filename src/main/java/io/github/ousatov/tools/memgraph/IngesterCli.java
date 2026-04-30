@@ -1,5 +1,6 @@
 package io.github.ousatov.tools.memgraph;
 
+import io.github.ousatov.tools.memgraph.vo.Settings;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.concurrent.Callable;
@@ -120,9 +121,9 @@ public final class IngesterCli implements Callable<Integer> {
       ParseService parseService = new ParseService(sourceRoot);
       IngestionOrchestrator orchestrator =
           new IngestionOrchestrator(sourceRoot, project, threads, driver, parseService);
-      int failures =
-          orchestrator.run(
-              wipeAllData, applySchema, wipeProjectCode, wipeProjectMemories, incremental);
+      var settings =
+          new Settings(wipeAllData, applySchema, wipeProjectCode, wipeProjectMemories, incremental);
+      int failures = orchestrator.run(settings);
       if (failures > 0) {
         log.error("Ingestion finished with {} file failure(s).", failures);
         return 2;

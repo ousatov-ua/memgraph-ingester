@@ -7,6 +7,7 @@ import com.github.javaparser.ast.body.EnumDeclaration;
 import com.github.javaparser.ast.body.RecordDeclaration;
 import io.github.ousatov.tools.memgraph.exception.ProcessingException;
 import io.github.ousatov.tools.memgraph.schema.Memgraph;
+import io.github.ousatov.tools.memgraph.vo.Settings;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -65,83 +66,33 @@ public final class IngestionOrchestrator {
   /**
    * Runs the full ingestion and returns the number of files that failed.
    *
-   * @param wipeProjectCode if true, deletes this project's code graph before ingesting
+   * @param settings if true, deletes all data before ingesting
    * @return number of failed files; 0 means complete success
    */
-  public int run(boolean wipeProjectCode) {
-    return run(false, false, wipeProjectCode, false);
-  }
-
-  /**
-   * Runs the full ingestion and returns the number of files that failed.
-   *
-   * @param wipeAllData if true, deletes all data before ingesting
-   * @param applySchema if true, applies schema first
-   * @param wipe if true, deletes this project's code graph before ingesting
-   * @return number of failed files; 0 means complete success
-   */
-  public int run(boolean wipeAllData, boolean applySchema, boolean wipe) {
-    return run(wipeAllData, applySchema, wipe, false);
-  }
-
-  /**
-   * Runs the full ingestion and returns the number of files that failed.
-   *
-   * @param wipeAllData if true, deletes all data before ingesting
-   * @param applySchema if true, applies schema first
-   * @param wipeProjectCode if true, deletes this project's code graph before ingesting
-   * @param wipeProjectMemories if true, deletes this project's memory graph before ingesting
-   * @return number of failed files; 0 means complete success
-   */
-  public int run(
-      boolean wipeAllData,
-      boolean applySchema,
-      boolean wipeProjectCode,
-      boolean wipeProjectMemories) {
-    return run(wipeAllData, applySchema, wipeProjectCode, wipeProjectMemories, false);
-  }
-
-  /**
-   * Runs the full ingestion and returns the number of files that failed.
-   *
-   * @param wipeAllData if true, deletes all data before ingesting
-   * @param applySchema if true, applies schema first
-   * @param wipeProjectCode if true, deletes this project's code graph before ingesting
-   * @param wipeProjectMemories if true, deletes this project's memory graph before ingesting
-   * @param incremental if true, skips files whose lastModified matches the stored value; silently
-   *     disabled when {@code wipeAllData} or {@code wipeProjectCode} is set, because wiping removes
-   *     all stored timestamps making incremental comparison impossible
-   * @return number of failed files; 0 means complete success
-   */
-  public int run(
-      boolean wipeAllData,
-      boolean applySchema,
-      boolean wipeProjectCode,
-      boolean wipeProjectMemories,
-      boolean incremental) {
-    if (incremental && (wipeAllData || wipeProjectCode)) {
+  public int run(Settings settings) {
+    log.info("Proceeding with ingestion, settings: {}", settings);
+    this.incremental = settings.incremental();
+    if (incremental && (settings.wipeAllData() || settings.wipeProjectCode())) {
       log.info(
           "--incremental is incompatible with --wipe-all / --wipe-project-code: wiping removes"
               + " stored timestamps, so incremental mode will be disabled for this run.");
       incremental = false;
     }
-    log.info("Incremental mode: {}", incremental ? "enabled" : "disabled");
-    this.incremental = incremental;
     try (Session bootstrap = driver.session()) {
       GraphWriter bootstrapWriter = new GraphWriter(bootstrap, project);
-      if (wipeAllData) {
+      if (settings.wipeAllData()) {
         Memgraph.wipeAllData(bootstrap);
         log.info("Wiped all data from Memgraph");
       }
-      if (applySchema) {
+      if (settings.applySchema()) {
         Memgraph.applySchema(bootstrap);
         log.info("Applying schema to Memgraph");
       }
-      if (wipeProjectCode) {
+      if (settings.wipeProjectCode()) {
         log.info("Wiping existing code graph for project '{}'...", project);
         bootstrapWriter.wipe();
       }
-      if (wipeProjectMemories) {
+      if (settings.wipeProjectMemories()) {
         log.info("Wiping existing memory graph for project '{}'...", project);
         bootstrapWriter.wipeMemories();
       }

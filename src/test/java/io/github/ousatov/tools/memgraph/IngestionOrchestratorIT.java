@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.ousatov.tools.memgraph.extension.MemgraphExtension;
 import io.github.ousatov.tools.memgraph.extension.MemgraphInstance;
+import io.github.ousatov.tools.memgraph.vo.Settings;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -124,7 +125,7 @@ class IngestionOrchestratorIT {
 
     int failures =
         new IngestionOrchestrator(sourceDir, currentProject, 1, driver, new ParseService(sourceDir))
-            .run(false, true, false);
+            .run(new Settings(false, true, false, false, false));
 
     assertEquals(0, failures);
     try (Session s = driver.session()) {
@@ -165,8 +166,7 @@ class IngestionOrchestratorIT {
 
     int failures =
         new IngestionOrchestrator(sourceDir, currentProject, 1, driver, new ParseService(sourceDir))
-            .run(true, true, false);
-
+            .run(new Settings(true, true, false, false, false));
     assertEquals(0, failures);
     try (Session s = driver.session()) {
       long classCount =
@@ -185,7 +185,7 @@ class IngestionOrchestratorIT {
 
     int failures =
         new IngestionOrchestrator(sourceDir, currentProject, 1, driver, new ParseService(sourceDir))
-            .run(false);
+            .run(new Settings(false, false, false, false, false));
 
     assertEquals(0, failures);
     try (Session s = driver.session()) {
@@ -205,7 +205,7 @@ class IngestionOrchestratorIT {
 
     int failures =
         new IngestionOrchestrator(sourceDir, currentProject, 4, driver, new ParseService(sourceDir))
-            .run(false);
+            .run(new Settings(false, false, false, false, false));
 
     assertEquals(0, failures);
     try (Session s = driver.session()) {
@@ -238,7 +238,7 @@ class IngestionOrchestratorIT {
 
     int failures =
         new IngestionOrchestrator(sourceDir, currentProject, 8, driver, new ParseService(sourceDir))
-            .run(true, true, false);
+            .run(new Settings(true, true, false, false, false));
 
     assertEquals(0, failures);
     try (Session s = driver.session()) {
@@ -262,8 +262,10 @@ class IngestionOrchestratorIT {
     String parProject = PROJECT_BASE + "-cmp-par";
 
     try {
-      new IngestionOrchestrator(seqDir, seqProject, 1, driver, new ParseService(seqDir)).run(false);
-      new IngestionOrchestrator(parDir, parProject, 4, driver, new ParseService(parDir)).run(false);
+      new IngestionOrchestrator(seqDir, seqProject, 1, driver, new ParseService(seqDir))
+          .run(new Settings(false, false, false, false, false));
+      new IngestionOrchestrator(parDir, parProject, 4, driver, new ParseService(parDir))
+          .run(new Settings(false, false, false, false, false));
 
       try (Session s = driver.session()) {
         long seqClasses =
@@ -295,7 +297,7 @@ class IngestionOrchestratorIT {
         new IngestionOrchestrator(
             sourceDir, currentProject, 1, driver, new ParseService(sourceDir));
 
-    orchestrator.run(false);
+    orchestrator.run(new Settings(false, false, false, false, false));
     long countAfterFirst;
     try (Session s = driver.session()) {
       countAfterFirst =
@@ -305,7 +307,7 @@ class IngestionOrchestratorIT {
               .asLong();
     }
 
-    int failures = orchestrator.run(true);
+    int failures = orchestrator.run(new Settings(false, false, true, false, false));
 
     assertEquals(0, failures);
     try (Session s = driver.session()) {
@@ -326,7 +328,7 @@ class IngestionOrchestratorIT {
         new IngestionOrchestrator(
             sourceDir, currentProject, 1, driver, new ParseService(sourceDir));
 
-    orchestrator.run(false);
+    orchestrator.run(new Settings(false, false, false, false, false));
     try (Session s = driver.session()) {
       s.run(
               "MATCH (m:Memory {project: $p})"
@@ -337,7 +339,7 @@ class IngestionOrchestratorIT {
           .consume();
     }
 
-    int failures = orchestrator.run(false, false, false, true);
+    int failures = orchestrator.run(new Settings(false, false, false, true, false));
 
     assertEquals(0, failures);
     try (Session s = driver.session()) {
@@ -378,7 +380,7 @@ class IngestionOrchestratorIT {
         new IngestionOrchestrator(
             sourceDir, currentProject, 1, driver, new ParseService(sourceDir));
 
-    orchestrator.run(false);
+    orchestrator.run(new Settings(false, false, false, false, false));
     long countAfterFirst;
     try (Session s = driver.session()) {
       countAfterFirst =
@@ -388,7 +390,7 @@ class IngestionOrchestratorIT {
               .asLong();
     }
 
-    orchestrator.run(false);
+    orchestrator.run(new Settings(false, false, false, false, false));
 
     try (Session s = driver.session()) {
       long countAfterSecond =
@@ -425,7 +427,7 @@ class IngestionOrchestratorIT {
         """);
 
     new IngestionOrchestrator(sourceDir, currentProject, 1, driver, new ParseService(sourceDir))
-        .run(false);
+        .run(new Settings(false, false, false, false, false));
 
     try (Session s = driver.session()) {
       long ctorCount =
@@ -449,7 +451,7 @@ class IngestionOrchestratorIT {
 
     int failures =
         new IngestionOrchestrator(sourceDir, currentProject, 1, driver, new ParseService(sourceDir))
-            .run(false);
+            .run(new Settings(false, false, false, false, false));
 
     assertTrue(failures > 0, "Expected non-zero failures for unparsable .java file");
   }
@@ -460,7 +462,7 @@ class IngestionOrchestratorIT {
     sourceDir = buildSampleSourceTree();
 
     new IngestionOrchestrator(sourceDir, currentProject, 1, driver, new ParseService(sourceDir))
-        .run(false);
+        .run(new Settings(false, false, false, false, false));
 
     try (Session s = driver.session()) {
       long ifaceCount =
@@ -487,7 +489,7 @@ class IngestionOrchestratorIT {
         "package com.example; public interface Describable extends Printable {}");
 
     new IngestionOrchestrator(sourceDir, currentProject, 1, driver, new ParseService(sourceDir))
-        .run(false);
+        .run(new Settings(false, false, false, false, false));
 
     try (Session s = driver.session()) {
       long count =
@@ -518,7 +520,7 @@ class IngestionOrchestratorIT {
         """);
 
     new IngestionOrchestrator(sourceDir, currentProject, 1, driver, new ParseService(sourceDir))
-        .run(false);
+        .run(new Settings(false, false, false, false, false));
 
     try (Session s = driver.session()) {
       long outerCount =
