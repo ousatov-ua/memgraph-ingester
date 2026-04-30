@@ -125,7 +125,7 @@ class IngestionOrchestratorIT {
 
     int failures =
         new IngestionOrchestrator(sourceDir, currentProject, 1, driver, new ParseService(sourceDir))
-            .run(new Settings(false, true, false, false, false));
+            .run(Settings.applySchemaOnly());
 
     assertEquals(0, failures);
     try (Session s = driver.session()) {
@@ -166,7 +166,7 @@ class IngestionOrchestratorIT {
 
     int failures =
         new IngestionOrchestrator(sourceDir, currentProject, 1, driver, new ParseService(sourceDir))
-            .run(new Settings(true, true, false, false, false));
+            .run(Settings.wipeAllAndApplySchema());
     assertEquals(0, failures);
     try (Session s = driver.session()) {
       long classCount =
@@ -185,7 +185,7 @@ class IngestionOrchestratorIT {
 
     int failures =
         new IngestionOrchestrator(sourceDir, currentProject, 1, driver, new ParseService(sourceDir))
-            .run(new Settings(false, false, false, false, false));
+            .run(Settings.def());
 
     assertEquals(0, failures);
     try (Session s = driver.session()) {
@@ -205,7 +205,7 @@ class IngestionOrchestratorIT {
 
     int failures =
         new IngestionOrchestrator(sourceDir, currentProject, 4, driver, new ParseService(sourceDir))
-            .run(new Settings(false, false, false, false, false));
+            .run(Settings.def());
 
     assertEquals(0, failures);
     try (Session s = driver.session()) {
@@ -238,7 +238,7 @@ class IngestionOrchestratorIT {
 
     int failures =
         new IngestionOrchestrator(sourceDir, currentProject, 8, driver, new ParseService(sourceDir))
-            .run(new Settings(true, true, false, false, false));
+            .run(Settings.wipeAllAndApplySchema());
 
     assertEquals(0, failures);
     try (Session s = driver.session()) {
@@ -263,9 +263,9 @@ class IngestionOrchestratorIT {
 
     try {
       new IngestionOrchestrator(seqDir, seqProject, 1, driver, new ParseService(seqDir))
-          .run(new Settings(false, false, false, false, false));
+          .run(Settings.def());
       new IngestionOrchestrator(parDir, parProject, 4, driver, new ParseService(parDir))
-          .run(new Settings(false, false, false, false, false));
+          .run(Settings.def());
 
       try (Session s = driver.session()) {
         long seqClasses =
@@ -297,7 +297,7 @@ class IngestionOrchestratorIT {
         new IngestionOrchestrator(
             sourceDir, currentProject, 1, driver, new ParseService(sourceDir));
 
-    orchestrator.run(new Settings(false, false, false, false, false));
+    orchestrator.run(Settings.def());
     long countAfterFirst;
     try (Session s = driver.session()) {
       countAfterFirst =
@@ -307,7 +307,7 @@ class IngestionOrchestratorIT {
               .asLong();
     }
 
-    int failures = orchestrator.run(new Settings(false, false, true, false, false));
+    int failures = orchestrator.run(Settings.wipeProjCodeOnly());
 
     assertEquals(0, failures);
     try (Session s = driver.session()) {
@@ -328,7 +328,7 @@ class IngestionOrchestratorIT {
         new IngestionOrchestrator(
             sourceDir, currentProject, 1, driver, new ParseService(sourceDir));
 
-    orchestrator.run(new Settings(false, false, false, false, false));
+    orchestrator.run(Settings.def());
     try (Session s = driver.session()) {
       s.run(
               "MATCH (m:Memory {project: $p})"
@@ -380,7 +380,7 @@ class IngestionOrchestratorIT {
         new IngestionOrchestrator(
             sourceDir, currentProject, 1, driver, new ParseService(sourceDir));
 
-    orchestrator.run(new Settings(false, false, false, false, false));
+    orchestrator.run(Settings.def());
     long countAfterFirst;
     try (Session s = driver.session()) {
       countAfterFirst =
@@ -390,7 +390,7 @@ class IngestionOrchestratorIT {
               .asLong();
     }
 
-    orchestrator.run(new Settings(false, false, false, false, false));
+    orchestrator.run(Settings.def());
 
     try (Session s = driver.session()) {
       long countAfterSecond =
@@ -427,7 +427,7 @@ class IngestionOrchestratorIT {
         """);
 
     new IngestionOrchestrator(sourceDir, currentProject, 1, driver, new ParseService(sourceDir))
-        .run(new Settings(false, false, false, false, false));
+        .run(Settings.def());
 
     try (Session s = driver.session()) {
       long ctorCount =
@@ -451,7 +451,7 @@ class IngestionOrchestratorIT {
 
     int failures =
         new IngestionOrchestrator(sourceDir, currentProject, 1, driver, new ParseService(sourceDir))
-            .run(new Settings(false, false, false, false, false));
+            .run(Settings.def());
 
     assertTrue(failures > 0, "Expected non-zero failures for unparsable .java file");
   }
@@ -462,7 +462,7 @@ class IngestionOrchestratorIT {
     sourceDir = buildSampleSourceTree();
 
     new IngestionOrchestrator(sourceDir, currentProject, 1, driver, new ParseService(sourceDir))
-        .run(new Settings(false, false, false, false, false));
+        .run(Settings.def());
 
     try (Session s = driver.session()) {
       long ifaceCount =
@@ -489,7 +489,7 @@ class IngestionOrchestratorIT {
         "package com.example; public interface Describable extends Printable {}");
 
     new IngestionOrchestrator(sourceDir, currentProject, 1, driver, new ParseService(sourceDir))
-        .run(new Settings(false, false, false, false, false));
+        .run(Settings.def());
 
     try (Session s = driver.session()) {
       long count =
@@ -520,7 +520,7 @@ class IngestionOrchestratorIT {
         """);
 
     new IngestionOrchestrator(sourceDir, currentProject, 1, driver, new ParseService(sourceDir))
-        .run(new Settings(false, false, false, false, false));
+        .run(Settings.def());
 
     try (Session s = driver.session()) {
       long outerCount =
