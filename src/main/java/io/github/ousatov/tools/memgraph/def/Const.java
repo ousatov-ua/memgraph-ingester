@@ -45,6 +45,14 @@ public final class Const {
         action("wipe-project-code-batch.cypher");
     public static final String CYPHER_GET_FILE_LAST_MODIFIED =
         action("get-file-last-modified.cypher");
+
+    /**
+     * Batch-fetches {@code lastModified} for a list of file paths in one query. Returns one row per
+     * file found in the graph; files absent from the graph are not included.
+     */
+    public static final String CYPHER_GET_FILES_LAST_MODIFIED =
+        action("get-files-last-modified.cypher");
+
     public static final String CYPHER_WIPE_PROJECT_MEMORIES =
         action("wipe-project-memories.cypher");
     public static final String CYPHER_RESOLVE_CODE_REFS_CODE =
