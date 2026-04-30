@@ -81,7 +81,7 @@ public final class Const {
     /** Upserts an interface as an {@code :Interface} node. */
     public static final String CYPHER_UPSERT_INTERFACE = action("upsert-interface.cypher");
 
-    public static final String CYPHER_UPSERT_EXTENDS_CLASS = action("upsert-extends-class.cypher");
+    public static final String CYPHER_UPSERT_EXTENDS_CLASS = action("upsert-class-extends.cypher");
 
     /** Used when an interface extends another interface — parent must be {@code :Interface}. */
     public static final String CYPHER_UPSERT_INTERFACE_EXTENDS =
