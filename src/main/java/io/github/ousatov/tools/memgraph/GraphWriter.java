@@ -24,6 +24,7 @@ import io.github.ousatov.tools.memgraph.exception.ProcessingException;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -151,19 +152,19 @@ public final class GraphWriter {
 
   /** Deletes the project-scoped {@code :Memory} graph while keeping the {@code :Project} anchor. */
   public void wipeMemories() {
-    runWithRetry(Cypher.CYPHER_WIPE_PROJECT_MEMORIES, Map.of());
+    runWithRetry(Cypher.CYPHER_WIPE_PROJECT_MEMORIES, Collections.emptyMap());
   }
 
   /** Refreshes {@code :CodeRef} resolution edges to the current project-scoped code graph. */
   public void resolveCodeRefs() {
-    runWithRetry(Cypher.CYPHER_RESOLVE_CODE_REFS_CODE, Map.of());
-    runWithRetry(Cypher.CYPHER_RESOLVE_CODE_REFS_PACKAGE, Map.of());
-    runWithRetry(Cypher.CYPHER_RESOLVE_CODE_REFS_FILE, Map.of());
-    runWithRetry(Cypher.CYPHER_RESOLVE_CODE_REFS_CLASS, Map.of());
-    runWithRetry(Cypher.CYPHER_RESOLVE_CODE_REFS_INTERFACE, Map.of());
-    runWithRetry(Cypher.CYPHER_RESOLVE_CODE_REFS_ANNOTATION, Map.of());
-    runWithRetry(Cypher.CYPHER_RESOLVE_CODE_REFS_METHOD, Map.of());
-    runWithRetry(Cypher.CYPHER_RESOLVE_CODE_REFS_FIELD, Map.of());
+    runWithRetry(Cypher.CYPHER_RESOLVE_CODE_REFS_CODE, Collections.emptyMap());
+    runWithRetry(Cypher.CYPHER_RESOLVE_CODE_REFS_PACKAGE, Collections.emptyMap());
+    runWithRetry(Cypher.CYPHER_RESOLVE_CODE_REFS_FILE, Collections.emptyMap());
+    runWithRetry(Cypher.CYPHER_RESOLVE_CODE_REFS_CLASS, Collections.emptyMap());
+    runWithRetry(Cypher.CYPHER_RESOLVE_CODE_REFS_INTERFACE, Collections.emptyMap());
+    runWithRetry(Cypher.CYPHER_RESOLVE_CODE_REFS_ANNOTATION, Collections.emptyMap());
+    runWithRetry(Cypher.CYPHER_RESOLVE_CODE_REFS_METHOD, Collections.emptyMap());
+    runWithRetry(Cypher.CYPHER_RESOLVE_CODE_REFS_FIELD, Collections.emptyMap());
   }
 
   /**
@@ -177,7 +178,7 @@ public final class GraphWriter {
       if (!result.hasNext()) {
         return -1L;
       }
-      var value = result.single().get("lastModified");
+      var value = result.single().get(Params.LAST_MODIFIED);
       return value.isNull() ? -1L : value.asLong();
     } catch (RuntimeException e) {
       log.debug("Could not fetch lastModified for {}: {}", file, e.getMessage());
@@ -197,11 +198,11 @@ public final class GraphWriter {
     Map<String, Object> params = Map.of("paths", paths, Labels.PROJECT, project);
     try {
       var result = session.run(Cypher.CYPHER_GET_FILES_LAST_MODIFIED, params);
-      Map<String, Long> mtimes = new HashMap<>(files.size() * 2);
+      Map<String, Long> mtimes = HashMap.newHashMap(files.size() * 2);
       while (result.hasNext()) {
-        var record = result.next();
-        String path = record.get("path").asString(null);
-        var value = record.get("lastModified");
+        var currentRec = result.next();
+        String path = currentRec.get("path").asString(null);
+        var value = currentRec.get(Params.LAST_MODIFIED);
         if (path != null && !value.isNull()) {
           mtimes.put(path, value.asLong());
         }
@@ -209,7 +210,7 @@ public final class GraphWriter {
       return mtimes;
     } catch (RuntimeException e) {
       log.debug("Could not batch-fetch lastModified values: {}", e.getMessage());
-      return Map.of();
+      return Collections.emptyMap();
     }
   }
 
@@ -228,7 +229,7 @@ public final class GraphWriter {
     }
     runWithRetry(
         Cypher.CYPHER_UPSERT_FILE,
-        Map.of(Params.PATH, file.toString(), "lastModified", lastModified));
+        Map.of(Params.PATH, file.toString(), Params.LAST_MODIFIED, lastModified));
   }
 
   /** Upserts a {@code :Package} node and links it to the code anchor. */
@@ -447,7 +448,9 @@ public final class GraphWriter {
 
   private void upsertInheritance(String fqn, ClassOrInterfaceDeclaration decl) {
     String extendsCypher =
-        decl.isInterface() ? Cypher.CYPHER_UPSERT_INTERFACE_EXTENDS : Cypher.CYPHER_UPSERT_EXTENDS_CLASS;
+        decl.isInterface()
+            ? Cypher.CYPHER_UPSERT_INTERFACE_EXTENDS
+            : Cypher.CYPHER_UPSERT_EXTENDS_CLASS;
     decl.getExtendedTypes()
         .forEach(
             ext ->

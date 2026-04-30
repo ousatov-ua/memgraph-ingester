@@ -152,6 +152,7 @@ public final class Const {
     public static final String RET = "ret";
     public static final String START = "start";
     public static final String END = "end";
+    public static final String LAST_MODIFIED = "lastModified";
 
     private Params() {
 
