@@ -5,6 +5,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.junit.jupiter.api.Test;
 
+/**
+ * Unit tests for {@link GraphWriter}.
+ *
+ * @author Oleksii Usatov
+ */
 class GraphWriterTest {
 
   @Test
