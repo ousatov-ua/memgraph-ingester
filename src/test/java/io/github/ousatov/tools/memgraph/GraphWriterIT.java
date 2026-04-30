@@ -650,6 +650,90 @@ class GraphWriterIT {
     assertEquals(1, count);
   }
 
+  @Test
+  void fileTransactionCommitPersistsWrites() {
+    writer.beginFileTransaction();
+    writer.upsertFile(TEST_FILE);
+    writer.upsertPackage(PKG);
+    writer.commitFileTransaction();
+
+    long fileCount =
+        session
+            .run(
+                "MATCH (f:File {path: $path, project: $p}) RETURN count(f) AS n",
+                Map.of("path", TEST_FILE.toString(), "p", PROJECT))
+            .single()
+            .get("n")
+            .asLong();
+
+    assertEquals(1, fileCount);
+
+    long pkgCount =
+        session
+            .run(
+                "MATCH (pkg:Package {name: $name, project: $p}) RETURN count(pkg) AS n",
+                Map.of("name", PKG, "p", PROJECT))
+            .single()
+            .get("n")
+            .asLong();
+
+    assertEquals(1, pkgCount);
+  }
+
+  @Test
+  void fileTransactionRollbackDiscardsWrites() {
+    writer.beginFileTransaction();
+    writer.upsertFile(TEST_FILE);
+    writer.upsertPackage(PKG);
+    writer.rollbackFileTransaction();
+
+    long fileCount =
+        session
+            .run(
+                "MATCH (f:File {path: $path, project: $p}) RETURN count(f) AS n",
+                Map.of("path", TEST_FILE.toString(), "p", PROJECT))
+            .single()
+            .get("n")
+            .asLong();
+
+    assertEquals(0, fileCount);
+  }
+
+  @Test
+  void fileTransactionIsIdempotentForMultipleFiles() {
+    Path file2 = Path.of("/tmp/test-gw/src/com/example/Service.java");
+
+    writer.beginFileTransaction();
+    writer.upsertFile(TEST_FILE);
+    writer.upsertPackage(PKG);
+    writer.commitFileTransaction();
+
+    writer.beginFileTransaction();
+    writer.upsertFile(file2);
+    writer.upsertPackage(PKG);
+    writer.commitFileTransaction();
+
+    long fileCount =
+        session
+            .run("MATCH (f:File {project: $p}) RETURN count(f) AS n", Map.of("p", PROJECT))
+            .single()
+            .get("n")
+            .asLong();
+
+    assertEquals(2, fileCount);
+
+    long pkgCount =
+        session
+            .run(
+                "MATCH (pkg:Package {name: $name, project: $p}) RETURN count(pkg) AS n",
+                Map.of("name", PKG, "p", PROJECT))
+            .single()
+            .get("n")
+            .asLong();
+
+    assertEquals(1, pkgCount);
+  }
+
   private static ClassOrInterfaceDeclaration parseDecl(String src) {
     return new JavaParser()
         .parse(src)

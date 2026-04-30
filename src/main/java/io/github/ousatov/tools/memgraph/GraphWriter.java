@@ -33,6 +33,7 @@ import java.util.Optional;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 import org.neo4j.driver.Session;
+import org.neo4j.driver.Transaction;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -42,6 +43,13 @@ import org.slf4j.LoggerFactory;
  * <p>Each instance wraps exactly one {@link Session}. In sequential mode the orchestrator creates
  * one instance; in parallel mode each worker thread creates its own, ensuring no session is shared
  * across threads.
+ *
+ * <p>In sequential mode, callers may open an explicit per-file transaction via {@link
+ * #beginFileTransaction()} / {@link #commitFileTransaction()} / {@link #rollbackFileTransaction()}
+ * to batch all writes for a file into a single Bolt round-trip, which eliminates 50–100 autocommit
+ * transactions per file. This is safe only when there is exactly one writer (sequential mode),
+ * because Memgraph MVCC will abort concurrent transactions that MERGE the same shared nodes (e.g.,
+ * {@code :Package}, parent {@code :Class}/{@code :Interface}, {@code :Annotation}).
  *
  * @author Oleksii Usatov
  */
@@ -58,12 +66,57 @@ public final class GraphWriter {
   private final String project;
 
   /**
+   * Non-null while an explicit file-level transaction is open (sequential mode only). When set,
+   * {@link #runWithRetry} routes through this transaction instead of autocommit session.run().
+   */
+  private Transaction currentTx;
+
+  /**
    * @param session Bolt session — must not be shared with other threads
    * @param project project name used to scope all Cypher operations
    */
   public GraphWriter(Session session, String project) {
     this.session = session;
     this.project = project;
+  }
+
+  /**
+   * Opens an explicit Bolt transaction so that all subsequent {@link #runWithRetry} calls are
+   * batched into a single round-trip. Must only be called in sequential (single-writer) mode;
+   * concurrent writers sharing the same nodes will trigger Memgraph MVCC conflicts.
+   *
+   * <p>Call {@link #commitFileTransaction()} when all writes succeed, or {@link
+   * #rollbackFileTransaction()} on any failure.
+   */
+  public void beginFileTransaction() {
+    currentTx = session.beginTransaction();
+  }
+
+  /**
+   * Commits the current file-level transaction and clears it. Must be paired with a prior call to
+   * {@link #beginFileTransaction()}.
+   */
+  public void commitFileTransaction() {
+    if (currentTx != null) {
+      currentTx.commit();
+      currentTx = null;
+    }
+  }
+
+  /**
+   * Rolls back the current file-level transaction and clears it. Called on any write failure to
+   * discard partial state so the file can be retried cleanly.
+   */
+  public void rollbackFileTransaction() {
+    if (currentTx != null) {
+      try {
+        currentTx.rollback();
+      } catch (Exception e) {
+        log.debug("Rollback failed: {}", e.getMessage());
+      } finally {
+        currentTx = null;
+      }
+    }
   }
 
   static boolean isRetryable(RuntimeException e) {
@@ -209,7 +262,10 @@ public final class GraphWriter {
       }
       return mtimes;
     } catch (RuntimeException e) {
-      log.debug("Could not batch-fetch lastModified values: {}", e.getMessage());
+      log.warn(
+          "Could not batch-fetch lastModified values, incremental mode will re-ingest all files:"
+              + " {}",
+          e.getMessage());
       return Collections.emptyMap();
     }
   }
@@ -640,8 +696,10 @@ public final class GraphWriter {
   }
 
   /**
-   * Runs {@code cypher} with retry-on-conflict. Auto-injects the {@code project} parameter so
-   * callers do not need to include it in {@code params}.
+   * Runs {@code cypher} with retry-on-conflict. Routes through the open file-level transaction when
+   * one is active (sequential batch mode); otherwise falls back to autocommit session.run().
+   * Auto-injects the {@code project} parameter so callers do not need to include it in {@code
+   * params}.
    */
   private void runWithRetry(String cypher, Map<String, Object> params) {
     Map<String, Object> allParams = new HashMap<>(params);
@@ -649,7 +707,11 @@ public final class GraphWriter {
     long backoffMs = INITIAL_BACKOFF_MS;
     for (int attempt = 1; attempt <= MAX_RETRY_ATTEMPTS; attempt++) {
       try {
-        session.run(cypher, allParams).consume();
+        if (currentTx != null) {
+          currentTx.run(cypher, allParams).consume();
+        } else {
+          session.run(cypher, allParams).consume();
+        }
         return;
       } catch (RuntimeException e) {
         backoffMs = proceedException(cypher, e, attempt, backoffMs);

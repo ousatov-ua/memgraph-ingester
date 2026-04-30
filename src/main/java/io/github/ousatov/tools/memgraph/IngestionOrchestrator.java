@@ -108,7 +108,9 @@ public final class IngestionOrchestrator {
    * @param applySchema if true, applies schema first
    * @param wipeProjectCode if true, deletes this project's code graph before ingesting
    * @param wipeProjectMemories if true, deletes this project's memory graph before ingesting
-   * @param incremental if true, skips files whose lastModified matches the stored value
+   * @param incremental if true, skips files whose lastModified matches the stored value; silently
+   *     disabled when {@code wipeAllData} or {@code wipeProjectCode} is set, because wiping removes
+   *     all stored timestamps making incremental comparison impossible
    * @return number of failed files; 0 means complete success
    */
   public int run(
@@ -117,6 +119,13 @@ public final class IngestionOrchestrator {
       boolean wipeProjectCode,
       boolean wipeProjectMemories,
       boolean incremental) {
+    if (incremental && (wipeAllData || wipeProjectCode)) {
+      log.info(
+          "--incremental is incompatible with --wipe-all / --wipe-project-code: wiping removes"
+              + " stored timestamps, so incremental mode will be disabled for this run.");
+      incremental = false;
+    }
+    log.info("Incremental mode: {}", incremental ? "enabled" : "disabled");
     this.incremental = incremental;
     try (Session bootstrap = driver.session()) {
       GraphWriter bootstrapWriter = new GraphWriter(bootstrap, project);
@@ -183,7 +192,7 @@ public final class IngestionOrchestrator {
     try (Session session = driver.session()) {
       GraphWriter writer = new GraphWriter(session, project);
       for (Path file : files) {
-        if (!ingestFile(writer, file, mtimeCache)) {
+        if (!ingestFileBatched(writer, file, mtimeCache)) {
           failures++;
         }
         done++;
@@ -193,6 +202,44 @@ public final class IngestionOrchestrator {
       }
     }
     return failures;
+  }
+
+  /**
+   * Wraps {@link #ingestFile} in an explicit per-file transaction so all writes for the file are
+   * committed in a single Bolt round-trip. Safe only in sequential mode where there is exactly one
+   * concurrent writer — no Memgraph MVCC conflicts are possible.
+   *
+   * @return true on success (or skip), false if parsing or graph write fails
+   */
+  private boolean ingestFileBatched(GraphWriter writer, Path file, Map<String, Long> mtimeCache) {
+    if (incremental) {
+      Long storedModified = mtimeCache.get(file.toString());
+      if (storedModified != null && storedModified > 0) {
+        try {
+          long fsModified = Files.getLastModifiedTime(file).toMillis();
+          if (fsModified == storedModified) {
+            log.debug("Skipping unchanged file: {}", file);
+            return true;
+          }
+        } catch (IOException _) {
+          // Cannot read mtime — proceed with full ingest.
+        }
+      }
+    }
+    writer.beginFileTransaction();
+    try {
+      boolean success = ingestFile(writer, file);
+      if (success) {
+        writer.commitFileTransaction();
+      } else {
+        writer.rollbackFileTransaction();
+      }
+      return success;
+    } catch (Exception e) {
+      writer.rollbackFileTransaction();
+      log.warn("Failed to ingest {}: {}", file, e.getMessage());
+      return false;
+    }
   }
 
   @SuppressWarnings("java:S2095")
@@ -284,6 +331,16 @@ public final class IngestionOrchestrator {
         }
       }
     }
+    return ingestFile(writer, file);
+  }
+
+  /**
+   * Parses a single file and writes all derived nodes and edges to the graph. Does not perform
+   * incremental-mode skipping; callers are responsible for mtime checks.
+   *
+   * @return true on success, false if parsing or graph write fails
+   */
+  private boolean ingestFile(GraphWriter writer, Path file) {
     var cuOpt = parseService.parse(file);
     if (cuOpt.isEmpty()) {
       return false;
