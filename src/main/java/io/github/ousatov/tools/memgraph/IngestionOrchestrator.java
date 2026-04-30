@@ -10,6 +10,7 @@ import io.github.ousatov.tools.memgraph.schema.Memgraph;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -147,7 +148,7 @@ public final class IngestionOrchestrator {
     }
     log.info("Found {} Java files. Ingesting with {} thread(s).", files.size(), threads);
 
-    Map<String, Long> mtimeCache = Map.of();
+    Map<String, Long> mtimeCache = Collections.emptyMap();
     if (incremental) {
       try (Session session = driver.session()) {
         mtimeCache = new GraphWriter(session, project).getAllFileLastModified(files);
