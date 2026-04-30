@@ -11,6 +11,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -146,12 +147,20 @@ public final class IngestionOrchestrator {
     }
     log.info("Found {} Java files. Ingesting with {} thread(s).", files.size(), threads);
 
+    Map<String, Long> mtimeCache = Map.of();
+    if (incremental) {
+      try (Session session = driver.session()) {
+        mtimeCache = new GraphWriter(session, project).getAllFileLastModified(files);
+        log.info("Pre-loaded {} stored file timestamps for incremental mode.", mtimeCache.size());
+      }
+    }
+
     int failures;
     if (threads == 1) {
-      failures = ingestSequential(files);
+      failures = ingestSequential(files, mtimeCache);
     } else {
       try {
-        failures = ingestParallel(files);
+        failures = ingestParallel(files, mtimeCache);
       } catch (InterruptedException e) {
         Thread.currentThread().interrupt();
         throw new ProcessingException("Interrupted during ingestion", e);
@@ -165,7 +174,7 @@ public final class IngestionOrchestrator {
     return failures;
   }
 
-  private int ingestSequential(List<Path> files) {
+  private int ingestSequential(List<Path> files, Map<String, Long> mtimeCache) {
     int failures = 0;
     int total = files.size();
     int step = Math.clamp(total / PROGRESS_DIVISOR, 1, 100);
@@ -173,7 +182,7 @@ public final class IngestionOrchestrator {
     try (Session session = driver.session()) {
       GraphWriter writer = new GraphWriter(session, project);
       for (Path file : files) {
-        if (!ingestFile(writer, file)) {
+        if (!ingestFile(writer, file, mtimeCache)) {
           failures++;
         }
         done++;
@@ -186,7 +195,8 @@ public final class IngestionOrchestrator {
   }
 
   @SuppressWarnings("java:S2095")
-  private int ingestParallel(List<Path> files) throws InterruptedException {
+  private int ingestParallel(List<Path> files, Map<String, Long> mtimeCache)
+      throws InterruptedException {
     CopyOnWriteArrayList<Session> sessions = new CopyOnWriteArrayList<>();
     ThreadLocal<GraphWriter> threadWriter =
         ThreadLocal.withInitial(
@@ -217,7 +227,7 @@ public final class IngestionOrchestrator {
             () -> {
               boolean success;
               try {
-                success = ingestFile(threadWriter.get(), file);
+                success = ingestFile(threadWriter.get(), file, mtimeCache);
               } catch (Exception e) {
                 log.warn("Thread failure on {}: {}", file, e.getMessage());
                 success = false;
@@ -252,14 +262,16 @@ public final class IngestionOrchestrator {
 
   /**
    * Parses and ingests a single file. In incremental mode, skips files whose filesystem {@code
-   * lastModified} matches the value stored in the graph.
+   * lastModified} matches the value stored in {@code mtimeCache}.
    *
+   * @param mtimeCache pre-loaded map of path → stored lastModified (populated at run-start when
+   *     incremental is true, otherwise empty)
    * @return true on success (or skip), false if parsing or graph write fails
    */
-  private boolean ingestFile(GraphWriter writer, Path file) {
+  private boolean ingestFile(GraphWriter writer, Path file, Map<String, Long> mtimeCache) {
     if (incremental) {
-      long storedModified = writer.getFileLastModified(file);
-      if (storedModified > 0) {
+      Long storedModified = mtimeCache.get(file.toString());
+      if (storedModified != null && storedModified > 0) {
         try {
           long fsModified = Files.getLastModifiedTime(file).toMillis();
           if (fsModified == storedModified) {

@@ -25,6 +25,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
@@ -181,6 +182,34 @@ public final class GraphWriter {
     } catch (RuntimeException e) {
       log.debug("Could not fetch lastModified for {}: {}", file, e.getMessage());
       return -1L;
+    }
+  }
+
+  /**
+   * Batch-fetches stored {@code lastModified} values for all given paths in one query. Only files
+   * already present in the graph are included in the returned map; absent files are omitted.
+   *
+   * @param files list of source paths to check
+   * @return map of {@code path.toString()} → stored epoch-millis
+   */
+  public Map<String, Long> getAllFileLastModified(List<Path> files) {
+    List<String> paths = files.stream().map(Path::toString).toList();
+    Map<String, Object> params = Map.of("paths", paths, Labels.PROJECT, project);
+    try {
+      var result = session.run(Cypher.CYPHER_GET_FILES_LAST_MODIFIED, params);
+      Map<String, Long> mtimes = new HashMap<>(files.size() * 2);
+      while (result.hasNext()) {
+        var record = result.next();
+        String path = record.get("path").asString(null);
+        var value = record.get("lastModified");
+        if (path != null && !value.isNull()) {
+          mtimes.put(path, value.asLong());
+        }
+      }
+      return mtimes;
+    } catch (RuntimeException e) {
+      log.debug("Could not batch-fetch lastModified values: {}", e.getMessage());
+      return Map.of();
     }
   }
 
