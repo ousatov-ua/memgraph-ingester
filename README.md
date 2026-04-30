@@ -636,7 +636,7 @@ java -jar memgraph-ingester.jar \
 │   ├── init-memgraph-gemini.sh             # Appends Memgraph section to a repo's AGENTS.md (Gemini)
 │   └── init-memgraph-github.sh             # Appends Memgraph section to a repo's AGENTS.md (Copilot)
 ├── template/
-│   ├── AI-memgraph-template.md             # Template for CLAUDE.md injection
+│   ├── AI-memgraph-template.md             # Template for *.md injection
 ├── memgraph-platform/
 │   └── docker-compose.yml                  # Memgraph + Lab (with UI)
 ├── pom.xml                                 # Maven build (shaded fat JAR, spotless-enforced)
