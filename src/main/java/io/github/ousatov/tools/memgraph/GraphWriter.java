@@ -447,7 +447,7 @@ public final class GraphWriter {
 
   private void upsertInheritance(String fqn, ClassOrInterfaceDeclaration decl) {
     String extendsCypher =
-        decl.isInterface() ? Cypher.CYPHER_UPSERT_INTERFACE_EXTENDS : Cypher.CYPHER_UPSERT_EXTENDS;
+        decl.isInterface() ? Cypher.CYPHER_UPSERT_INTERFACE_EXTENDS : Cypher.CYPHER_UPSERT_EXTENDS_CLASS;
     decl.getExtendedTypes()
         .forEach(
             ext ->
