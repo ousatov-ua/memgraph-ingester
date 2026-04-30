@@ -96,7 +96,7 @@ class MemoryGraphIT {
 
   @Test
   void memoryItemsCanReferToCodeRefsResolvedToCodeNodes() {
-    writer.executeWrite(tx -> writer.upsertFile(tx, TEST_FILE));
+    writer.upsertFile(TEST_FILE);
 
     session
         .run(
@@ -169,7 +169,7 @@ class MemoryGraphIT {
 
   @Test
   void wipeMemoriesDeletesProjectMemoryGraphAndPreservesCodeGraph() {
-    writer.executeWrite(tx -> writer.upsertFile(tx, TEST_FILE));
+    writer.upsertFile(TEST_FILE);
     session
         .run(
             "MATCH (m:Memory {project: $p})"

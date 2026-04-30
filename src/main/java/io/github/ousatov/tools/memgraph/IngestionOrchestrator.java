@@ -292,36 +292,33 @@ public final class IngestionOrchestrator {
     String pkg = cu.getPackageDeclaration().map(pd -> pd.getName().asString()).orElse("");
     try {
       log.debug("Ingesting {} (project={})", file, project);
-      writer.executeWrite(
-          tx -> {
-            writer.upsertFile(tx, file);
-            writer.upsertPackage(tx, pkg);
-            cu.getTypes()
-                .forEach(
-                    typeDecl -> {
-                      if (typeDecl instanceof ClassOrInterfaceDeclaration ci) {
-                        writer.upsertType(tx, file, pkg, ci);
-                      } else if (typeDecl instanceof EnumDeclaration en) {
-                        writer.upsertEnum(tx, file, pkg, en);
-                      } else if (typeDecl instanceof RecordDeclaration rec) {
-                        writer.upsertRecord(tx, file, pkg, rec);
-                      } else if (typeDecl instanceof AnnotationDeclaration ann) {
-                        writer.upsertAnnotation(tx, file, pkg, ann);
-                      }
-                    });
-            // Second pass: CALLS edges. All callee nodes must already exist so MATCH succeeds.
-            cu.getTypes()
-                .forEach(
-                    typeDecl -> {
-                      if (typeDecl instanceof ClassOrInterfaceDeclaration ci) {
-                        writer.upsertTypeCallEdges(tx, pkg, ci);
-                      } else if (typeDecl instanceof EnumDeclaration en) {
-                        writer.upsertEnumCallEdges(tx, pkg, en);
-                      } else if (typeDecl instanceof RecordDeclaration rec) {
-                        writer.upsertRecordCallEdges(tx, pkg, rec);
-                      }
-                    });
-          });
+      writer.upsertFile(file);
+      writer.upsertPackage(pkg);
+      cu.getTypes()
+          .forEach(
+              typeDecl -> {
+                if (typeDecl instanceof ClassOrInterfaceDeclaration ci) {
+                  writer.upsertType(file, pkg, ci);
+                } else if (typeDecl instanceof EnumDeclaration en) {
+                  writer.upsertEnum(file, pkg, en);
+                } else if (typeDecl instanceof RecordDeclaration rec) {
+                  writer.upsertRecord(file, pkg, rec);
+                } else if (typeDecl instanceof AnnotationDeclaration ann) {
+                  writer.upsertAnnotation(file, pkg, ann);
+                }
+              });
+      // Second pass: CALLS edges. All callee nodes must already exist so MATCH succeeds.
+      cu.getTypes()
+          .forEach(
+              typeDecl -> {
+                if (typeDecl instanceof ClassOrInterfaceDeclaration ci) {
+                  writer.upsertTypeCallEdges(pkg, ci);
+                } else if (typeDecl instanceof EnumDeclaration en) {
+                  writer.upsertEnumCallEdges(pkg, en);
+                } else if (typeDecl instanceof RecordDeclaration rec) {
+                  writer.upsertRecordCallEdges(pkg, rec);
+                }
+              });
       return true;
     } catch (Exception e) {
       log.warn("Failed to ingest {}: {}", file, e.getMessage());
