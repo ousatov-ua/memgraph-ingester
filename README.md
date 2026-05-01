@@ -636,8 +636,15 @@ graph wipes and re-ingestion.
   provide dependency JARs for full FQN resolution.
 - **External types get tagged with your project.** When a class extends or implements something from
   outside your source tree (e.g. `RuntimeException`, Spring interfaces), the ingester creates a
-  `:Class` or `:Interface` node for it and scopes it to your project. This keeps inheritance edges
-  intact but means those nodes are placeholders without full metadata.
+  `:Class` or `:Interface` node for it and scopes it to your project. These phantom nodes are marked
+  with `isExternal = true` and have their `name` and `packageName` inferred from the FQN. Use
+  `WHERE NOT n.isExternal` to filter them out. Project-internal nodes always have
+  `isExternal = false`.
+- **Same-class CALLS fallback.** When full signature resolution fails for an unscoped (same-class)
+  method call, the ingester falls back to name-based matching: it creates a `CALLS` edge if exactly
+  one method with that name exists in the owning type. This avoids false positives from overloading
+  while recovering many intra-class call edges that would otherwise be lost. The same fallback
+  applies to same-class method references (`Type::method`).
 - **Generated code is only indexed if you ingest it.** Annotation processors, Lombok-generated
   members, and similar won't appear in the graph unless their generated source directory is passed
   to the ingester too:

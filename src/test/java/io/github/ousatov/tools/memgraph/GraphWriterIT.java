@@ -734,8 +734,147 @@ class GraphWriterIT {
     assertEquals(1, pkgCount);
   }
 
+  @Test
+  void extendsMarksExternalParentAsExternal() {
+    writer.upsertFile(TEST_FILE);
+    writer.upsertPackage(PKG);
+    ClassOrInterfaceDeclaration decl =
+        parseDeclResolved(
+            "package com.example;" + " public class MyException extends RuntimeException {}");
+
+    writer.upsertType(TEST_FILE, PKG, decl);
+
+    var result =
+        session
+            .run(
+                "MATCH (c:Class {fqn: $fqn, project: $p})"
+                    + " RETURN c.isExternal AS ext, c.name AS name",
+                Map.of("fqn", "com.example.MyException", "p", PROJECT))
+            .single();
+
+    assertFalse(result.get("ext").asBoolean());
+    assertEquals("MyException", result.get("name").asString());
+  }
+
+  @Test
+  void extendsMarksPhantomParentWithInferredProperties() {
+    writer.upsertFile(TEST_FILE);
+    writer.upsertPackage(PKG);
+    ClassOrInterfaceDeclaration decl =
+        parseDeclResolved(
+            "package com.example;" + " public class MyException extends RuntimeException {}");
+
+    writer.upsertType(TEST_FILE, PKG, decl);
+
+    var result =
+        session
+            .run(
+                "MATCH (:Class {fqn: 'com.example.MyException', project: $p})"
+                    + "-[:EXTENDS]->(parent:Class)"
+                    + " RETURN parent.isExternal AS ext, parent.name AS name,"
+                    + " parent.packageName AS pkg",
+                Map.of("p", PROJECT))
+            .single();
+
+    assertTrue(result.get("ext").asBoolean());
+    assertEquals("RuntimeException", result.get("name").asString());
+    assertEquals("java.lang", result.get("pkg").asString());
+  }
+
+  @Test
+  void callsFallbackCreatesEdgeForUnscopedSameClassCall() throws IOException {
+    Path tempDir = Files.createTempDirectory("call-fallback-test");
+    Path sourceFile = tempDir.resolve("com/example/Service.java");
+    Files.createDirectories(sourceFile.getParent());
+    Files.writeString(
+        sourceFile,
+        "package com.example;"
+            + " public class Service {"
+            + "   private void helper() {}"
+            + "   public void doWork() { helper(); }"
+            + " }");
+
+    ParseService parseService = new ParseService(tempDir);
+    var cu = parseService.parse(sourceFile).orElseThrow();
+    var decl = cu.findFirst(ClassOrInterfaceDeclaration.class).orElseThrow();
+
+    writer.upsertFile(sourceFile);
+    writer.upsertPackage("com.example");
+    writer.upsertType(sourceFile, "com.example", decl);
+    writer.upsertTypeCallEdges("com.example", decl);
+
+    long callCount =
+        session
+            .run(
+                "MATCH (caller:Method {project: $p})-[:CALLS]->(callee:Method {name: 'helper'})"
+                    + " WHERE caller.name = 'doWork'"
+                    + " RETURN count(*) AS n",
+                Map.of("p", PROJECT))
+            .single()
+            .get("n")
+            .asLong();
+
+    assertEquals(1, callCount);
+    deleteDir(tempDir);
+  }
+
+  @Test
+  void methodReferenceCreatesCallsEdge() throws IOException {
+    Path tempDir = Files.createTempDirectory("method-ref-test");
+    Path sourceFile = tempDir.resolve("com/example/Mapper.java");
+    Files.createDirectories(sourceFile.getParent());
+    Files.writeString(
+        sourceFile,
+        "package com.example;"
+            + " import java.util.List;"
+            + " public class Mapper {"
+            + "   private static String transform(String s) { return s; }"
+            + "   public List<String> map(List<String> items) {"
+            + "     return items.stream().map(Mapper::transform).toList();"
+            + "   }"
+            + " }");
+
+    ParseService parseService = new ParseService(tempDir);
+    var cu = parseService.parse(sourceFile).orElseThrow();
+    var decl = cu.findFirst(ClassOrInterfaceDeclaration.class).orElseThrow();
+
+    writer.upsertFile(sourceFile);
+    writer.upsertPackage("com.example");
+    writer.upsertType(sourceFile, "com.example", decl);
+    writer.upsertTypeCallEdges("com.example", decl);
+
+    long callCount =
+        session
+            .run(
+                "MATCH (caller:Method {project: $p})-[:CALLS]->(callee:Method {name: 'transform'})"
+                    + " WHERE caller.name = 'map'"
+                    + " RETURN count(*) AS n",
+                Map.of("p", PROJECT))
+            .single()
+            .get("n")
+            .asLong();
+
+    assertEquals(1, callCount);
+    deleteDir(tempDir);
+  }
+
+  private static void deleteDir(Path dir) throws IOException {
+    try (var walk = Files.walk(dir)) {
+      walk.sorted(java.util.Comparator.reverseOrder()).forEach(p -> p.toFile().delete());
+    }
+  }
+
   private static ClassOrInterfaceDeclaration parseDecl(String src) {
     return new JavaParser()
+        .parse(src)
+        .getResult()
+        .flatMap(cu -> cu.findFirst(ClassOrInterfaceDeclaration.class))
+        .orElseThrow(
+            () -> new IllegalArgumentException("Could not parse declaration from: " + src));
+  }
+
+  private static ClassOrInterfaceDeclaration parseDeclResolved(String src) {
+    return resolvingParser()
         .parse(src)
         .getResult()
         .flatMap(cu -> cu.findFirst(ClassOrInterfaceDeclaration.class))

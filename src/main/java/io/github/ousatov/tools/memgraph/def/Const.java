@@ -98,6 +98,12 @@ public final class Const {
      */
     public static final String CYPHER_UPSERT_CALL = action("upsert-call.cypher");
 
+    /**
+     * Fallback for unresolved same-class calls. Matches the callee by name within the owner type;
+     * only creates the edge when exactly one method has that name (no overloading ambiguity).
+     */
+    public static final String CYPHER_UPSERT_CALL_BY_NAME = action("upsert-call-by-name.cypher");
+
     private static String action(String file) {
       String resource = ACTION_RESOURCE_BASE + file;
       try (InputStream in = Const.class.getResourceAsStream(resource)) {
@@ -134,9 +140,12 @@ public final class Const {
 
     public static final String CALLER = "caller";
     public static final String CALLEE = "callee";
+    public static final String CALLEE_NAME = "calleeName";
+    public static final String OWNER_FQN = "ownerFqn";
     public static final String FQN = "fqn";
     public static final String NAME = "name";
     public static final String ANNOT_FQN = "annotFqn";
+    public static final String ANNOT_NAME = "annotName";
     public static final String PKG = "pkg";
     public static final String PATH = "path";
     public static final String IS_ABSTRACT = "isAbstract";
@@ -146,7 +155,11 @@ public final class Const {
     public static final String OWNER = "owner";
     public static final String CHILD = "child";
     public static final String PARENT = "parent";
+    public static final String PARENT_NAME = "parentName";
+    public static final String PARENT_PKG = "parentPkg";
     public static final String IFACE = "iface";
+    public static final String IFACE_NAME = "ifaceName";
+    public static final String IFACE_PKG = "ifacePkg";
     public static final String SIG = "sig";
     public static final String IS_STATIC = "isStatic";
     public static final String RET = "ret";

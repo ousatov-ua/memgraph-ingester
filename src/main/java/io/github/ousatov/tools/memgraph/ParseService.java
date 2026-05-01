@@ -9,7 +9,6 @@ import com.github.javaparser.symbolsolver.resolution.typesolvers.CombinedTypeSol
 import com.github.javaparser.symbolsolver.resolution.typesolvers.JarTypeSolver;
 import com.github.javaparser.symbolsolver.resolution.typesolvers.JavaParserTypeSolver;
 import com.github.javaparser.symbolsolver.resolution.typesolvers.ReflectionTypeSolver;
-import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
@@ -86,7 +85,7 @@ public final class ParseService {
     for (Path jar : classpathEntries) {
       try {
         solver.add(new JarTypeSolver(jar));
-      } catch (IOException e) {
+      } catch (Exception e) {
         log.warn("Could not add JAR to solver: {}: {}", jar, e.getMessage());
       }
     }

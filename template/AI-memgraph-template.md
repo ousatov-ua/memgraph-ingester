@@ -26,9 +26,9 @@ All queries MUST include `project: '{{PROJECT_NAME}}'`.
 | `:Code`       | `project`              | `sourceRoots`, `lastIngested`                                           |
 | `:Package`    | `(name, project)`      | —                                                                       |
 | `:File`       | `(path, project)`      | `lastModified` (epoch ms)                                               |
-| `:Class`      | `(fqn, project)`       | `name`, `packageName`, `isAbstract`, `visibility`, `isEnum`, `isRecord`, `isFinal` |
-| `:Interface`  | `(fqn, project)`       | `name`, `packageName`, `visibility`, `isFinal`                                     |
-| `:Annotation` | `(fqn, project)`       | `name`, `packageName`, `visibility`                                                |
+| `:Class`      | `(fqn, project)`       | `name`, `packageName`, `isAbstract`, `visibility`, `isEnum`, `isRecord`, `isFinal`, `isExternal` |
+| `:Interface`  | `(fqn, project)`       | `name`, `packageName`, `visibility`, `isFinal`, `isExternal`                                     |
+| `:Annotation` | `(fqn, project)`       | `name`, `packageName`, `visibility`, `isExternal`                                                |
 | `:Method`     | `(signature, project)` | `name`, `returnType`, `visibility`, `isStatic`, `startLine`, `endLine`, `isSynthetic` |
 | `:Field`      | `(fqn, project)`       | `name`, `type`, `visibility`, `isStatic`                                |
 
@@ -55,10 +55,16 @@ All queries MUST include `project: '{{PROJECT_NAME}}'`.
   dependency JARs to improve resolution coverage.
 - **CALLS gaps** — call sites where arguments involve complex type inference (e.g. `Map.of()` with
   mixed types) or where parameter types are project-internal classes may not resolve; those edges
-  will be absent even after two ingestion passes.
+  will be absent even after two ingestion passes. For unresolved same-class calls and same-class
+  method references (`Type::method`), a name-based fallback creates the edge when exactly one
+  method with that name exists in the owning type.
 - **EXTENDS/IMPLEMENTS resolution** — when the symbol solver cannot resolve an external parent type,
   the FQN is inferred from import statements or falls back to the source-level name. Unresolvable
   types may appear with a simple name rather than a full FQN.
+- **External / phantom nodes** — when a class extends or implements an external type, the parent
+  node is created with `isExternal = true` and its `name`/`packageName` inferred from the FQN.
+  External annotations are also marked `isExternal = true`. Project-internal nodes always have
+  `isExternal = false`. Use `WHERE NOT n.isExternal` to exclude external types from queries.
 - **Annotation FQN** — external library annotations (JUnit 5, Spring, picocli, etc.) are stored with
   their **simple name** as `fqn` because the symbol resolver cannot reach them (e.g. `fqn: "Test"`,
   `fqn: "Command"`). Only JDK annotations resolve to a full FQN (e.g. `fqn: "java.lang.Override"`).
