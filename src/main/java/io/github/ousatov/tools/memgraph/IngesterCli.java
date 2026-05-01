@@ -129,6 +129,7 @@ public final class IngesterCli implements Callable<Integer> {
       log.error("--source must be an existing directory: {}", sourceRoot);
       return 1;
     }
+    log.info("Using next classpath entries: {}", classpath);
     try (Driver driver = GraphDatabase.driver(boltUrl, AuthTokens.basic(user, pass))) {
       List<Path> cpEntries =
           (classpath == null || classpath.isBlank())

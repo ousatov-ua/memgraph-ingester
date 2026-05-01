@@ -14,7 +14,6 @@ import com.github.javaparser.ast.expr.MethodReferenceExpr;
 import com.github.javaparser.ast.nodeTypes.NodeWithAnnotations;
 import com.github.javaparser.ast.nodeTypes.NodeWithImplements;
 import com.github.javaparser.ast.type.ClassOrInterfaceType;
-import com.github.javaparser.resolution.UnsolvedSymbolException;
 import com.github.javaparser.resolution.declarations.ResolvedMethodDeclaration;
 import com.github.javaparser.resolution.declarations.ResolvedTypeDeclaration;
 import com.github.javaparser.resolution.types.ResolvedReferenceType;
@@ -136,10 +135,8 @@ public final class GraphWriter {
     try {
       ResolvedReferenceType resolved = type.resolve().asReferenceType();
       return resolved.getTypeDeclaration().map(ResolvedTypeDeclaration::getQualifiedName);
-    } catch (UnsolvedSymbolException | UnsupportedOperationException | IllegalStateException _) {
+    } catch (Exception _) {
       return Optional.empty();
-    } catch (RuntimeException e) {
-      throw new ProcessingException("Unexpected resolution failure", e);
     }
   }
 
@@ -151,7 +148,7 @@ public final class GraphWriter {
   private static String buildSignature(String ownerFqn, MethodDeclaration m) {
     try {
       return m.resolve().getQualifiedSignature();
-    } catch (UnsolvedSymbolException | UnsupportedOperationException | IllegalStateException _) {
+    } catch (Exception _) {
       String params =
           m.getParameters().stream()
               .map(GraphWriter::resolveParamType)
@@ -170,7 +167,7 @@ public final class GraphWriter {
       int parenIdx = resolved.indexOf('(');
       String params = resolved.substring(parenIdx + 1, resolved.length() - 1);
       return ownerFqn + "." + Labels.INIT + "(" + params + ")";
-    } catch (UnsolvedSymbolException | UnsupportedOperationException | IllegalStateException _) {
+    } catch (Exception _) {
       String params =
           ctor.getParameters().stream()
               .map(GraphWriter::resolveParamType)
@@ -187,7 +184,7 @@ public final class GraphWriter {
   private static String resolveParamType(Parameter p) {
     try {
       return p.getType().resolve().describe();
-    } catch (UnsolvedSymbolException | UnsupportedOperationException | IllegalStateException _) {
+    } catch (Exception _) {
       return p.getType().asString();
     }
   }
@@ -767,9 +764,7 @@ public final class GraphWriter {
                 runWithRetry(
                     Cypher.CYPHER_UPSERT_CALL,
                     Map.of(Params.CALLER, callerSig, Params.CALLEE, calleeSig));
-              } catch (UnsolvedSymbolException
-                  | UnsupportedOperationException
-                  | IllegalStateException _) {
+              } catch (Exception _) {
                 if (call.getScope().isEmpty()) {
                   runWithRetry(
                       Cypher.CYPHER_UPSERT_CALL_BY_NAME,
@@ -804,7 +799,7 @@ public final class GraphWriter {
       String calleeSig = resolved.getQualifiedSignature();
       runWithRetry(
           Cypher.CYPHER_UPSERT_CALL, Map.of(Params.CALLER, callerSig, Params.CALLEE, calleeSig));
-    } catch (UnsolvedSymbolException | UnsupportedOperationException | IllegalStateException _) {
+    } catch (Exception _) {
       var scope = ref.getScope();
       if (scope.isTypeExpr()
           && scope.asTypeExpr().getType().isClassOrInterfaceType()
@@ -853,9 +848,7 @@ public final class GraphWriter {
               String annotFqn;
               try {
                 annotFqn = ann.resolve().getQualifiedName();
-              } catch (UnsolvedSymbolException
-                  | UnsupportedOperationException
-                  | IllegalStateException _) {
+              } catch (Exception _) {
                 annotFqn = ann.getNameAsString();
               }
               runWithRetry(

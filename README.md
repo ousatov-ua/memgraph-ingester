@@ -502,7 +502,7 @@ dependency JARs via `--classpath`:
 
 ```bash
 # Use Maven to collect the classpath
-CP=$(mvn -q dependency:build-classpath -Dmdep.outputFile=/dev/stdout)
+CP=$(mvn -q dependency:build-classpath -Dmdep.outputFile=/dev/stdout 2>/dev/null)
 java -jar target/memgraph-ingester.jar \
   --source /path/to/your/java/project/src/main/java \
   --bolt bolt://localhost:7687 \
