@@ -25,13 +25,19 @@ Use the following lookup order for every code-related question:
 involves any of the following:**
 
 - Class, interface, annotation, method, or field existence, location, or properties
-- Inheritance hierarchies (`EXTENDS`, `IMPLEMENTS`)
+- Inheritance hierarchies (`EXTENDS`, `IMPLEMENTS`) — **see mandatory hierarchy step below**
 - Call chains and callers/callees (`CALLS`)
 - Package structure and file-to-type mappings
 - Annotations on any element
 - Cross-class or cross-package dependencies
 - Any architectural or design question about the codebase
 - Prior decisions, rules, findings, risks, or context (`:Memory` subgraph)
+
+**BLOCKING REQUIREMENT — Class/Interface hierarchy:**
+Before modifying, extending, implementing, or reasoning about **any** class or interface, you MUST
+query its **full** inheritance tree from Memgraph (ancestors AND descendants, both `EXTENDS` and
+`IMPLEMENTS`). Do not open a source file until this query has been executed and its results
+reviewed. See the **"Hierarchy — mandatory first step"** section in Usage for the exact queries.
 
 **When a Memgraph query returns partial or no results**, you may then supplement with text search.
 Always state explicitly that Memgraph was queried first and why the fallback was needed.
@@ -41,9 +47,10 @@ Always state explicitly that Memgraph was queried first and why the fallback was
 - "check the structure of X" → query all methods/fields of class X
 - "who calls X" → find callers via `CALLS` edges
 - "show dependencies of X" → cross-class call graph
-- "check hierarchy" → `EXTENDS`/`IMPLEMENTS` chains
+- "check hierarchy" → full `EXTENDS`/`IMPLEMENTS` tree (ancestors + descendants)
 - "explore the graph" → broad `MATCH (n {project:...})` query
 - "read memory" → query all `:Memory` nodes before a decision
+- "work on X" / "modify X" / "extend X" / "implement X" → query full hierarchy of X first
 
 ### Default behavior
 
@@ -52,12 +59,15 @@ source files. This applies to understanding, modifying, refactoring, debugging, 
 Graph queries replace `grep` for all structure and relationship questions — use `grep` only for
 content the graph does not index (string literals, comments, resource files).
 
+**When the task involves a specific class or interface**, the very first action MUST be running the
+full hierarchy queries (see "Hierarchy — mandatory first step" below). This is non-negotiable and
+must happen before any file read, grep, or code edit.
+
 ### Anchors
 
 ```cypher
-
-(:Project {name})- [:CONTAINS] - >(:Code {project})
-(:Project {name})- [:HAS_MEMORY] - >(:Memory {project})
+(:Project)-[:CONTAINS]->(:Code {project})
+(:Project)-[:HAS_MEMORY]->(:Memory {project})
 ```
 
 All queries MUST include `project: '{{PROJECT_NAME}}'`.
@@ -83,17 +93,16 @@ All queries MUST include `project: '{{PROJECT_NAME}}'`.
 #### Relationships
 
 ```cypher
-
-(:Project)- [:CONTAINS] - >(:Code)
-(:Code)- [:CONTAINS] - >(:Package|:File)
-(:Package)- [:CONTAINS] - >(:Class|:Interface|:Annotation)
-(:File)- [:DEFINES] - >(:Class|:Interface|:Annotation)
-(:Class)- [:EXTENDS] - >(:Class)
-(:Class)- [:IMPLEMENTS] - >(:Interface)
-(:Interface)- [:EXTENDS] - >(:Interface)
-(:Class|:Interface)- [:DECLARES] - >(:Method|:Field)
-(:Method)- [:CALLS] - >(:Method)
-(:*)- [:ANNOTATED_WITH] - >(:Annotation)
+(:Project)-[:CONTAINS]->(:Code)
+(:Code)-[:CONTAINS]->(:Package|:File)
+(:Package)-[:CONTAINS]->(:Class|:Interface|:Annotation)
+(:File)-[:DEFINES]->(:Class|:Interface|:Annotation)
+(:Class)-[:EXTENDS]->(:Class)
+(:Class)-[:IMPLEMENTS]->(:Interface)
+(:Interface)-[:EXTENDS]->(:Interface)
+(:Class|:Interface)-[:DECLARES]->(:Method|:Field)
+(:Method)-[:CALLS]->(:Method)
+(:*)-[:ANNOTATED_WITH]->(:Annotation)
 ```
 
 #### Caveats
@@ -186,12 +195,11 @@ IDEA-<topic>-<name>
 ### Links
 
 ```cypher
+(:Project)-[:HAS_MEMORY]->(:Memory)
+(:Memory)-[:HAS_*]->(:Decision|:ADR|:Rule|:Context|:Finding|:Task|:Risk|:Question|:Idea)
 
-(:Project)- [:HAS_MEMORY] - >(:Memory)
-(:Memory)- [:HAS_ * ] - >(:Decision|:ADR|:Rule|:Context|:Finding|:Task|:Risk|:Question|:Idea)
-
-(:Decision|:ADR|:Rule|:Context|:Finding|:Task|:Risk|:Idea)- [:REFERS_TO] - >(:CodeRef)
-(:CodeRef)- [:RESOLVES_TO] - >(:Code|:Package|:File|:Class|:Interface|:Annotation|:Method|:Field)
+(:Decision|:ADR|:Rule|:Context|:Finding|:Task|:Risk|:Idea)-[:REFERS_TO]->(:CodeRef)
+(:CodeRef)-[:RESOLVES_TO]->(:Code|:Package|:File|:Class|:Interface|:Annotation|:Method|:Field)
 ```
 
 `CodeRef.targetType` is one of `Code`, `Package`, `File`, `Class`, `Interface`, `Annotation`,
@@ -203,71 +211,121 @@ package name for `Package`, path for `File`, FQN for types/annotations/fields, a
 
 ### Usage
 
-#### Always query first
+#### Always query first — project orientation
 
 ```cypher
-
 MATCH (n {project: '{{PROJECT_NAME}}'})
 RETURN n
-  LIMIT 50;
+LIMIT 50;
 ```
+
+#### Hierarchy — mandatory first step
+
+**Run ALL queries in this section before touching any class or interface.** Do not read source
+files until you have reviewed the full hierarchy output.
+
+**Compact overview — direct parents and direct children (run this first):**
+
+```cypher
+MATCH (c:Class {fqn: 'com.example.MyClass', project: '{{PROJECT_NAME}}'})
+OPTIONAL MATCH (c)-[:EXTENDS]->(parent:Class)
+OPTIONAL MATCH (c)-[:IMPLEMENTS]->(iface:Interface)
+OPTIONAL MATCH (child:Class)-[:EXTENDS]->(c)
+RETURN c.fqn                          AS self,
+       collect(DISTINCT parent.fqn)   AS superclasses,
+       collect(DISTINCT iface.fqn)    AS interfaces,
+       collect(DISTINCT child.fqn)    AS subclasses;
+```
+
+**Full ancestor chain — all superclasses, every level:**
+
+```cypher
+MATCH path = (c:Class {fqn: 'com.example.MyClass', project: '{{PROJECT_NAME}}'})
+             -[:EXTENDS*]->
+             (ancestor:Class {project: '{{PROJECT_NAME}}'})
+RETURN [n IN nodes(path) | n.fqn] AS ancestorChain;
+```
+
+**Full descendant chain — all subclasses, every level:**
+
+```cypher
+MATCH path = (descendant:Class {project: '{{PROJECT_NAME}}'})
+             -[:EXTENDS*]->
+             (c:Class {fqn: 'com.example.MyClass', project: '{{PROJECT_NAME}}'})
+RETURN [n IN nodes(path) | n.fqn] AS descendantChain;
+```
+
+**All interfaces implemented — direct and transitive through superclasses:**
+
+```cypher
+MATCH (c:Class {fqn: 'com.example.MyClass', project: '{{PROJECT_NAME}}'})-[:EXTENDS*0..]->(anc:Class {project: '{{PROJECT_NAME}}'})
+      -[:IMPLEMENTS]->(i:Interface)
+RETURN DISTINCT i.fqn AS implementedInterface;
+```
+
+**Full interface hierarchy — all superinterfaces, every level:**
+
+```cypher
+MATCH path = (i:Interface {fqn: 'com.example.MyInterface', project: '{{PROJECT_NAME}}'})
+             -[:EXTENDS*]->
+             (superIface:Interface {project: '{{PROJECT_NAME}}'})
+RETURN [n IN nodes(path) | n.fqn] AS interfaceChain;
+```
+
+**All implementors of an interface — direct classes and their subclasses:**
+
+```cypher
+MATCH (c:Class {project: '{{PROJECT_NAME}}'})-[:IMPLEMENTS]->(:Interface {fqn: 'com.example.MyInterface', project: '{{PROJECT_NAME}}'})
+RETURN c.fqn AS implementor
+UNION
+MATCH (sub:Class {project: '{{PROJECT_NAME}}'})-[:EXTENDS*]->(c:Class {project: '{{PROJECT_NAME}}'})
+      -[:IMPLEMENTS]->(:Interface {fqn: 'com.example.MyInterface', project: '{{PROJECT_NAME}}'})
+RETURN sub.fqn AS implementor;
+```
+
+---
 
 #### Searching code structure
 
 **Find all methods of a class:**
 
 ```cypher
-
 MATCH (c:Class {fqn: 'com.example.MyClass', project: '{{PROJECT_NAME}}'})
-        -[:DECLARES]->(m:Method)
+      -[:DECLARES]->(m:Method)
 RETURN m.signature, m.visibility, m.returnType
-  ORDER BY m.name;
+ORDER BY m.name;
 ```
 
 **Find who calls a method:**
 
 ```cypher
-
 MATCH (caller:Method {project: '{{PROJECT_NAME}}'})
-        -[:CALLS]->
+      -[:CALLS]->
       (callee:Method {project: '{{PROJECT_NAME}}'})
-  WHERE callee.signature CONTAINS 'MyClass.myMethod('
+WHERE callee.signature CONTAINS 'MyClass.myMethod('
 RETURN caller.signature;
 ```
 
 **Find cross-class dependencies (which classes call which):**
 
 ```cypher
-
 MATCH (caller:Method {project: '{{PROJECT_NAME}}'})
-        -[:CALLS]->
+      -[:CALLS]->
       (callee:Method {project: '{{PROJECT_NAME}}'})
 WITH split(split(caller.signature, '(')[0], '.') AS cParts,
      split(split(callee.signature, '(')[0], '.') AS tParts
 WITH cParts[size(cParts) - 2] AS callerClass,
      tParts[size(tParts) - 2] AS calleeClass
-  WHERE callerClass <> calleeClass
+WHERE callerClass <> calleeClass
 RETURN callerClass + ' -> ' + calleeClass AS edge, COUNT(*) AS cnt
-  ORDER BY cnt DESC;
-```
-
-**Find class hierarchy:**
-
-```cypher
-
-MATCH (c:Class {project: '{{PROJECT_NAME}}'})-[:EXTENDS]->(p:Class)
-RETURN c.fqn AS child, p.fqn AS parent;
-
-MATCH (c:Class {project: '{{PROJECT_NAME}}'})-[:IMPLEMENTS]->(i:Interface)
-RETURN c.fqn AS class, i.fqn AS interface;
+ORDER BY cnt DESC;
 ```
 
 **Find annotations on a class or method:**
 
 ```cypher
-
 MATCH (c:Class {fqn: 'com.example.MyClass', project: '{{PROJECT_NAME}}'})
-        -[:ANNOTATED_WITH]->(a:Annotation)
+      -[:ANNOTATED_WITH]->(a:Annotation)
 RETURN a.fqn;
 ```
 
@@ -302,7 +360,6 @@ memory to relevant code via `:CodeRef` → `:RESOLVES_TO` edges.
 #### Create template
 
 ```cypher
-
 MERGE (m:Memory {project: '{{PROJECT_NAME}}'})
 MERGE (d:Decision {id: $id, project: '{{PROJECT_NAME}}'})
 SET d.title = $title, d.status = 'accepted', d.createdAt = datetime(), d.updatedAt = datetime()
@@ -312,7 +369,6 @@ MERGE (m)-[:HAS_DECISION]->(d)
 #### Create code reference
 
 ```cypher
-
 MERGE (ref:CodeRef {project: '{{PROJECT_NAME}}', targetType: 'Class', key: $fqn})
 MERGE (d)-[:REFERS_TO]->(ref)
 ```
@@ -326,7 +382,6 @@ Memory is not logs. Store only what improves future decisions.
 ### Staleness
 
 ```cypher
-
 MATCH (c:Code {project: '{{PROJECT_NAME}}'})
 RETURN c.lastIngested;
 ```
