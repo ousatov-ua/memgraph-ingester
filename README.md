@@ -89,7 +89,7 @@ java -jar path/to/memgraph-ingester.jar \
 
 ```bash
 cd /path/to/your/java/project
-CP=$(mvn -q dependency:build-classpath -Dmdep.outputFile=/dev/stdout 2>/dev/null)
+CP=$(mvn -q dependency:build-classpath -DincludeScope=test -Dmdep.outputFile=/dev/stdout 2>/dev/null)
 java -jar path/to/memgraph-ingester.jar \
   --source path/to/src \
   --bolt bolt://localhost:7687 \
@@ -514,12 +514,12 @@ in
 ### Improved type resolution with `--classpath`
 
 By default, the ingester resolves types against the JDK and the project source tree. To improve
-`CALLS` edge coverage and `EXTENDS`/`IMPLEMENTS` FQN resolution for external library types, pass
-dependency JARs via `--classpath`:
+`CALLS` edge coverage, `EXTENDS`/`IMPLEMENTS` FQN resolution, and field/return type resolution for
+external library types, pass dependency JARs via `--classpath`:
 
 ```bash
-# Use Maven to collect the classpath
-CP=$(mvn -q dependency:build-classpath -Dmdep.outputFile=/dev/stdout 2>/dev/null)
+# Use Maven to collect the classpath (compile + test scopes)
+CP=$(mvn -q dependency:build-classpath -DincludeScope=test -Dmdep.outputFile=/dev/stdout 2>/dev/null)
 java -jar target/memgraph-ingester.jar \
   --source /path/to/your/java/project/src/main/java \
   --bolt bolt://localhost:7687 \
@@ -527,6 +527,11 @@ java -jar target/memgraph-ingester.jar \
   --wipe-project-code \
   --classpath "$CP"
 ```
+
+> **Tip:** Use `-DincludeScope=test` to include test-scoped dependencies (JUnit, Testcontainers,
+> etc.) — this ensures parameter types from those libraries resolve to FQNs in method signatures
+> and field types. Without the matching JARs, external types fall back to simple names
+> (e.g., `Session` instead of `org.neo4j.driver.Session`).
 
 This lets JavaParser resolve method calls whose parameters use types from Neo4j Driver, Spring,
 JUnit 5, picocli, etc. — dramatically increasing the number of `CALLS` edges in the graph.

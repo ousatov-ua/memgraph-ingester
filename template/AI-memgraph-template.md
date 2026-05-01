@@ -286,13 +286,18 @@ method name. Generic types are included (e.g. `java.util.List<java.lang.String>`
 
 #### When to create memory
 
-Only if:
+**Before completing a task**, always check whether any of the following occurred during the work and
+create the corresponding Memory nodes (Finding, Decision, Rule, Context, Risk, etc.):
 
-- new decision
-- discovered constraint
-- bug / perf finding
-- non-trivial context
-- follow-up work
+- new decision or design choice (→ `:Decision`)
+- discovered constraint or limitation (→ `:Finding` with `type: 'constraint'`)
+- bug or performance finding (→ `:Finding` with `type: 'bug'` or `'perf'`)
+- non-trivial context that future sessions need (→ `:Context`)
+- follow-up work or open questions (→ `:Task` or `:Question`)
+- identified risk (→ `:Risk`)
+
+Do **not** skip this step. Memory nodes are the only way context survives across sessions. Link each
+memory to relevant code via `:CodeRef` → `:RESOLVES_TO` edges.
 
 #### Create template
 
