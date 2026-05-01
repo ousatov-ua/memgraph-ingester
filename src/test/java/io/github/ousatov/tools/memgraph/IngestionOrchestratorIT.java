@@ -543,4 +543,51 @@ class IngestionOrchestratorIT {
       assertEquals(1, innerCount, "Nested class must use $-separated FQN");
     }
   }
+
+  @Test
+  void crossFileCallsEdgesCreated() throws Exception {
+    currentProject = PROJECT_BASE + "-xfile";
+    sourceDir = Files.createTempDirectory("orch-xfile-src-");
+    Path pkgDir = sourceDir.resolve("com/example");
+    Files.createDirectories(pkgDir);
+
+    // "AAA" sorts before "BBB" — guarantees AAA is processed first in phase 1
+    Files.writeString(
+        pkgDir.resolve("AAACaller.java"),
+        """
+        package com.example;
+
+        public class AAACaller {
+          public void doWork() {
+            new BBBService().serve();
+          }
+        }
+        """);
+    Files.writeString(
+        pkgDir.resolve("BBBService.java"),
+        """
+        package com.example;
+
+        public class BBBService {
+          public void serve() {}
+        }
+        """);
+
+    int failures =
+        new IngestionOrchestrator(sourceDir, currentProject, 1, driver, new ParseService(sourceDir))
+            .run(Settings.def());
+
+    assertEquals(0, failures);
+    try (Session s = driver.session()) {
+      long callEdges =
+          s.run(
+                  "MATCH (:Method {project: $p})-[:CALLS]->(:Method {project: $p})"
+                      + " RETURN count(*) AS n",
+                  Map.of("p", currentProject))
+              .single()
+              .get("n")
+              .asLong();
+      assertTrue(callEdges >= 1, "Cross-file CALLS edge must exist (AAACaller -> BBBService)");
+    }
+  }
 }
