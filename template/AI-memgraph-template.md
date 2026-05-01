@@ -4,13 +4,40 @@ This repo is indexed in Memgraph under the project name **`{{PROJECT_NAME}}`**.
 
 In case if Memgraph MCP is not installed, use `mgconsole` for all queries.
 
-**Always query Memgraph before:**
-- Modifying an existing Java class or method
-- Adding a new class that extends/implements existing types
-- Tracing a bug through call chains
-- Refactoring that affects multiple classes
+### Search priority (MANDATORY)
 
-**Trigger phrases you can use:**
+**Memgraph is the primary knowledge source for this project. Always query it first.**
+
+Use the following lookup order for every code-related question:
+
+1. **Memgraph graph query** — query the knowledge graph for structure, relationships, memory,
+   and metadata. This is the fastest and most accurate source for anything the graph covers.
+2. **Source file reads** (`view`/`cat`) — read specific files only when you need line-level detail
+   (implementations, logic, exact syntax) that the graph does not store.
+3. **Text search** (`grep`/`ripgrep`/`find`/glob) — use only when:
+    - The information is absent from the graph (e.g., string literals, comments, config files,
+      non-Java resources).
+    - A Memgraph query returned no results or incomplete results for the question.
+    - You need to search non-indexed files (XML, YAML, properties, scripts, etc.).
+4. **Other tools** (Python scripts, `jq`, etc.) — last resort for data the above cannot reach.
+
+**Do NOT skip to step 2, 3, or 4 without first attempting a Memgraph query when the question
+involves any of the following:**
+
+- Class, interface, annotation, method, or field existence, location, or properties
+- Inheritance hierarchies (`EXTENDS`, `IMPLEMENTS`)
+- Call chains and callers/callees (`CALLS`)
+- Package structure and file-to-type mappings
+- Annotations on any element
+- Cross-class or cross-package dependencies
+- Any architectural or design question about the codebase
+- Prior decisions, rules, findings, risks, or context (`:Memory` subgraph)
+
+**When a Memgraph query returns partial or no results**, you may then supplement with text search.
+Always state explicitly that Memgraph was queried first and why the fallback was needed.
+
+### Trigger phrases you can use
+
 - "check the structure of X" → query all methods/fields of class X
 - "who calls X" → find callers via `CALLS` edges
 - "show dependencies of X" → cross-class call graph
@@ -18,10 +45,12 @@ In case if Memgraph MCP is not installed, use `mgconsole` for all queries.
 - "explore the graph" → broad `MATCH (n {project:...})` query
 - "read memory" → query all `:Memory` nodes before a decision
 
-**Default behavior:**
-When working on any Java task, always run at least one Memgraph query
-to orient before reading source files. Prefer graph queries over `grep`
-for structure/relationship questions.
+### Default behavior
+
+When working on any Java task, always run at least one Memgraph query to orient before reading
+source files. This applies to understanding, modifying, refactoring, debugging, and extending code.
+Graph queries replace `grep` for all structure and relationship questions — use `grep` only for
+content the graph does not index (string literals, comments, resource files).
 
 ### Anchors
 
