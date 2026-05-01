@@ -59,14 +59,19 @@ See [`SCHEMA.md`](schema/SCHEMA.md) for the full graph model.
 ## Quick start
 
 - Download the latest jar (v5.1.5 the latest for now)
+
 ```bash
 wget https://github.com/ousatov-ua/memgraph-ingester/releases/download/v5.1.5/memgraph-ingester.jar
 ```
+
 - Run Memgraph
+
 ```bash
 docker run -p 7687:7687 -p 7444:7444 --name memgraph memgraph/memgraph-mage:3.9.0
 ```
+
 - Ingest the project
+
 ```bash
 cd /path/to/your/java/project
 java -jar path/to/memgraph-ingester.jar \
@@ -79,6 +84,7 @@ java -jar path/to/memgraph-ingester.jar \
 ```
 
 - Append knowledge for your agent
+
 ```bash
 # GitHub Copilot
 curl -s https://raw.githubusercontent.com/ousatov-ua/memgraph-ingester/refs/heads/main/script/init-memgraph-github.sh \
@@ -93,7 +99,9 @@ curl -s https://raw.githubusercontent.com/ousatov-ua/memgraph-ingester/refs/head
 curl -s https://raw.githubusercontent.com/ousatov-ua/memgraph-ingester/refs/heads/main/script/init-memgraph-gemini.sh \
   | bash -s -- my-project
 ```
-- Enable MCP Memgraph for your AI agent ([below](#mcp-server-setup) you can find examples) **OR** put `mgconsole` in the path
+
+- Enable MCP Memgraph for your AI agent ([below](#mcp-server-setup) you can find examples) **OR**
+  put `mgconsole` in the path
 
 ## Going further
 
@@ -111,10 +119,12 @@ curl -s https://raw.githubusercontent.com/ousatov-ua/memgraph-ingester/refs/head
 ### Start Memgraph
 
 - With UI:
+
 ```bash
 cd memgraph-platform
 docker-compose up -d
 ```
+
 - No UI
 
 ```bash
@@ -133,7 +143,8 @@ mvn clean package -Pshade -DskipTests
 
 Produces a shaded fat JAR at `target/memgraph-ingester.jar`.
 
-Or use published shaded fat JAR in [releases](https://github.com/ousatov-ua/memgraph-ingester/releases) page.
+Or use published shaded fat JAR
+in [releases](https://github.com/ousatov-ua/memgraph-ingester/releases) page.
 
 ### Apply the schema (one-time per Memgraph instance)
 
@@ -202,19 +213,20 @@ You should see your project with a fresh `lastIngested` timestamp.
 
 ## CLI options
 
-| Option                    | Short | Required | Default | Description                                                          |
-|---------------------------|-------|----------|---------|----------------------------------------------------------------------|
-| `--source`                | `-s`  | yes      |         | Root directory to scan (e.g. `src/main/java`)                        |
-| `--bolt`                  | `-b`  | yes      |         | Bolt URL, e.g. `bolt://localhost:7687`                               |
-| `--project`               | `-P`  | yes      |         | Logical project name. Namespaces all nodes.                          |
-| `--user`                  | `-u`  | no       |         | Memgraph username (empty by default)                                 |
-| `--pass`                  | `-p`  | no       |         | Memgraph password (empty by default)                                 |
-| `--threads`               | `-t`  | no       | 1       | Parser threads (default `1`). Each thread gets its own Bolt session. |
-| `--wipe-project-code`     | no    | no       | false   | Delete this project's code graph before ingesting                    |
-| `--wipe-project-memories` | no    | no       | false   | Delete this project's memory graph before ingesting                  |
-| `--apply-schema`          | no    | no       | false   | Apply schema before ingesting                                        |
-| `--wipe-all`              | no    | no       | false   | Wipe all data (schema will be dropped first)                         |
-| `--incremental`           | no    | no       | false   | Skip files whose last-modified timestamp matches the stored value    |
+| Option                    | Short | Required | Default | Description                                                                                                                                            |
+|---------------------------|-------|----------|---------|--------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `--source`                | `-s`  | yes      |         | Root directory to scan (e.g. `src/main/java`)                                                                                                          |
+| `--bolt`                  | `-b`  | yes      |         | Bolt URL, e.g. `bolt://localhost:7687`                                                                                                                 |
+| `--project`               | `-P`  | yes      |         | Logical project name. Namespaces all nodes.                                                                                                            |
+| `--user`                  | `-u`  | no       |         | Memgraph username (empty by default)                                                                                                                   |
+| `--pass`                  | `-p`  | no       |         | Memgraph password (empty by default)                                                                                                                   |
+| `--threads`               | `-t`  | no       | 1       | Parser threads (default `1`). Each thread gets its own Bolt session.                                                                                   |
+| `--wipe-project-code`     | no    | no       | false   | Delete this project's code graph before ingesting                                                                                                      |
+| `--wipe-project-memories` | no    | no       | false   | Delete this project's memory graph before ingesting                                                                                                    |
+| `--apply-schema`          | no    | no       | false   | Apply schema before ingesting                                                                                                                          |
+| `--wipe-all`              | no    | no       | false   | Wipe all data (schema will be dropped first)                                                                                                           |
+| `--incremental`           | no    | no       | false   | Skip files whose last-modified timestamp matches the stored value                                                                                      |
+| `--classpath`             | no    | no       |         | Additional classpath entries (JARs) for symbol resolution, separated by the platform path separator. Improves CALLS edge and type resolution coverage. |
 
 `--wipe-project-code` only affects code nodes matching the given `--project`; other codebases in the
 same Memgraph instance are untouched, and the `:Project` anchor remains.
@@ -482,6 +494,26 @@ in
 }
 ```
 
+### Improved type resolution with `--classpath`
+
+By default, the ingester resolves types against the JDK and the project source tree. To improve
+`CALLS` edge coverage and `EXTENDS`/`IMPLEMENTS` FQN resolution for external library types, pass
+dependency JARs via `--classpath`:
+
+```bash
+# Use Maven to collect the classpath
+CP=$(mvn -q dependency:build-classpath -Dmdep.outputFile=/dev/stdout)
+java -jar target/memgraph-ingester.jar \
+  --source /path/to/your/java/project/src/main/java \
+  --bolt bolt://localhost:7687 \
+  --project my-project \
+  --wipe-project-code \
+  --classpath "$CP"
+```
+
+This lets JavaParser resolve method calls whose parameters use types from Neo4j Driver, Spring,
+JUnit 5, picocli, etc. — dramatically increasing the number of `CALLS` edges in the graph.
+
 ## Re-ingesting after code changes
 
 The graph goes stale as code changes. Re-run the ingester with `--wipe-project-code` to refresh:
@@ -593,9 +625,15 @@ graph wipes and re-ingestion.
 
 ## Caveats
 
-- **`CALLS` is best-effort.** JavaParser can't always resolve callees (external libraries without
-  classpath, complex generics, lambdas). Transitive call queries may miss edges — a missing edge
-  does not prove the call doesn't happen.
+- **`CALLS` is best-effort.** JavaParser can't always resolve callees (complex generics, lambdas).
+  Use `--classpath` with your project's dependency JARs to significantly improve resolution of
+  external library types. Transitive call queries may still miss edges — a missing edge does not
+  prove the call doesn't happen.
+- **`EXTENDS`/`IMPLEMENTS` resolution.** When the symbol solver cannot resolve a parent class or
+  interface, the ingester infers the FQN from import statements and falls back to the source-level
+  name. This means all inheritance edges are captured, but unresolvable external types may appear
+  with a simple name (e.g. `BeforeAllCallback`) rather than a full FQN. Use `--classpath` to
+  provide dependency JARs for full FQN resolution.
 - **External types get tagged with your project.** When a class extends or implements something from
   outside your source tree (e.g. `RuntimeException`, Spring interfaces), the ingester creates a
   `:Class` or `:Interface` node for it and scopes it to your project. This keeps inheritance edges

@@ -4,7 +4,8 @@ MERGE (m:Method {signature: $sig, project: $project})
       m.isStatic = $isStatic,
       m.visibility = $visibility,
       m.startLine = $start,
-      m.endLine = $end
+      m.endLine = $end,
+      m.isSynthetic = $isSynthetic
 WITH m
 MATCH (owner)
 WHERE owner.fqn = $owner AND owner.project = $project
