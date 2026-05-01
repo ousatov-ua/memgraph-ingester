@@ -8,7 +8,7 @@ In case if Memgraph MCP is not installed, use `mgconsole` for all queries.
 
 ```cypher
 
-(:Project {name})- [:HAS_CODE] - >(:Code {project})
+(:Project {name})- [:CONTAINS] - >(:Code {project})
 (:Project {name})- [:HAS_MEMORY] - >(:Memory {project})
 ```
 
@@ -20,17 +20,17 @@ All queries MUST include `project: '{{PROJECT_NAME}}'`.
 
 #### Nodes
 
-| Label         | Key                    | Notable properties                                                      |
-|---------------|------------------------|-------------------------------------------------------------------------|
-| `:Project`    | `name`                 | —                                                                       |
-| `:Code`       | `project`              | `sourceRoots`, `lastIngested`                                           |
-| `:Package`    | `(name, project)`      | —                                                                       |
-| `:File`       | `(path, project)`      | `lastModified` (epoch ms)                                               |
+| Label         | Key                    | Notable properties                                                                               |
+|---------------|------------------------|--------------------------------------------------------------------------------------------------|
+| `:Project`    | `name`                 | —                                                                                                |
+| `:Code`       | `project`              | `sourceRoots`, `lastIngested`                                                                    |
+| `:Package`    | `(name, project)`      | —                                                                                                |
+| `:File`       | `(path, project)`      | `lastModified` (epoch ms)                                                                        |
 | `:Class`      | `(fqn, project)`       | `name`, `packageName`, `isAbstract`, `visibility`, `isEnum`, `isRecord`, `isFinal`, `isExternal` |
 | `:Interface`  | `(fqn, project)`       | `name`, `packageName`, `visibility`, `isFinal`, `isExternal`                                     |
 | `:Annotation` | `(fqn, project)`       | `name`, `packageName`, `visibility`, `isExternal`                                                |
-| `:Method`     | `(signature, project)` | `name`, `returnType`, `visibility`, `isStatic`, `startLine`, `endLine`, `isSynthetic` |
-| `:Field`      | `(fqn, project)`       | `name`, `type`, `visibility`, `isStatic`                                |
+| `:Method`     | `(signature, project)` | `name`, `returnType`, `visibility`, `isStatic`, `startLine`, `endLine`, `isSynthetic`            |
+| `:Field`      | `(fqn, project)`       | `name`, `type`, `visibility`, `isStatic`                                                         |
 
 #### Relationships
 
@@ -53,6 +53,12 @@ All queries MUST include `project: '{{PROJECT_NAME}}'`.
 - **Best-effort edges** — `CALLS` and `ANNOTATED_WITH` are within-project only and only for
   resolvable symbols. Missing edges don't mean no relationship exists. Use `--classpath` with
   dependency JARs to improve resolution coverage.
+- **`CALLS` has no `project` property** — filter via node properties on both ends:
+  `(caller:Method {project: '...'})-[:CALLS]->(callee:Method {project: '...'})`.
+- **`--classpath` impact** — without `--classpath`, cross-class calls whose parameter types come
+  from external libraries (e.g. JavaParser, Neo4j driver) won't resolve and produce no `CALLS`
+  edge. Same-class calls are unaffected. Method signatures may also show simple names instead of
+  FQNs for external types (e.g. `Session` instead of `org.neo4j.driver.Session`).
 - **CALLS gaps** — call sites where arguments involve complex type inference (e.g. `Map.of()` with
   mixed types) or where parameter types are project-internal classes may not resolve; those edges
   will be absent even after two ingestion passes. For unresolved same-class calls and same-class
@@ -155,6 +161,71 @@ RETURN n
   LIMIT 50;
 ```
 
+#### Searching code structure
+
+**Find all methods of a class:**
+
+```cypher
+
+MATCH (c:Class {fqn: 'com.example.MyClass', project: '{{PROJECT_NAME}}'})
+        -[:DECLARES]->(m:Method)
+RETURN m.signature, m.visibility, m.returnType
+  ORDER BY m.name;
+```
+
+**Find who calls a method:**
+
+```cypher
+
+MATCH (caller:Method {project: '{{PROJECT_NAME}}'})
+        -[:CALLS]->
+      (callee:Method {project: '{{PROJECT_NAME}}'})
+  WHERE callee.signature CONTAINS 'MyClass.myMethod('
+RETURN caller.signature;
+```
+
+**Find cross-class dependencies (which classes call which):**
+
+```cypher
+
+MATCH (caller:Method {project: '{{PROJECT_NAME}}'})
+        -[:CALLS]->
+      (callee:Method {project: '{{PROJECT_NAME}}'})
+WITH split(split(caller.signature, '(')[0], '.') AS cParts,
+     split(split(callee.signature, '(')[0], '.') AS tParts
+WITH cParts[size(cParts) - 2] AS callerClass,
+     tParts[size(tParts) - 2] AS calleeClass
+  WHERE callerClass <> calleeClass
+RETURN callerClass + ' -> ' + calleeClass AS edge, COUNT(*) AS cnt
+  ORDER BY cnt DESC;
+```
+
+**Find class hierarchy:**
+
+```cypher
+
+MATCH (c:Class {project: '{{PROJECT_NAME}}'})-[:EXTENDS]->(p:Class)
+RETURN c.fqn AS child, p.fqn AS parent;
+
+MATCH (c:Class {project: '{{PROJECT_NAME}}'})-[:IMPLEMENTS]->(i:Interface)
+RETURN c.fqn AS class, i.fqn AS interface;
+```
+
+**Find annotations on a class or method:**
+
+```cypher
+
+MATCH (c:Class {fqn: 'com.example.MyClass', project: '{{PROJECT_NAME}}'})
+        -[:ANNOTATED_WITH]->(a:Annotation)
+RETURN a.fqn;
+```
+
+**Method signature format** — signatures follow the pattern
+`package.ClassName.methodName(fully.qualified.ParamType, ...)`. Constructors use `<init>` as the
+method name. Generic types are included (e.g. `java.util.List<java.lang.String>`). Without
+`--classpath`, external library types appear as simple names (e.g. `Session` instead of
+`org.neo4j.driver.Session`).
+
 #### Decision rules
 
 - Follow accepted Decision / ADR
@@ -200,6 +271,6 @@ Memory is not logs. Store only what improves future decisions.
 
 ```cypher
 
-MATCH (p:Project {name: '{{PROJECT_NAME}}'})
-RETURN p.lastIngested;
+MATCH (c:Code {project: '{{PROJECT_NAME}}'})
+RETURN c.lastIngested;
 ```
