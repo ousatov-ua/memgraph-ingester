@@ -70,8 +70,10 @@ wget https://github.com/ousatov-ua/memgraph-ingester/releases/download/v6.0.0/me
 docker run -p 7687:7687 -p 7444:7444 --name memgraph memgraph/memgraph-mage:3.9.0
 ```
 
-- Ingest the project
+- Ingest the project:
 
+**Without** classpath libs (weaker resolving):
+  
 ```bash
 cd /path/to/your/java/project
 java -jar path/to/memgraph-ingester.jar \
@@ -81,6 +83,21 @@ java -jar path/to/memgraph-ingester.jar \
   --wipe-project-code \
   --wipe-project-memories \
   --apply-schema
+```
+
+**With** classpath libs (better resolving). Example for Maven projects:
+
+```bash
+cd /path/to/your/java/project
+CP=$(mvn -q dependency:build-classpath -Dmdep.outputFile=/dev/stdout 2>/dev/null)
+java -jar path/to/memgraph-ingester.jar \
+  --source path/to/src \
+  --bolt bolt://localhost:7687 \
+  --project my-project \
+  --wipe-project-code \
+  --wipe-project-memories \
+  --apply-schema
+  --classpath "$CP"
 ```
 
 - Append knowledge for your agent
