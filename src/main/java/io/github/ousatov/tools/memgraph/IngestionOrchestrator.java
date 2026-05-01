@@ -12,7 +12,6 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -110,7 +109,7 @@ public final class IngestionOrchestrator {
     }
     log.info("Found {} Java files. Ingesting with {} thread(s).", files.size(), threads);
 
-    Map<String, Long> mtimeCache = Collections.emptyMap();
+    Map<String, Long> mtimeCache = Map.of();
     if (incremental) {
       try (Session session = driver.session()) {
         mtimeCache = new GraphWriter(session, project).getAllFileLastModified(files);
@@ -167,6 +166,25 @@ public final class IngestionOrchestrator {
   }
 
   /**
+   * Returns {@code true} when incremental mode is active and the file's filesystem {@code
+   * lastModified} matches the value stored in {@code mtimeCache}, meaning no re-ingest is needed.
+   */
+  private boolean isFileUnchanged(Path file, Map<String, Long> mtimeCache) {
+    if (!incremental) {
+      return false;
+    }
+    Long storedModified = mtimeCache.get(file.toString());
+    if (storedModified == null || storedModified <= 0) {
+      return false;
+    }
+    try {
+      return Files.getLastModifiedTime(file).toMillis() == storedModified;
+    } catch (IOException _) {
+      return false;
+    }
+  }
+
+  /**
    * Wraps {@link #ingestFile} in an explicit per-file transaction so all writes for the file are
    * committed in a single Bolt round-trip. Safe only in sequential mode where there is exactly one
    * concurrent writer — no Memgraph MVCC conflicts are possible.
@@ -174,19 +192,9 @@ public final class IngestionOrchestrator {
    * @return true on success (or skip), false if parsing or graph write fails
    */
   private boolean ingestFileBatched(GraphWriter writer, Path file, Map<String, Long> mtimeCache) {
-    if (incremental) {
-      Long storedModified = mtimeCache.get(file.toString());
-      if (storedModified != null && storedModified > 0) {
-        try {
-          long fsModified = Files.getLastModifiedTime(file).toMillis();
-          if (fsModified == storedModified) {
-            log.debug("Skipping unchanged file: {}", file);
-            return true;
-          }
-        } catch (IOException _) {
-          // Cannot read mtime — proceed with full ingest.
-        }
-      }
+    if (isFileUnchanged(file, mtimeCache)) {
+      log.debug("Skipping unchanged file: {}", file);
+      return true;
     }
     writer.beginFileTransaction();
     try {
@@ -204,7 +212,7 @@ public final class IngestionOrchestrator {
     }
   }
 
-  @SuppressWarnings("java:S2095")
+  @SuppressWarnings(value = {"java:S2095", "java:S3776"})
   private int ingestParallel(List<Path> files, Map<String, Long> mtimeCache)
       throws InterruptedException {
     CopyOnWriteArrayList<Session> sessions = new CopyOnWriteArrayList<>();
@@ -239,7 +247,7 @@ public final class IngestionOrchestrator {
         pool.submit(
             () -> {
               try {
-                boolean success = ingestFile(threadWriter.get(), file, mtimeCache);
+                boolean success = ingestFileChecked(threadWriter.get(), file, mtimeCache);
                 if (success) {
                   successFiles.add(file);
                 } else {
@@ -304,20 +312,10 @@ public final class IngestionOrchestrator {
    *     incremental is true, otherwise empty)
    * @return true on success (or skip), false if parsing or graph write fails
    */
-  private boolean ingestFile(GraphWriter writer, Path file, Map<String, Long> mtimeCache) {
-    if (incremental) {
-      Long storedModified = mtimeCache.get(file.toString());
-      if (storedModified != null && storedModified > 0) {
-        try {
-          long fsModified = Files.getLastModifiedTime(file).toMillis();
-          if (fsModified == storedModified) {
-            log.debug("Skipping unchanged file: {}", file);
-            return true;
-          }
-        } catch (IOException _) {
-          // Cannot read mtime — proceed with full ingest.
-        }
-      }
+  private boolean ingestFileChecked(GraphWriter writer, Path file, Map<String, Long> mtimeCache) {
+    if (isFileUnchanged(file, mtimeCache)) {
+      log.debug("Skipping unchanged file: {}", file);
+      return true;
     }
     return ingestFile(writer, file);
   }
