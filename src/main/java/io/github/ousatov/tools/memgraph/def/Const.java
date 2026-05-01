@@ -168,6 +168,7 @@ public final class Const {
     public static final String LAST_MODIFIED = "lastModified";
     public static final String IS_FINAL = "isFinal";
     public static final String IS_SYNTHETIC = "isSynthetic";
+    public static final String TYPE = "type";
 
     private Params() {
 

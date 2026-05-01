@@ -23,10 +23,10 @@ import io.github.ousatov.tools.memgraph.def.Const.Cypher;
 import io.github.ousatov.tools.memgraph.def.Const.Labels;
 import io.github.ousatov.tools.memgraph.def.Const.Params;
 import io.github.ousatov.tools.memgraph.exception.ProcessingException;
+import io.github.ousatov.tools.memgraph.vo.Method;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -34,6 +34,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import org.neo4j.driver.Session;
 import org.neo4j.driver.Transaction;
 import org.slf4j.Logger;
@@ -165,10 +166,7 @@ public final class GraphWriter {
    */
   private static String buildConstructorSignature(String ownerFqn, ConstructorDeclaration ctor) {
     try {
-      String resolved = ctor.resolve().getQualifiedSignature();
-      int parenIdx = resolved.indexOf('(');
-      String params = resolved.substring(parenIdx + 1, resolved.length() - 1);
-      return ownerFqn + "." + Labels.INIT + "(" + params + ")";
+      return buildInitCallSig(ownerFqn, ctor.resolve().getQualifiedSignature());
     } catch (Exception _) {
       String params =
           ctor.getParameters().stream()
@@ -176,6 +174,17 @@ public final class GraphWriter {
               .collect(Collectors.joining(", "));
       return ownerFqn + "." + Labels.INIT + "(" + params + ")";
     }
+  }
+
+  /**
+   * Converts a resolved constructor's qualified signature to the {@code <init>} form used
+   * throughout the graph. Extracts the parameter list from {@code qualSig} and composes {@code
+   * ownerFqn.<init>(params)}.
+   */
+  private static String buildInitCallSig(String ownerFqn, String qualSig) {
+    int parenIdx = qualSig.indexOf('(');
+    String params = qualSig.substring(parenIdx + 1, qualSig.length() - 1);
+    return ownerFqn + "." + Labels.INIT + "(" + params + ")";
   }
 
   /**
@@ -220,38 +229,21 @@ public final class GraphWriter {
 
   /** Deletes the project-scoped {@code :Memory} graph while keeping the {@code :Project} anchor. */
   public void wipeMemories() {
-    runWithRetry(Cypher.CYPHER_WIPE_PROJECT_MEMORIES, Collections.emptyMap());
+    runWithRetry(Cypher.CYPHER_WIPE_PROJECT_MEMORIES, Map.of());
   }
 
   /** Refreshes {@code :CodeRef} resolution edges to the current project-scoped code graph. */
   public void resolveCodeRefs() {
-    runWithRetry(Cypher.CYPHER_RESOLVE_CODE_REFS_CODE, Collections.emptyMap());
-    runWithRetry(Cypher.CYPHER_RESOLVE_CODE_REFS_PACKAGE, Collections.emptyMap());
-    runWithRetry(Cypher.CYPHER_RESOLVE_CODE_REFS_FILE, Collections.emptyMap());
-    runWithRetry(Cypher.CYPHER_RESOLVE_CODE_REFS_CLASS, Collections.emptyMap());
-    runWithRetry(Cypher.CYPHER_RESOLVE_CODE_REFS_INTERFACE, Collections.emptyMap());
-    runWithRetry(Cypher.CYPHER_RESOLVE_CODE_REFS_ANNOTATION, Collections.emptyMap());
-    runWithRetry(Cypher.CYPHER_RESOLVE_CODE_REFS_METHOD, Collections.emptyMap());
-    runWithRetry(Cypher.CYPHER_RESOLVE_CODE_REFS_FIELD, Collections.emptyMap());
-  }
-
-  /**
-   * Returns the stored {@code lastModified} epoch-millis for the given file path, or {@code -1} if
-   * the file has no graph node.
-   */
-  public long getFileLastModified(Path file) {
-    Map<String, Object> params = Map.of(Params.PATH, file.toString(), Labels.PROJECT, project);
-    try {
-      var result = session.run(Cypher.CYPHER_GET_FILE_LAST_MODIFIED, params);
-      if (!result.hasNext()) {
-        return -1L;
-      }
-      var value = result.single().get(Params.LAST_MODIFIED);
-      return value.isNull() ? -1L : value.asLong();
-    } catch (RuntimeException e) {
-      log.debug("Could not fetch lastModified for {}: {}", file, e.getMessage());
-      return -1L;
-    }
+    List.of(
+            Cypher.CYPHER_RESOLVE_CODE_REFS_CODE,
+            Cypher.CYPHER_RESOLVE_CODE_REFS_PACKAGE,
+            Cypher.CYPHER_RESOLVE_CODE_REFS_FILE,
+            Cypher.CYPHER_RESOLVE_CODE_REFS_CLASS,
+            Cypher.CYPHER_RESOLVE_CODE_REFS_INTERFACE,
+            Cypher.CYPHER_RESOLVE_CODE_REFS_ANNOTATION,
+            Cypher.CYPHER_RESOLVE_CODE_REFS_METHOD,
+            Cypher.CYPHER_RESOLVE_CODE_REFS_FIELD)
+        .forEach(q -> runWithRetry(q, Map.of()));
   }
 
   /**
@@ -281,7 +273,7 @@ public final class GraphWriter {
           "Could not batch-fetch lastModified values, incremental mode will re-ingest all files:"
               + " {}",
           e.getMessage());
-      return Collections.emptyMap();
+      return Map.of();
     }
   }
 
@@ -348,9 +340,7 @@ public final class GraphWriter {
     decl.getFields().forEach(f -> upsertField(fqn, f));
     decl.getMethods().forEach(m -> upsertMethod(fqn, m));
     decl.getConstructors().forEach(c -> upsertConstructor(fqn, c));
-    decl.getMembers().stream()
-        .filter(ClassOrInterfaceDeclaration.class::isInstance)
-        .map(m -> (ClassOrInterfaceDeclaration) m)
+    nestedClassDeclarationsOf(decl.getMembers())
         .forEach(nested -> upsertTypeInternal(file, pkg, fqn, nested));
   }
 
@@ -389,9 +379,7 @@ public final class GraphWriter {
     decl.getConstructors().forEach(c -> upsertConstructor(fqn, c));
     upsertRecordCanonicalConstructor(fqn, decl);
     upsertRecordAccessors(fqn, decl);
-    decl.getMembers().stream()
-        .filter(ClassOrInterfaceDeclaration.class::isInstance)
-        .map(m -> (ClassOrInterfaceDeclaration) m)
+    nestedClassDeclarationsOf(decl.getMembers())
         .forEach(nested -> upsertTypeInternal(file, pkg, fqn, nested));
   }
 
@@ -432,12 +420,7 @@ public final class GraphWriter {
    */
   public void upsertEnumCallEdges(String pkg, EnumDeclaration decl) {
     String fqn = buildFqn(pkg, decl.getNameAsString());
-    decl.getMethods().forEach(m -> upsertCallEdges(buildSignature(fqn, m), fqn, m));
-    decl.getConstructors().forEach(c -> upsertCallEdges(buildConstructorSignature(fqn, c), fqn, c));
-    decl.getMembers().stream()
-        .filter(ClassOrInterfaceDeclaration.class::isInstance)
-        .map(m -> (ClassOrInterfaceDeclaration) m)
-        .forEach(nested -> upsertTypeCallEdgesInternal(pkg, fqn, nested));
+    upsertCallEdgesForDecl(pkg, fqn, decl.getMethods(), decl.getConstructors(), decl.getMembers());
   }
 
   /**
@@ -446,30 +429,27 @@ public final class GraphWriter {
    */
   public void upsertRecordCallEdges(String pkg, RecordDeclaration decl) {
     String fqn = buildFqn(pkg, decl.getNameAsString());
-    decl.getMethods().forEach(m -> upsertCallEdges(buildSignature(fqn, m), fqn, m));
-    decl.getConstructors().forEach(c -> upsertCallEdges(buildConstructorSignature(fqn, c), fqn, c));
-    decl.getMembers().stream()
-        .filter(ClassOrInterfaceDeclaration.class::isInstance)
-        .map(m -> (ClassOrInterfaceDeclaration) m)
-        .forEach(nested -> upsertTypeCallEdgesInternal(pkg, fqn, nested));
+    upsertCallEdgesForDecl(pkg, fqn, decl.getMethods(), decl.getConstructors(), decl.getMembers());
   }
 
   private void upsertTypeCallEdgesInternal(
       String pkg, String outerFqn, ClassOrInterfaceDeclaration decl) {
     String fqn =
-        outerFqn != null ? outerFqn + "$" + decl.getNameAsString() : genDeclName(pkg, decl);
+        outerFqn != null
+            ? outerFqn + "$" + decl.getNameAsString()
+            : buildFqn(pkg, decl.getNameAsString());
     decl.getMethods().forEach(m -> upsertCallEdges(buildSignature(fqn, m), fqn, m));
     decl.getConstructors().forEach(c -> upsertCallEdges(buildConstructorSignature(fqn, c), fqn, c));
-    decl.getMembers().stream()
-        .filter(ClassOrInterfaceDeclaration.class::isInstance)
-        .map(m -> (ClassOrInterfaceDeclaration) m)
+    nestedClassDeclarationsOf(decl.getMembers())
         .forEach(nested -> upsertTypeCallEdgesInternal(pkg, fqn, nested));
   }
 
   private void upsertTypeInternal(
       Path file, String pkg, String outerFqn, ClassOrInterfaceDeclaration decl) {
     String fqn =
-        outerFqn != null ? outerFqn + "$" + decl.getNameAsString() : genDeclName(pkg, decl);
+        outerFqn != null
+            ? outerFqn + "$" + decl.getNameAsString()
+            : buildFqn(pkg, decl.getNameAsString());
     if (decl.isInterface()) {
       runWithRetry(
           Cypher.CYPHER_UPSERT_INTERFACE,
@@ -517,14 +497,35 @@ public final class GraphWriter {
     decl.getMethods().forEach(m -> upsertMethod(fqn, m));
     decl.getConstructors().forEach(c -> upsertConstructor(fqn, c));
     // Recurse into directly nested class/interface declarations with correct FQN.
-    decl.getMembers().stream()
-        .filter(ClassOrInterfaceDeclaration.class::isInstance)
-        .map(m -> (ClassOrInterfaceDeclaration) m)
+    nestedClassDeclarationsOf(decl.getMembers())
         .forEach(nested -> upsertTypeInternal(file, pkg, fqn, nested));
   }
 
-  private String genDeclName(String pkg, ClassOrInterfaceDeclaration decl) {
-    return buildFqn(pkg, decl.getNameAsString());
+  /**
+   * Returns a stream of directly nested {@link ClassOrInterfaceDeclaration} nodes from {@code
+   * members}. Only handles class and interface declarations; nested enums, records, and annotation
+   * types are excluded (pre-existing limitation).
+   */
+  private static Stream<ClassOrInterfaceDeclaration> nestedClassDeclarationsOf(List<?> members) {
+    return members.stream()
+        .filter(ClassOrInterfaceDeclaration.class::isInstance)
+        .map(ClassOrInterfaceDeclaration.class::cast);
+  }
+
+  /**
+   * Upserts {@code CALLS} edges for methods, constructors, and directly nested class declarations
+   * of a type body. Used by {@link #upsertEnumCallEdges} and {@link #upsertRecordCallEdges}.
+   */
+  private void upsertCallEdgesForDecl(
+      String pkg,
+      String fqn,
+      List<MethodDeclaration> methods,
+      List<ConstructorDeclaration> constructors,
+      List<?> members) {
+    methods.forEach(m -> upsertCallEdges(buildSignature(fqn, m), fqn, m));
+    constructors.forEach(c -> upsertCallEdges(buildConstructorSignature(fqn, c), fqn, c));
+    nestedClassDeclarationsOf(members)
+        .forEach(nested -> upsertTypeCallEdgesInternal(pkg, fqn, nested));
   }
 
   private void upsertInheritance(String fqn, ClassOrInterfaceDeclaration decl) {
@@ -600,7 +601,7 @@ public final class GraphWriter {
               fqn,
               Params.NAME,
               param.getNameAsString(),
-              "type",
+              Params.TYPE,
               param.getTypeAsString(),
               Params.IS_STATIC,
               false,
@@ -625,7 +626,7 @@ public final class GraphWriter {
                       fqn,
                       Params.NAME,
                       v.getNameAsString(),
-                      "type",
+                      Params.TYPE,
                       v.getTypeAsString(),
                       Params.IS_STATIC,
                       field.isStatic(),
@@ -640,65 +641,58 @@ public final class GraphWriter {
   private void upsertMethod(String ownerFqn, MethodDeclaration method) {
     String signature = buildSignature(ownerFqn, method);
     upsertMethodNode(
-        ownerFqn,
-        signature,
-        method.getNameAsString(),
-        method.getTypeAsString(),
-        method.isStatic(),
-        method.getAccessSpecifier().asString(),
-        method.getBegin().map(p -> p.line).orElse(0),
-        method.getEnd().map(p -> p.line).orElse(0),
-        false);
+        new Method(
+            ownerFqn,
+            signature,
+            method.getNameAsString(),
+            method.getTypeAsString(),
+            method.isStatic(),
+            method.getAccessSpecifier().asString(),
+            method.getBegin().map(p -> p.line).orElse(0),
+            method.getEnd().map(p -> p.line).orElse(0),
+            false));
     upsertAnnotationsBySig(signature, method);
   }
 
   private void upsertConstructor(String ownerFqn, ConstructorDeclaration ctor) {
     String signature = buildConstructorSignature(ownerFqn, ctor);
     upsertMethodNode(
-        ownerFqn,
-        signature,
-        Labels.INIT,
-        Labels.VOID,
-        false,
-        ctor.getAccessSpecifier().asString(),
-        ctor.getBegin().map(p -> p.line).orElse(0),
-        ctor.getEnd().map(p -> p.line).orElse(0),
-        false);
+        new Method(
+            ownerFqn,
+            signature,
+            Labels.INIT,
+            Labels.VOID,
+            false,
+            ctor.getAccessSpecifier().asString(),
+            ctor.getBegin().map(p -> p.line).orElse(0),
+            ctor.getEnd().map(p -> p.line).orElse(0),
+            false));
     upsertAnnotationsBySig(signature, ctor);
   }
 
   /** Shared helper that creates or updates a {@code :Method} node with all properties. */
-  private void upsertMethodNode(
-      String ownerFqn,
-      String signature,
-      String name,
-      String returnType,
-      boolean isStatic,
-      String visibility,
-      int startLine,
-      int endLine,
-      boolean isSynthetic) {
+  private void upsertMethodNode(Method method) {
     runWithRetry(
         Cypher.CYPHER_UPSERT_METHOD,
         Map.of(
             Params.SIG,
-            signature,
+            method.signature(),
             Params.NAME,
-            name,
+            method.name(),
             Params.RET,
-            returnType,
+            method.returnType(),
             Params.IS_STATIC,
-            isStatic,
+            method.isStatic(),
             Params.VISIBILITY,
-            visibility,
+            method.visibility(),
             Params.START,
-            startLine,
+            method.startLine(),
             Params.END,
-            endLine,
+            method.endLine(),
             Params.OWNER,
-            ownerFqn,
+            method.ownerFqn(),
             Params.IS_SYNTHETIC,
-            isSynthetic));
+            method.isSynthetic()));
   }
 
   /**
@@ -716,15 +710,16 @@ public final class GraphWriter {
             .anyMatch(c -> buildConstructorSignature(fqn, c).equals(canonicalSig));
     if (!hasCanonical) {
       upsertMethodNode(
-          fqn,
-          canonicalSig,
-          Labels.INIT,
-          Labels.VOID,
-          false,
-          decl.getAccessSpecifier().asString(),
-          0,
-          0,
-          true);
+          new Method(
+              fqn,
+              canonicalSig,
+              Labels.INIT,
+              Labels.VOID,
+              false,
+              decl.getAccessSpecifier().asString(),
+              0,
+              0,
+              true));
     }
   }
 
@@ -744,7 +739,8 @@ public final class GraphWriter {
       if (!explicitMethods.contains(accessorName)) {
         String sig = fqn + "." + accessorName + "()";
         upsertMethodNode(
-            fqn, sig, accessorName, param.getTypeAsString(), false, "public", 0, 0, true);
+            new Method(
+                fqn, sig, accessorName, param.getTypeAsString(), false, "public", 0, 0, true));
       }
     }
   }
@@ -858,10 +854,7 @@ public final class GraphWriter {
     try {
       var resolvedCtor = creation.resolve();
       String typeFqn = resolvedCtor.declaringType().getQualifiedName();
-      String qualSig = resolvedCtor.getQualifiedSignature();
-      int parenIdx = qualSig.indexOf('(');
-      String params = qualSig.substring(parenIdx + 1, qualSig.length() - 1);
-      String calleeSig = typeFqn + "." + Labels.INIT + "(" + params + ")";
+      String calleeSig = buildInitCallSig(typeFqn, resolvedCtor.getQualifiedSignature());
       runWithRetry(
           Cypher.CYPHER_UPSERT_CALL, Map.of(Params.CALLER, callerSig, Params.CALLEE, calleeSig));
     } catch (Exception _) {
@@ -890,10 +883,7 @@ public final class GraphWriter {
     try {
       var resolvedCtor = stmt.resolve();
       String typeFqn = resolvedCtor.declaringType().getQualifiedName();
-      String qualSig = resolvedCtor.getQualifiedSignature();
-      int parenIdx = qualSig.indexOf('(');
-      String params = qualSig.substring(parenIdx + 1, qualSig.length() - 1);
-      String calleeSig = typeFqn + "." + Labels.INIT + "(" + params + ")";
+      String calleeSig = buildInitCallSig(typeFqn, resolvedCtor.getQualifiedSignature());
       runWithRetry(
           Cypher.CYPHER_UPSERT_CALL, Map.of(Params.CALLER, callerSig, Params.CALLEE, calleeSig));
     } catch (Exception _) {
@@ -1040,6 +1030,7 @@ public final class GraphWriter {
    * ExtensionContext.Store.CloseableResource}) by matching the top-level scope against imports.
    * Falls back to the source-level type name if no import matches.
    */
+  @SuppressWarnings("java:S3776")
   private static String inferFqnFromImports(ClassOrInterfaceType type) {
     String simpleName = type.getNameAsString();
     String fullName = type.asString();
