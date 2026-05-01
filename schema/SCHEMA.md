@@ -23,10 +23,10 @@ intended for durable agent/client-authored decisions, context, and follow-up wor
 | `:Code` | `project` | `sourceRoots` (string array), `lastIngested` |
 | `:Package` | `name`, `project` | — |
 | `:File` | `path`, `project` | `lastModified` (epoch millis) |
-| `:Class` | `fqn`, `project` | `name`, `packageName`, `isAbstract`, `visibility`, `isEnum`, `isRecord` |
-| `:Interface` | `fqn`, `project` | `name`, `packageName`, `visibility` |
+| `:Class` | `fqn`, `project` | `name`, `packageName`, `isAbstract`, `visibility`, `isEnum`, `isRecord`, `isFinal` |
+| `:Interface` | `fqn`, `project` | `name`, `packageName`, `visibility`, `isFinal` |
 | `:Annotation` | `fqn`, `project` | `name`, `packageName`, `visibility` |
-| `:Method` | `signature`, `project` | `name`, `returnType`, `visibility`, `isStatic`, `startLine`, `endLine` |
+| `:Method` | `signature`, `project` | `name`, `returnType`, `visibility`, `isStatic`, `startLine`, `endLine`, `isSynthetic` |
 | `:Field` | `fqn`, `project` | `name`, `type`, `visibility`, `isStatic` |
 
 ## Memory nodes

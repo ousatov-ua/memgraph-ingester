@@ -26,10 +26,10 @@ All queries MUST include `project: '{{PROJECT_NAME}}'`.
 | `:Code`       | `project`              | `sourceRoots`, `lastIngested`                                           |
 | `:Package`    | `(name, project)`      | —                                                                       |
 | `:File`       | `(path, project)`      | `lastModified` (epoch ms)                                               |
-| `:Class`      | `(fqn, project)`       | `name`, `packageName`, `isAbstract`, `visibility`, `isEnum`, `isRecord` |
-| `:Interface`  | `(fqn, project)`       | `name`, `packageName`, `visibility`                                     |
-| `:Annotation` | `(fqn, project)`       | `name`, `packageName`, `visibility`                                     |
-| `:Method`     | `(signature, project)` | `name`, `returnType`, `visibility`, `isStatic`, `startLine`, `endLine`  |
+| `:Class`      | `(fqn, project)`       | `name`, `packageName`, `isAbstract`, `visibility`, `isEnum`, `isRecord`, `isFinal` |
+| `:Interface`  | `(fqn, project)`       | `name`, `packageName`, `visibility`, `isFinal`                                     |
+| `:Annotation` | `(fqn, project)`       | `name`, `packageName`, `visibility`                                                |
+| `:Method`     | `(signature, project)` | `name`, `returnType`, `visibility`, `isStatic`, `startLine`, `endLine`, `isSynthetic` |
 | `:Field`      | `(fqn, project)`       | `name`, `type`, `visibility`, `isStatic`                                |
 
 #### Relationships
@@ -51,16 +51,23 @@ All queries MUST include `project: '{{PROJECT_NAME}}'`.
 #### Caveats
 
 - **Best-effort edges** — `CALLS` and `ANNOTATED_WITH` are within-project only and only for
-  resolvable symbols. Missing edges don't mean no relationship exists.
+  resolvable symbols. Missing edges don't mean no relationship exists. Use `--classpath` with
+  dependency JARs to improve resolution coverage.
 - **CALLS gaps** — call sites where arguments involve complex type inference (e.g. `Map.of()` with
   mixed types) or where parameter types are project-internal classes may not resolve; those edges
   will be absent even after two ingestion passes.
+- **EXTENDS/IMPLEMENTS resolution** — when the symbol solver cannot resolve an external parent type,
+  the FQN is inferred from import statements or falls back to the source-level name. Unresolvable
+  types may appear with a simple name rather than a full FQN.
 - **Annotation FQN** — external library annotations (JUnit 5, Spring, picocli, etc.) are stored with
   their **simple name** as `fqn` because the symbol resolver cannot reach them (e.g. `fqn: "Test"`,
   `fqn: "Command"`). Only JDK annotations resolve to a full FQN (e.g. `fqn: "java.lang.Override"`).
   Always query by simple name for non-JDK annotations:
   `MATCH (a:Annotation {fqn: 'Test', project: '...'})`.
 - **Constructors** — stored as `:Method` with `name = '<init>'`.
+- **Synthetic members** — record canonical constructors and accessor methods are synthesized with
+  `isSynthetic = true` when not explicitly declared in source. Use
+  `WHERE NOT m.isSynthetic` to filter them out.
 - **Nested classes** — FQN uses `$`: `com.example.Outer$Inner`.
 - **`DECLARES`** — covers both methods and fields; always add a label filter:
   `-[:DECLARES]->(m:Method)`.

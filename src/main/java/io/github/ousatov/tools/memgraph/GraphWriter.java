@@ -143,9 +143,9 @@ public final class GraphWriter {
   }
 
   /**
-   * Builds the method signature using symbol resolution when available, falling back to simple type
-   * names. Both paths produce the same format as {@code call.resolve().getQualifiedSignature()}, so
-   * CALLS edges connect correctly.
+   * Builds the method signature using symbol resolution when available, falling back to
+   * per-parameter resolution. Both paths produce the same format as {@code
+   * call.resolve().getQualifiedSignature()}, so CALLS edges connect correctly.
    */
   private static String buildSignature(String ownerFqn, MethodDeclaration m) {
     try {
@@ -153,7 +153,7 @@ public final class GraphWriter {
     } catch (UnsolvedSymbolException | UnsupportedOperationException | IllegalStateException _) {
       String params =
           m.getParameters().stream()
-              .map(p -> p.getType().asString())
+              .map(GraphWriter::resolveParamType)
               .collect(Collectors.joining(", "));
       return ownerFqn + "." + m.getNameAsString() + "(" + params + ")";
     }
@@ -161,21 +161,33 @@ public final class GraphWriter {
 
   /**
    * Builds the constructor signature using symbol resolution for FQN parameter types, falling back
-   * to simple type names. Uses the {@code <init>} convention for consistent identification.
+   * to per-parameter resolution. Uses the {@code <init>} convention for consistent identification.
    */
   private static String buildConstructorSignature(String ownerFqn, ConstructorDeclaration ctor) {
     try {
       String resolved = ctor.resolve().getQualifiedSignature();
-      // "com.example.Widget(java.lang.String, int)" → extract params
       int parenIdx = resolved.indexOf('(');
       String params = resolved.substring(parenIdx + 1, resolved.length() - 1);
       return ownerFqn + "." + Labels.INIT + "(" + params + ")";
     } catch (UnsolvedSymbolException | UnsupportedOperationException | IllegalStateException _) {
       String params =
           ctor.getParameters().stream()
-              .map(p -> p.getType().asString())
+              .map(GraphWriter::resolveParamType)
               .collect(Collectors.joining(", "));
       return ownerFqn + "." + Labels.INIT + "(" + params + ")";
+    }
+  }
+
+  /**
+   * Resolves a single parameter type to its FQN, falling back to the source-level name when
+   * resolution fails. This ensures each parameter is independently resolved rather than treating
+   * the whole method signature as all-or-nothing.
+   */
+  private static String resolveParamType(Parameter p) {
+    try {
+      return p.getType().resolve().describe();
+    } catch (UnsolvedSymbolException | UnsupportedOperationException | IllegalStateException _) {
+      return p.getType().asString();
     }
   }
 
@@ -325,7 +337,9 @@ public final class GraphWriter {
             Params.IS_ENUM,
             true,
             Params.IS_RECORD,
-            false));
+            false,
+            Params.IS_FINAL,
+            true));
     upsertAnnotationsByFqn(fqn, decl);
     upsertImplementedTypes(fqn, decl);
     decl.getFields().forEach(f -> upsertField(fqn, f));
@@ -361,6 +375,8 @@ public final class GraphWriter {
             Params.IS_ENUM,
             false,
             Params.IS_RECORD,
+            true,
+            Params.IS_FINAL,
             true));
     upsertAnnotationsByFqn(fqn, decl);
     upsertImplementedTypes(fqn, decl);
@@ -368,6 +384,8 @@ public final class GraphWriter {
     upsertRecordComponents(fqn, decl);
     decl.getMethods().forEach(m -> upsertMethod(fqn, m));
     decl.getConstructors().forEach(c -> upsertConstructor(fqn, c));
+    upsertRecordCanonicalConstructor(fqn, decl);
+    upsertRecordAccessors(fqn, decl);
     decl.getMembers().stream()
         .filter(ClassOrInterfaceDeclaration.class::isInstance)
         .map(m -> (ClassOrInterfaceDeclaration) m)
@@ -464,7 +482,9 @@ public final class GraphWriter {
               Params.IS_ABSTRACT,
               decl.isAbstract(),
               Params.VISIBILITY,
-              decl.getAccessSpecifier().asString()));
+              decl.getAccessSpecifier().asString(),
+              Params.IS_FINAL,
+              false));
     } else {
       runWithRetry(
           Cypher.CYPHER_UPSERT_CLASS,
@@ -484,7 +504,9 @@ public final class GraphWriter {
               Params.IS_ENUM,
               false,
               Params.IS_RECORD,
-              false));
+              false,
+              Params.IS_FINAL,
+              decl.isFinal()));
     }
     upsertAnnotationsByFqn(fqn, decl);
     upsertInheritance(fqn, decl);
@@ -589,50 +611,114 @@ public final class GraphWriter {
 
   private void upsertMethod(String ownerFqn, MethodDeclaration method) {
     String signature = buildSignature(ownerFqn, method);
-    runWithRetry(
-        Cypher.CYPHER_UPSERT_METHOD,
-        Map.of(
-            Params.SIG,
-            signature,
-            Params.NAME,
-            method.getNameAsString(),
-            Params.RET,
-            method.getTypeAsString(),
-            Params.IS_STATIC,
-            method.isStatic(),
-            Params.VISIBILITY,
-            method.getAccessSpecifier().asString(),
-            Params.START,
-            method.getBegin().map(p -> p.line).orElse(0),
-            Params.END,
-            method.getEnd().map(p -> p.line).orElse(0),
-            Params.OWNER,
-            ownerFqn));
+    upsertMethodNode(
+        ownerFqn,
+        signature,
+        method.getNameAsString(),
+        method.getTypeAsString(),
+        method.isStatic(),
+        method.getAccessSpecifier().asString(),
+        method.getBegin().map(p -> p.line).orElse(0),
+        method.getEnd().map(p -> p.line).orElse(0),
+        false);
     upsertAnnotationsBySig(signature, method);
   }
 
   private void upsertConstructor(String ownerFqn, ConstructorDeclaration ctor) {
     String signature = buildConstructorSignature(ownerFqn, ctor);
+    upsertMethodNode(
+        ownerFqn,
+        signature,
+        Labels.INIT,
+        Labels.VOID,
+        false,
+        ctor.getAccessSpecifier().asString(),
+        ctor.getBegin().map(p -> p.line).orElse(0),
+        ctor.getEnd().map(p -> p.line).orElse(0),
+        false);
+    upsertAnnotationsBySig(signature, ctor);
+  }
+
+  /** Shared helper that creates or updates a {@code :Method} node with all properties. */
+  private void upsertMethodNode(
+      String ownerFqn,
+      String signature,
+      String name,
+      String returnType,
+      boolean isStatic,
+      String visibility,
+      int startLine,
+      int endLine,
+      boolean isSynthetic) {
     runWithRetry(
         Cypher.CYPHER_UPSERT_METHOD,
         Map.of(
             Params.SIG,
             signature,
             Params.NAME,
-            Labels.INIT,
+            name,
             Params.RET,
-            Labels.VOID,
+            returnType,
             Params.IS_STATIC,
-            false,
+            isStatic,
             Params.VISIBILITY,
-            ctor.getAccessSpecifier().asString(),
+            visibility,
             Params.START,
-            ctor.getBegin().map(p -> p.line).orElse(0),
+            startLine,
             Params.END,
-            ctor.getEnd().map(p -> p.line).orElse(0),
+            endLine,
             Params.OWNER,
-            ownerFqn));
-    upsertAnnotationsBySig(signature, ctor);
+            ownerFqn,
+            Params.IS_SYNTHETIC,
+            isSynthetic));
+  }
+
+  /**
+   * Synthesizes the canonical constructor for a record if no explicit canonical constructor is
+   * declared. The canonical constructor has the same parameter list as the record components.
+   */
+  private void upsertRecordCanonicalConstructor(String fqn, RecordDeclaration decl) {
+    String canonicalParams =
+        decl.getParameters().stream()
+            .map(GraphWriter::resolveParamType)
+            .collect(Collectors.joining(", "));
+    String canonicalSig = fqn + "." + Labels.INIT + "(" + canonicalParams + ")";
+    boolean hasCanonical =
+        decl.getConstructors().stream()
+            .anyMatch(c -> buildConstructorSignature(fqn, c).equals(canonicalSig));
+    if (!hasCanonical) {
+      upsertMethodNode(
+          fqn,
+          canonicalSig,
+          Labels.INIT,
+          Labels.VOID,
+          false,
+          decl.getAccessSpecifier().asString(),
+          0,
+          0,
+          true);
+    }
+  }
+
+  /**
+   * Synthesizes accessor methods for record components that don't have an explicit accessor
+   * declared.
+   */
+  private void upsertRecordAccessors(String fqn, RecordDeclaration decl) {
+    var explicitMethods =
+        decl.getMethods().stream()
+            .filter(m -> m.getParameters().isEmpty())
+            .map(MethodDeclaration::getNameAsString)
+            .collect(Collectors.toSet());
+
+    for (Parameter param : decl.getParameters()) {
+      String accessorName = param.getNameAsString();
+      if (!explicitMethods.contains(accessorName)) {
+        String sig = fqn + "." + accessorName + "()";
+        upsertMethodNode(
+            fqn, sig, accessorName, param.getTypeAsString(), false, "public", 0, 0, true);
+      }
+    }
   }
 
   /**
@@ -690,9 +776,48 @@ public final class GraphWriter {
             });
   }
 
-  /** Resolves {@code type} and invokes {@code action} with the FQN; silently skips on failure. */
+  /**
+   * Resolves {@code type} and invokes {@code action} with the FQN. Falls back to import-based
+   * inference when the symbol solver cannot determine the FQN, then to the source-level name.
+   */
   private void withResolvedType(ClassOrInterfaceType type, Consumer<String> action) {
-    tryRun(() -> resolveQualifiedName(type).ifPresent(action));
+    Optional<String> resolved = resolveQualifiedName(type);
+    action.accept(resolved.orElseGet(() -> inferFqnFromImports(type)));
+  }
+
+  /**
+   * Infers a type FQN from the compilation unit's imports when symbol resolution fails. Checks
+   * explicit single-type imports first, then handles scoped names (e.g., {@code
+   * ExtensionContext.Store.CloseableResource}) by matching the top-level scope against imports.
+   * Falls back to the source-level type name if no import matches.
+   */
+  private static String inferFqnFromImports(ClassOrInterfaceType type) {
+    String simpleName = type.getNameAsString();
+    String fullName = type.asString();
+    return type.findCompilationUnit()
+        .flatMap(
+            cu -> {
+              for (var imp : cu.getImports()) {
+                if (!imp.isAsterisk()
+                    && !imp.isStatic()
+                    && imp.getName().getIdentifier().equals(simpleName)) {
+                  return Optional.of(imp.getNameAsString());
+                }
+              }
+              if (fullName.contains(".")) {
+                String topLevel = fullName.substring(0, fullName.indexOf('.'));
+                for (var imp : cu.getImports()) {
+                  if (!imp.isAsterisk()
+                      && !imp.isStatic()
+                      && imp.getName().getIdentifier().equals(topLevel)) {
+                    return Optional.of(
+                        imp.getNameAsString() + fullName.substring(fullName.indexOf('.')));
+                  }
+                }
+              }
+              return Optional.<String>empty();
+            })
+        .orElse(fullName);
   }
 
   /**

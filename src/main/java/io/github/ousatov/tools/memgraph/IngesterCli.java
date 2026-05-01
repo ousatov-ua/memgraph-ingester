@@ -1,8 +1,11 @@
 package io.github.ousatov.tools.memgraph;
 
 import io.github.ousatov.tools.memgraph.vo.Settings;
+import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Arrays;
+import java.util.List;
 import java.util.concurrent.Callable;
 import org.neo4j.driver.AuthTokens;
 import org.neo4j.driver.Driver;
@@ -101,6 +104,15 @@ public final class IngesterCli implements Callable<Integer> {
   @SuppressWarnings("unused")
   private boolean incremental;
 
+  @Option(
+      names = {"--classpath"},
+      defaultValue = "",
+      description =
+          "Additional classpath entries (JARs) for symbol resolution, separated by "
+              + "the platform path separator. Improves CALLS edge and type resolution coverage.")
+  @SuppressWarnings("unused")
+  private String classpath;
+
   /** Entry point. */
   public static void main(String[] args) {
     int exit = new CommandLine(new IngesterCli()).execute(args);
@@ -118,7 +130,14 @@ public final class IngesterCli implements Callable<Integer> {
       return 1;
     }
     try (Driver driver = GraphDatabase.driver(boltUrl, AuthTokens.basic(user, pass))) {
-      ParseService parseService = new ParseService(sourceRoot);
+      List<Path> cpEntries =
+          (classpath == null || classpath.isBlank())
+              ? List.of()
+              : Arrays.stream(classpath.split(File.pathSeparator))
+                  .map(Path::of)
+                  .filter(Files::isRegularFile)
+                  .toList();
+      ParseService parseService = new ParseService(sourceRoot, cpEntries);
       IngestionOrchestrator orchestrator =
           new IngestionOrchestrator(sourceRoot, project, threads, driver, parseService);
       var settings =

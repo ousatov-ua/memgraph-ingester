@@ -6,9 +6,12 @@ import com.github.javaparser.ParserConfiguration.LanguageLevel;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.symbolsolver.JavaSymbolSolver;
 import com.github.javaparser.symbolsolver.resolution.typesolvers.CombinedTypeSolver;
+import com.github.javaparser.symbolsolver.resolution.typesolvers.JarTypeSolver;
 import com.github.javaparser.symbolsolver.resolution.typesolvers.JavaParserTypeSolver;
 import com.github.javaparser.symbolsolver.resolution.typesolvers.ReflectionTypeSolver;
+import java.io.IOException;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -35,7 +38,15 @@ public final class ParseService {
    *     resolution
    */
   public ParseService(Path sourceRoot) {
-    this.config = buildConfig(sourceRoot);
+    this(sourceRoot, List.of());
+  }
+
+  /**
+   * @param sourceRoot root source directory for symbol resolution
+   * @param classpathEntries JAR files to add to the symbol solver for improved type resolution
+   */
+  public ParseService(Path sourceRoot, List<Path> classpathEntries) {
+    this.config = buildConfig(sourceRoot, classpathEntries);
     this.parser = ThreadLocal.withInitial(() -> new JavaParser(config));
   }
 
@@ -68,10 +79,20 @@ public final class ParseService {
     }
   }
 
-  private static ParserConfiguration buildConfig(Path sourceRoot) {
+  private static ParserConfiguration buildConfig(Path sourceRoot, List<Path> classpathEntries) {
     CombinedTypeSolver solver = new CombinedTypeSolver();
     solver.add(new JavaParserTypeSolver(sourceRoot));
     solver.add(new ReflectionTypeSolver());
+    for (Path jar : classpathEntries) {
+      try {
+        solver.add(new JarTypeSolver(jar));
+      } catch (IOException e) {
+        log.warn("Could not add JAR to solver: {}: {}", jar, e.getMessage());
+      }
+    }
+    if (!classpathEntries.isEmpty()) {
+      log.info("Added {} JAR(s) to the symbol solver classpath", classpathEntries.size());
+    }
     ParserConfiguration cfg = new ParserConfiguration();
     cfg.setSymbolResolver(new JavaSymbolSolver(solver));
     cfg.setLanguageLevel(LanguageLevel.JAVA_25);
