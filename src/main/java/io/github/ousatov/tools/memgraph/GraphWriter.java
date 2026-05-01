@@ -137,7 +137,10 @@ public final class GraphWriter {
   private static Optional<String> resolveQualifiedName(ClassOrInterfaceType type) {
     try {
       ResolvedReferenceType resolved = type.resolve().asReferenceType();
-      return resolved.getTypeDeclaration().map(ResolvedTypeDeclaration::getQualifiedName);
+      return resolved
+          .getTypeDeclaration()
+          .map(ResolvedTypeDeclaration::getQualifiedName)
+          .map(GraphWriter::normalizeNestedFqn);
     } catch (Exception _) {
       return Optional.empty();
     }
@@ -150,7 +153,9 @@ public final class GraphWriter {
    */
   private static String buildSignature(String ownerFqn, MethodDeclaration m) {
     try {
-      return m.resolve().getQualifiedSignature();
+      String qualSig = m.resolve().getQualifiedSignature();
+      int parenIdx = qualSig.indexOf('(');
+      return ownerFqn + "." + m.getNameAsString() + qualSig.substring(parenIdx);
     } catch (Exception _) {
       String params =
           m.getParameters().stream()
@@ -215,6 +220,42 @@ public final class GraphWriter {
   static String packageFromFqn(String fqn) {
     int dot = fqn.lastIndexOf('.');
     return dot < 0 ? "" : fqn.substring(0, dot);
+  }
+
+  /**
+   * Converts resolver-produced dot-separated nested-class FQNs to {@code $}-separated JVM
+   * convention. Package segments (lowercase-start) keep dots; consecutive uppercase-start segments
+   * are joined with {@code $}. For example, {@code a.b.Outer.Inner} becomes {@code
+   * a.b.Outer$Inner}.
+   */
+  static String normalizeNestedFqn(String fqn) {
+    if (fqn == null || !fqn.contains(".")) {
+      return fqn;
+    }
+    String[] parts = fqn.split("\\.");
+    StringBuilder sb = new StringBuilder(parts[0]);
+    boolean seenClass = !parts[0].isEmpty() && Character.isUpperCase(parts[0].charAt(0));
+    for (int i = 1; i < parts.length; i++) {
+      boolean isUpperStart = !parts[i].isEmpty() && Character.isUpperCase(parts[i].charAt(0));
+      sb.append(seenClass && isUpperStart ? '$' : '.');
+      if (isUpperStart) {
+        seenClass = true;
+      }
+      sb.append(parts[i]);
+    }
+    return sb.toString();
+  }
+
+  /**
+   * Resolves a type to its FQN via the symbol solver, falling back to the source-level name when
+   * resolution fails.
+   */
+  private static String resolveType(com.github.javaparser.ast.type.Type type) {
+    try {
+      return type.resolve().describe();
+    } catch (Exception _) {
+      return type.asString();
+    }
   }
 
   /** Deletes the project-scoped {@code :Code} graph in batches, keeping the {@code :Project}. */
@@ -602,7 +643,7 @@ public final class GraphWriter {
               Params.NAME,
               param.getNameAsString(),
               Params.TYPE,
-              param.getTypeAsString(),
+              resolveType(param.getType()),
               Params.IS_STATIC,
               false,
               Params.VISIBILITY,
@@ -627,7 +668,7 @@ public final class GraphWriter {
                       Params.NAME,
                       v.getNameAsString(),
                       Params.TYPE,
-                      v.getTypeAsString(),
+                      resolveType(v.getType()),
                       Params.IS_STATIC,
                       field.isStatic(),
                       Params.VISIBILITY,
@@ -645,7 +686,7 @@ public final class GraphWriter {
             ownerFqn,
             signature,
             method.getNameAsString(),
-            method.getTypeAsString(),
+            resolveType(method.getType()),
             method.isStatic(),
             method.getAccessSpecifier().asString(),
             method.getBegin().map(p -> p.line).orElse(0),
@@ -740,7 +781,7 @@ public final class GraphWriter {
         String sig = fqn + "." + accessorName + "()";
         upsertMethodNode(
             new Method(
-                fqn, sig, accessorName, param.getTypeAsString(), false, "public", 0, 0, true));
+                fqn, sig, accessorName, resolveType(param.getType()), false, "public", 0, 0, true));
       }
     }
   }
@@ -761,7 +802,13 @@ public final class GraphWriter {
             call -> {
               try {
                 ResolvedMethodDeclaration resolved = call.resolve();
-                String calleeSig = resolved.getQualifiedSignature();
+                String calleeSig =
+                    normalizeNestedFqn(resolved.declaringType().getQualifiedName())
+                        + "."
+                        + resolved.getName()
+                        + resolved
+                            .getQualifiedSignature()
+                            .substring(resolved.getQualifiedSignature().indexOf('('));
                 runWithRetry(
                     Cypher.CYPHER_UPSERT_CALL,
                     Map.of(Params.CALLER, callerSig, Params.CALLEE, calleeSig));
@@ -820,7 +867,13 @@ public final class GraphWriter {
     }
     try {
       ResolvedMethodDeclaration resolved = ref.resolve();
-      String calleeSig = resolved.getQualifiedSignature();
+      String calleeSig =
+          normalizeNestedFqn(resolved.declaringType().getQualifiedName())
+              + "."
+              + resolved.getName()
+              + resolved
+                  .getQualifiedSignature()
+                  .substring(resolved.getQualifiedSignature().indexOf('('));
       runWithRetry(
           Cypher.CYPHER_UPSERT_CALL, Map.of(Params.CALLER, callerSig, Params.CALLEE, calleeSig));
     } catch (Exception _) {
@@ -853,7 +906,7 @@ public final class GraphWriter {
   private void upsertObjectCreationEdge(String callerSig, ObjectCreationExpr creation) {
     try {
       var resolvedCtor = creation.resolve();
-      String typeFqn = resolvedCtor.declaringType().getQualifiedName();
+      String typeFqn = normalizeNestedFqn(resolvedCtor.declaringType().getQualifiedName());
       String calleeSig = buildInitCallSig(typeFqn, resolvedCtor.getQualifiedSignature());
       runWithRetry(
           Cypher.CYPHER_UPSERT_CALL, Map.of(Params.CALLER, callerSig, Params.CALLEE, calleeSig));
@@ -882,7 +935,7 @@ public final class GraphWriter {
       String callerSig, String ownerFqn, ExplicitConstructorInvocationStmt stmt) {
     try {
       var resolvedCtor = stmt.resolve();
-      String typeFqn = resolvedCtor.declaringType().getQualifiedName();
+      String typeFqn = normalizeNestedFqn(resolvedCtor.declaringType().getQualifiedName());
       String calleeSig = buildInitCallSig(typeFqn, resolvedCtor.getQualifiedSignature());
       runWithRetry(
           Cypher.CYPHER_UPSERT_CALL, Map.of(Params.CALLER, callerSig, Params.CALLEE, calleeSig));
@@ -952,7 +1005,8 @@ public final class GraphWriter {
           .calculateResolvedType()
           .asReferenceType()
           .getTypeDeclaration()
-          .map(ResolvedTypeDeclaration::getQualifiedName);
+          .map(ResolvedTypeDeclaration::getQualifiedName)
+          .map(GraphWriter::normalizeNestedFqn);
     } catch (Exception _) {
       // Expression-level resolution failed; try import inference for static calls.
     }
@@ -999,7 +1053,7 @@ public final class GraphWriter {
             ann -> {
               String annotFqn;
               try {
-                annotFqn = ann.resolve().getQualifiedName();
+                annotFqn = normalizeNestedFqn(ann.resolve().getQualifiedName());
               } catch (Exception _) {
                 annotFqn = ann.getNameAsString();
               }
@@ -1034,30 +1088,32 @@ public final class GraphWriter {
   private static String inferFqnFromImports(ClassOrInterfaceType type) {
     String simpleName = type.getNameAsString();
     String fullName = type.asString();
-    return type.findCompilationUnit()
-        .flatMap(
-            cu -> {
-              for (var imp : cu.getImports()) {
-                if (!imp.isAsterisk()
-                    && !imp.isStatic()
-                    && imp.getName().getIdentifier().equals(simpleName)) {
-                  return Optional.of(imp.getNameAsString());
-                }
-              }
-              if (fullName.contains(".")) {
-                String topLevel = fullName.substring(0, fullName.indexOf('.'));
-                for (var imp : cu.getImports()) {
-                  if (!imp.isAsterisk()
-                      && !imp.isStatic()
-                      && imp.getName().getIdentifier().equals(topLevel)) {
-                    return Optional.of(
-                        imp.getNameAsString() + fullName.substring(fullName.indexOf('.')));
+    String result =
+        type.findCompilationUnit()
+            .flatMap(
+                cu -> {
+                  for (var imp : cu.getImports()) {
+                    if (!imp.isAsterisk()
+                        && !imp.isStatic()
+                        && imp.getName().getIdentifier().equals(simpleName)) {
+                      return Optional.of(imp.getNameAsString());
+                    }
                   }
-                }
-              }
-              return Optional.<String>empty();
-            })
-        .orElse(fullName);
+                  if (fullName.contains(".")) {
+                    String topLevel = fullName.substring(0, fullName.indexOf('.'));
+                    for (var imp : cu.getImports()) {
+                      if (!imp.isAsterisk()
+                          && !imp.isStatic()
+                          && imp.getName().getIdentifier().equals(topLevel)) {
+                        return Optional.of(
+                            imp.getNameAsString() + fullName.substring(fullName.indexOf('.')));
+                      }
+                    }
+                  }
+                  return Optional.<String>empty();
+                })
+            .orElse(fullName);
+    return normalizeNestedFqn(result);
   }
 
   /**
