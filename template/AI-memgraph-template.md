@@ -39,6 +39,11 @@ query its **full** inheritance tree from Memgraph (ancestors AND descendants, bo
 `IMPLEMENTS`). Do not open a source file until this query has been executed and its results
 reviewed. See the **"Hierarchy — mandatory first step"** section in Usage for the exact queries.
 
+**BLOCKING REQUIREMENT — Memory before task close:**
+A task is **not complete** until all significant findings, decisions, and context have been written
+as Memory nodes. Do not respond with "done" until this step is verified. See the
+**"Saving memory — mandatory last step"** section in Usage for the exact procedure.
+
 **When a Memgraph query returns partial or no results**, you may then supplement with text search.
 Always state explicitly that Memgraph was queried first and why the fallback was needed.
 
@@ -342,35 +347,60 @@ method name. Generic types are included (e.g. `java.util.List<java.lang.String>`
 - Surface Risk before change
 - Do not revive rejected Idea
 
-#### When to create memory
+#### Saving memory — mandatory last step
 
-**Before completing a task**, always check whether any of the following occurred during the work and
-create the corresponding Memory nodes (Finding, Decision, Rule, Context, Risk, etc.):
+**A task is NOT complete until this checklist is done.** Run through it before every final response.
 
-- new decision or design choice (→ `:Decision`)
-- discovered constraint or limitation (→ `:Finding` with `type: 'constraint'`)
-- bug or performance finding (→ `:Finding` with `type: 'bug'` or `'perf'`)
-- non-trivial context that future sessions need (→ `:Context`)
-- follow-up work or open questions (→ `:Task` or `:Question`)
-- identified risk (→ `:Risk`)
+**Step 1 — Identify what happened.** Check each trigger below; create the corresponding node for every match:
 
-Do **not** skip this step. Memory nodes are the only way context survives across sessions. Link each
-memory to relevant code via `:CodeRef` → `:RESOLVES_TO` edges.
+| What occurred during the task                               | Node to create                              |
+|-------------------------------------------------------------|---------------------------------------------|
+| Made a design or implementation choice                      | `:Decision` (`status: accepted`)            |
+| Adopted or rejected an architectural direction              | `:ADR`                                      |
+| Established a rule or constraint for future work            | `:Rule`                                     |
+| Found a bug, performance issue, or incorrect assumption     | `:Finding` (`type: bug` / `perf`)           |
+| Discovered a limitation or constraint in the codebase       | `:Finding` (`type: constraint`)             |
+| Modified files, schema, template, config, or Cypher queries | `:Context` (summarise what changed and why) |
+| Left something unfinished or identified follow-up work      | `:Task` (`status: todo`)                    |
+| Have an open question that needs a future answer            | `:Question` (`status: open`)                |
+| Identified a risk introduced or discovered                  | `:Risk` (`status: open`)                    |
 
-#### Create template
+**Step 2 — Write the nodes.** Use the templates below. Always set `createdAt` and `updatedAt`.
+
+**Step 3 — Link to code.** For every memory node, create a `:CodeRef` and link it to the relevant
+code element via `:RESOLVES_TO`. Do not leave memory nodes unlinked.
+
+**Step 4 — Verify.** Query back the nodes you just created to confirm they are persisted:
+
+```cypher
+MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[r]->(n)
+WHERE n.updatedAt >= datetime() - duration('PT5M')
+RETURN type(r) AS rel, n.id AS id, labels(n) AS type;
+```
+
+If the query returns no rows, the write failed — retry before closing the task.
+
+#### Create memory node
 
 ```cypher
 MERGE (m:Memory {project: '{{PROJECT_NAME}}'})
-MERGE (d:Decision {id: $id, project: '{{PROJECT_NAME}}'})
-SET d.title = $title, d.status = 'accepted', d.createdAt = datetime(), d.updatedAt = datetime()
+MERGE (d:Decision {id: 'DEC-<topic>-<name>', project: '{{PROJECT_NAME}}'})
+SET d.title      = '<short title>',
+    d.status     = 'accepted',
+    d.rationale  = '<why this decision was made>',
+    d.createdAt  = datetime(),
+    d.updatedAt  = datetime()
 MERGE (m)-[:HAS_DECISION]->(d)
+RETURN d.id;
 ```
 
-#### Create code reference
+#### Link memory to code
 
 ```cypher
-MERGE (ref:CodeRef {project: '{{PROJECT_NAME}}', targetType: 'Class', key: $fqn})
+MERGE (ref:CodeRef {project: '{{PROJECT_NAME}}', targetType: 'Class', key: '<fqn>'})
 MERGE (d)-[:REFERS_TO]->(ref)
+MERGE (ref)-[:RESOLVES_TO]->(c:Class {fqn: '<fqn>', project: '{{PROJECT_NAME}}'})
+RETURN ref;
 ```
 
 ---
