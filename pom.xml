@@ -4,7 +4,7 @@
 
   <groupId>io.github.ousatov-ua</groupId>
   <artifactId>memgraph-ingester</artifactId>
-  <version>6.0.0</version>
+  <version>6.0.1</version>
   <packaging>jar</packaging>
 
   <name>Memgraph Ingester</name>
@@ -220,7 +220,7 @@
           <plugin>
             <groupId>org.apache.maven.plugins</groupId>
             <artifactId>maven-shade-plugin</artifactId>
-            <version>3.6.0</version>
+            <version>3.6.2</version>
             <executions>
               <execution>
                 <id>shade-jar</id>
@@ -230,6 +230,7 @@
                 </goals>
                 <configuration>
                   <finalName>memgraph-ingester</finalName>
+                  <minimizeJar>true</minimizeJar>
                   <transformers>
                     <transformer
                       implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
