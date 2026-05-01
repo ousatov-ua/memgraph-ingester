@@ -4,6 +4,25 @@ This repo is indexed in Memgraph under the project name **`{{PROJECT_NAME}}`**.
 
 In case if Memgraph MCP is not installed, use `mgconsole` for all queries.
 
+**Always query Memgraph before:**
+- Modifying an existing Java class or method
+- Adding a new class that extends/implements existing types
+- Tracing a bug through call chains
+- Refactoring that affects multiple classes
+
+**Trigger phrases you can use:**
+- "check the structure of X" → query all methods/fields of class X
+- "who calls X" → find callers via `CALLS` edges
+- "show dependencies of X" → cross-class call graph
+- "check hierarchy" → `EXTENDS`/`IMPLEMENTS` chains
+- "explore the graph" → broad `MATCH (n {project:...})` query
+- "read memory" → query all `:Memory` nodes before a decision
+
+**Default behavior:**
+When working on any Java task, always run at least one Memgraph query
+to orient before reading source files. Prefer graph queries over `grep`
+for structure/relationship questions.
+
 ### Anchors
 
 ```cypher
