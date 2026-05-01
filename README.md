@@ -96,7 +96,7 @@ java -jar path/to/memgraph-ingester.jar \
   --project my-project \
   --wipe-project-code \
   --wipe-project-memories \
-  --apply-schema
+  --apply-schema \
   --classpath "$CP"
 ```
 
