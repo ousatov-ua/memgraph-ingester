@@ -10,6 +10,7 @@ import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.body.Parameter;
 import com.github.javaparser.ast.body.RecordDeclaration;
 import com.github.javaparser.ast.expr.MethodCallExpr;
+import com.github.javaparser.ast.expr.MethodReferenceExpr;
 import com.github.javaparser.ast.nodeTypes.NodeWithAnnotations;
 import com.github.javaparser.ast.nodeTypes.NodeWithImplements;
 import com.github.javaparser.ast.type.ClassOrInterfaceType;
@@ -191,18 +192,21 @@ public final class GraphWriter {
     }
   }
 
-  /** Swallows symbol-resolution failures — not every type/callee can be resolved. */
-  private static void tryRun(Runnable action) {
-    try {
-      action.run();
-    } catch (UnsolvedSymbolException | UnsupportedOperationException | IllegalStateException _) {
-      // External libs, generics, or unconfigured resolver — skip silently.
-    }
-  }
-
   /** Constructs a fully qualified name from {@code pkg} and {@code simpleName}. */
   private static String buildFqn(String pkg, String simpleName) {
     return pkg.isEmpty() ? simpleName : pkg + "." + simpleName;
+  }
+
+  /** Extracts the simple name from a fully qualified name. */
+  static String nameFromFqn(String fqn) {
+    int dot = fqn.lastIndexOf('.');
+    return dot < 0 ? fqn : fqn.substring(dot + 1);
+  }
+
+  /** Extracts the package name from a fully qualified name. */
+  static String packageFromFqn(String fqn) {
+    int dot = fqn.lastIndexOf('.');
+    return dot < 0 ? "" : fqn.substring(0, dot);
   }
 
   /** Deletes the project-scoped {@code :Code} graph in batches, keeping the {@code :Project}. */
@@ -429,8 +433,8 @@ public final class GraphWriter {
    */
   public void upsertEnumCallEdges(String pkg, EnumDeclaration decl) {
     String fqn = buildFqn(pkg, decl.getNameAsString());
-    decl.getMethods().forEach(m -> upsertCallEdges(buildSignature(fqn, m), m));
-    decl.getConstructors().forEach(c -> upsertCallEdges(buildConstructorSignature(fqn, c), c));
+    decl.getMethods().forEach(m -> upsertCallEdges(buildSignature(fqn, m), fqn, m));
+    decl.getConstructors().forEach(c -> upsertCallEdges(buildConstructorSignature(fqn, c), fqn, c));
     decl.getMembers().stream()
         .filter(ClassOrInterfaceDeclaration.class::isInstance)
         .map(m -> (ClassOrInterfaceDeclaration) m)
@@ -443,8 +447,8 @@ public final class GraphWriter {
    */
   public void upsertRecordCallEdges(String pkg, RecordDeclaration decl) {
     String fqn = buildFqn(pkg, decl.getNameAsString());
-    decl.getMethods().forEach(m -> upsertCallEdges(buildSignature(fqn, m), m));
-    decl.getConstructors().forEach(c -> upsertCallEdges(buildConstructorSignature(fqn, c), c));
+    decl.getMethods().forEach(m -> upsertCallEdges(buildSignature(fqn, m), fqn, m));
+    decl.getConstructors().forEach(c -> upsertCallEdges(buildConstructorSignature(fqn, c), fqn, c));
     decl.getMembers().stream()
         .filter(ClassOrInterfaceDeclaration.class::isInstance)
         .map(m -> (ClassOrInterfaceDeclaration) m)
@@ -455,8 +459,8 @@ public final class GraphWriter {
       String pkg, String outerFqn, ClassOrInterfaceDeclaration decl) {
     String fqn =
         outerFqn != null ? outerFqn + "$" + decl.getNameAsString() : genDeclName(pkg, decl);
-    decl.getMethods().forEach(m -> upsertCallEdges(buildSignature(fqn, m), m));
-    decl.getConstructors().forEach(c -> upsertCallEdges(buildConstructorSignature(fqn, c), c));
+    decl.getMethods().forEach(m -> upsertCallEdges(buildSignature(fqn, m), fqn, m));
+    decl.getConstructors().forEach(c -> upsertCallEdges(buildConstructorSignature(fqn, c), fqn, c));
     decl.getMembers().stream()
         .filter(ClassOrInterfaceDeclaration.class::isInstance)
         .map(m -> (ClassOrInterfaceDeclaration) m)
@@ -536,7 +540,16 @@ public final class GraphWriter {
                     ext,
                     parent ->
                         runWithRetry(
-                            extendsCypher, Map.of(Params.CHILD, fqn, Params.PARENT, parent))));
+                            extendsCypher,
+                            Map.of(
+                                Params.CHILD,
+                                fqn,
+                                Params.PARENT,
+                                parent,
+                                Params.PARENT_NAME,
+                                nameFromFqn(parent),
+                                Params.PARENT_PKG,
+                                packageFromFqn(parent)))));
     decl.getImplementedTypes()
         .forEach(
             impl ->
@@ -545,7 +558,15 @@ public final class GraphWriter {
                     iface ->
                         runWithRetry(
                             Cypher.CYPHER_UPSERT_IMPLEMENTS,
-                            Map.of(Params.CHILD, fqn, Params.IFACE, iface))));
+                            Map.of(
+                                Params.CHILD,
+                                fqn,
+                                Params.IFACE,
+                                iface,
+                                Params.IFACE_NAME,
+                                nameFromFqn(iface),
+                                Params.IFACE_PKG,
+                                packageFromFqn(iface)))));
   }
 
   /** Writes {@code IMPLEMENTS} edges for enums and records that implement interfaces. */
@@ -558,7 +579,15 @@ public final class GraphWriter {
                     iface ->
                         runWithRetry(
                             Cypher.CYPHER_UPSERT_IMPLEMENTS,
-                            Map.of(Params.CHILD, fqn, Params.IFACE, iface))));
+                            Map.of(
+                                Params.CHILD,
+                                fqn,
+                                Params.IFACE,
+                                iface,
+                                Params.IFACE_NAME,
+                                nameFromFqn(iface),
+                                Params.IFACE_PKG,
+                                packageFromFqn(iface)))));
   }
 
   /** Upserts record components (parameters) as {@code :Field} nodes. */
@@ -722,23 +751,80 @@ public final class GraphWriter {
   }
 
   /**
-   * Finds all method call expressions inside {@code bodyNode}, resolves each callee, and writes a
-   * {@code CALLS} edge. Replaces the former {@code upsertCalls} and {@code upsertConstructorCalls}
-   * pair.
+   * Finds all method call expressions and method references inside {@code bodyNode}, resolves each
+   * callee, and writes a {@code CALLS} edge. For unresolved same-class calls (no explicit scope),
+   * falls back to name-based matching within the owning type — only when exactly one method has
+   * that name. Method references ({@code Type::method}) are handled similarly.
    */
-  private void upsertCallEdges(String callerSig, Node bodyNode) {
+  private void upsertCallEdges(String callerSig, String ownerFqn, Node bodyNode) {
     bodyNode
         .findAll(MethodCallExpr.class)
         .forEach(
-            call ->
-                tryRun(
-                    () -> {
-                      ResolvedMethodDeclaration resolved = call.resolve();
-                      String calleeSig = resolved.getQualifiedSignature();
-                      runWithRetry(
-                          Cypher.CYPHER_UPSERT_CALL,
-                          Map.of(Params.CALLER, callerSig, Params.CALLEE, calleeSig));
-                    }));
+            call -> {
+              try {
+                ResolvedMethodDeclaration resolved = call.resolve();
+                String calleeSig = resolved.getQualifiedSignature();
+                runWithRetry(
+                    Cypher.CYPHER_UPSERT_CALL,
+                    Map.of(Params.CALLER, callerSig, Params.CALLEE, calleeSig));
+              } catch (UnsolvedSymbolException
+                  | UnsupportedOperationException
+                  | IllegalStateException _) {
+                if (call.getScope().isEmpty()) {
+                  runWithRetry(
+                      Cypher.CYPHER_UPSERT_CALL_BY_NAME,
+                      Map.of(
+                          Params.CALLER,
+                          callerSig,
+                          Params.OWNER_FQN,
+                          ownerFqn,
+                          Params.CALLEE_NAME,
+                          call.getNameAsString()));
+                }
+              }
+            });
+
+    bodyNode
+        .findAll(MethodReferenceExpr.class)
+        .forEach(ref -> upsertMethodReferenceEdge(callerSig, ownerFqn, ref));
+  }
+
+  /**
+   * Resolves a method reference ({@code Type::method}) and writes a {@code CALLS} edge. Falls back
+   * to name-based matching when the scope type matches the owning class.
+   */
+  private void upsertMethodReferenceEdge(
+      String callerSig, String ownerFqn, MethodReferenceExpr ref) {
+    String identifier = ref.getIdentifier();
+    if ("new".equals(identifier)) {
+      return;
+    }
+    try {
+      ResolvedMethodDeclaration resolved = ref.resolve();
+      String calleeSig = resolved.getQualifiedSignature();
+      runWithRetry(
+          Cypher.CYPHER_UPSERT_CALL, Map.of(Params.CALLER, callerSig, Params.CALLEE, calleeSig));
+    } catch (UnsolvedSymbolException | UnsupportedOperationException | IllegalStateException _) {
+      var scope = ref.getScope();
+      if (scope.isTypeExpr()
+          && scope.asTypeExpr().getType().isClassOrInterfaceType()
+          && scope
+              .asTypeExpr()
+              .getType()
+              .asClassOrInterfaceType()
+              .getNameAsString()
+              .equals(nameFromFqn(ownerFqn))) {
+        runWithRetry(
+            Cypher.CYPHER_UPSERT_CALL_BY_NAME,
+            Map.of(
+                Params.CALLER,
+                callerSig,
+                Params.OWNER_FQN,
+                ownerFqn,
+                Params.CALLEE_NAME,
+                identifier));
+      }
+    }
   }
 
   /**
@@ -772,7 +858,15 @@ public final class GraphWriter {
                   | IllegalStateException _) {
                 annotFqn = ann.getNameAsString();
               }
-              runWithRetry(cypher, Map.of(paramKey, paramValue, Params.ANNOT_FQN, annotFqn));
+              runWithRetry(
+                  cypher,
+                  Map.of(
+                      paramKey,
+                      paramValue,
+                      Params.ANNOT_FQN,
+                      annotFqn,
+                      Params.ANNOT_NAME,
+                      nameFromFqn(annotFqn)));
             });
   }
 

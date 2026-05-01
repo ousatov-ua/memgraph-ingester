@@ -93,6 +93,19 @@ class ParseServiceTest {
   }
 
   @Test
+  void survivesUnreadableClasspathEntries() throws IOException {
+    Path badJar = tempDir.resolve("corrupt.jar");
+    Files.writeString(badJar, "not-a-jar");
+
+    var svc = new ParseService(tempDir, List.of(badJar));
+
+    Path file = tempDir.resolve("Okay.java");
+    Files.writeString(file, "public class Okay {}");
+    assertTrue(
+        svc.parse(file).isPresent(), "ParseService must work even when a classpath JAR fails");
+  }
+
+  @Test
   void isThreadSafe() throws Exception {
     Path file = tempDir.resolve("Shared.java");
     Files.writeString(

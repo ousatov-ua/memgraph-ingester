@@ -23,9 +23,9 @@ intended for durable agent/client-authored decisions, context, and follow-up wor
 | `:Code` | `project` | `sourceRoots` (string array), `lastIngested` |
 | `:Package` | `name`, `project` | — |
 | `:File` | `path`, `project` | `lastModified` (epoch millis) |
-| `:Class` | `fqn`, `project` | `name`, `packageName`, `isAbstract`, `visibility`, `isEnum`, `isRecord`, `isFinal` |
-| `:Interface` | `fqn`, `project` | `name`, `packageName`, `visibility`, `isFinal` |
-| `:Annotation` | `fqn`, `project` | `name`, `packageName`, `visibility` |
+| `:Class` | `fqn`, `project` | `name`, `packageName`, `isAbstract`, `visibility`, `isEnum`, `isRecord`, `isFinal`, `isExternal` |
+| `:Interface` | `fqn`, `project` | `name`, `packageName`, `visibility`, `isFinal`, `isExternal` |
+| `:Annotation` | `fqn`, `project` | `name`, `packageName`, `visibility`, `isExternal` |
 | `:Method` | `signature`, `project` | `name`, `returnType`, `visibility`, `isStatic`, `startLine`, `endLine`, `isSynthetic` |
 | `:Field` | `fqn`, `project` | `name`, `type`, `visibility`, `isStatic` |
 
@@ -118,7 +118,8 @@ Common memory-to-memory links:
 - No existence constraints are enforced. Earlier versions used them, but they caused failures when ingesting partial graphs or when external types were referenced without a `project`. The composite uniqueness constraints are sufficient — the ingester always sets `project`.
 - `:Project`, `:Code`, and `:Memory` each use a single-property uniqueness constraint. Code and memory item nodes use composite `(key, project)` uniqueness. `:CodeRef` is unique by `(project, targetType, key)`.
 - Nested/inner classes use `$` as separator in FQN (e.g. `com.example.Outer$Inner`).
-- `CALLS` edges only connect methods within the same project. External library calls are dropped to avoid phantom nodes. A second wipe-less re-ingestion pass fills in any cross-file edges missed due to ingestion ordering.
+- `CALLS` edges only connect methods within the same project. External library calls are dropped to avoid phantom nodes. A second wipe-less re-ingestion pass fills in any cross-file edges missed due to ingestion ordering. For unresolved same-class calls, a name-based fallback creates the edge when exactly one method with that name exists in the owning type.
+- **External / phantom nodes.** When a class extends or implements an external type, the parent node is created with `isExternal = true`. Its `name` and `packageName` are inferred from the FQN. External annotations (those not defined in the ingested source tree) are also marked `isExternal = true`. Project-internal nodes always have `isExternal = false`. Use `WHERE NOT n.isExternal` to exclude external types from queries.
 - Memory relationships are conventional, not constrained by DDL. Agents should keep memory scoped with `project` and link memory to `:CodeRef`, not directly to code nodes.
 
 ## Memory controlled values

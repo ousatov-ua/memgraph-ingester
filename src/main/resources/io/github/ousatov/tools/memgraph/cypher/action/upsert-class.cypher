@@ -5,7 +5,8 @@ MERGE (t:Class {fqn: $fqn, project: $project})
       t.visibility = $visibility,
       t.isEnum = $isEnum,
       t.isRecord = $isRecord,
-      t.isFinal = $isFinal
+      t.isFinal = $isFinal,
+      t.isExternal = false
 WITH t
 MATCH (p:Package {name: $pkg, project: $project})
 MERGE (p)-[:CONTAINS]->(t)
