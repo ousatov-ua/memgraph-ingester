@@ -9,6 +9,7 @@ import com.github.javaparser.symbolsolver.resolution.typesolvers.CombinedTypeSol
 import com.github.javaparser.symbolsolver.resolution.typesolvers.JarTypeSolver;
 import com.github.javaparser.symbolsolver.resolution.typesolvers.JavaParserTypeSolver;
 import com.github.javaparser.symbolsolver.resolution.typesolvers.ReflectionTypeSolver;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
@@ -80,7 +81,7 @@ public final class ParseService {
 
   private static ParserConfiguration buildConfig(Path sourceRoot, List<Path> classpathEntries) {
     CombinedTypeSolver solver = new CombinedTypeSolver();
-    solver.add(new JavaParserTypeSolver(sourceRoot));
+    addSourceRoots(solver, sourceRoot);
     solver.add(new ReflectionTypeSolver());
     for (Path jar : classpathEntries) {
       try {
@@ -96,5 +97,23 @@ public final class ParseService {
     cfg.setSymbolResolver(new JavaSymbolSolver(solver));
     cfg.setLanguageLevel(LanguageLevel.JAVA_25);
     return cfg;
+  }
+
+  /**
+   * Registers {@code sourceRoot} as a type solver and auto-detects Maven-standard subdirectories
+   * ({@code main/java}, {@code test/java}) if they exist under it.
+   */
+  private static void addSourceRoots(CombinedTypeSolver solver, Path sourceRoot) {
+    solver.add(new JavaParserTypeSolver(sourceRoot));
+    Path mainJava = sourceRoot.resolve("main/java");
+    if (Files.isDirectory(mainJava)) {
+      solver.add(new JavaParserTypeSolver(mainJava));
+      log.info("Auto-detected source root: {}", mainJava);
+    }
+    Path testJava = sourceRoot.resolve("test/java");
+    if (Files.isDirectory(testJava)) {
+      solver.add(new JavaParserTypeSolver(testJava));
+      log.info("Auto-detected source root: {}", testJava);
+    }
   }
 }

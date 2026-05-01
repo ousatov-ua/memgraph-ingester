@@ -106,6 +106,32 @@ class ParseServiceTest {
   }
 
   @Test
+  void autoDetectsNestedMavenSourceRoots() throws IOException {
+    Path mainJava = tempDir.resolve("main/java/com/example");
+    Files.createDirectories(mainJava);
+    Files.writeString(
+        mainJava.resolve("Foo.java"),
+        """
+        package com.example;
+        public class Foo { public void hello() {} }
+        """);
+    Files.writeString(
+        mainJava.resolve("Bar.java"),
+        """
+        package com.example;
+        public class Bar { public void use(Foo f) {} }
+        """);
+
+    var svc = new ParseService(tempDir);
+    var cu = svc.parse(mainJava.resolve("Bar.java")).orElseThrow();
+    var barDecl = cu.findFirst(ClassOrInterfaceDeclaration.class).orElseThrow();
+    var useMethod = barDecl.getMethodsByName("use").getFirst();
+    String sig = useMethod.resolve().getQualifiedSignature();
+
+    assertEquals("com.example.Bar.use(com.example.Foo)", sig);
+  }
+
+  @Test
   void isThreadSafe() throws Exception {
     Path file = tempDir.resolve("Shared.java");
     Files.writeString(
