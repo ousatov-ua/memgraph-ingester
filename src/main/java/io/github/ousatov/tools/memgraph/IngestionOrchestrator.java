@@ -11,10 +11,12 @@ import io.github.ousatov.tools.memgraph.vo.Settings;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -140,15 +142,24 @@ public final class IngestionOrchestrator {
     int total = files.size();
     int step = Math.clamp(total / PROGRESS_DIVISOR, 1, 100);
     int done = 0;
+    List<Path> successFiles = new ArrayList<>();
     try (Session session = driver.session()) {
       GraphWriter writer = new GraphWriter(session, project);
       for (Path file : files) {
-        if (!ingestFileBatched(writer, file, mtimeCache)) {
+        if (ingestFileBatched(writer, file, mtimeCache)) {
+          successFiles.add(file);
+        } else {
           failures++;
         }
         done++;
         if (done % step == 0 || done == total) {
-          log.info("Progress: {}/{} files", done, total);
+          log.info("Progress (nodes): {}/{} files", done, total);
+        }
+      }
+      log.info("Creating CALLS edges for {} files...", successFiles.size());
+      for (Path file : successFiles) {
+        if (!ingestFileCallEdges(writer, file)) {
+          failures++;
         }
       }
     }
@@ -217,36 +228,62 @@ public final class IngestionOrchestrator {
 
     AtomicInteger done = new AtomicInteger();
     AtomicInteger failures = new AtomicInteger();
+    CopyOnWriteArrayList<Path> successFiles = new CopyOnWriteArrayList<>();
     int total = files.size();
     int step = Math.clamp(total / PROGRESS_DIVISOR, 1, 100);
 
     try {
+      // Phase 1: upsert all nodes
+      CountDownLatch phase1Latch = new CountDownLatch(total);
       for (Path file : files) {
         pool.submit(
             () -> {
-              boolean success;
               try {
-                success = ingestFile(threadWriter.get(), file, mtimeCache);
+                boolean success = ingestFile(threadWriter.get(), file, mtimeCache);
+                if (success) {
+                  successFiles.add(file);
+                } else {
+                  failures.incrementAndGet();
+                }
               } catch (Exception e) {
                 log.warn("Thread failure on {}: {}", file, e.getMessage());
-                success = false;
-              }
-              if (!success) {
                 failures.incrementAndGet();
-              }
-              int n = done.incrementAndGet();
-              if (n % step == 0 || n == total) {
-                log.info("Progress: {}/{} files", n, total);
+              } finally {
+                int n = done.incrementAndGet();
+                if (n % step == 0 || n == total) {
+                  log.info("Progress (nodes): {}/{} files", n, total);
+                }
+                phase1Latch.countDown();
               }
             });
       }
-      pool.shutdown();
-      if (!pool.awaitTermination(SHUTDOWN_TIMEOUT_MINUTES, TimeUnit.MINUTES)) {
-        log.warn(
-            "Ingestion tasks did not complete within {} minutes; forcing shutdown.",
-            SHUTDOWN_TIMEOUT_MINUTES);
-        pool.shutdownNow();
+      if (!phase1Latch.await(SHUTDOWN_TIMEOUT_MINUTES, TimeUnit.MINUTES)) {
+        log.warn("Node ingestion did not complete within {} minutes.", SHUTDOWN_TIMEOUT_MINUTES);
       }
+
+      // Phase 2: CALLS edges (all callee nodes now exist)
+      log.info("Creating CALLS edges for {} files...", successFiles.size());
+      CountDownLatch phase2Latch = new CountDownLatch(successFiles.size());
+      for (Path file : successFiles) {
+        pool.submit(
+            () -> {
+              try {
+                if (!ingestFileCallEdges(threadWriter.get(), file)) {
+                  failures.incrementAndGet();
+                }
+              } catch (Exception e) {
+                log.warn("Thread failure creating CALLS for {}: {}", file, e.getMessage());
+                failures.incrementAndGet();
+              } finally {
+                phase2Latch.countDown();
+              }
+            });
+      }
+      if (!phase2Latch.await(SHUTDOWN_TIMEOUT_MINUTES, TimeUnit.MINUTES)) {
+        log.warn("CALLS ingestion did not complete within {} minutes.", SHUTDOWN_TIMEOUT_MINUTES);
+      }
+
+      pool.shutdown();
     } finally {
       for (Session s : sessions) {
         try {
@@ -286,8 +323,9 @@ public final class IngestionOrchestrator {
   }
 
   /**
-   * Parses a single file and writes all derived nodes and edges to the graph. Does not perform
-   * incremental-mode skipping; callers are responsible for mtime checks.
+   * Parses a single file and writes all derived nodes and edges (except {@code CALLS}) to the
+   * graph. {@code CALLS} edges are deferred to {@link #ingestFileCallEdges} so all callee nodes
+   * exist first.
    *
    * @return true on success, false if parsing or graph write fails
    */
@@ -315,7 +353,27 @@ public final class IngestionOrchestrator {
                   writer.upsertAnnotation(file, pkg, ann);
                 }
               });
-      // Second pass: CALLS edges. All callee nodes must already exist so MATCH succeeds.
+      return true;
+    } catch (Exception e) {
+      log.warn("Failed to ingest {}: {}", file, e.getMessage());
+      return false;
+    }
+  }
+
+  /**
+   * Re-parses {@code file} and writes {@code CALLS} edges. Runs in a separate global phase after
+   * all files have completed node ingestion, ensuring all callee Method nodes exist.
+   *
+   * @return true on success, false if parsing or edge creation fails
+   */
+  private boolean ingestFileCallEdges(GraphWriter writer, Path file) {
+    var cuOpt = parseService.parse(file);
+    if (cuOpt.isEmpty()) {
+      return false;
+    }
+    CompilationUnit cu = cuOpt.get();
+    String pkg = cu.getPackageDeclaration().map(pd -> pd.getName().asString()).orElse("");
+    try {
       cu.getTypes()
           .forEach(
               typeDecl -> {
@@ -329,7 +387,7 @@ public final class IngestionOrchestrator {
               });
       return true;
     } catch (Exception e) {
-      log.warn("Failed to ingest {}: {}", file, e.getMessage());
+      log.warn("Failed to create CALLS edges for {}: {}", file, e.getMessage());
       return false;
     }
   }
