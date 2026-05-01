@@ -11,8 +11,10 @@ import com.github.javaparser.ast.body.Parameter;
 import com.github.javaparser.ast.body.RecordDeclaration;
 import com.github.javaparser.ast.expr.MethodCallExpr;
 import com.github.javaparser.ast.expr.MethodReferenceExpr;
+import com.github.javaparser.ast.expr.ObjectCreationExpr;
 import com.github.javaparser.ast.nodeTypes.NodeWithAnnotations;
 import com.github.javaparser.ast.nodeTypes.NodeWithImplements;
+import com.github.javaparser.ast.stmt.ExplicitConstructorInvocationStmt;
 import com.github.javaparser.ast.type.ClassOrInterfaceType;
 import com.github.javaparser.resolution.declarations.ResolvedMethodDeclaration;
 import com.github.javaparser.resolution.declarations.ResolvedTypeDeclaration;
@@ -748,10 +750,13 @@ public final class GraphWriter {
   }
 
   /**
-   * Finds all method call expressions and method references inside {@code bodyNode}, resolves each
-   * callee, and writes a {@code CALLS} edge. For unresolved same-class calls (no explicit scope),
-   * falls back to name-based matching within the owning type — only when exactly one method has
-   * that name. Method references ({@code Type::method}) are handled similarly.
+   * Finds all call-like expressions inside {@code bodyNode}, resolves each callee, and writes a
+   * {@code CALLS} edge. Handles regular method calls, method references, constructor invocations
+   * ({@code new X(...)}), constructor delegation ({@code this(...)} / {@code super(...)}), and
+   * constructor references ({@code Type::new}).
+   *
+   * <p>For unresolved calls, falls back to name-based matching within the owning (or inferred) type
+   * — only when exactly one method has that name.
    */
   private void upsertCallEdges(String callerSig, String ownerFqn, Node bodyNode) {
     bodyNode
@@ -775,6 +780,19 @@ public final class GraphWriter {
                           ownerFqn,
                           Params.CALLEE_NAME,
                           call.getNameAsString()));
+                } else {
+                  resolveScopeTypeFqn(call)
+                      .ifPresent(
+                          scopeFqn ->
+                              runWithRetry(
+                                  Cypher.CYPHER_UPSERT_CALL_BY_NAME,
+                                  Map.of(
+                                      Params.CALLER,
+                                      callerSig,
+                                      Params.OWNER_FQN,
+                                      scopeFqn,
+                                      Params.CALLEE_NAME,
+                                      call.getNameAsString())));
                 }
               }
             });
@@ -782,16 +800,26 @@ public final class GraphWriter {
     bodyNode
         .findAll(MethodReferenceExpr.class)
         .forEach(ref -> upsertMethodReferenceEdge(callerSig, ownerFqn, ref));
+
+    bodyNode
+        .findAll(ObjectCreationExpr.class)
+        .forEach(creation -> upsertObjectCreationEdge(callerSig, creation));
+
+    bodyNode
+        .findAll(ExplicitConstructorInvocationStmt.class)
+        .forEach(stmt -> upsertExplicitCtorEdge(callerSig, ownerFqn, stmt));
   }
 
   /**
    * Resolves a method reference ({@code Type::method}) and writes a {@code CALLS} edge. Falls back
-   * to name-based matching when the scope type matches the owning class.
+   * to name-based matching when the scope type matches the owning class. Constructor references
+   * ({@code Type::new}) are dispatched to {@link #upsertConstructorReferenceEdge}.
    */
   private void upsertMethodReferenceEdge(
       String callerSig, String ownerFqn, MethodReferenceExpr ref) {
     String identifier = ref.getIdentifier();
     if ("new".equals(identifier)) {
+      upsertConstructorReferenceEdge(callerSig, ref);
       return;
     }
     try {
@@ -820,6 +848,140 @@ public final class GraphWriter {
                 identifier));
       }
     }
+  }
+
+  /**
+   * Writes a {@code CALLS} edge for a constructor invocation ({@code new X(...)}). Tries full
+   * resolution first; falls back to type-inference + name-based matching with {@code <init>}.
+   */
+  private void upsertObjectCreationEdge(String callerSig, ObjectCreationExpr creation) {
+    try {
+      var resolvedCtor = creation.resolve();
+      String typeFqn = resolvedCtor.declaringType().getQualifiedName();
+      String qualSig = resolvedCtor.getQualifiedSignature();
+      int parenIdx = qualSig.indexOf('(');
+      String params = qualSig.substring(parenIdx + 1, qualSig.length() - 1);
+      String calleeSig = typeFqn + "." + Labels.INIT + "(" + params + ")";
+      runWithRetry(
+          Cypher.CYPHER_UPSERT_CALL, Map.of(Params.CALLER, callerSig, Params.CALLEE, calleeSig));
+    } catch (Exception _) {
+      resolveOrInferFqn(creation.getType())
+          .ifPresent(
+              fqn ->
+                  runWithRetry(
+                      Cypher.CYPHER_UPSERT_CALL_BY_NAME,
+                      Map.of(
+                          Params.CALLER,
+                          callerSig,
+                          Params.OWNER_FQN,
+                          fqn,
+                          Params.CALLEE_NAME,
+                          Labels.INIT)));
+    }
+  }
+
+  /**
+   * Writes a {@code CALLS} edge for an explicit constructor delegation ({@code this(...)} or {@code
+   * super(...)}). Tries full resolution first; for unresolved {@code this(...)}, falls back to
+   * name-based matching within {@code ownerFqn}.
+   */
+  private void upsertExplicitCtorEdge(
+      String callerSig, String ownerFqn, ExplicitConstructorInvocationStmt stmt) {
+    try {
+      var resolvedCtor = stmt.resolve();
+      String typeFqn = resolvedCtor.declaringType().getQualifiedName();
+      String qualSig = resolvedCtor.getQualifiedSignature();
+      int parenIdx = qualSig.indexOf('(');
+      String params = qualSig.substring(parenIdx + 1, qualSig.length() - 1);
+      String calleeSig = typeFqn + "." + Labels.INIT + "(" + params + ")";
+      runWithRetry(
+          Cypher.CYPHER_UPSERT_CALL, Map.of(Params.CALLER, callerSig, Params.CALLEE, calleeSig));
+    } catch (Exception _) {
+      if (stmt.isThis()) {
+        runWithRetry(
+            Cypher.CYPHER_UPSERT_CALL_BY_NAME,
+            Map.of(
+                Params.CALLER,
+                callerSig,
+                Params.OWNER_FQN,
+                ownerFqn,
+                Params.CALLEE_NAME,
+                Labels.INIT));
+      }
+    }
+  }
+
+  /**
+   * Writes a {@code CALLS} edge for a constructor reference ({@code Type::new}). Resolves the scope
+   * type and uses name-based matching with {@code <init>}.
+   */
+  private void upsertConstructorReferenceEdge(String callerSig, MethodReferenceExpr ref) {
+    var scope = ref.getScope();
+    if (scope.isTypeExpr() && scope.asTypeExpr().getType().isClassOrInterfaceType()) {
+      ClassOrInterfaceType type = scope.asTypeExpr().getType().asClassOrInterfaceType();
+      resolveOrInferFqn(type)
+          .ifPresent(
+              fqn ->
+                  runWithRetry(
+                      Cypher.CYPHER_UPSERT_CALL_BY_NAME,
+                      Map.of(
+                          Params.CALLER,
+                          callerSig,
+                          Params.OWNER_FQN,
+                          fqn,
+                          Params.CALLEE_NAME,
+                          Labels.INIT)));
+    }
+  }
+
+  /**
+   * Resolves a type to its FQN via the symbol solver, falling back to import-based inference.
+   * Returns empty only when both strategies fail.
+   */
+  private static Optional<String> resolveOrInferFqn(ClassOrInterfaceType type) {
+    Optional<String> resolved = resolveQualifiedName(type);
+    if (resolved.isPresent()) {
+      return resolved;
+    }
+    String inferred = inferFqnFromImports(type);
+    return inferred.equals(type.getNameAsString()) ? Optional.empty() : Optional.of(inferred);
+  }
+
+  /**
+   * Attempts to determine the FQN of the type targeted by a scoped method call. Tries expression
+   * type resolution first (works for instance calls), then import-based inference (works for static
+   * calls via imported type names).
+   */
+  private static Optional<String> resolveScopeTypeFqn(MethodCallExpr call) {
+    var scope = call.getScope().orElse(null);
+    if (scope == null) {
+      return Optional.empty();
+    }
+    try {
+      return scope
+          .calculateResolvedType()
+          .asReferenceType()
+          .getTypeDeclaration()
+          .map(ResolvedTypeDeclaration::getQualifiedName);
+    } catch (Exception _) {
+      // Expression-level resolution failed; try import inference for static calls.
+    }
+    if (scope.isNameExpr()) {
+      String name = scope.asNameExpr().getNameAsString();
+      return call.findCompilationUnit()
+          .flatMap(
+              cu -> {
+                for (var imp : cu.getImports()) {
+                  if (!imp.isAsterisk()
+                      && !imp.isStatic()
+                      && imp.getName().getIdentifier().equals(name)) {
+                    return Optional.of(imp.getNameAsString());
+                  }
+                }
+                return Optional.<String>empty();
+              });
+    }
+    return Optional.empty();
   }
 
   /**

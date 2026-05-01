@@ -61,9 +61,12 @@ All queries MUST include `project: '{{PROJECT_NAME}}'`.
   FQNs for external types (e.g. `Session` instead of `org.neo4j.driver.Session`).
 - **CALLS gaps** — call sites where arguments involve complex type inference (e.g. `Map.of()` with
   mixed types) or where parameter types are project-internal classes may not resolve; those edges
-  will be absent even after two ingestion passes. For unresolved same-class calls and same-class
-  method references (`Type::method`), a name-based fallback creates the edge when exactly one
-  method with that name exists in the owning type.
+  will be absent even after two ingestion passes. For unresolved calls (same-class, scoped
+  cross-class, method references, and constructor references), a name-based fallback creates the
+  edge when exactly one method with that name exists in the target type. Constructor calls
+  (`new X(...)`) and constructor delegation (`this(...)` / `super(...)`) are also tracked. Nested
+  class constructor calls may not resolve because the resolver uses dot-separated FQNs while the
+  graph stores `$`-separated FQNs.
 - **EXTENDS/IMPLEMENTS resolution** — when the symbol solver cannot resolve an external parent type,
   the FQN is inferred from import statements or falls back to the source-level name. Unresolvable
   types may appear with a simple name rather than a full FQN.
