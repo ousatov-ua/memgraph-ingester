@@ -17,6 +17,8 @@ this enables Claude Code (or any MCP-aware client) to reason over both code and 
 knowledge via graph queries instead of raw text search — improving accuracy, reducing cost, and
 speeding up analysis.
 
+You can also use `mgconsole` to query the graph directly – without the MCP server.
+
 You can use the code in this repo as-is, or fork it and customize it to your needs.
 [Memgraph](https://memgraph.com/) is free too.
 Please submit any issues or pull requests.
@@ -91,7 +93,7 @@ curl -s https://raw.githubusercontent.com/ousatov-ua/memgraph-ingester/refs/head
 curl -s https://raw.githubusercontent.com/ousatov-ua/memgraph-ingester/refs/heads/main/script/init-memgraph-gemini.sh \
   | bash -s -- my-project
 ```
-- Enable MCP Memgraph for your AI agent ([below](#mcp-server-setup) you can find examples)
+- Enable MCP Memgraph for your AI agent ([below](#mcp-server-setup) you can find examples) **OR** put `mgconsole` in the path
 
 ## Going further
 
