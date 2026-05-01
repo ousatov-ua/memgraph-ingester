@@ -858,6 +858,133 @@ class GraphWriterIT {
     deleteDir(tempDir);
   }
 
+  @Test
+  void constructorCallCreatesCallsEdge() throws IOException {
+    Path tempDir = Files.createTempDirectory("ctor-call-test");
+    Path sourceFile = tempDir.resolve("com/example/Widget.java");
+    Files.createDirectories(sourceFile.getParent());
+    Files.writeString(
+        sourceFile,
+        "package com.example;"
+            + " public class Widget {"
+            + "   public Widget() {}"
+            + "   public static Widget of() { return new Widget(); }"
+            + " }");
+
+    ParseService parseService = new ParseService(tempDir);
+    var cu = parseService.parse(sourceFile).orElseThrow();
+    var decl = cu.findFirst(ClassOrInterfaceDeclaration.class).orElseThrow();
+
+    writer.upsertFile(sourceFile);
+    writer.upsertPackage("com.example");
+    writer.upsertType(sourceFile, "com.example", decl);
+    writer.upsertTypeCallEdges("com.example", decl);
+
+    long callCount =
+        session
+            .run(
+                "MATCH (caller:Method {project: $p})-[:CALLS]->(callee:Method {name: '<init>'})"
+                    + " WHERE caller.name = 'of'"
+                    + " RETURN count(*) AS n",
+                Map.of("p", PROJECT))
+            .single()
+            .get("n")
+            .asLong();
+
+    assertEquals(1, callCount);
+    deleteDir(tempDir);
+  }
+
+  @Test
+  void thisDelegationCreatesCallsEdge() throws IOException {
+    Path tempDir = Files.createTempDirectory("this-delegation-test");
+    Path sourceFile = tempDir.resolve("com/example/Point.java");
+    Files.createDirectories(sourceFile.getParent());
+    Files.writeString(
+        sourceFile,
+        "package com.example;"
+            + " public class Point {"
+            + "   private final int x;"
+            + "   private final int y;"
+            + "   public Point(int x, int y) { this.x = x; this.y = y; }"
+            + "   public Point(int x) { this(x, 0); }"
+            + " }");
+
+    ParseService parseService = new ParseService(tempDir);
+    var cu = parseService.parse(sourceFile).orElseThrow();
+    var decl = cu.findFirst(ClassOrInterfaceDeclaration.class).orElseThrow();
+
+    writer.upsertFile(sourceFile);
+    writer.upsertPackage("com.example");
+    writer.upsertType(sourceFile, "com.example", decl);
+    writer.upsertTypeCallEdges("com.example", decl);
+
+    long callCount =
+        session
+            .run(
+                "MATCH (caller:Method {project: $p})-[:CALLS]->(callee:Method {name: '<init>'})"
+                    + " WHERE caller.name = '<init>'"
+                    + " AND caller.signature CONTAINS 'Point.<init>(int)'"
+                    + " AND callee.signature CONTAINS 'Point.<init>(int, int)'"
+                    + " RETURN count(*) AS n",
+                Map.of("p", PROJECT))
+            .single()
+            .get("n")
+            .asLong();
+
+    assertEquals(1, callCount);
+    deleteDir(tempDir);
+  }
+
+  @Test
+  void scopedStaticCallCreatesCallsEdge() throws IOException {
+    Path tempDir = Files.createTempDirectory("scoped-static-test");
+    Path helperFile = tempDir.resolve("com/example/Helper.java");
+    Path callerFile = tempDir.resolve("com/example/Caller.java");
+    Files.createDirectories(helperFile.getParent());
+    Files.writeString(
+        helperFile,
+        "package com.example;"
+            + " public class Helper {"
+            + "   public static void assist() {}"
+            + " }");
+    Files.writeString(
+        callerFile,
+        "package com.example;"
+            + " import com.example.Helper;"
+            + " public class Caller {"
+            + "   public void doWork() { Helper.assist(); }"
+            + " }");
+
+    ParseService parseService = new ParseService(tempDir);
+
+    var helperCu = parseService.parse(helperFile).orElseThrow();
+    var helperDecl = helperCu.findFirst(ClassOrInterfaceDeclaration.class).orElseThrow();
+    writer.upsertFile(helperFile);
+    writer.upsertPackage("com.example");
+    writer.upsertType(helperFile, "com.example", helperDecl);
+
+    var callerCu = parseService.parse(callerFile).orElseThrow();
+    var callerDecl = callerCu.findFirst(ClassOrInterfaceDeclaration.class).orElseThrow();
+    writer.upsertFile(callerFile);
+    writer.upsertType(callerFile, "com.example", callerDecl);
+    writer.upsertTypeCallEdges("com.example", callerDecl);
+
+    long callCount =
+        session
+            .run(
+                "MATCH (caller:Method {project: $p})-[:CALLS]->(callee:Method {name: 'assist'})"
+                    + " WHERE caller.name = 'doWork'"
+                    + " RETURN count(*) AS n",
+                Map.of("p", PROJECT))
+            .single()
+            .get("n")
+            .asLong();
+
+    assertEquals(1, callCount);
+    deleteDir(tempDir);
+  }
+
   private static void deleteDir(Path dir) throws IOException {
     try (var walk = Files.walk(dir)) {
       walk.sorted(java.util.Comparator.reverseOrder()).forEach(p -> p.toFile().delete());
