@@ -1,6 +1,8 @@
-## Knowledge graph (Memgraph MCP)
+## Knowledge graph (Memgraph)
 
 This repo is indexed in Memgraph under the project name **`{{PROJECT_NAME}}`**.
+
+In case if Memgraph MCP is not installed, use `mgconsole` for all queries.
 
 ### Anchors
 
