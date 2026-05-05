@@ -717,4 +717,4 @@ java -jar memgraph-ingester.jar \
 MIT — see [`LICENSE`](LICENSE).
 
 ## Acknowledgements
-- [@brunneng](https://github.com/brunneng) — testing support
+- [Evgeniy Voronyuk](https://github.com/brunneng) — testing support
