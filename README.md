@@ -135,14 +135,14 @@ curl -s https://raw.githubusercontent.com/ousatov-ua/memgraph-ingester/refs/head
 
 ### Start Memgraph
 
-- With UI:
+- With Docker Compose:
 
 ```bash
 cd memgraph-platform
 docker-compose up -d
 ```
 
-- No UI
+- Just Docker
 
 ```bash
 docker run -p 7687:7687 -p 7444:7444 --name memgraph memgraph/memgraph-mage:3.9.0
