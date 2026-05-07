@@ -1,94 +1,29 @@
 ## Knowledge graph (Memgraph)
 
-This repo is indexed in Memgraph under the project name **`{{PROJECT_NAME}}`**.
-
-In case if Memgraph MCP is not installed, use `mgconsole` for all queries.
-
-### Search priority (MANDATORY)
-
-**Memgraph is the primary knowledge source for this project. Always query it first.**
-
-Use the following lookup order for every code-related question:
-
-1. **Memgraph graph query** — query the knowledge graph for structure, relationships, memory,
-   and metadata. This is the fastest and most accurate source for anything the graph covers.
-2. **Source file reads** (`view`/`cat`) — read specific files only when you need line-level detail
-   (implementations, logic, exact syntax) that the graph does not store.
-3. **Text search** (`grep`/`ripgrep`/`find`/glob) — use only when:
-    - The information is absent from the graph (e.g., string literals, comments, config files,
-      non-Java resources).
-    - A Memgraph query returned no results or incomplete results for the question.
-    - You need to search non-indexed files (XML, YAML, properties, scripts, etc.).
-4. **Other tools** (Python scripts, `jq`, etc.) — last resort for data the above cannot reach.
-
-**Do NOT skip to step 2, 3, or 4 without first attempting a Memgraph query when the question
-involves any of the following:**
-
-- Class, interface, annotation, method, or field existence, location, or properties
-- Inheritance hierarchies (`EXTENDS`, `IMPLEMENTS`) — **see mandatory hierarchy step below**
-- Call chains and callers/callees (`CALLS`)
-- Package structure and file-to-type mappings
-- Annotations on any element
-- Cross-class or cross-package dependencies
-- Any architectural or design question about the codebase
-- Prior decisions, rules, findings, risks, or context (`:Memory` subgraph)
-
-**BLOCKING REQUIREMENT — Class/Interface hierarchy:**
-Before modifying, extending, implementing, or reasoning about **any** class or interface, you MUST
-query its **full** inheritance tree from Memgraph (ancestors AND descendants, both `EXTENDS` and
-`IMPLEMENTS`). Do not open a source file until this query has been executed and its results
-reviewed. See the **"Hierarchy — mandatory first step"** section in Usage for the exact queries.
-
-**BLOCKING REQUIREMENT — Finding / Rule / Context before work:**
-Before starting any task, query all `:Finding`, `:Rule`, and `:Context` nodes for this project.
-These nodes are **preferred over full-text search** as the authoritative source for known issues,
-project constraints, and explanatory module context. Do not skip this step — constraints recorded
-as `:Rule` and bugs recorded as `:Finding` may directly affect your approach. See the
-**"Finding / Rule / Context — mandatory orientation"** section in Usage for the exact queries.
-
-**BLOCKING REQUIREMENT — Memory before task close:**
-A task is **not complete** until all significant findings, decisions, and context have been written
-as Memory nodes. Do not respond with "done" until this step is verified. See the
-**"Saving memory — mandatory last step"** section in Usage for the exact procedure.
-
-**When a Memgraph query returns partial or no results**, you may then supplement with text search.
-Always state explicitly that Memgraph was queried first and why the fallback was needed.
-
-### Trigger phrases you can use
-
-- "check the structure of X" → query all methods/fields of class X
-- "who calls X" → find callers via `CALLS` edges
-- "show dependencies of X" → cross-class call graph
-- "check hierarchy" → full `EXTENDS`/`IMPLEMENTS` tree (ancestors + descendants)
-- "explore the graph" → broad `MATCH (n {project:...})` query
-- "read memory" → query all `:Memory` nodes before a decision
-- "work on X" / "modify X" / "extend X" / "implement X" → query full hierarchy of X first
-
-### Default behavior
-
-When working on any Java task, always run at least one Memgraph query to orient before reading
-source files. This applies to understanding, modifying, refactoring, debugging, and extending code.
-Graph queries replace `grep` for all structure and relationship questions — use `grep` only for
-content the graph does not index (string literals, comments, resource files).
-
-**When the task involves a specific class or interface**, the very first action MUST be running the
-full hierarchy queries (see "Hierarchy — mandatory first step" below). This is non-negotiable and
-must happen before any file read, grep, or code edit.
-
-### Anchors
-
-```cypher
-(:Project)-[:CONTAINS]->(:Code {project})
-(:Project)-[:HAS_MEMORY]->(:Memory {project})
-```
-
+Repo indexed under **`{{PROJECT_NAME}}`**. Use MCP or `mgconsole` for queries.
 All queries MUST include `project: '{{PROJECT_NAME}}'`.
+
+### Lookup order (MANDATORY)
+
+1. **Memgraph** — structure, relationships, memory, metadata
+2. **Source files** — line-level implementation detail only
+3. **grep/glob** — string literals, comments, non-Java resources only
+4. **Other tools** — last resort
+
+Always query Memgraph first for: classes, interfaces, methods, fields, hierarchies, call chains,
+annotations, cross-package dependencies, architecture, and memory nodes.
+
+**BLOCKING — before any class/interface work:** query full hierarchy (ancestors + descendants).  
+**BLOCKING — before any task:** query `:Rule`, `:Finding`, `:Context` nodes.  
+**BLOCKING — before closing task:** save all findings/decisions as Memory nodes and verify.
+
+When Memgraph returns no results, fall back to text search and state why.
 
 ---
 
-### Code (read first)
+### Schema
 
-#### Nodes
+#### Code nodes
 
 | Label         | Key                    | Notable properties                                                                               |
 |---------------|------------------------|--------------------------------------------------------------------------------------------------|
@@ -105,355 +40,242 @@ All queries MUST include `project: '{{PROJECT_NAME}}'`.
 #### Relationships
 
 ```cypher
-(:Project)-[:CONTAINS]->(:Code)
-(:Code)-[:CONTAINS]->(:Package|:File)
-(:Package)-[:CONTAINS]->(:Class|:Interface|:Annotation)
-(:File)-[:DEFINES]->(:Class|:Interface|:Annotation)
-(:Class)-[:EXTENDS]->(:Class)
-(:Class)-[:IMPLEMENTS]->(:Interface)
-(:Interface)-[:EXTENDS]->(:Interface)
-(:Class|:Interface)-[:DECLARES]->(:Method|:Field)
-(:Method)-[:CALLS]->(:Method)
-(:*)-[:ANNOTATED_WITH]->(:Annotation)
+
+(:Project)- [:CONTAINS] - >(:Code)
+(:Code)- [:CONTAINS] - >(:Package|:File)
+(:Package)- [:CONTAINS] - >(:Class|:Interface|:Annotation)
+(:File)- [:DEFINES] - >(:Class|:Interface|:Annotation)
+(:Class)- [:EXTENDS] - >(:Class)
+(:Class)- [:IMPLEMENTS] - >(:Interface)
+(:Interface)- [:EXTENDS] - >(:Interface)
+(:Class|:Interface)- [:DECLARES] - >(:Method|:Field)
+(:Method)- [:CALLS] - >(:Method)
+(:*)- [:ANNOTATED_WITH] - >(:Annotation)
 ```
 
 #### Caveats
 
-- **Best-effort edges** — `CALLS` and `ANNOTATED_WITH` are within-project only and only for
-  resolvable symbols. Missing edges don't mean no relationship exists. Use `--classpath` with
-  dependency JARs to improve resolution coverage.
-- **`CALLS` has no `project` property** — filter via node properties on both ends:
-  `(caller:Method {project: '...'})-[:CALLS]->(callee:Method {project: '...'})`.
-- **`--classpath` impact** — without `--classpath`, cross-class calls whose parameter types come
-  from external libraries (e.g. JavaParser, Neo4j driver) won't resolve and produce no `CALLS`
-  edge. Same-class calls are unaffected. Method signatures may also show simple names instead of
-  FQNs for external types (e.g. `Session` instead of `org.neo4j.driver.Session`).
-- **CALLS gaps** — call sites where arguments involve complex type inference (e.g. `Map.of()` with
-  mixed types) or where parameter types are project-internal classes may not resolve; those edges
-  will be absent even after two ingestion passes. For unresolved calls (same-class, scoped
-  cross-class, method references, and constructor references), a name-based fallback creates the
-  edge when exactly one method with that name exists in the target type. Constructor calls
-  (`new X(...)`) and constructor delegation (`this(...)` / `super(...)`) are also tracked. Nested
-  class constructor calls may not resolve because the resolver uses dot-separated FQNs while the
-  graph stores `$`-separated FQNs.
-- **EXTENDS/IMPLEMENTS resolution** — when the symbol solver cannot resolve an external parent type,
-  the FQN is inferred from import statements or falls back to the source-level name. Unresolvable
-  types may appear with a simple name rather than a full FQN.
-- **External / phantom nodes** — when a class extends or implements an external type, the parent
-  node is created with `isExternal = true` and its `name`/`packageName` inferred from the FQN.
-  External annotations are also marked `isExternal = true`. Project-internal nodes always have
-  `isExternal = false`. Use `WHERE NOT n.isExternal` to exclude external types from queries.
-- **Annotation FQN** — external library annotations (JUnit 5, Spring, picocli, etc.) are stored with
-  their **simple name** as `fqn` because the symbol resolver cannot reach them (e.g. `fqn: "Test"`,
-  `fqn: "Command"`). Only JDK annotations resolve to a full FQN (e.g. `fqn: "java.lang.Override"`).
-  Always query by simple name for non-JDK annotations:
-  `MATCH (a:Annotation {fqn: 'Test', project: '...'})`.
-- **Constructors** — stored as `:Method` with `name = '<init>'`.
-- **Synthetic members** — record canonical constructors and accessor methods are synthesized with
-  `isSynthetic = true` when not explicitly declared in source. Use
-  `WHERE NOT m.isSynthetic` to filter them out.
-- **Nested classes** — FQN uses `$`: `com.example.Outer$Inner`.
-- **`DECLARES`** — covers both methods and fields; always add a label filter:
-  `-[:DECLARES]->(m:Method)`.
-- **`visibility`** — lowercase Java keywords: `"public"`, `"protected"`, `"private"`, `""` (
-  package-private).
+- **`CALLS` has no `project` property** — filter both ends:
+  `(a:Method {project:'...'})-[:CALLS]->(b:Method {project:'...'})`.
+- **`CALLS`/`ANNOTATED_WITH`** — best-effort, within-project only; missing edges ≠ no relationship.
+- **Without `--classpath`**: cross-library calls unresolved; external type names appear as simple
+  names.
+- **CALLS gaps**: complex type inference may omit edges; name-based fallback used when exactly one
+  method match exists.
+- **External nodes**: `isExternal = true`; use `WHERE NOT n.isExternal` to exclude.
+- **Annotation FQN**: non-JDK annotations stored with simple name (e.g. `fqn: 'Test'`); JDK only use
+  full FQN.
+- **Constructors**: `:Method` with `name = '<init>'`.
+- **Synthetic members**: `isSynthetic = true`; use `WHERE NOT m.isSynthetic` to exclude.
+- **Nested classes**: FQN uses `$` — `com.example.Outer$Inner`.
+- **`DECLARES`**: always add label filter — `-[:DECLARES]->(m:Method)`.
+- **`visibility`**: `"public"`, `"protected"`, `"private"`, `""` (package-private).
+- **EXTENDS/IMPLEMENTS**: unresolvable external parents may use simple name.
 
 ---
 
-### Memory (read before decisions)
+### Memory schema
 
-**STRICT — use ONLY the properties listed below. No extra properties may be added to any Memory
-node. Any property not in this table is forbidden.**
+**Strict — no extra properties allowed beyond what's listed.**
 
 #### Nodes
 
-| Label       | Key props                    | All allowed properties (identity + data)                                                        |
-|-------------|------------------------------|-------------------------------------------------------------------------------------------------|
-| `:Memory`   | `project`                    | `project`                                                                                       |
-| `:Decision` | `id`, `project`              | `id`, `project`, `title`, `topic`, `status`, `rationale`, `consequences`, `createdAt`, `updatedAt` |
-| `:ADR`      | `id`, `project`              | `id`, `project`, `number`, `title`, `status`, `context`, `decision`, `consequences`, `createdAt`, `updatedAt` |
-| `:Rule`     | `id`, `project`              | `id`, `project`, `title`, `topic`, `severity`, `description`, `createdAt`, `updatedAt`          |
-| `:Context`  | `id`, `project`              | `id`, `project`, `title`, `topic`, `content`, `source`, `createdAt`, `updatedAt`                |
-| `:Finding`  | `id`, `project`              | `id`, `project`, `title`, `topic`, `type`, `summary`, `evidence`, `createdAt`, `updatedAt`      |
-| `:Task`     | `id`, `project`              | `id`, `project`, `title`, `status`, `priority`, `description`, `createdAt`, `updatedAt`         |
-| `:Risk`     | `id`, `project`              | `id`, `project`, `title`, `topic`, `severity`, `status`, `mitigation`, `createdAt`, `updatedAt` |
-| `:Question` | `id`, `project`              | `id`, `project`, `title`, `status`, `answer`, `createdAt`, `updatedAt`                          |
-| `:Idea`     | `id`, `project`              | `id`, `project`, `title`, `topic`, `status`, `notes`, `createdAt`, `updatedAt`                  |
-| `:CodeRef`  | `project`, `targetType`, `key` | `project`, `targetType`, `key`                                                                |
+| Label       | Key props                      | All allowed properties (identity + data)                                                                      |
+|-------------|--------------------------------|---------------------------------------------------------------------------------------------------------------|
+| `:Memory`   | `project`                      | `project`                                                                                                     |
+| `:Decision` | `id`, `project`                | `id`, `project`, `title`, `topic`, `status`, `rationale`, `consequences`, `createdAt`, `updatedAt`            |
+| `:ADR`      | `id`, `project`                | `id`, `project`, `number`, `title`, `status`, `context`, `decision`, `consequences`, `createdAt`, `updatedAt` |
+| `:Rule`     | `id`, `project`                | `id`, `project`, `title`, `topic`, `severity`, `description`, `createdAt`, `updatedAt`                        |
+| `:Context`  | `id`, `project`                | `id`, `project`, `title`, `topic`, `content`, `source`, `createdAt`, `updatedAt`                              |
+| `:Finding`  | `id`, `project`                | `id`, `project`, `title`, `topic`, `type`, `summary`, `evidence`, `createdAt`, `updatedAt`                    |
+| `:Task`     | `id`, `project`                | `id`, `project`, `title`, `status`, `priority`, `description`, `createdAt`, `updatedAt`                       |
+| `:Risk`     | `id`, `project`                | `id`, `project`, `title`, `topic`, `severity`, `status`, `mitigation`, `createdAt`, `updatedAt`               |
+| `:Question` | `id`, `project`                | `id`, `project`, `title`, `status`, `answer`, `createdAt`, `updatedAt`                                        |
+| `:Idea`     | `id`, `project`                | `id`, `project`, `title`, `topic`, `status`, `notes`, `createdAt`, `updatedAt`                                |
+| `:CodeRef`  | `project`, `targetType`, `key` | `project`, `targetType`, `key`                                                                                |
 
 #### Controlled values
 
-- Decision `status`: `proposed` | `accepted` | `rejected` | `superseded`
-- ADR `status`: `draft` | `accepted` | `rejected` | `superseded`
-- Rule `severity`: `hard` | `soft` | `recommendation`
-- Finding `type`: `bug` | `perf` | `constraint` | `security`
-- Task `status`: `todo` | `doing` | `done` | `blocked` | `cancelled`
-- Risk `severity`: `low` | `medium` | `high` | `critical`
-- Risk `status`: `open` | `mitigated` | `accepted` | `obsolete`
-- Question `status`: `open` | `answered` | `obsolete`
+- Decision/ADR `status`: `proposed`|`accepted`|`rejected`|`superseded` (ADR also `draft`)
+- Rule `severity`: `hard`|`soft`|`recommendation`
+- Finding `type`: `bug`|`perf`|`constraint`|`security`
+- Task `status`: `todo`|`doing`|`done`|`blocked`|`cancelled`
+- Risk `severity`: `low`|`medium`|`high`|`critical`; `status`: `open`|`mitigated`|`accepted`|
+  `obsolete`
+- Question `status`: `open`|`answered`|`obsolete`
 
 #### ID format
 
-```
-DEC-<topic>-<name>
-ADR-<n>-<name>
-RULE-<topic>-<name>
-FIND-<topic>-<name>
-TASK-<topic>-<name>
-RISK-<topic>-<name>
-CTX-<topic>-<name>
-Q-<topic>-<name>
-IDEA-<topic>-<name>
-```
+`DEC-`, `ADR-<n>-`, `RULE-`, `FIND-`, `TASK-`, `RISK-`, `CTX-`, `Q-`, `IDEA-` + `<topic>-<name>`
 
 ---
 
-### Links
+#### Links
 
 ```cypher
-(:Project)-[:HAS_MEMORY]->(:Memory)
-(:Memory)-[:HAS_*]->(:Decision|:ADR|:Rule|:Context|:Finding|:Task|:Risk|:Question|:Idea)
 
-(:Decision|:ADR|:Rule|:Context|:Finding|:Task|:Risk|:Idea)-[:REFERS_TO]->(:CodeRef)
-(:CodeRef)-[:RESOLVES_TO]->(:Code|:Package|:File|:Class|:Interface|:Annotation|:Method|:Field)
+(:Project)- [:HAS_MEMORY] - >(:Memory)- [:HAS_ * ] - >(:Decision|:ADR|:Rule|:Context|:Finding|:Task|:Risk|:Question|:Idea)
+(:Decision|:ADR|:Rule|:Context|:Finding|:Task|:Risk|:Idea)- [:REFERS_TO] - >(:CodeRef)- [:RESOLVES_TO] - >(:Code|:Package|:File|:Class|:Interface|:Annotation|:Method|:Field)
 ```
 
-`CodeRef.targetType` is one of `Code`, `Package`, `File`, `Class`, `Interface`, `Annotation`,
-`Method`, or `Field`. `CodeRef.key` uses the matching code identity: project name for `Code`,
-package name for `Package`, path for `File`, FQN for types/annotations/fields, and signature for
-`Method`.
+`CodeRef.key`: project name for `Code`, package for `Package`, path for `File`, FQN for
+types/fields, signature for `Method`.
 
 ---
 
-### Usage
+### Queries
 
-#### Always query first — project orientation
+#### Orientation
 
 ```cypher
+
 MATCH (n {project: '{{PROJECT_NAME}}'})
 RETURN n
-LIMIT 50;
+  LIMIT 50;
 ```
 
-#### Hierarchy — mandatory first step
-
-**Run ALL queries in this section before touching any class or interface.** Do not read source
-files until you have reviewed the full hierarchy output.
-
-**Compact overview — direct parents and direct children (run this first):**
+#### Hierarchy (run before touching any class/interface)
 
 ```cypher
+// Direct parents & children
 MATCH (c:Class {fqn: 'com.example.MyClass', project: '{{PROJECT_NAME}}'})
 OPTIONAL MATCH (c)-[:EXTENDS]->(parent:Class)
 OPTIONAL MATCH (c)-[:IMPLEMENTS]->(iface:Interface)
 OPTIONAL MATCH (child:Class)-[:EXTENDS]->(c)
-RETURN c.fqn                          AS self,
-       collect(DISTINCT parent.fqn)   AS superclasses,
-       collect(DISTINCT iface.fqn)    AS interfaces,
-       collect(DISTINCT child.fqn)    AS subclasses;
-```
+RETURN c.fqn AS self, collect(DISTINCT parent.fqn) AS superclasses,
+       collect(DISTINCT iface.fqn) AS interfaces, collect(DISTINCT child.fqn) AS subclasses;
 
-**Full ancestor chain — all superclasses, every level:**
-
-```cypher
+// Full ancestor chain
 MATCH path = (c:Class {fqn: 'com.example.MyClass', project: '{{PROJECT_NAME}}'})
-             -[:EXTENDS*]->
-             (ancestor:Class {project: '{{PROJECT_NAME}}'})
+  -[:EXTENDS*]->(ancestor:Class {project: '{{PROJECT_NAME}}'})
 RETURN [n IN nodes(path) | n.fqn] AS ancestorChain;
-```
 
-**Full descendant chain — all subclasses, every level:**
-
-```cypher
+// Full descendant chain
 MATCH path = (descendant:Class {project: '{{PROJECT_NAME}}'})
-             -[:EXTENDS*]->
-             (c:Class {fqn: 'com.example.MyClass', project: '{{PROJECT_NAME}}'})
+  -[:EXTENDS*]->(c:Class {fqn: 'com.example.MyClass', project: '{{PROJECT_NAME}}'})
 RETURN [n IN nodes(path) | n.fqn] AS descendantChain;
-```
 
-**All interfaces implemented — direct and transitive through superclasses:**
-
-```cypher
-MATCH (c:Class {fqn: 'com.example.MyClass', project: '{{PROJECT_NAME}}'})-[:EXTENDS*0..]->(anc:Class {project: '{{PROJECT_NAME}}'})
-      -[:IMPLEMENTS]->(i:Interface)
+// All interfaces (direct + transitive through superclasses)
+MATCH (c:Class {fqn: 'com.example.MyClass', project: '{{PROJECT_NAME}}'})
+        -[:EXTENDS*0..]->(anc:Class {project: '{{PROJECT_NAME}}'})-[:IMPLEMENTS]->(i:Interface)
 RETURN DISTINCT i.fqn AS implementedInterface;
-```
 
-**Full interface hierarchy — all superinterfaces, every level:**
-
-```cypher
+// Interface hierarchy
 MATCH path = (i:Interface {fqn: 'com.example.MyInterface', project: '{{PROJECT_NAME}}'})
-             -[:EXTENDS*]->
-             (superIface:Interface {project: '{{PROJECT_NAME}}'})
+  -[:EXTENDS*]->(superIface:Interface {project: '{{PROJECT_NAME}}'})
 RETURN [n IN nodes(path) | n.fqn] AS interfaceChain;
-```
 
-**All implementors of an interface — direct classes and their subclasses:**
-
-```cypher
-MATCH (c:Class {project: '{{PROJECT_NAME}}'})-[:IMPLEMENTS]->(:Interface {fqn: 'com.example.MyInterface', project: '{{PROJECT_NAME}}'})
+// All implementors of an interface
+MATCH (c:Class {project: '{{PROJECT_NAME}}'})
+        -[:IMPLEMENTS]->(:Interface {fqn: 'com.example.MyInterface', project: '{{PROJECT_NAME}}'})
 RETURN c.fqn AS implementor
 UNION
 MATCH (sub:Class {project: '{{PROJECT_NAME}}'})-[:EXTENDS*]->(c:Class {project: '{{PROJECT_NAME}}'})
-      -[:IMPLEMENTS]->(:Interface {fqn: 'com.example.MyInterface', project: '{{PROJECT_NAME}}'})
+        -[:IMPLEMENTS]->(:Interface {fqn: 'com.example.MyInterface', project: '{{PROJECT_NAME}}'})
 RETURN sub.fqn AS implementor;
 ```
 
----
-
-#### Searching code structure
-
-**Find all methods of a class:**
+#### Code search
 
 ```cypher
-MATCH (c:Class {fqn: 'com.example.MyClass', project: '{{PROJECT_NAME}}'})
-      -[:DECLARES]->(m:Method)
+// Methods of a class
+MATCH (c:Class {fqn: 'com.example.MyClass', project: '{{PROJECT_NAME}}'})-[:DECLARES]->(m:Method)
 RETURN m.signature, m.visibility, m.returnType
-ORDER BY m.name;
-```
+  ORDER BY m.name;
 
-**Find who calls a method:**
-
-```cypher
+// Callers of a method
 MATCH (caller:Method {project: '{{PROJECT_NAME}}'})
-      -[:CALLS]->
-      (callee:Method {project: '{{PROJECT_NAME}}'})
-WHERE callee.signature CONTAINS 'MyClass.myMethod('
+        -[:CALLS]->(callee:Method {project: '{{PROJECT_NAME}}'})
+  WHERE callee.signature CONTAINS 'MyClass.myMethod('
 RETURN caller.signature;
-```
 
-**Find cross-class dependencies (which classes call which):**
-
-```cypher
+// Cross-class dependencies
 MATCH (caller:Method {project: '{{PROJECT_NAME}}'})
-      -[:CALLS]->
-      (callee:Method {project: '{{PROJECT_NAME}}'})
+        -[:CALLS]->(callee:Method {project: '{{PROJECT_NAME}}'})
 WITH split(split(caller.signature, '(')[0], '.') AS cParts,
      split(split(callee.signature, '(')[0], '.') AS tParts
-WITH cParts[size(cParts) - 2] AS callerClass,
-     tParts[size(tParts) - 2] AS calleeClass
-WHERE callerClass <> calleeClass
+WITH cParts[size(cParts) - 2] AS callerClass, tParts[size(tParts) - 2] AS calleeClass
+  WHERE callerClass <> calleeClass
 RETURN callerClass + ' -> ' + calleeClass AS edge, COUNT(*) AS cnt
-ORDER BY cnt DESC;
-```
+  ORDER BY cnt DESC;
 
-**Find annotations on a class or method:**
-
-```cypher
+// Annotations on a class
 MATCH (c:Class {fqn: 'com.example.MyClass', project: '{{PROJECT_NAME}}'})
-      -[:ANNOTATED_WITH]->(a:Annotation)
+        -[:ANNOTATED_WITH]->(a:Annotation)
 RETURN a.fqn;
 ```
 
-**Method signature format** — signatures follow the pattern
-`package.ClassName.methodName(fully.qualified.ParamType, ...)`. Constructors use `<init>` as the
-method name. Generic types are included (e.g. `java.util.List<java.lang.String>`). Without
-`--classpath`, external library types appear as simple names (e.g. `Session` instead of
-`org.neo4j.driver.Session`).
+Method signature format: `package.ClassName.methodName(fully.qualified.ParamType, ...)`.
+Constructors use `<init>`.
 
-#### Finding / Rule / Context — mandatory orientation
-
-Run at the start of every task. These nodes take precedence over grep/text search for known issues,
-constraints, and module context.
-
-**All Rules (hard/soft constraints — follow before any code change):**
+#### Orientation queries (run at task start)
 
 ```cypher
+// Rules — follow before any code change
 MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_RULE]->(r:Rule)
 RETURN r.id, r.severity, r.description
-ORDER BY r.severity;
-```
+  ORDER BY r.severity;
 
-**All Findings (known bugs, limitations, performance issues):**
-
-```cypher
+// Findings — known bugs, limitations, performance issues
 MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_FINDING]->(f:Finding)
 RETURN f.id, f.type, f.summary;
-```
 
-**All Context (explanatory notes — why things work the way they do):**
-
-```cypher
+// Context — why things work the way they do
 MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_CONTEXT]->(c:Context)
 RETURN c.id, c.content, c.source;
 ```
 
+Follow accepted Decisions/ADRs; never violate hard Rules; surface Risks before changes; don't revive
+rejected Ideas.
+
 ---
 
-#### Decision rules
+### Saving memory (mandatory before task close)
 
-- Read all `:Rule`, `:Finding`, and `:Context` nodes before touching any code area
-- Follow accepted Decision / ADR
-- Do not violate hard Rule
-- Surface Risk before change
-- Do not revive rejected Idea
+**Create a node for every matching trigger:**
 
-#### Saving memory — mandatory last step
-
-**A task is NOT complete until this checklist is done.** Run through it before every final response.
-
-**Step 1 — Identify what happened.** Check each trigger below; create the corresponding node for every match:
-
-| What occurred during the task                               | Node to create                              |
-|-------------------------------------------------------------|---------------------------------------------|
-| Made a design or implementation choice                      | `:Decision` (`status: accepted`)            |
-| Adopted or rejected an architectural direction              | `:ADR`                                      |
-| Established a rule or constraint for future work            | `:Rule`                                     |
-| Found a bug, performance issue, or incorrect assumption     | `:Finding` (`type: bug` / `perf`)           |
-| Discovered a limitation or constraint in the codebase       | `:Finding` (`type: constraint`)             |
-| Modified files, schema, template, config, or Cypher queries | `:Context` (summarise what changed and why) |
-| Left something unfinished or identified follow-up work      | `:Task` (`status: todo`)                    |
-| Have an open question that needs a future answer            | `:Question` (`status: open`)                |
-| Identified a risk introduced or discovered                  | `:Risk` (`status: open`)                    |
-
-**Step 2 — Write the nodes.** Use the templates below. Always set `createdAt` and `updatedAt`.
-
-**Step 3 — Link to code.** For every memory node, create a `:CodeRef` and link it to the relevant
-code element via `:RESOLVES_TO`. Do not leave memory nodes unlinked.
-
-**Step 4 — Verify.** Query back the nodes you just created to confirm they are persisted:
+| Trigger                             | Node                             |
+|-------------------------------------|----------------------------------|
+| Design/implementation choice        | `:Decision` (`status: accepted`) |
+| Architectural direction             | `:ADR`                           |
+| Future rule/constraint              | `:Rule`                          |
+| Bug, perf issue, wrong assumption   | `:Finding` (`type: bug`/`perf`)  |
+| Codebase limitation                 | `:Finding` (`type: constraint`)  |
+| Files/schema/config/Cypher modified | `:Context`                       |
+| Unfinished work / follow-up         | `:Task` (`status: todo`)         |
+| Open question                       | `:Question` (`status: open`)     |
+| New or discovered risk              | `:Risk` (`status: open`)         |
 
 ```cypher
-MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[r]->(n)
-WHERE n.updatedAt >= datetime() - duration('PT5M')
-RETURN type(r) AS rel, n.id AS id, labels(n) AS type;
-```
-
-If the query returns no rows, the write failed — retry before closing the task.
-
-#### Create memory node
-
-```cypher
+// Create Decision (adapt node type/label/ID/HAS_* for others)
 MERGE (m:Memory {project: '{{PROJECT_NAME}}'})
 MERGE (d:Decision {id: 'DEC-<topic>-<name>', project: '{{PROJECT_NAME}}'})
-SET d.title      = '<short title>',
-    d.topic      = '<topic>',
-    d.status     = 'accepted',
-    d.rationale  = '<why this decision was made>',
-    d.createdAt  = coalesce(d.createdAt, datetime()),
-    d.updatedAt  = datetime()
+SET d.title = '<title>', d.topic = '<topic>', d.status = 'accepted',
+d.rationale = '<rationale>', d.createdAt = coalesce(d.createdAt, datetime()), d.
+  updatedAt = datetime()
 MERGE (m)-[:HAS_DECISION]->(d)
 RETURN d.id;
-```
 
-#### Link memory to code
-
-```cypher
+// Link to code
 MERGE (ref:CodeRef {project: '{{PROJECT_NAME}}', targetType: 'Class', key: '<fqn>'})
 MERGE (d)-[:REFERS_TO]->(ref)
 MERGE (ref)-[:RESOLVES_TO]->(c:Class {fqn: '<fqn>', project: '{{PROJECT_NAME}}'})
 RETURN ref;
+
+// Verify — must return rows; retry if empty
+MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[r]->(n)
+  WHERE n.updatedAt >= datetime() - duration('PT5M')
+RETURN type(r) AS rel, n.id AS id, labels(n) AS type;
 ```
 
 ---
 
-### Principle
-
-Memory is not logs. Store only what improves future decisions.
-
 ### Staleness
 
 ```cypher
+
 MATCH (c:Code {project: '{{PROJECT_NAME}}'})
 RETURN c.lastIngested;
 ```
+
+> Memory is not logs. Store only what improves future decisions.
