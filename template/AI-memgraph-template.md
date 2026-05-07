@@ -39,6 +39,13 @@ query its **full** inheritance tree from Memgraph (ancestors AND descendants, bo
 `IMPLEMENTS`). Do not open a source file until this query has been executed and its results
 reviewed. See the **"Hierarchy — mandatory first step"** section in Usage for the exact queries.
 
+**BLOCKING REQUIREMENT — Finding / Rule / Context before work:**
+Before starting any task, query all `:Finding`, `:Rule`, and `:Context` nodes for this project.
+These nodes are **preferred over full-text search** as the authoritative source for known issues,
+project constraints, and explanatory module context. Do not skip this step — constraints recorded
+as `:Rule` and bugs recorded as `:Finding` may directly affect your approach. See the
+**"Finding / Rule / Context — mandatory orientation"** section in Usage for the exact queries.
+
 **BLOCKING REQUIREMENT — Memory before task close:**
 A task is **not complete** until all significant findings, decisions, and context have been written
 as Memory nodes. Do not respond with "done" until this step is verified. See the
@@ -340,8 +347,38 @@ method name. Generic types are included (e.g. `java.util.List<java.lang.String>`
 `--classpath`, external library types appear as simple names (e.g. `Session` instead of
 `org.neo4j.driver.Session`).
 
+#### Finding / Rule / Context — mandatory orientation
+
+Run at the start of every task. These nodes take precedence over grep/text search for known issues,
+constraints, and module context.
+
+**All Rules (hard/soft constraints — follow before any code change):**
+
+```cypher
+MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_RULE]->(r:Rule)
+RETURN r.id, r.severity, r.description
+ORDER BY r.severity;
+```
+
+**All Findings (known bugs, limitations, performance issues):**
+
+```cypher
+MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_FINDING]->(f:Finding)
+RETURN f.id, f.type, f.summary;
+```
+
+**All Context (explanatory notes — why things work the way they do):**
+
+```cypher
+MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_CONTEXT]->(c:Context)
+RETURN c.id, c.content, c.source;
+```
+
+---
+
 #### Decision rules
 
+- Read all `:Rule`, `:Finding`, and `:Context` nodes before touching any code area
 - Follow accepted Decision / ADR
 - Do not violate hard Rule
 - Surface Risk before change
