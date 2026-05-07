@@ -11,19 +11,36 @@ isn't obvious from the source?"*
 
 ---
 
-## Node types at a glance
+## Node types and allowed properties
 
-| Node          | One-line purpose                                      | Severity / status values                           |
-|---------------|-------------------------------------------------------|----------------------------------------------------|
-| `:Decision`   | A design or implementation choice that was made       | `proposed` · `accepted` · `rejected` · `superseded` |
-| `:ADR`        | A formal architecture decision record                 | `draft` · `accepted` · `rejected` · `superseded`   |
-| `:Rule`       | A constraint the agent must never violate             | `hard` · `soft` · `recommendation`                 |
-| `:Context`    | Explanatory note — *why* something is the way it is   | _(free-form `source` field)_                       |
-| `:Finding`    | A discovered bug, perf issue, or limitation           | `type`: `bug` · `perf` · `constraint` · `security` |
-| `:Task`       | Follow-up work left unfinished                        | `todo` · `doing` · `done` · `blocked` · `cancelled` |
-| `:Risk`       | A known risk and its mitigation status                | `open` · `mitigated` · `accepted` · `obsolete`     |
-| `:Question`   | An open or answered question                          | `open` · `answered`                                |
-| `:Idea`       | A proposed approach not yet accepted or rejected      | `open` · `accepted` · `rejected`                   |
+**Only the properties in this table may be set on Memory nodes. No extra properties are permitted.**
+
+| Label       | Key props                      | All allowed properties                                                                          |
+|-------------|--------------------------------|-------------------------------------------------------------------------------------------------|
+| `:Memory`   | `project`                      | `project`                                                                                       |
+| `:Decision` | `id`, `project`                | `id`, `project`, `title`, `topic`, `status`, `rationale`, `consequences`, `createdAt`, `updatedAt` |
+| `:ADR`      | `id`, `project`                | `id`, `project`, `number`, `title`, `status`, `context`, `decision`, `consequences`, `createdAt`, `updatedAt` |
+| `:Rule`     | `id`, `project`                | `id`, `project`, `title`, `topic`, `severity`, `description`, `createdAt`, `updatedAt`          |
+| `:Context`  | `id`, `project`                | `id`, `project`, `title`, `topic`, `content`, `source`, `createdAt`, `updatedAt`                |
+| `:Finding`  | `id`, `project`                | `id`, `project`, `title`, `topic`, `type`, `summary`, `evidence`, `createdAt`, `updatedAt`      |
+| `:Task`     | `id`, `project`                | `id`, `project`, `title`, `status`, `priority`, `description`, `createdAt`, `updatedAt`         |
+| `:Risk`     | `id`, `project`                | `id`, `project`, `title`, `topic`, `severity`, `status`, `mitigation`, `createdAt`, `updatedAt` |
+| `:Question` | `id`, `project`                | `id`, `project`, `title`, `status`, `answer`, `createdAt`, `updatedAt`                          |
+| `:Idea`     | `id`, `project`                | `id`, `project`, `title`, `topic`, `status`, `notes`, `createdAt`, `updatedAt`                  |
+| `:CodeRef`  | `project`, `targetType`, `key` | `project`, `targetType`, `key`                                                                  |
+
+### Controlled values
+
+| Node        | Property    | Allowed values                                         |
+|-------------|-------------|--------------------------------------------------------|
+| `:Decision` | `status`    | `proposed` · `accepted` · `rejected` · `superseded`   |
+| `:ADR`      | `status`    | `draft` · `accepted` · `rejected` · `superseded`       |
+| `:Rule`     | `severity`  | `hard` · `soft` · `recommendation`                     |
+| `:Finding`  | `type`      | `bug` · `perf` · `constraint` · `security`             |
+| `:Task`     | `status`    | `todo` · `doing` · `done` · `blocked` · `cancelled`    |
+| `:Risk`     | `severity`  | `low` · `medium` · `high` · `critical`                 |
+| `:Risk`     | `status`    | `open` · `mitigated` · `accepted` · `obsolete`         |
+| `:Question` | `status`    | `open` · `answered` · `obsolete`                       |
 
 ---
 
@@ -68,9 +85,11 @@ and link it to the RetryHandler class.
 ```cypher
 MERGE (m:Memory {project: 'my-project'})
 MERGE (r:Rule {id: 'RULE-di-constructor-injection', project: 'my-project'})
-SET r.severity    = 'hard',
+SET r.title       = 'No field injection',
+    r.topic       = 'dependency-injection',
+    r.severity    = 'hard',
     r.description = 'Always use constructor injection. Field injection (@Autowired on fields) is forbidden.',
-    r.createdAt   = datetime(),
+    r.createdAt   = coalesce(r.createdAt, datetime()),
     r.updatedAt   = datetime()
 MERGE (m)-[:HAS_RULE]->(r)
 RETURN r.id;
@@ -119,9 +138,12 @@ Store this as a performance finding.
 ```cypher
 MERGE (m:Memory {project: 'my-project'})
 MERGE (f:Finding {id: 'FIND-parser-map-of-resolution', project: 'my-project'})
-SET f.type      = 'constraint',
+SET f.title     = 'Map.of() CALLS edges not resolved',
+    f.topic     = 'call-graph',
+    f.type      = 'constraint',
     f.summary   = 'CALLS edges are not created for Map.of() call sites with mixed types due to JavaParser type inference limits.',
-    f.createdAt = datetime(),
+    f.evidence  = 'Verified on IngestionOrchestrator — edges absent after two ingestion passes.',
+    f.createdAt = coalesce(f.createdAt, datetime()),
     f.updatedAt = datetime()
 MERGE (m)-[:HAS_FINDING]->(f)
 RETURN f.id;
@@ -179,9 +201,11 @@ survive wipes and re-ingestion. Store this as context.
 ```cypher
 MERGE (m:Memory {project: 'my-project'})
 MERGE (c:Context {id: 'CTX-orchestrator-threadpool', project: 'my-project'})
-SET c.content   = 'IngestionOrchestrator uses a fixed thread pool (not virtual threads) because JavaParser is not thread-safe across instances. Each thread owns its own parser instance.',
+SET c.title     = 'Why IngestionOrchestrator uses a fixed thread pool',
+    c.topic     = 'concurrency',
+    c.content   = 'IngestionOrchestrator uses a fixed thread pool (not virtual threads) because JavaParser is not thread-safe across instances. Each thread owns its own parser instance.',
     c.source    = 'design-decision-2025',
-    c.createdAt = datetime(),
+    c.createdAt = coalesce(c.createdAt, datetime()),
     c.updatedAt = datetime()
 MERGE (m)-[:HAS_CONTEXT]->(c)
 RETURN c.id;
@@ -212,11 +236,13 @@ Record this as an accepted decision.
 ```cypher
 MERGE (m:Memory {project: 'my-project'})
 MERGE (d:Decision {id: 'DEC-writes-merge-idempotent', project: 'my-project'})
-SET d.title     = 'Use MERGE for all writes',
-    d.status    = 'accepted',
-    d.rationale = 'Ensures re-ingestion is idempotent — no duplicates, no manual cleanup needed.',
-    d.createdAt = datetime(),
-    d.updatedAt = datetime()
+SET d.title        = 'Use MERGE for all writes',
+    d.topic        = 'ingestion',
+    d.status       = 'accepted',
+    d.rationale    = 'Ensures re-ingestion is idempotent — no duplicates, no manual cleanup needed.',
+    d.consequences = 'Slightly slower than CREATE but eliminates duplicate-node bugs.',
+    d.createdAt    = coalesce(d.createdAt, datetime()),
+    d.updatedAt    = datetime()
 MERGE (m)-[:HAS_DECISION]->(d)
 RETURN d.id;
 ```

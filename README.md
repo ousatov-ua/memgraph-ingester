@@ -634,21 +634,32 @@ RETURN p.name, c.sourceRoots, c.lastIngested
 | `(:Method)-[:CALLS]->(:Method)`                                 | Call graph (best-effort)  |
 | `(:*)-[:ANNOTATED_WITH]->(:Annotation)`                         | Annotation usage          |
 
-Memory nodes are manually authored by agents or clients and share the same project namespace:
+Memory nodes are manually authored by agents or clients and share the same project namespace.
+**Only the properties listed below are allowed — no extra properties may be added to any Memory node.**
 
-| Node label  | Identity                     | Typical use                                      |
-|-------------|------------------------------|--------------------------------------------------|
-| `:Memory`   | `project`                    | Root for project memory                          |
-| `:Decision` | `(id, project)`              | Accepted or rejected decisions                   |
-| `:ADR`      | `(id, project)`              | Architecture decision records                    |
-| `:Rule`     | `(id, project)`              | Hard or soft project constraints                 |
-| `:Context`  | `(id, project)`              | Durable explanatory context                      |
-| `:Finding`  | `(id, project)`              | Bugs, risks, performance findings                |
-| `:Task`     | `(id, project)`              | Follow-up work                                   |
-| `:Risk`     | `(id, project)`              | Known risks and mitigations                      |
-| `:Question` | `(id, project)`              | Open or answered questions                       |
-| `:Idea`     | `(id, project)`              | Proposed ideas and alternatives                  |
-| `:CodeRef`  | `(project, targetType, key)` | Stable reference to code that may be re-ingested |
+| Label       | Key props                      | All allowed properties                                                                          |
+|-------------|--------------------------------|-------------------------------------------------------------------------------------------------|
+| `:Memory`   | `project`                      | `project`                                                                                       |
+| `:Decision` | `id`, `project`                | `id`, `project`, `title`, `topic`, `status`, `rationale`, `consequences`, `createdAt`, `updatedAt` |
+| `:ADR`      | `id`, `project`                | `id`, `project`, `number`, `title`, `status`, `context`, `decision`, `consequences`, `createdAt`, `updatedAt` |
+| `:Rule`     | `id`, `project`                | `id`, `project`, `title`, `topic`, `severity`, `description`, `createdAt`, `updatedAt`          |
+| `:Context`  | `id`, `project`                | `id`, `project`, `title`, `topic`, `content`, `source`, `createdAt`, `updatedAt`                |
+| `:Finding`  | `id`, `project`                | `id`, `project`, `title`, `topic`, `type`, `summary`, `evidence`, `createdAt`, `updatedAt`      |
+| `:Task`     | `id`, `project`                | `id`, `project`, `title`, `status`, `priority`, `description`, `createdAt`, `updatedAt`         |
+| `:Risk`     | `id`, `project`                | `id`, `project`, `title`, `topic`, `severity`, `status`, `mitigation`, `createdAt`, `updatedAt` |
+| `:Question` | `id`, `project`                | `id`, `project`, `title`, `status`, `answer`, `createdAt`, `updatedAt`                          |
+| `:Idea`     | `id`, `project`                | `id`, `project`, `title`, `topic`, `status`, `notes`, `createdAt`, `updatedAt`                  |
+| `:CodeRef`  | `project`, `targetType`, `key` | `project`, `targetType`, `key`                                                                  |
+
+**Controlled values:**
+- Decision `status`: `proposed` | `accepted` | `rejected` | `superseded`
+- ADR `status`: `draft` | `accepted` | `rejected` | `superseded`
+- Rule `severity`: `hard` | `soft` | `recommendation`
+- Finding `type`: `bug` | `perf` | `constraint` | `security`
+- Task `status`: `todo` | `doing` | `done` | `blocked` | `cancelled`
+- Risk `severity`: `low` | `medium` | `high` | `critical`
+- Risk `status`: `open` | `mitigated` | `accepted` | `obsolete`
+- Question `status`: `open` | `answered` | `obsolete`
 
 | Relationship                                                                                                          | Meaning                                    |
 |-----------------------------------------------------------------------------------------------------------------------|--------------------------------------------|
