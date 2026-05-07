@@ -26,9 +26,9 @@ When Memgraph returns no results, fall back to text search and state why.
 **Strict rule — always follow this order when executing Cypher queries:**
 
 1. **MCP Memgraph tool** — use if available in the current environment (preferred; no shell needed).
-2. **`mgconsole`** — fallback when MCP is unavailable:
+2. **`mgconsole`** — fallback when MCP is unavailable; always use `--output-format=csv`:
    ```bash
-   echo "<cypher>" | mgconsole --host 127.0.0.1 --port 7687
+   echo "<cypher>" | mgconsole --host 127.0.0.1 --port 7687 --output-format=csv
    ```
 
 Never skip directly to `mgconsole` if an MCP Memgraph tool is present.  
