@@ -36,8 +36,6 @@ When Memgraph returns no results, fall back to text search and state why.
    echo "<cypher>" | mgconsole --host 127.0.0.1 --port 7687 --output-format=csv
    ```
 
-**BLOCKING — Never skip directly to `mgconsole` if an MCP Memgraph tool is present**
-
 State which tool was used when reporting query results.
 
 ---
