@@ -12,6 +12,8 @@ Repo indexed under **`{{PROJECT_NAME}}`**. All queries MUST include `project: '{
 **BLOCKING — before any task:** query `:Rule`, `:Finding`, `:Context` nodes.  
 **BLOCKING — before any class/interface work:** query full hierarchy.  
 **BLOCKING — before closing task:** save all findings/decisions as Memory nodes and verify.
+**BLOCKING — on any Memory node lifecycle change (Task/Risk/Question/Decision/ADR/Idea):**
+immediately update the status in Memgraph before proceeding.
 
 When Memgraph returns no results, fall back to text search and state why.
 
