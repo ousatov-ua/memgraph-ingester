@@ -103,6 +103,7 @@ When Memgraph returns no results, fall back to text search and state why.
 - Risk `severity`: `low`|`medium`|`high`|`critical`; `status`: `open`|`mitigated`|`accepted`|
   `obsolete`
 - Question `status`: `open`|`answered`|`obsolete`
+- Idea `status`: `proposed`|`accepted`|`rejected`|`obsolete`
 
 #### ID format
 
@@ -203,6 +204,11 @@ RETURN callerClass + ' -> ' + calleeClass AS edge, COUNT(*) AS cnt
 MATCH (c:Class {fqn: 'com.example.MyClass', project: '{{PROJECT_NAME}}'})
         -[:ANNOTATED_WITH]->(a:Annotation)
 RETURN a.fqn;
+
+// Fields of a class
+MATCH (c:Class {fqn: 'com.example.MyClass', project: '{{PROJECT_NAME}}'})-[:DECLARES]->(f:Field)
+RETURN f.fqn, f.name, f.type, f.visibility, f.isStatic
+  ORDER BY f.name;
 ```
 
 Method signature format: `package.ClassName.methodName(fully.qualified.ParamType, ...)`.
@@ -223,10 +229,41 @@ RETURN f.id, f.type, f.summary;
 // Context — why things work the way they do
 MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_CONTEXT]->(c:Context)
 RETURN c.id, c.content, c.source;
+
+// Pending tasks — avoid duplicating work already tracked
+MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_TASK]->(t:Task)
+WHERE t.status IN ['todo', 'doing', 'blocked']
+RETURN t.id, t.title, t.status, t.priority
+  ORDER BY t.priority;
+
+// Open questions and risks — surface before making decisions
+MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_QUESTION]->(q:Question)
+WHERE q.status = 'open'
+RETURN q.id, q.title;
+
+MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_RISK]->(r:Risk)
+WHERE r.status = 'open'
+RETURN r.id, r.title, r.severity;
 ```
 
 Follow accepted Decisions/ADRs; never violate hard Rules; surface Risks before changes; don't revive
 rejected Ideas.
+
+---
+
+### Task lifecycle (mandatory)
+
+When working on a `:Task`:
+
+```cypher
+// 1. Mark in-progress before starting
+MATCH (t:Task {id: 'TASK-<id>', project: '{{PROJECT_NAME}}'})
+SET t.status = 'doing', t.updatedAt = datetime();
+
+// 2. Mark done after completing
+MATCH (t:Task {id: 'TASK-<id>', project: '{{PROJECT_NAME}}'})
+SET t.status = 'done', t.updatedAt = datetime();
+```
 
 ---
 
