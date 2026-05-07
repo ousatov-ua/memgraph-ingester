@@ -162,31 +162,35 @@ All queries MUST include `project: '{{PROJECT_NAME}}'`.
 
 ### Memory (read before decisions)
 
-**Use only mentioned properties**
+**STRICT — use ONLY the properties listed below. No extra properties may be added to any Memory
+node. Any property not in this table is forbidden.**
 
 #### Nodes
 
-| Label       | Key                          | Notable properties             |
-|-------------|------------------------------|--------------------------------|
-| `:Memory`   | `project`                    | root                           |
-| `:Decision` | `(id, project)`              | `title`, `status`, `rationale` |
-| `:ADR`      | `(id, project)`              | `number`, `status`, `decision` |
-| `:Rule`     | `(id, project)`              | `severity`, `description`      |
-| `:Context`  | `(id, project)`              | `content`, `source`            |
-| `:Finding`  | `(id, project)`              | `type`, `summary`              |
-| `:Task`     | `(id, project)`              | `status`, `priority`           |
-| `:Risk`     | `(id, project)`              | `severity`, `status`           |
-| `:Question` | `(id, project)`              | `status`, `answer`             |
-| `:Idea`     | `(id, project)`              | `status`, `notes`              |
-| `:CodeRef`  | `(project, targetType, key)` | stable code reference          |
+| Label       | Key props                    | All allowed properties (identity + data)                                                        |
+|-------------|------------------------------|-------------------------------------------------------------------------------------------------|
+| `:Memory`   | `project`                    | `project`                                                                                       |
+| `:Decision` | `id`, `project`              | `id`, `project`, `title`, `topic`, `status`, `rationale`, `consequences`, `createdAt`, `updatedAt` |
+| `:ADR`      | `id`, `project`              | `id`, `project`, `number`, `title`, `status`, `context`, `decision`, `consequences`, `createdAt`, `updatedAt` |
+| `:Rule`     | `id`, `project`              | `id`, `project`, `title`, `topic`, `severity`, `description`, `createdAt`, `updatedAt`          |
+| `:Context`  | `id`, `project`              | `id`, `project`, `title`, `topic`, `content`, `source`, `createdAt`, `updatedAt`                |
+| `:Finding`  | `id`, `project`              | `id`, `project`, `title`, `topic`, `type`, `summary`, `evidence`, `createdAt`, `updatedAt`      |
+| `:Task`     | `id`, `project`              | `id`, `project`, `title`, `status`, `priority`, `description`, `createdAt`, `updatedAt`         |
+| `:Risk`     | `id`, `project`              | `id`, `project`, `title`, `topic`, `severity`, `status`, `mitigation`, `createdAt`, `updatedAt` |
+| `:Question` | `id`, `project`              | `id`, `project`, `title`, `status`, `answer`, `createdAt`, `updatedAt`                          |
+| `:Idea`     | `id`, `project`              | `id`, `project`, `title`, `topic`, `status`, `notes`, `createdAt`, `updatedAt`                  |
+| `:CodeRef`  | `project`, `targetType`, `key` | `project`, `targetType`, `key`                                                                |
 
 #### Controlled values
 
-- Decision: proposed | accepted | rejected | superseded
-- ADR: draft | accepted | rejected | superseded
-- Rule: hard | soft | recommendation
-- Task: todo | doing | done | blocked | cancelled
-- Risk: open | mitigated | accepted | obsolete
+- Decision `status`: `proposed` | `accepted` | `rejected` | `superseded`
+- ADR `status`: `draft` | `accepted` | `rejected` | `superseded`
+- Rule `severity`: `hard` | `soft` | `recommendation`
+- Finding `type`: `bug` | `perf` | `constraint` | `security`
+- Task `status`: `todo` | `doing` | `done` | `blocked` | `cancelled`
+- Risk `severity`: `low` | `medium` | `high` | `critical`
+- Risk `status`: `open` | `mitigated` | `accepted` | `obsolete`
+- Question `status`: `open` | `answered` | `obsolete`
 
 #### ID format
 
@@ -423,9 +427,10 @@ If the query returns no rows, the write failed — retry before closing the task
 MERGE (m:Memory {project: '{{PROJECT_NAME}}'})
 MERGE (d:Decision {id: 'DEC-<topic>-<name>', project: '{{PROJECT_NAME}}'})
 SET d.title      = '<short title>',
+    d.topic      = '<topic>',
     d.status     = 'accepted',
     d.rationale  = '<why this decision was made>',
-    d.createdAt  = datetime(),
+    d.createdAt  = coalesce(d.createdAt, datetime()),
     d.updatedAt  = datetime()
 MERGE (m)-[:HAS_DECISION]->(d)
 RETURN d.id;
