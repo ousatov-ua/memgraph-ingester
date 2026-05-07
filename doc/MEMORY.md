@@ -22,7 +22,7 @@ isn't obvious from the source?"*
 | `:ADR`      | `id`, `project`                | `id`, `project`, `number`, `title`, `status`, `context`, `decision`, `consequences`, `createdAt`, `updatedAt` |
 | `:Rule`     | `id`, `project`                | `id`, `project`, `title`, `topic`, `severity`, `description`, `createdAt`, `updatedAt`          |
 | `:Context`  | `id`, `project`                | `id`, `project`, `title`, `topic`, `content`, `source`, `createdAt`, `updatedAt`                |
-| `:Finding`  | `id`, `project`                | `id`, `project`, `title`, `topic`, `type`, `summary`, `evidence`, `createdAt`, `updatedAt`      |
+| `:Finding`  | `id`, `project`                | `id`, `project`, `title`, `topic`, `type`, `status`, `summary`, `evidence`, `createdAt`, `updatedAt` |
 | `:Task`     | `id`, `project`                | `id`, `project`, `title`, `status`, `priority`, `description`, `createdAt`, `updatedAt`         |
 | `:Risk`     | `id`, `project`                | `id`, `project`, `title`, `topic`, `severity`, `status`, `mitigation`, `createdAt`, `updatedAt` |
 | `:Question` | `id`, `project`                | `id`, `project`, `title`, `status`, `answer`, `createdAt`, `updatedAt`                          |
@@ -37,6 +37,7 @@ isn't obvious from the source?"*
 | `:ADR`      | `status`    | `draft` · `accepted` · `rejected` · `superseded`       |
 | `:Rule`     | `severity`  | `hard` · `soft` · `recommendation`                     |
 | `:Finding`  | `type`      | `bug` · `perf` · `constraint` · `security`             |
+| `:Finding`  | `status`    | `open` · `resolved` · `obsolete`                       |
 | `:Task`     | `status`    | `todo` · `doing` · `done` · `blocked` · `cancelled`    |
 | `:Risk`     | `severity`  | `low` · `medium` · `high` · `critical`                 |
 | `:Risk`     | `status`    | `open` · `mitigated` · `accepted` · `obsolete`         |
@@ -142,6 +143,7 @@ MERGE (f:Finding {id: 'FIND-parser-map-of-resolution', project: 'my-project'})
 SET f.title     = 'Map.of() CALLS edges not resolved',
     f.topic     = 'call-graph',
     f.type      = 'constraint',
+    f.status    = 'open',
     f.summary   = 'CALLS edges are not created for Map.of() call sites with mixed types due to JavaParser type inference limits.',
     f.evidence  = 'Verified on IngestionOrchestrator — edges absent after two ingestion passes.',
     f.createdAt = coalesce(f.createdAt, datetime()),
@@ -150,13 +152,23 @@ MERGE (m)-[:HAS_FINDING]->(f)
 RETURN f.id;
 ```
 
-**Cypher — read all Findings:**
+**Cypher — read open Findings:**
 
 ```cypher
 MATCH (m:Memory {project: 'my-project'})-[:HAS_FINDING]->(f:Finding)
+WHERE f.status = 'open'
 RETURN f.id, f.type, f.summary
 ORDER BY f.type;
 ```
+
+**Cypher — close a Finding (e.g. when the corresponding Task is resolved):**
+
+```cypher
+MATCH (f:Finding {id: 'FIND-<id>', project: 'my-project'})
+SET f.status = 'resolved', f.updatedAt = datetime();
+```
+
+Use `obsolete` instead of `resolved` when the finding is no longer relevant (e.g. the affected code was deleted).
 
 **Cypher — Findings for a specific code area (via CodeRef):**
 

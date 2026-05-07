@@ -9,7 +9,7 @@ Repo indexed under **`{{PROJECT_NAME}}`**. All queries MUST include `project: '{
 3. **grep/glob** — strings, comments, non-Java resources
 4. **Other tools** — last resort
 
-**BLOCKING — before any task:** query `:Rule`, `:Finding`, `:Context` nodes.  
+**BLOCKING — before any task:** query `:Rule`, **open** `:Finding`, `:Context` nodes.  
 **BLOCKING — before any class/interface work:** query full hierarchy.  
 **BLOCKING — for any Java code investigation (fields, methods, callers, type usages):**
 Query Memgraph BEFORE opening source files or running grep/glob.
@@ -139,7 +139,7 @@ RETURN c.fqn AS cls, f.name, f.type, f.visibility ORDER BY c.fqn, f.name;
 | `:ADR`      | `id`, `project`                | `number`, `title`, `status`, `context`, `decision`, `consequences`           |
 | `:Rule`     | `id`, `project`                | `title`, `topic`, `severity`, `description`                                  |
 | `:Context`  | `id`, `project`                | `title`, `topic`, `content`, `source`                                        |
-| `:Finding`  | `id`, `project`                | `title`, `topic`, `type`, `summary`, `evidence`                              |
+| `:Finding`  | `id`, `project`                | `title`, `topic`, `type`, `status`, `summary`, `evidence`                    |
 | `:Task`     | `id`, `project`                | `title`, `status`, `priority`, `description`                                 |
 | `:Risk`     | `id`, `project`                | `title`, `topic`, `severity`, `status`, `mitigation`                         |
 | `:Question` | `id`, `project`                | `title`, `status`, `answer`                                                  |
@@ -152,6 +152,7 @@ All nodes also have `createdAt`, `updatedAt`.
 - Decision/ADR `status`: `proposed`|`accepted`|`rejected`|`superseded` (ADR also `draft`)
 - Rule `severity`: `hard`|`soft`|`recommendation`
 - Finding `type`: `bug`|`perf`|`constraint`|`security`
+- Finding `status`: `open`|`resolved`|`obsolete`
 - Task `status`: `todo`|`doing`|`done`|`blocked`|`cancelled`
 - Risk `severity`: `low`|`medium`|`high`|`critical`; `status`: `open`|`mitigated`|`accepted`|`obsolete`
 - Question `status`: `open`|`answered`|`obsolete`
@@ -174,7 +175,7 @@ All nodes also have `createdAt`, `updatedAt`.
 
 ```cypher
 MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_RULE]->(r:Rule) RETURN r.id, r.severity, r.description ORDER BY r.severity;
-MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_FINDING]->(f:Finding) RETURN f.id, f.type, f.summary;
+MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_FINDING]->(f:Finding) WHERE f.status = 'open' RETURN f.id, f.type, f.summary;
 MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_CONTEXT]->(c:Context) RETURN c.id, c.content, c.source;
 MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_TASK]->(t:Task) WHERE t.status IN ['todo','doing','blocked'] RETURN t.id, t.title, t.status, t.priority ORDER BY t.priority;
 MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_QUESTION]->(q:Question) WHERE q.status = 'open' RETURN q.id, q.title;
