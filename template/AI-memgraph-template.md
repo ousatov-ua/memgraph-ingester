@@ -17,6 +17,7 @@ Query Memgraph BEFORE opening source files or running grep/glob.
 **BLOCKING — before closing task:** save all findings/decisions as Memory nodes and verify.
 **BLOCKING — on any Memory node lifecycle change (Task/Risk/Question/Decision/ADR/Idea):**
 immediately update the status in Memgraph before proceeding.
+
 **BLOCKING — when creating any Memory node that relates to code (Task/Decision/Finding/Rule/ADR/Risk/Idea):** 
 always create and link at least one CodeRef via `REFERS_TO` → `RESOLVES_TO` pointing to
 the relevant Class, Method, Field, Package, or File.
