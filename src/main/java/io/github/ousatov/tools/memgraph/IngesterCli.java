@@ -105,6 +105,12 @@ public final class IngesterCli implements Callable<Integer> {
   private boolean incremental;
 
   @Option(
+      names = {"-w", "--watch"},
+      description = "Watch for changes in the source directory and automatically re-ingest")
+  @SuppressWarnings("unused")
+  private boolean watch;
+
+  @Option(
       names = {"--classpath"},
       defaultValue = "",
       description =
@@ -142,7 +148,8 @@ public final class IngesterCli implements Callable<Integer> {
       IngestionOrchestrator orchestrator =
           new IngestionOrchestrator(sourceRoot, project, threads, driver, parseService);
       var settings =
-          new Settings(wipeAllData, applySchema, wipeProjectCode, wipeProjectMemories, incremental);
+          new Settings(
+              wipeAllData, applySchema, wipeProjectCode, wipeProjectMemories, incremental, watch);
       int failures = orchestrator.run(settings);
       if (failures > 0) {
         log.error("Ingestion finished with {} file failure(s).", failures);
