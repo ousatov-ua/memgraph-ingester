@@ -34,8 +34,6 @@ When Memgraph returns no results, fall back to text search and state why.
    echo "<cypher>" | mgconsole --host 127.0.0.1 --port 7687 --output-format=csv
    ```
 
-**BLOCKING — Cypher queries must be precise:**
-
 **BLOCKING — Never skip directly to `mgconsole` if an MCP Memgraph tool is present**
 
 State which tool was used when reporting query results.
@@ -202,10 +200,12 @@ RETURN [n IN nodes(path) | n.fqn];
 
 #### Code search
 
+**Always include `m.startLine, m.endLine` when fetching methods** — use these with `view_range: [startLine, endLine]` to read only the relevant lines from source files instead of loading the entire file.
+
 ```cypher
-// Methods / fields of a class
+// Methods / fields of a class — include line numbers for targeted view_range reads
 MATCH (c:Class {fqn: '...', project: '{{PROJECT_NAME}}'})-[:DECLARES]->(m:Method)
-RETURN m.signature, m.visibility, m.returnType ORDER BY m.name;
+RETURN m.signature, m.visibility, m.returnType, m.startLine, m.endLine ORDER BY m.name;
 
 // Callers of a method
 MATCH (caller:Method {project: '{{PROJECT_NAME}}'})-[:CALLS]->(callee:Method {project: '{{PROJECT_NAME}}'})
