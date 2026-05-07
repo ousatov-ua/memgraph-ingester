@@ -47,7 +47,8 @@ risks, questions, ideas, and domain notes. Memory items can refer to stable `:Co
 are resolved back to the current code graph after ingestion. This lets agents query both
 **structure (code)** and **knowledge (memory)** without relying only on raw text search.
 
-See [`SCHEMA.md`](schema/SCHEMA.md) for the full graph model.
+See [`doc/MEMORY.md`](doc/MEMORY.md) for the Memory usage guide with prompt examples and Cypher
+recipes. See [`SCHEMA.md`](schema/SCHEMA.md) for the full graph model.
 
 ## Requirements
 
