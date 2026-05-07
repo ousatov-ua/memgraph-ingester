@@ -339,7 +339,7 @@ class IngestionOrchestratorIT {
           .consume();
     }
 
-    int failures = orchestrator.run(new Settings(false, false, false, true, false));
+    int failures = orchestrator.run(new Settings(false, false, false, true, false, false));
 
     assertEquals(0, failures);
     try (Session s = driver.session()) {

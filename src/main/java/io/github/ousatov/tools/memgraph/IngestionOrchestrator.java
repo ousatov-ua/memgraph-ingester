@@ -9,11 +9,22 @@ import io.github.ousatov.tools.memgraph.exception.ProcessingException;
 import io.github.ousatov.tools.memgraph.schema.Memgraph;
 import io.github.ousatov.tools.memgraph.vo.Settings;
 import java.io.IOException;
+import java.nio.file.FileSystems;
+import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.SimpleFileVisitor;
+import java.nio.file.StandardWatchEventKinds;
+import java.nio.file.WatchEvent;
+import java.nio.file.WatchKey;
+import java.nio.file.WatchService;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -133,7 +144,111 @@ public final class IngestionOrchestrator {
       new GraphWriter(session, project).resolveCodeRefs();
       log.info("Refreshed :CodeRef resolution edges for '{}'", project);
     }
+
+    if (settings.watch()) {
+      startWatchLoop();
+    }
     return failures;
+  }
+
+  private void startWatchLoop() {
+    log.info("Starting watch mode for {}...", sourceRoot);
+    try (WatchService watcher = FileSystems.getDefault().newWatchService()) {
+      Map<WatchKey, Path> keys = new HashMap<>();
+      registerRecursive(sourceRoot, watcher, keys);
+
+      while (true) {
+        WatchKey key = watcher.take();
+        Path dir = keys.get(key);
+        if (dir == null) {
+          log.warn("WatchKey not recognized!");
+          continue;
+        }
+
+        Set<Path> changedFiles = new HashSet<>();
+        for (WatchEvent<?> event : key.pollEvents()) {
+          WatchEvent.Kind<?> kind = event.kind();
+          if (kind == StandardWatchEventKinds.OVERFLOW) {
+            continue;
+          }
+
+          @SuppressWarnings("unchecked")
+          WatchEvent<Path> ev = (WatchEvent<Path>) event;
+          Path name = ev.context();
+          Path child = dir.resolve(name);
+
+          if (kind == StandardWatchEventKinds.ENTRY_CREATE && Files.isDirectory(child)) {
+            registerRecursive(child, watcher, keys);
+          }
+
+          if (child.toString().endsWith(".java")) {
+            changedFiles.add(child);
+          }
+        }
+
+        if (!changedFiles.isEmpty()) {
+
+          // Debounce: wait a bit for more events (e.g. IDE multiple writes)
+          TimeUnit.MILLISECONDS.sleep(500);
+          log.info(
+              "Watch event: detected changes in {} file(s). Re-ingesting...", changedFiles.size());
+          ingestChangedFiles(changedFiles);
+        }
+
+        if (!key.reset()) {
+          keys.remove(key);
+          if (keys.isEmpty()) {
+            break;
+          }
+        }
+      }
+    } catch (IOException e) {
+      throw new ProcessingException("Watch service failed", e);
+    } catch (InterruptedException _) {
+      Thread.currentThread().interrupt();
+    }
+  }
+
+  private void ingestChangedFiles(Set<Path> files) {
+    try (Session session = driver.session()) {
+      GraphWriter writer = new GraphWriter(session, project);
+      List<Path> successFiles = new ArrayList<>();
+      for (Path file : files) {
+        if (Files.exists(file) && ingestFile(writer, file)) {
+
+          // In watch mode, we always re-ingest if the file was modified
+          successFiles.add(file);
+        }
+      }
+      if (!successFiles.isEmpty()) {
+        log.info("Creating CALLS edges for {} changed files...", successFiles.size());
+        for (Path file : successFiles) {
+          ingestFileCallEdges(writer, file);
+        }
+        writer.resolveCodeRefs();
+        log.info("Watch re-ingestion complete.");
+      }
+    }
+  }
+
+  private void registerRecursive(Path start, WatchService watcher, Map<WatchKey, Path> keys)
+      throws IOException {
+    Files.walkFileTree(
+        start,
+        new SimpleFileVisitor<>() {
+          @Override
+          public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs)
+              throws IOException {
+            WatchKey key =
+                dir.register(
+                    watcher,
+                    StandardWatchEventKinds.ENTRY_CREATE,
+                    StandardWatchEventKinds.ENTRY_DELETE,
+                    StandardWatchEventKinds.ENTRY_MODIFY);
+            keys.put(key, dir);
+            return FileVisitResult.CONTINUE;
+          }
+        });
   }
 
   private int ingestSequential(List<Path> files, Map<String, Long> mtimeCache) {

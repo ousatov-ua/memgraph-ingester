@@ -243,6 +243,7 @@ You should see your project with a fresh `lastIngested` timestamp.
 | `--apply-schema`          | no    | no       | false   | Apply schema before ingesting                                                                                                                          |
 | `--wipe-all`              | no    | no       | false   | Wipe all data (schema will be dropped first)                                                                                                           |
 | `--incremental`           | no    | no       | false   | Skip files whose last-modified timestamp matches the stored value                                                                                      |
+| `--watch`                 | `-w`  | no       | false   | Watch for changes in the source directory and automatically re-ingest                                                                                  |
 | `--classpath`             | no    | no       |         | Additional classpath entries (JARs) for symbol resolution, separated by the platform path separator. Improves CALLS edge and type resolution coverage. |
 
 `--wipe-project-code` only affects code nodes matching the given `--project`; other codebases in the
@@ -280,6 +281,24 @@ well, but Memgraph Community serializes writes internally, so the write path bot
 
 **Determinism note**: with `--threads > 1`, file processing order is non-deterministic. MERGE is
 idempotent, so results are identical, but log order will vary between runs.
+
+### Watch mode
+
+For active development, use `--watch` (or `-w`) to monitor the source directory for changes. The
+ingester will automatically re-ingest modified `.java` files, update call edges, and refresh code
+references whenever a change is detected:
+
+```bash
+java -jar target/memgraph-ingester.jar \
+  --source /path/to/your/java/project/src/main/java \
+  --bolt bolt://localhost:7687 \
+  --project my-project \
+  --watch
+```
+
+Watch mode uses Java's `WatchService` for efficient OS-level notifications and includes a small
+debounce delay to handle multiple rapid writes (e.g., from IDE saves). It recursively watches all
+subdirectories under the `--source` root.
 
 ## Using with AI agents
 
