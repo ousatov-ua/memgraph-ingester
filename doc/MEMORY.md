@@ -41,6 +41,7 @@ isn't obvious from the source?"*
 | `:Risk`     | `severity`  | `low` · `medium` · `high` · `critical`                 |
 | `:Risk`     | `status`    | `open` · `mitigated` · `accepted` · `obsolete`         |
 | `:Question` | `status`    | `open` · `answered` · `obsolete`                       |
+| `:Idea`     | `status`    | `proposed` · `accepted` · `rejected` · `obsolete`      |
 
 ---
 
@@ -265,6 +266,18 @@ There's a TODO to add retry logic to GraphWriter.
 Store this as an open task linked to GraphWriter.writeMethod().
 ```
 
+**Task lifecycle — agents must follow this:**
+
+```cypher
+// Before starting work on a task
+MATCH (t:Task {id: 'TASK-<id>', project: 'my-project'})
+SET t.status = 'doing', t.updatedAt = datetime();
+
+// After completing the task
+MATCH (t:Task {id: 'TASK-<id>', project: 'my-project'})
+SET t.status = 'done', t.updatedAt = datetime();
+```
+
 ### Risk
 
 Documents a known risk so it's surfaced before related changes are made.
@@ -300,9 +313,9 @@ Every memory node should be linked to the code it's about via a `:CodeRef`. This
 re-ingestion because the ingester refreshes `RESOLVES_TO` edges after each run.
 
 ```cypher
--- Step 1: write the memory node (see examples above)
+// Step 1: write the memory node (see examples above)
 
--- Step 2: create the CodeRef and link it
+// Step 2: create the CodeRef and link it
 MERGE (ref:CodeRef {project: 'my-project', targetType: 'Class', key: 'com.example.GraphWriter'})
 MERGE (f:Finding {id: 'FIND-graphwriter-null-return', project: 'my-project'})
 MERGE (f)-[:REFERS_TO]->(ref)
