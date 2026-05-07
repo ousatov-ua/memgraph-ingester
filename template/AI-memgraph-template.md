@@ -14,6 +14,8 @@ Repo indexed under **`{{PROJECT_NAME}}`**. All queries MUST include `project: '{
 **BLOCKING — before closing task:** save all findings/decisions as Memory nodes and verify.
 **BLOCKING — on any Memory node lifecycle change (Task/Risk/Question/Decision/ADR/Idea):**
 immediately update the status in Memgraph before proceeding.
+**BLOCKING — for any Java code investigation (fields, methods, callers, type usages):**
+Query Memgraph BEFORE opening source files or running grep/glob.
 
 When Memgraph returns no results, fall back to text search and state why.
 
