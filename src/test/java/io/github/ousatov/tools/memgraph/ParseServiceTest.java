@@ -2,6 +2,7 @@ package io.github.ousatov.tools.memgraph;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
@@ -17,6 +18,9 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.stream.Stream;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
+import javax.tools.ToolProvider;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -129,6 +133,73 @@ class ParseServiceTest {
     String sig = useMethod.resolve().getQualifiedSignature();
 
     assertEquals("com.example.Bar.use(com.example.Foo)", sig);
+  }
+
+  @Test
+  void addsJarWithModuleInfoViaFilteredFallback() throws Exception {
+    var compiler = ToolProvider.getSystemJavaCompiler();
+    assumeTrue(compiler != null, "JDK compiler required for this test");
+
+    Path moduleDir = Files.createTempDirectory("module-info-compile-");
+    try {
+      Path src = moduleDir.resolve("module-info.java");
+      Files.writeString(src, "module test.memgraph.ingester {}");
+      int rc = compiler.run(null, null, null, "-d", moduleDir.toString(), src.toString());
+      assumeTrue(rc == 0, "module-info.java compilation failed");
+
+      Path jarPath = tempDir.resolve("module-only.jar");
+      try (ZipOutputStream zos = new ZipOutputStream(Files.newOutputStream(jarPath))) {
+        zos.putNextEntry(new ZipEntry("module-info.class"));
+        Files.copy(moduleDir.resolve("module-info.class"), zos);
+        zos.closeEntry();
+      }
+
+      var svc = new ParseService(tempDir, List.of(jarPath));
+      Path file = tempDir.resolve("ModTest.java");
+      Files.writeString(file, "public class ModTest {}");
+      assertTrue(
+          svc.parse(file).isPresent(),
+          "ParseService must work even when JAR contains module-info.class");
+    } finally {
+      try (Stream<Path> walk = Files.walk(moduleDir)) {
+        walk.sorted(Comparator.reverseOrder()).forEach(p -> p.toFile().delete());
+      }
+    }
+  }
+
+  @Test
+  void createFilteredJarStripsModuleInfo() throws Exception {
+    var compiler = ToolProvider.getSystemJavaCompiler();
+    assumeTrue(compiler != null, "JDK compiler required for this test");
+
+    Path moduleDir = Files.createTempDirectory("module-info-filter-");
+    try {
+      Path src = moduleDir.resolve("module-info.java");
+      Files.writeString(src, "module test.filter.check {}");
+      int rc = compiler.run(null, null, null, "-d", moduleDir.toString(), src.toString());
+      assumeTrue(rc == 0, "module-info.java compilation failed");
+
+      Path jarPath = tempDir.resolve("to-filter.jar");
+      try (ZipOutputStream zos = new ZipOutputStream(Files.newOutputStream(jarPath))) {
+        zos.putNextEntry(new ZipEntry("module-info.class"));
+        Files.copy(moduleDir.resolve("module-info.class"), zos);
+        zos.closeEntry();
+        zos.putNextEntry(new ZipEntry("com/example/Dummy.class"));
+        zos.write(new byte[] {0x00});
+        zos.closeEntry();
+      }
+
+      Path filtered = ParseService.createFilteredJar(jarPath);
+      try (var zf = new java.util.zip.ZipFile(filtered.toFile())) {
+        var names = zf.stream().map(ZipEntry::getName).toList();
+        assertTrue(names.stream().noneMatch(n -> n.equals("module-info.class")));
+        assertTrue(names.contains("com/example/Dummy.class"));
+      }
+    } finally {
+      try (Stream<Path> walk = Files.walk(moduleDir)) {
+        walk.sorted(Comparator.reverseOrder()).forEach(p -> p.toFile().delete());
+      }
+    }
   }
 
   @Test

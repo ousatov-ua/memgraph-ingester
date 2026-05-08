@@ -9,10 +9,15 @@ import com.github.javaparser.symbolsolver.resolution.typesolvers.CombinedTypeSol
 import com.github.javaparser.symbolsolver.resolution.typesolvers.JarTypeSolver;
 import com.github.javaparser.symbolsolver.resolution.typesolvers.JavaParserTypeSolver;
 import com.github.javaparser.symbolsolver.resolution.typesolvers.ReflectionTypeSolver;
+import java.io.IOException;
+import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipFile;
+import java.util.zip.ZipOutputStream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -84,11 +89,7 @@ public final class ParseService {
     addSourceRoots(solver, sourceRoot);
     solver.add(new ReflectionTypeSolver());
     for (Path jar : classpathEntries) {
-      try {
-        solver.add(new JarTypeSolver(jar));
-      } catch (Exception e) {
-        log.warn("Could not add JAR to solver: {}: {}", jar, e.getMessage());
-      }
+      addJarToSolver(solver, jar);
     }
     if (!classpathEntries.isEmpty()) {
       log.info("Added {} JAR(s) to the symbol solver classpath", classpathEntries.size());
@@ -97,6 +98,71 @@ public final class ParseService {
     cfg.setSymbolResolver(new JavaSymbolSolver(solver));
     cfg.setLanguageLevel(LanguageLevel.JAVA_25);
     return cfg;
+  }
+
+  /**
+   * Tries to add {@code jar} to the solver directly, then falls back to a filtered copy that omits
+   * entries (e.g. {@code module-info.class}) that cause Javassist to fail.
+   */
+  private static void addJarToSolver(CombinedTypeSolver solver, Path jar) {
+    try {
+      solver.add(new JarTypeSolver(jar));
+    } catch (Exception first) {
+      log.debug(
+          "JarTypeSolver failed for {}, retrying with filtered JAR: {}", jar, first.getMessage());
+      tryAddFilteredJar(solver, jar, first);
+    }
+  }
+
+  private static void tryAddFilteredJar(CombinedTypeSolver solver, Path jar, Exception original) {
+    try {
+      Path filtered = createFilteredJar(jar);
+      solver.add(new JarTypeSolver(filtered));
+      log.info("Added filtered JAR to solver (skipped problematic entries): {}", jar);
+    } catch (Exception _) {
+      log.warn("Could not add JAR to solver: {}: {}", jar, original.getMessage());
+    }
+  }
+
+  /**
+   * Returns a temp copy of {@code originalJar} with entries that break Javassist removed. The temp
+   * file is registered for deletion on JVM exit.
+   *
+   * @param originalJar source JAR path
+   * @return path to the filtered temp JAR
+   * @throws IOException on read/write failure
+   */
+  static Path createFilteredJar(Path originalJar) throws IOException {
+    Path temp = Files.createTempFile("memgraph-ingester-filtered-", ".jar");
+    temp.toFile().deleteOnExit();
+    try (ZipFile zipFile = new ZipFile(originalJar.toFile());
+        ZipOutputStream out = new ZipOutputStream(Files.newOutputStream(temp))) {
+      var entries = zipFile.entries();
+      while (entries.hasMoreElements()) {
+        var entry = entries.nextElement();
+        if (shouldExcludeEntry(entry.getName())) {
+          log.debug("Filtered out JAR entry: {}", entry.getName());
+          continue;
+        }
+        try (InputStream in = zipFile.getInputStream(entry)) {
+          out.putNextEntry(new ZipEntry(entry.getName()));
+          in.transferTo(out);
+          out.closeEntry();
+        } catch (IOException e) {
+          log.debug("Skipped JAR entry '{}': {}", entry.getName(), e.getMessage());
+        }
+      }
+    }
+    return temp;
+  }
+
+  /**
+   * Returns {@code true} for entries that Javassist cannot parse, such as {@code module-info.class}
+   * and its multi-release variants.
+   */
+  private static boolean shouldExcludeEntry(String name) {
+    return name.equals("module-info.class")
+        || name.matches("META-INF/versions/\\d+/module-info\\.class");
   }
 
   /**
