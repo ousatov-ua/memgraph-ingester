@@ -255,10 +255,13 @@ SET d.title='<title>', d.topic='<topic>', d.status='accepted', d.rationale='<rat
     d.createdAt=coalesce(d.createdAt, datetime()), d.updatedAt=datetime()
 MERGE (m)-[:HAS_DECISION]->(d);
 
-// Link to code
+// Link to code — MUST be a separate query from the memory-node creation above.
+// Use MATCH (not MERGE) for code nodes: they are pre-existing and have unique constraints.
+// Merging them inline causes "unique constraint violation" errors.
+MATCH (c:Class {fqn: '<fqn>', project: '{{PROJECT_NAME}}'})
 MERGE (ref:CodeRef {project: '{{PROJECT_NAME}}', targetType: 'Class', key: '<fqn>'})
 MERGE (d)-[:REFERS_TO]->(ref)
-MERGE (ref)-[:RESOLVES_TO]->(c:Class {fqn: '<fqn>', project: '{{PROJECT_NAME}}'});
+MERGE (ref)-[:RESOLVES_TO]->(c);
 
 // Verify (must return rows; retry if empty)
 MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[r]->(n)
