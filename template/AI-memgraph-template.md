@@ -9,7 +9,7 @@ Repo indexed under **`{{PROJECT_NAME}}`**. All queries MUST include `project: '{
 3. **grep/glob** — strings, comments, non-Java resources
 4. **Other tools** — last resort
 
-**BLOCKING — before any task:** query `:Rule`, **open** `:Finding`, `:Context` nodes.  
+**BLOCKING — before any task:** query `:Rule`, **open** `:Finding`, `:Context`, `:Decision` nodes.  
 **BLOCKING — before any class/interface work:** query full hierarchy.  
 **BLOCKING — for any Java code investigation (fields, methods, callers, type usages):**
 Query Memgraph BEFORE opening source files or running grep/glob.
