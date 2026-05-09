@@ -9,9 +9,7 @@ Repo indexed under **`{{PROJECT_NAME}}`**. All queries MUST include `project: '{
 3. **grep/glob** — strings, comments, non-Java resources
 4. **Other tools** — last resort
 
-**BLOCKING — before any task:** query `:Rule`, **open** `:Finding`, `:Context`, `:Decision` nodes. 
-After querying: explicitly state which Rules apply, which Decisions constrain your approach, 
-and which open Findings are relevant to this task before writing any code.
+**BLOCKING — before any task involving code changes:** run orientation queries (Rules, open Findings, Context, active Tasks). Empty results are valid — proceed normally. Skip if already run in this session.
 
 **BLOCKING — before any class/interface work:** query full hierarchy.  
 **BLOCKING — for any Java code investigation (fields, methods, callers, type usages):**
@@ -33,11 +31,12 @@ When Memgraph returns no results, fall back to text search and state why.
 
 **Strict rule — always follow this order when executing Cypher queries:**
 
-1. **MCP Memgraph tool** — use if available in the current environment (preferred; no shell needed).
+1. **MCP Memgraph tool** — available if `mcp_memgraph_query` (or similar) appears in your toolset. Use it; no shell needed.
 2. **`mgconsole`** — fallback when MCP is unavailable; always use `--output-format=csv`. **One query per invocation** — `mgconsole` does not support multi-statement pipes:
    ```bash
    echo "<single cypher query>" | mgconsole --host 127.0.0.1 --port 7687 --output-format=csv
    ```
+   > **Empty output = 0 rows, not an error.** `mgconsole` emits no header when a query returns nothing — this is normal.
 
 State which tool was used when reporting query results.
 
@@ -125,7 +124,7 @@ RETURN c.fqn AS cls, f.name, f.type, f.visibility ORDER BY c.fqn, f.name;
 - **`CALLS`/`ANNOTATED_WITH`** — best-effort; missing edges ≠ no relationship.
 - **External nodes**: `isExternal = true`; exclude with `WHERE NOT n.isExternal`.
 - **Annotation FQN**: non-JDK stored as simple name.
-- **Constructors**: `name = '<init>'`. **Nested classes**: FQN uses `$`.
+- **Constructors**: `name = '<init>'`. **Nested classes**: FQN uses `$` (e.g. `Outer$Inner`); whether the class is `static` is not stored — infer from source if needed.
 - **`DECLARES`**: always add label — `-[:DECLARES]->(m:Method)`.
 - **`visibility`**: `"public"`, `"protected"`, `"private"`, `""` (package-private).
 
@@ -176,15 +175,25 @@ All nodes also have `createdAt`, `updatedAt`.
 
 #### Orientation (run at task start)
 
-> **mgconsole users:** run each line as a separate `echo "..." | mgconsole` call — multi-statement pipes are not supported.
+Run **each query separately** — one `echo "..." | mgconsole` call per query. Empty output = 0 rows (normal).
 
-```cypher
-MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_RULE]->(r:Rule) RETURN r.id, r.severity, r.description ORDER BY r.severity;
-MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_FINDING]->(f:Finding) WHERE f.status = 'open' RETURN f.id, f.type, f.summary;
-MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_CONTEXT]->(c:Context) RETURN c.id, c.content, c.source;
-MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_TASK]->(t:Task) WHERE t.status IN ['todo','doing','blocked'] RETURN t.id, t.title, t.status, t.priority ORDER BY t.priority;
-MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_QUESTION]->(q:Question) WHERE q.status = 'open' RETURN q.id, q.title;
-MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_RISK]->(r:Risk) WHERE r.status = 'open' RETURN r.id, r.title, r.severity;
+```bash
+echo "MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_RULE]->(r:Rule) RETURN r.id, r.severity, r.description ORDER BY r.severity;" | mgconsole --host 127.0.0.1 --port 7687 --output-format=csv
+```
+```bash
+echo "MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_FINDING]->(f:Finding) WHERE f.status = 'open' RETURN f.id, f.type, f.summary;" | mgconsole --host 127.0.0.1 --port 7687 --output-format=csv
+```
+```bash
+echo "MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_CONTEXT]->(c:Context) RETURN c.id, c.content, c.source;" | mgconsole --host 127.0.0.1 --port 7687 --output-format=csv
+```
+```bash
+echo "MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_TASK]->(t:Task) WHERE t.status IN ['todo','doing','blocked'] RETURN t.id, t.title, t.status, t.priority ORDER BY t.priority;" | mgconsole --host 127.0.0.1 --port 7687 --output-format=csv
+```
+```bash
+echo "MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_QUESTION]->(q:Question) WHERE q.status = 'open' RETURN q.id, q.title;" | mgconsole --host 127.0.0.1 --port 7687 --output-format=csv
+```
+```bash
+echo "MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_RISK]->(r:Risk) WHERE r.status = 'open' RETURN r.id, r.title, r.severity;" | mgconsole --host 127.0.0.1 --port 7687 --output-format=csv
 ```
 
 #### Hierarchy (before touching any class/interface)
