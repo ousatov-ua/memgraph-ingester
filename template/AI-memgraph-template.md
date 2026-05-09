@@ -74,18 +74,25 @@ WITH ap[size(ap)-2] AS ac, bp[size(bp)-2] AS bc WHERE ac <> bc
 RETURN ac+' -> '+bc AS edge, COUNT(*) AS n ORDER BY n DESC LIMIT 30;
 
 // Method count per class (hotspot / SRP signal)
+// ⚠️ Memgraph requires WITH before RETURN when mixing aggregation with node properties.
 MATCH (c:Class {project: '{{PROJECT_NAME}}'})-[:DECLARES]->(m:Method)
-WHERE NOT c.isExternal AND NOT m.isSynthetic
-RETURN c.fqn AS cls, COUNT(m) AS n ORDER BY n DESC LIMIT 20;
+WHERE c.isExternal = false AND m.isSynthetic = false
+WITH c.fqn AS cls, COUNT(m) AS n
+RETURN cls, n ORDER BY n DESC LIMIT 20;
 
 // Interface implementors (LSP / DIP)
 MATCH (i:Interface {project: '{{PROJECT_NAME}}'})
-OPTIONAL MATCH (c:Class {project: '{{PROJECT_NAME}}'})-[:IMPLEMENTS]->(i) WHERE NOT c.isExternal
-RETURN i.fqn AS iface, collect(c.fqn) AS implementors;
+OPTIONAL MATCH (c:Class {project: '{{PROJECT_NAME}}'})-[:IMPLEMENTS]->(i)
+WHERE c.isExternal = false
+WITH i.fqn AS iface, collect(c.fqn) AS implementors
+RETURN iface, implementors;
 
 // Annotation usage (patterns / misuse)
-MATCH (n {project: '{{PROJECT_NAME}}'})-[:ANNOTATED_WITH]->(a:Annotation) WHERE NOT n.isExternal
-RETURN a.fqn AS ann, COUNT(n) AS n ORDER BY n DESC LIMIT 20;
+// ⚠️ Label-less node patterns fail with relationships — use explicit label.
+MATCH (c:Class {project: '{{PROJECT_NAME}}'})-[:ANNOTATED_WITH]->(a:Annotation)
+WHERE c.isExternal = false
+WITH a.fqn AS ann, COUNT(c) AS n
+RETURN ann, n ORDER BY n DESC LIMIT 20;
 
 // Non-static fields (field injection check)
 MATCH (c:Class {project: '{{PROJECT_NAME}}'})-[:DECLARES]->(f:Field)
@@ -133,6 +140,9 @@ RETURN c.fqn AS cls, f.name, f.type, f.visibility ORDER BY c.fqn, f.name;
 - **Record accessor methods**: auto-generated accessors (`name()`, `age()`, etc.) are stored with `isSynthetic = true`. They are **invisible** when filtering `WHERE NOT m.isSynthetic`. To see them, drop the filter or add `OR m.isSynthetic = true`. The record itself has `isRecord = true`.
 - **`DECLARES`**: always add label — `-[:DECLARES]->(m:Method)`.
 - **`visibility`**: `"public"`, `"protected"`, `"private"`, `""` (package-private).
+- **Aggregation + node property in RETURN**: Memgraph rejects `RETURN c.fqn, COUNT(m)` with *"Unbound variable"*. Always project via `WITH` first: `WITH c.fqn AS cls, COUNT(m) AS n RETURN cls, n`.
+- **Label-less node patterns**: `MATCH (n {project: ...})-[:REL]->()` fails without an explicit label. Use `(n:Class {project: ...})` or `(n:Interface {project: ...})`.
+- **`NOT property` vs `= false`**: prefer `c.isExternal = false` over `NOT c.isExternal` for reliability in multi-hop patterns.
 
 ---
 
