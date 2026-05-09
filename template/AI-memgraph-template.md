@@ -31,16 +31,17 @@ When Memgraph returns no results, fall back to text search and state why.
 
 **Strict rule — always follow this order when executing Cypher queries:**
 
-1. **MCP Memgraph tool** — available if `mcp_memgraph_query` (or similar) appears in your toolset. Use it; no shell needed.
-2. **`mgconsole`** — fallback when MCP is unavailable; always use `--output-format=csv`. **One query per invocation** — `mgconsole` does not support multi-statement pipes.
+1. **MCP Memgraph tool** — scan your available tools list for any tool whose name contains `memgraph` or `cypher` (e.g. `mcp_memgraph_query`). If found, use it exclusively — no shell commands needed.
+2. **`mgconsole`** — fallback when no MCP tool is available; always use `--output-format=csv`. **One Cypher statement per `echo` pipe** — do not chain multiple statements with `;` in a single pipe. Multiple `echo … | $MGQ` lines in the same bash block are fine.
 
-   Define `MGQ` at the **top of every bash block** that runs Cypher — aliases do not survive across tool-call invocations:
+   Define `MGQ` at the **top of every bash block** that runs Cypher — shell variables do not persist across separate bash tool invocations:
    ```bash
    MGQ="mgconsole --host ${MG_HOST:-127.0.0.1} --port ${MG_PORT:-7687} ${MG_USER:+--username $MG_USER} ${MG_PASS:+--password $MG_PASS} --output-format=csv"
    echo "<single cypher query>" | $MGQ
    ```
    > **Empty output = 0 rows, not an error.** `mgconsole` emits no header when a query returns nothing — this is normal.  
    > If `mgconsole` is not in `$PATH`, locate it first: `which mgconsole || find /opt /usr/local -name mgconsole 2>/dev/null | head -1`
+   > **Large result sets**: queries returning many rows (e.g. all methods across all classes) may be saved to a temp file by the bash tool instead of shown inline. Avoid this by adding `LIMIT` or filtering by a specific class/package. If a temp file path is returned, read it with `head -100 <path>` or `cat <path>`.
 
 State which tool was used when reporting query results.
 
@@ -126,7 +127,7 @@ RETURN c.fqn AS cls, f.name, f.type, f.visibility ORDER BY c.fqn, f.name;
 
 - **`CALLS`** has no `project` — filter both ends.
 - **`CALLS`/`ANNOTATED_WITH`** — best-effort; missing edges ≠ no relationship.
-- **External nodes**: `isExternal = true`; exclude with `WHERE NOT n.isExternal`.
+- **External nodes**: `isExternal = true`; exclude with `WHERE NOT n.isExternal`. When a class implements an external interface (e.g. a JDK or library type), that interface is stored as an external `:Interface` node (`isExternal = true`) — it **will not** appear in `WHERE NOT i.isExternal` queries, but the `IMPLEMENTS` edge and external node still exist and can be queried directly.
 - **Annotation FQN**: non-JDK stored as simple name.
 - **Constructors**: `name = '<init>'`. **Nested classes**: FQN uses `$` (e.g. `Outer$Inner`); whether the class is `static` is not stored — infer from source if needed.
 - **`DECLARES`**: always add label — `-[:DECLARES]->(m:Method)`.
