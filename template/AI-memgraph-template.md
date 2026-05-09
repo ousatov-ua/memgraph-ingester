@@ -32,9 +32,24 @@ When Memgraph returns no results, fall back to text search and state why.
 **Strict rule — always follow this order when executing Cypher queries:**
 
 1. **MCP Memgraph tool** — available if `mcp_memgraph_query` (or similar) appears in your toolset. Use it; no shell needed.
-2. **`mgconsole`** — fallback when MCP is unavailable; always use `--output-format=csv`. **One query per invocation** — `mgconsole` does not support multi-statement pipes:
+2. **`mgconsole`** — fallback when MCP is unavailable; always use `--output-format=csv`. **One query per invocation** — `mgconsole` does not support multi-statement pipes.
+
+   Connection is driven by env vars with sensible defaults:
    ```bash
-   echo "<single cypher query>" | mgconsole --host 127.0.0.1 --port 7687 --output-format=csv
+   export MG_HOST="${MG_HOST:-127.0.0.1}"
+   export MG_PORT="${MG_PORT:-7687}"
+   export MG_USER="${MG_USER:-}"       # leave empty if auth disabled
+   export MG_PASS="${MG_PASS:-}"       # leave empty if auth disabled
+   ```
+
+   Helper alias (set once per session, then use `mgq` everywhere):
+   ```bash
+   alias mgq='mgconsole --host "$MG_HOST" --port "$MG_PORT" ${MG_USER:+--username "$MG_USER"} ${MG_PASS:+--password "$MG_PASS"} --output-format=csv'
+   ```
+
+   Query pattern:
+   ```bash
+   echo "<single cypher query>" | mgq
    ```
    > **Empty output = 0 rows, not an error.** `mgconsole` emits no header when a query returns nothing — this is normal.
 
@@ -175,25 +190,25 @@ All nodes also have `createdAt`, `updatedAt`.
 
 #### Orientation (run at task start)
 
-Run **each query separately** — one `echo "..." | mgconsole` call per query. Empty output = 0 rows (normal).
+Run **each query separately** — one `echo "..." | mgq` call per query. Empty output = 0 rows (normal).
 
 ```bash
-echo "MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_RULE]->(r:Rule) RETURN r.id, r.severity, r.description ORDER BY r.severity;" | mgconsole --host 127.0.0.1 --port 7687 --output-format=csv
+echo "MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_RULE]->(r:Rule) RETURN r.id, r.severity, r.description ORDER BY r.severity;" | mgq
 ```
 ```bash
-echo "MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_FINDING]->(f:Finding) WHERE f.status = 'open' RETURN f.id, f.type, f.summary;" | mgconsole --host 127.0.0.1 --port 7687 --output-format=csv
+echo "MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_FINDING]->(f:Finding) WHERE f.status = 'open' RETURN f.id, f.type, f.summary;" | mgq
 ```
 ```bash
-echo "MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_CONTEXT]->(c:Context) RETURN c.id, c.content, c.source;" | mgconsole --host 127.0.0.1 --port 7687 --output-format=csv
+echo "MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_CONTEXT]->(c:Context) RETURN c.id, c.content, c.source;" | mgq
 ```
 ```bash
-echo "MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_TASK]->(t:Task) WHERE t.status IN ['todo','doing','blocked'] RETURN t.id, t.title, t.status, t.priority ORDER BY t.priority;" | mgconsole --host 127.0.0.1 --port 7687 --output-format=csv
+echo "MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_TASK]->(t:Task) WHERE t.status IN ['todo','doing','blocked'] RETURN t.id, t.title, t.status, t.priority ORDER BY t.priority;" | mgq
 ```
 ```bash
-echo "MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_QUESTION]->(q:Question) WHERE q.status = 'open' RETURN q.id, q.title;" | mgconsole --host 127.0.0.1 --port 7687 --output-format=csv
+echo "MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_QUESTION]->(q:Question) WHERE q.status = 'open' RETURN q.id, q.title;" | mgq
 ```
 ```bash
-echo "MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_RISK]->(r:Risk) WHERE r.status = 'open' RETURN r.id, r.title, r.severity;" | mgconsole --host 127.0.0.1 --port 7687 --output-format=csv
+echo "MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_RISK]->(r:Risk) WHERE r.status = 'open' RETURN r.id, r.title, r.severity;" | mgq
 ```
 
 #### Hierarchy (before touching any class/interface)
