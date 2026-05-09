@@ -9,7 +9,7 @@ Repo indexed under **`{{PROJECT_NAME}}`**. All queries MUST include `project: '{
 3. **grep/glob** — strings, comments, non-Java resources
 4. **Other tools** — last resort
 
-**BLOCKING — before any task involving code changes:** run orientation queries (Rules, open Findings, Context, active Tasks). Empty results are valid — proceed normally. Skip if already run in this session.
+**BLOCKING — before any task involving code changes:** run orientation queries (Rules, open Findings, Context, active Tasks). Empty results are valid — proceed normally. Skip if already run in this session. **Read-only investigations (no code changes planned) may skip orientation.**
 
 **BLOCKING — before any class/interface work:** query full hierarchy.  
 **BLOCKING — for any Java code investigation (fields, methods, callers, type usages):**
@@ -39,7 +39,7 @@ When Memgraph returns no results, fall back to text search and state why.
    MGQ="mgconsole --host ${MG_HOST:-127.0.0.1} --port ${MG_PORT:-7687} ${MG_USER:+--username $MG_USER} ${MG_PASS:+--password $MG_PASS} --output-format=csv"
    echo "<single cypher query>" | $MGQ
    ```
-   > **Empty output = 0 rows, not an error.** `mgconsole` emits no header when a query returns nothing — this is normal.  
+   > **Empty output = 0 rows, not an error.** `mgconsole` emits no output (not even a header) when a query returns nothing — this is normal and expected for orientation queries that simply have no data yet.  
    > If `mgconsole` is not in `$PATH`, locate it first: `which mgconsole || find /opt /usr/local -name mgconsole 2>/dev/null | head -1`
    > **Large result sets**: queries returning many rows (e.g. all methods across all classes) may be saved to a temp file by the bash tool instead of shown inline. Avoid this by adding `LIMIT` or filtering by a specific class/package. If a temp file path is returned, read it with `head -100 <path>` or `cat <path>`.
 
@@ -129,7 +129,8 @@ RETURN c.fqn AS cls, f.name, f.type, f.visibility ORDER BY c.fqn, f.name;
 - **`CALLS`/`ANNOTATED_WITH`** — best-effort; missing edges ≠ no relationship.
 - **External nodes**: `isExternal = true`; exclude with `WHERE NOT n.isExternal`. When a class implements an external interface (e.g. a JDK or library type), that interface is stored as an external `:Interface` node (`isExternal = true`) — it **will not** appear in `WHERE NOT i.isExternal` queries, but the `IMPLEMENTS` edge and external node still exist and can be queried directly.
 - **Annotation FQN**: non-JDK stored as simple name.
-- **Constructors**: `name = '<init>'`. **Nested classes**: FQN uses `$` (e.g. `Outer$Inner`); whether the class is `static` is not stored — infer from source if needed.
+- **Constructors**: `name = '<init>'`. **Nested classes**: FQN uses `$` (e.g. `Outer$Inner`); stored in the **parent class's package** (not a sub-package); whether the class is `static` is not stored — infer from source if needed.
+- **Record accessor methods**: auto-generated accessors (`name()`, `age()`, etc.) are stored with `isSynthetic = true`. They are **invisible** when filtering `WHERE NOT m.isSynthetic`. To see them, drop the filter or add `OR m.isSynthetic = true`. The record itself has `isRecord = true`.
 - **`DECLARES`**: always add label — `-[:DECLARES]->(m:Method)`.
 - **`visibility`**: `"public"`, `"protected"`, `"private"`, `""` (package-private).
 
