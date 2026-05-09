@@ -185,7 +185,7 @@ All nodes also have `createdAt`, `updatedAt`.
 - Rule `severity`: `hard`|`soft`|`recommendation`
 - Finding `type`: `bug`|`perf`|`constraint`|`security`
 - Finding `status`: `open`|`resolved`|`obsolete`
-- Task `status`: `todo`|`doing`|`done`|`blocked`|`cancelled`
+- Task `status`: `todo`|`doing`|`done`|`blocked`|`cancelled`; `priority`: `0` (critical)|`1` (high)|`2` (medium)|`3` (low)|`4` (none)
 - Risk `severity`: `low`|`medium`|`high`|`critical`; `status`: `open`|`mitigated`|`accepted`|`obsolete`
 - Question `status`: `open`|`answered`|`obsolete`
 - Idea `status`: `proposed`|`accepted`|`rejected`|`obsolete`
@@ -212,7 +212,7 @@ mgq() { mgconsole --host ${MG_HOST:-127.0.0.1} --port ${MG_PORT:-7687} ${MG_USER
 echo "MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_RULE]->(r:Rule) RETURN r.id, r.severity, r.description ORDER BY r.severity;" | mgq
 echo "MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_FINDING]->(f:Finding) WHERE f.status = 'open' RETURN f.id, f.type, f.summary;" | mgq
 echo "MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_CONTEXT]->(c:Context) RETURN c.id, c.content, c.source;" | mgq
-echo "MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_TASK]->(t:Task) WHERE t.status IN ['todo','doing','blocked'] RETURN t.id, t.title, t.status, t.priority ORDER BY t.priority;" | mgq
+echo "MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_TASK]->(t:Task) WHERE t.status IN ['todo','doing','blocked'] RETURN t.id, t.title, t.status, t.priority ORDER BY t.priority, t.status;" | mgq
 echo "MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_QUESTION]->(q:Question) WHERE q.status = 'open' RETURN q.id, q.title;" | mgq
 echo "MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_RISK]->(r:Risk) WHERE r.status = 'open' RETURN r.id, r.title, r.severity;" | mgq
 ```
