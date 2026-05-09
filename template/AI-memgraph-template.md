@@ -32,12 +32,12 @@ When Memgraph returns no results, fall back to text search and state why.
 **Strict rule — always follow this order when executing Cypher queries:**
 
 1. **MCP Memgraph tool** — scan your available tools list for any tool whose name contains `memgraph` or `cypher` (e.g. `mcp_memgraph_query`). If found, use it exclusively — no shell commands needed.
-2. **`mgconsole`** — fallback when no MCP tool is available; always use `--output-format=csv`. **One Cypher statement per `echo` pipe** — do not chain multiple statements with `;` in a single pipe. Multiple `echo … | $MGQ` lines in the same bash block are fine.
+2. **`mgconsole`** — fallback when no MCP tool is available; always use `--output-format=csv`. **One Cypher statement per `echo` pipe** — do not chain multiple statements with `;` in a single pipe. Multiple `echo … | mgq` lines in the same bash block are fine.
 
-   Define `MGQ` at the **top of every bash block** that runs Cypher — shell variables do not persist across separate bash tool invocations:
+   Define `mgq` as a shell function at the **top of every bash block** that runs Cypher — shell state does not persist across separate bash tool invocations:
    ```bash
-   MGQ="mgconsole --host ${MG_HOST:-127.0.0.1} --port ${MG_PORT:-7687} ${MG_USER:+--username $MG_USER} ${MG_PASS:+--password $MG_PASS} --output-format=csv"
-   echo "<single cypher query>" | $MGQ
+   mgq() { mgconsole --host ${MG_HOST:-127.0.0.1} --port ${MG_PORT:-7687} ${MG_USER:+--username $MG_USER} ${MG_PASS:+--password $MG_PASS} --output-format=csv "$@"; }
+   echo "<single cypher query>" | mgq
    ```
    > **Empty output = 0 rows, not an error.** `mgconsole` emits no output (not even a header) when a query returns nothing — this is normal and expected for orientation queries that simply have no data yet.  
    > If `mgconsole` is not in `$PATH`, locate it first: `which mgconsole || find /opt /usr/local -name mgconsole 2>/dev/null | head -1`
@@ -193,16 +193,16 @@ All nodes also have `createdAt`, `updatedAt`.
 
 #### Orientation (run at task start)
 
-Run all six in **one bash block** — define `MGQ` once at the top. Empty output = 0 rows (normal).
+Run all six in **one bash block** — define `mgq` once at the top. Empty output = 0 rows (normal).
 
 ```bash
-MGQ="mgconsole --host ${MG_HOST:-127.0.0.1} --port ${MG_PORT:-7687} ${MG_USER:+--username $MG_USER} ${MG_PASS:+--password $MG_PASS} --output-format=csv"
-echo "MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_RULE]->(r:Rule) RETURN r.id, r.severity, r.description ORDER BY r.severity;" | $MGQ
-echo "MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_FINDING]->(f:Finding) WHERE f.status = 'open' RETURN f.id, f.type, f.summary;" | $MGQ
-echo "MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_CONTEXT]->(c:Context) RETURN c.id, c.content, c.source;" | $MGQ
-echo "MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_TASK]->(t:Task) WHERE t.status IN ['todo','doing','blocked'] RETURN t.id, t.title, t.status, t.priority ORDER BY t.priority;" | $MGQ
-echo "MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_QUESTION]->(q:Question) WHERE q.status = 'open' RETURN q.id, q.title;" | $MGQ
-echo "MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_RISK]->(r:Risk) WHERE r.status = 'open' RETURN r.id, r.title, r.severity;" | $MGQ
+mgq() { mgconsole --host ${MG_HOST:-127.0.0.1} --port ${MG_PORT:-7687} ${MG_USER:+--username $MG_USER} ${MG_PASS:+--password $MG_PASS} --output-format=csv "$@"; }
+echo "MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_RULE]->(r:Rule) RETURN r.id, r.severity, r.description ORDER BY r.severity;" | mgq
+echo "MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_FINDING]->(f:Finding) WHERE f.status = 'open' RETURN f.id, f.type, f.summary;" | mgq
+echo "MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_CONTEXT]->(c:Context) RETURN c.id, c.content, c.source;" | mgq
+echo "MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_TASK]->(t:Task) WHERE t.status IN ['todo','doing','blocked'] RETURN t.id, t.title, t.status, t.priority ORDER BY t.priority;" | mgq
+echo "MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_QUESTION]->(q:Question) WHERE q.status = 'open' RETURN q.id, q.title;" | mgq
+echo "MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_RISK]->(r:Risk) WHERE r.status = 'open' RETURN r.id, r.title, r.severity;" | mgq
 ```
 
 #### Hierarchy (before touching any class/interface)
