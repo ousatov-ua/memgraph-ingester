@@ -32,21 +32,28 @@ When Memgraph returns no results, fall back to text search and state why.
 **Strict rule — always follow this order when executing Cypher queries:**
 
 1. **MCP Memgraph tool** — scan your available tools list for any tool whose name contains `memgraph` or `cypher` (e.g. `mcp_memgraph_query`). If found, use it exclusively — no shell commands needed.
-2. **`mgconsole`** — fallback when no MCP tool is available; always use `--output-format=csv`. **One Cypher statement per `echo` pipe** — do not chain multiple statements with `;` in a single pipe. Multiple `echo … | mgq` lines in the same bash block are fine.
+2. **`mgconsole`** — fallback when no MCP tool is available; always use `--output-format=csv`. **One Cypher statement per `echo` pipe** — do not chain multiple statements with `;` in a single pipe.
 
-   If `mgq` is already on `PATH`, use it directly. If not, define it **once** at the top of the **first** bash block in the session, then use `mgq` in all subsequent bash blocks without any check:
+   **Use a single persistent async shell for the entire session.** Open it once with `shellId="mgraph"`, define `mgq` there, then reuse it for all queries via `write_bash`. This avoids redefining `mgq` on every call and enables parallel queries with `&` + `wait`.
+
    ```bash
-   # First bash block only — define mgq if missing:
+   # Step 1 — open once at session start (mode=async, shellId="mgraph"):
+   bash
+   ```
+   ```bash
+   # Step 2 — define mgq (write_bash to shellId="mgraph"):
    mgq() { mgconsole --host ${MG_HOST:-127.0.0.1} --port ${MG_PORT:-7687} ${MG_USER:+--username $MG_USER} ${MG_PASS:+--password $MG_PASS} --output-format=csv "$@"; }
-   echo "<single cypher query>" | mgq
+   echo "mgq ready"
    ```
    ```bash
-   # All subsequent bash blocks — use mgq directly, no re-definition needed:
-   echo "<single cypher query>" | mgq
+   # Step 3 — run queries in parallel (write_bash to shellId="mgraph"):
+   (echo "=== SECTION ===" && echo "<cypher query 1>" | mgq) &
+   (echo "=== SECTION ===" && echo "<cypher query 2>" | mgq) &
+   wait && echo "--- done ---"
    ```
-   > **Empty output = 0 rows, not an error.** `mgconsole` emits no output (not even a header) when a query returns nothing — this is normal and expected for orientation queries that simply have no data yet.  
+   > **Empty output = 0 rows, not an error.** `mgconsole` emits no output when a query returns nothing — normal for orientation queries with no data yet.
    > If `mgconsole` is not in `$PATH`, locate it first: `which mgconsole || find /opt /usr/local -name mgconsole 2>/dev/null | head -1`
-   > **Large result sets**: queries returning many rows (e.g. all methods across all classes) may be saved to a temp file by the bash tool instead of shown inline. Avoid this by adding `LIMIT` or filtering by a specific class/package. If a temp file path is returned, read it with `head -100 <path>` or `cat <path>`.
+   > **Large result sets**: add `LIMIT` or filter by class/package. If a temp file path is returned, read it with `head -100 <path>`.
 
 State which tool was used when reporting query results.
 
