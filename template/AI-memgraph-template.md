@@ -34,9 +34,9 @@ When Memgraph returns no results, fall back to text search and state why.
 **Strict rule — always follow this order when executing Cypher queries:**
 
 1. **MCP Memgraph tool** — use if available in the current environment (preferred; no shell needed).
-2. **`mgconsole`** — fallback when MCP is unavailable; always use `--output-format=csv`:
+2. **`mgconsole`** — fallback when MCP is unavailable; always use `--output-format=csv`. **One query per invocation** — `mgconsole` does not support multi-statement pipes:
    ```bash
-   echo "<cypher>" | mgconsole --host 127.0.0.1 --port 7687 --output-format=csv
+   echo "<single cypher query>" | mgconsole --host 127.0.0.1 --port 7687 --output-format=csv
    ```
 
 State which tool was used when reporting query results.
@@ -176,6 +176,8 @@ All nodes also have `createdAt`, `updatedAt`.
 
 #### Orientation (run at task start)
 
+> **mgconsole users:** run each line as a separate `echo "..." | mgconsole` call — multi-statement pipes are not supported.
+
 ```cypher
 MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_RULE]->(r:Rule) RETURN r.id, r.severity, r.description ORDER BY r.severity;
 MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_FINDING]->(f:Finding) WHERE f.status = 'open' RETURN f.id, f.type, f.summary;
@@ -279,5 +281,7 @@ RETURN type(r) AS rel, n.id AS id, labels(n) AS type;
 ```cypher
 MATCH (c:Code {project: '{{PROJECT_NAME}}'}) RETURN c.lastIngested;
 ```
+
+> `:Code` is the intermediary node between `:Project` and `:Package`/`:File` — it is **not** listed in the schema table above but exists in the graph. `lastIngested` is a Unix-epoch **microseconds** integer (e.g. `1778314313032240`).
 
 > Memory is not logs. Store only what improves future decisions.
