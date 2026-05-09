@@ -11,13 +11,13 @@ Ingests the structural model of a Java codebase into [Memgraph](https://memgraph
 queryable **code + memory knowledge graph**, combining source structure with persistent engineering
 context (decisions, rules, findings, etc.).
 
-Paired with the
+Optionally paired with the
 [Memgraph MCP server](https://github.com/memgraph/ai-toolkit/tree/main/integrations/mcp-memgraph),
-this enables Claude Code (or any MCP-aware client) to reason over both code and accumulated project
+this enables you AI agent to reason over both code and accumulated project
 knowledge via graph queries instead of raw text search — improving accuracy, reducing cost, and
 speeding up analysis.
 
-You can also use `mgconsole` to query the graph directly – without the MCP server.
+Having MCP configured is not required: `mgconsole` utility can be used to query the graph directly which also decreases tokens usage.
 
 You can use the code in this repo as-is, or fork it and customize it to your needs.
 [Memgraph](https://memgraph.com/) is free too.
