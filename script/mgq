@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+mgconsole \
+  --host "${MG_HOST:-127.0.0.1}" \
+  --port "${MG_PORT:-7687}" \
+  ${MG_USER:+--username "$MG_USER"} \
+  ${MG_PASS:+--password "$MG_PASS"} \
+  --output-format=csv "$@"
