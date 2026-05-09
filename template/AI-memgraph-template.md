@@ -81,9 +81,10 @@ WITH c.fqn AS cls, COUNT(m) AS n
 RETURN cls, n ORDER BY n DESC LIMIT 20;
 
 // Interface implementors (LSP / DIP)
+// ⚠️ Move isExternal filter into the node pattern — WHERE after OPTIONAL MATCH
+//    causes "Unbound variable" in Memgraph when the clause follows a label scan.
 MATCH (i:Interface {project: '{{PROJECT_NAME}}'})
-OPTIONAL MATCH (c:Class {project: '{{PROJECT_NAME}}'})-[:IMPLEMENTS]->(i)
-WHERE c.isExternal = false
+OPTIONAL MATCH (c:Class {project: '{{PROJECT_NAME}}', isExternal: false})-[:IMPLEMENTS]->(i)
 WITH i.fqn AS iface, collect(c.fqn) AS implementors
 RETURN iface, implementors;
 
@@ -137,12 +138,13 @@ RETURN c.fqn AS cls, f.name, f.type, f.visibility ORDER BY c.fqn, f.name;
 - **External nodes**: `isExternal = true`; exclude with `WHERE NOT n.isExternal`. When a class implements an external interface (e.g. a JDK or library type), that interface is stored as an external `:Interface` node (`isExternal = true`) — it **will not** appear in `WHERE NOT i.isExternal` queries, but the `IMPLEMENTS` edge and external node still exist and can be queried directly.
 - **Annotation FQN**: non-JDK stored as simple name.
 - **Constructors**: `name = '<init>'`. **Nested classes**: FQN uses `$` (e.g. `Outer$Inner`); stored in the **parent class's package** (not a sub-package); whether the class is `static` is not stored — infer from source if needed.
-- **Record accessor methods**: auto-generated accessors (`name()`, `age()`, etc.) are stored with `isSynthetic = true`. They are **invisible** when filtering `WHERE NOT m.isSynthetic`. To see them, drop the filter or add `OR m.isSynthetic = true`. The record itself has `isRecord = true`.
+- **Record accessor methods**: auto-generated accessors (`name()`, `age()`, etc.) are stored with `isSynthetic = true`. They are **invisible** when filtering `WHERE NOT m.isSynthetic`. To see them, drop the filter or add `OR m.isSynthetic = true`. The record itself has `isRecord = true`. **Records with no explicitly declared methods are completely absent from method-count queries** — if a record has 0 explicit methods, it will not appear in any `WHERE m.isSynthetic = false` result; this is correct behaviour, not an ingestion gap.
 - **`DECLARES`**: always add label — `-[:DECLARES]->(m:Method)`.
 - **`visibility`**: `"public"`, `"protected"`, `"private"`, `""` (package-private).
 - **Aggregation + node property in RETURN**: Memgraph rejects `RETURN c.fqn, COUNT(m)` with *"Unbound variable"*. Always project via `WITH` first: `WITH c.fqn AS cls, COUNT(m) AS n RETURN cls, n`.
 - **Label-less node patterns**: `MATCH (n {project: ...})-[:REL]->()` fails without an explicit label. Use `(n:Class {project: ...})` or `(n:Interface {project: ...})`.
 - **`NOT property` vs `= false`**: prefer `c.isExternal = false` over `NOT c.isExternal` for reliability in multi-hop patterns.
+- **`OPTIONAL MATCH` chaining on label scans**: chaining two or more `OPTIONAL MATCH` clauses after a label scan (e.g. `MATCH (c:Class) WHERE c.isExternal = false OPTIONAL MATCH ... OPTIONAL MATCH ...`) fails in Memgraph with *"Unbound variable"* when `collect()` aggregates appear in `RETURN`. **Fix:** move node filters into the MATCH pattern (`{isExternal: false}`), not `WHERE`, and never chain OPTIONAL MATCHes on a label scan — split into separate queries if multiple optional relationships are needed.
 
 ---
 
