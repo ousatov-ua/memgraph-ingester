@@ -34,24 +34,13 @@ When Memgraph returns no results, fall back to text search and state why.
 1. **MCP Memgraph tool** — available if `mcp_memgraph_query` (or similar) appears in your toolset. Use it; no shell needed.
 2. **`mgconsole`** — fallback when MCP is unavailable; always use `--output-format=csv`. **One query per invocation** — `mgconsole` does not support multi-statement pipes.
 
-   Connection is driven by env vars with sensible defaults:
+   Define `MGQ` at the **top of every bash block** that runs Cypher — aliases do not survive across tool-call invocations:
    ```bash
-   export MG_HOST="${MG_HOST:-127.0.0.1}"
-   export MG_PORT="${MG_PORT:-7687}"
-   export MG_USER="${MG_USER:-}"       # leave empty if auth disabled
-   export MG_PASS="${MG_PASS:-}"       # leave empty if auth disabled
+   MGQ="mgconsole --host ${MG_HOST:-127.0.0.1} --port ${MG_PORT:-7687} ${MG_USER:+--username $MG_USER} ${MG_PASS:+--password $MG_PASS} --output-format=csv"
+   echo "<single cypher query>" | $MGQ
    ```
-
-   Helper alias (set once per session, then use `mgq` everywhere):
-   ```bash
-   alias mgq='mgconsole --host "$MG_HOST" --port "$MG_PORT" ${MG_USER:+--username "$MG_USER"} ${MG_PASS:+--password "$MG_PASS"} --output-format=csv'
-   ```
-
-   Query pattern:
-   ```bash
-   echo "<single cypher query>" | mgq
-   ```
-   > **Empty output = 0 rows, not an error.** `mgconsole` emits no header when a query returns nothing — this is normal.
+   > **Empty output = 0 rows, not an error.** `mgconsole` emits no header when a query returns nothing — this is normal.  
+   > If `mgconsole` is not in `$PATH`, locate it first: `which mgconsole || find /opt /usr/local -name mgconsole 2>/dev/null | head -1`
 
 State which tool was used when reporting query results.
 
@@ -190,25 +179,16 @@ All nodes also have `createdAt`, `updatedAt`.
 
 #### Orientation (run at task start)
 
-Run **each query separately** — one `echo "..." | mgq` call per query. Empty output = 0 rows (normal).
+Run all six in **one bash block** — define `MGQ` once at the top. Empty output = 0 rows (normal).
 
 ```bash
-echo "MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_RULE]->(r:Rule) RETURN r.id, r.severity, r.description ORDER BY r.severity;" | mgq
-```
-```bash
-echo "MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_FINDING]->(f:Finding) WHERE f.status = 'open' RETURN f.id, f.type, f.summary;" | mgq
-```
-```bash
-echo "MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_CONTEXT]->(c:Context) RETURN c.id, c.content, c.source;" | mgq
-```
-```bash
-echo "MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_TASK]->(t:Task) WHERE t.status IN ['todo','doing','blocked'] RETURN t.id, t.title, t.status, t.priority ORDER BY t.priority;" | mgq
-```
-```bash
-echo "MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_QUESTION]->(q:Question) WHERE q.status = 'open' RETURN q.id, q.title;" | mgq
-```
-```bash
-echo "MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_RISK]->(r:Risk) WHERE r.status = 'open' RETURN r.id, r.title, r.severity;" | mgq
+MGQ="mgconsole --host ${MG_HOST:-127.0.0.1} --port ${MG_PORT:-7687} ${MG_USER:+--username $MG_USER} ${MG_PASS:+--password $MG_PASS} --output-format=csv"
+echo "MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_RULE]->(r:Rule) RETURN r.id, r.severity, r.description ORDER BY r.severity;" | $MGQ
+echo "MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_FINDING]->(f:Finding) WHERE f.status = 'open' RETURN f.id, f.type, f.summary;" | $MGQ
+echo "MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_CONTEXT]->(c:Context) RETURN c.id, c.content, c.source;" | $MGQ
+echo "MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_TASK]->(t:Task) WHERE t.status IN ['todo','doing','blocked'] RETURN t.id, t.title, t.status, t.priority ORDER BY t.priority;" | $MGQ
+echo "MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_QUESTION]->(q:Question) WHERE q.status = 'open' RETURN q.id, q.title;" | $MGQ
+echo "MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_RISK]->(r:Risk) WHERE r.status = 'open' RETURN r.id, r.title, r.severity;" | $MGQ
 ```
 
 #### Hierarchy (before touching any class/interface)
