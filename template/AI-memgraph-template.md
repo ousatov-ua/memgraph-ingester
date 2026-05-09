@@ -34,9 +34,9 @@ When Memgraph returns no results, fall back to text search and state why.
 1. **MCP Memgraph tool** — scan your available tools list for any tool whose name contains `memgraph` or `cypher` (e.g. `mcp_memgraph_query`). If found, use it exclusively — no shell commands needed.
 2. **`mgconsole`** — fallback when no MCP tool is available; always use `--output-format=csv`. **One Cypher statement per `echo` pipe** — do not chain multiple statements with `;` in a single pipe. Multiple `echo … | mgq` lines in the same bash block are fine.
 
-   Define `mgq` as a shell function at the **top of every bash block** that runs Cypher — shell state does not persist across separate bash tool invocations:
+   If `mgq` is not available as a standalone command, define it as a shell function at the **top of the bash block**. Check first to avoid redundancy:
    ```bash
-   mgq() { mgconsole --host ${MG_HOST:-127.0.0.1} --port ${MG_PORT:-7687} ${MG_USER:+--username $MG_USER} ${MG_PASS:+--password $MG_PASS} --output-format=csv "$@"; }
+   command -v mgq >/dev/null 2>&1 || mgq() { mgconsole --host ${MG_HOST:-127.0.0.1} --port ${MG_PORT:-7687} ${MG_USER:+--username $MG_USER} ${MG_PASS:+--password $MG_PASS} --output-format=csv "$@"; }
    echo "<single cypher query>" | mgq
    ```
    > **Empty output = 0 rows, not an error.** `mgconsole` emits no output (not even a header) when a query returns nothing — this is normal and expected for orientation queries that simply have no data yet.  
@@ -193,10 +193,10 @@ All nodes also have `createdAt`, `updatedAt`.
 
 #### Orientation (run at task start)
 
-Run all six in **one bash block** — define `mgq` once at the top. Empty output = 0 rows (normal).
+Run all six in **one bash block**. If `mgq` is not on `PATH`, define it once at the top. Empty output = 0 rows (normal).
 
 ```bash
-mgq() { mgconsole --host ${MG_HOST:-127.0.0.1} --port ${MG_PORT:-7687} ${MG_USER:+--username $MG_USER} ${MG_PASS:+--password $MG_PASS} --output-format=csv "$@"; }
+command -v mgq >/dev/null 2>&1 || mgq() { mgconsole --host ${MG_HOST:-127.0.0.1} --port ${MG_PORT:-7687} ${MG_USER:+--username $MG_USER} ${MG_PASS:+--password $MG_PASS} --output-format=csv "$@"; }
 echo "MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_RULE]->(r:Rule) RETURN r.id, r.severity, r.description ORDER BY r.severity;" | mgq
 echo "MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_FINDING]->(f:Finding) WHERE f.status = 'open' RETURN f.id, f.type, f.summary;" | mgq
 echo "MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_CONTEXT]->(c:Context) RETURN c.id, c.content, c.source;" | mgq
