@@ -10,6 +10,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Comparator;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Stream;
@@ -551,7 +552,7 @@ class IngestionOrchestratorIT {
     Path pkgDir = sourceDir.resolve("com/example");
     Files.createDirectories(pkgDir);
 
-    // "AAA" sorts before "BBB" — guarantees AAA is processed first in phase 1
+    // "AAA" sorts before "BBB" — guarantees AAA is processed first (inline MERGE-on-callee test)
     Files.writeString(
         pkgDir.resolve("AAACaller.java"),
         """
@@ -588,6 +589,239 @@ class IngestionOrchestratorIT {
               .get("n")
               .asLong();
       assertTrue(callEdges >= 1, "Cross-file CALLS edge must exist (AAACaller -> BBBService)");
+    }
+  }
+
+  /**
+   * Verifies that inline CALLS creation works when the callee file is processed after the caller —
+   * the MERGE-on-callee trick creates a placeholder that is upgraded when BBBService is ingested.
+   */
+  @Test
+  void inlineCallEdgesCreatedWhenCalleeProcessedLater() throws Exception {
+    currentProject = PROJECT_BASE + "-inline";
+    sourceDir = Files.createTempDirectory("orch-inline-src-");
+    Path pkgDir = sourceDir.resolve("com/example");
+    Files.createDirectories(pkgDir);
+
+    // "AAA" sorts before "ZZZ" — caller always processed before callee
+    Files.writeString(
+        pkgDir.resolve("AAAInlineCaller.java"),
+        """
+        package com.example;
+
+        public class AAAInlineCaller {
+          public static void call() {
+            ZZZInlineTarget.process();
+          }
+        }
+        """);
+    Files.writeString(
+        pkgDir.resolve("ZZZInlineTarget.java"),
+        """
+        package com.example;
+
+        public class ZZZInlineTarget {
+          public static void process() {}
+        }
+        """);
+
+    int failures =
+        new IngestionOrchestrator(sourceDir, currentProject, 1, driver, new ParseService(sourceDir))
+            .run(Settings.def());
+
+    assertEquals(0, failures);
+    try (Session s = driver.session()) {
+      long callEdges =
+          s.run(
+                  "MATCH (:Method {name: 'call', project: $p})"
+                      + "-[:CALLS]->(:Method {name: 'process', project: $p})"
+                      + " RETURN count(*) AS n",
+                  Map.of("p", currentProject))
+              .single()
+              .get("n")
+              .asLong();
+      assertEquals(
+          1, callEdges, "CALLS edge must exist even though callee was processed after caller");
+
+      // The callee must be a fully populated node (not a phantom) after ingestion
+      long phantomMethods =
+          s.run(
+                  "MATCH (m:Method {project: $p}) WHERE m.startLine IS NULL RETURN count(m) AS n",
+                  Map.of("p", currentProject))
+              .single()
+              .get("n")
+              .asLong();
+      assertEquals(0, phantomMethods, "No phantom Method nodes must remain after phantom cleanup");
+    }
+  }
+
+  /** Verifies that phantom Method nodes created for JDK/external callees are cleaned up. */
+  @Test
+  void phantomExternalMethodNodesCleanedUpAfterIngestion() throws Exception {
+    currentProject = PROJECT_BASE + "-phantom";
+    sourceDir = Files.createTempDirectory("orch-phantom-src-");
+    Path pkgDir = sourceDir.resolve("com/example");
+    Files.createDirectories(pkgDir);
+
+    // Calls String.length() — a JDK method that will never be ingested
+    Files.writeString(
+        pkgDir.resolve("PhantomCaller.java"),
+        """
+        package com.example;
+
+        public class PhantomCaller {
+          public int getLen(String s) {
+            return s.length();
+          }
+        }
+        """);
+
+    new IngestionOrchestrator(sourceDir, currentProject, 1, driver, new ParseService(sourceDir))
+        .run(Settings.def());
+
+    try (Session s = driver.session()) {
+      long phantomMethods =
+          s.run(
+                  "MATCH (m:Method {project: $p}) WHERE m.startLine IS NULL RETURN count(m) AS n",
+                  Map.of("p", currentProject))
+              .single()
+              .get("n")
+              .asLong();
+      assertEquals(
+          0, phantomMethods, "Phantom external Method nodes must be removed after ingestion");
+    }
+  }
+
+  /**
+   * 20 caller files all call the same static method on a target that is alphabetically last —
+   * verifying that all 20 CALLS edges are created via the MERGE-on-callee approach even though the
+   * target file is processed after all callers.
+   */
+  @Test
+  void manyCrossFileCallsAllCreatedInline() throws Exception {
+    currentProject = PROJECT_BASE + "-many-inline";
+    sourceDir = Files.createTempDirectory("orch-many-inline-src-");
+    Path pkgDir = sourceDir.resolve("com/example");
+    Files.createDirectories(pkgDir);
+
+    // "ZZZ" sorts after all "Caller" files — target always processed last
+    Files.writeString(
+        pkgDir.resolve("ZZZSharedTarget.java"),
+        """
+        package com.example;
+
+        public class ZZZSharedTarget {
+          public static void work() {}
+        }
+        """);
+
+    int callerCount = 20;
+    for (int i = 0; i < callerCount; i++) {
+      Files.writeString(
+          pkgDir.resolve(String.format("Caller%02d.java", i)),
+          """
+          package com.example;
+
+          public class Caller%02d {
+            public void run() {
+              ZZZSharedTarget.work();
+            }
+          }
+          """
+              .formatted(i, i));
+    }
+
+    int failures =
+        new IngestionOrchestrator(sourceDir, currentProject, 1, driver, new ParseService(sourceDir))
+            .run(Settings.def());
+
+    assertEquals(0, failures);
+    try (Session s = driver.session()) {
+      long callEdges =
+          s.run(
+                  "MATCH (:Method {project: $p})-[:CALLS]->(:Method {name: 'work', project: $p})"
+                      + " RETURN count(*) AS n",
+                  Map.of("p", currentProject))
+              .single()
+              .get("n")
+              .asLong();
+      assertEquals(
+          callerCount,
+          callEdges,
+          "Each caller must have exactly one CALLS edge to ZZZSharedTarget.work()");
+
+      long phantomMethods =
+          s.run(
+                  "MATCH (m:Method {project: $p}) WHERE m.startLine IS NULL RETURN count(m) AS n",
+                  Map.of("p", currentProject))
+              .single()
+              .get("n")
+              .asLong();
+      assertEquals(0, phantomMethods, "No phantom nodes must survive after ingestion");
+    }
+  }
+
+  /** Sequential and parallel ingestion must produce the same CALLS edge count. */
+  @Test
+  void sequentialAndParallelProduceSameCallEdgeCount() throws Exception {
+    Path seqDir = null;
+    Path parDir = null;
+    String seqProject = PROJECT_BASE + "-calls-seq";
+    String parProject = PROJECT_BASE + "-calls-par";
+    try {
+      seqDir = Files.createTempDirectory("orch-calls-seq-");
+      parDir = Files.createTempDirectory("orch-calls-par-");
+      for (Path dir : List.of(seqDir, parDir)) {
+        Path pkgDir = dir.resolve("com/example");
+        Files.createDirectories(pkgDir);
+        Files.writeString(
+            pkgDir.resolve("Svc.java"),
+            """
+            package com.example;
+            public class Svc { public static void go() {} }
+            """);
+        for (int i = 0; i < 5; i++) {
+          Files.writeString(
+              pkgDir.resolve("Client" + i + ".java"),
+              """
+              package com.example;
+              public class Client%s { public void run() { Svc.go(); } }
+              """
+                  .formatted(i));
+        }
+      }
+
+      new IngestionOrchestrator(seqDir, seqProject, 1, driver, new ParseService(seqDir))
+          .run(Settings.def());
+      new IngestionOrchestrator(parDir, parProject, 4, driver, new ParseService(parDir))
+          .run(Settings.def());
+
+      try (Session s = driver.session()) {
+        long seqCalls =
+            s.run(
+                    "MATCH (:Method {project: $p})-[:CALLS]->(:Method {project: $p})"
+                        + " RETURN count(*) AS n",
+                    Map.of("p", seqProject))
+                .single()
+                .get("n")
+                .asLong();
+        long parCalls =
+            s.run(
+                    "MATCH (:Method {project: $p})-[:CALLS]->(:Method {project: $p})"
+                        + " RETURN count(*) AS n",
+                    Map.of("p", parProject))
+                .single()
+                .get("n")
+                .asLong();
+        assertEquals(
+            seqCalls, parCalls, "Sequential and parallel must produce equal CALLS edge count");
+        assertTrue(seqCalls >= 5, "At least 5 CALLS edges expected (one per client)");
+      }
+    } finally {
+      wipeProjectCode(seqProject);
+      wipeProjectCode(parProject);
+      deleteDir(seqDir);
+      deleteDir(parDir);
     }
   }
 }

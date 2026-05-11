@@ -273,6 +273,14 @@ public final class GraphWriter {
     runWithRetry(Cypher.CYPHER_WIPE_PROJECT_MEMORIES, Map.of());
   }
 
+  /**
+   * Removes placeholder {@code :Method} nodes that were created as callee stubs but never fully
+   * ingested (external/JDK methods have no {@code startLine}).
+   */
+  public void deletePhantomMethods() {
+    runWithRetry(Cypher.CYPHER_DELETE_PHANTOM_METHODS, Map.of());
+  }
+
   /** Refreshes {@code :CodeRef} resolution edges to the current project-scoped code graph. */
   public void resolveCodeRefs() {
     List.of(

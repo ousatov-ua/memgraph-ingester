@@ -92,9 +92,10 @@ public final class Const {
     public static final String CYPHER_UPSERT_METHOD = action("upsert-method.cypher");
 
     /**
-     * Callee is matched (not merged), so external library methods are never created as
-     * project-scoped phantom nodes. Cross-file in-project calls missed on the first pass are filled
-     * in by a subsequent wipe-less re-ingestion.
+     * Callee is merged (not matched), creating a thin placeholder node if the callee file has not
+     * been ingested yet. Placeholder nodes are later upgraded by {@code upsert-method.cypher} when
+     * the callee file is processed; external/JDK callee nodes that are never upgraded are removed
+     * by {@link #CYPHER_DELETE_PHANTOM_METHODS}.
      */
     public static final String CYPHER_UPSERT_CALL = action("upsert-call.cypher");
 
@@ -103,6 +104,13 @@ public final class Const {
      * only creates the edge when exactly one method has that name (no overloading ambiguity).
      */
     public static final String CYPHER_UPSERT_CALL_BY_NAME = action("upsert-call-by-name.cypher");
+
+    /**
+     * Removes placeholder {@code :Method} nodes that were created by {@link #CYPHER_UPSERT_CALL}
+     * but never fully ingested (i.e. external/JDK callees).
+     */
+    public static final String CYPHER_DELETE_PHANTOM_METHODS =
+        action("delete-phantom-methods.cypher");
 
     private static String action(String file) {
       String resource = ACTION_RESOURCE_BASE + file;
