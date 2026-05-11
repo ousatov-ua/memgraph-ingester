@@ -38,11 +38,17 @@ When Memgraph returns no results, fall back to text search and state why.
 1. **MCP Memgraph tool** — scan your available tools list for any tool whose name contains `memgraph` or `cypher` (e.g. `mcp_memgraph_query`). If found, use it exclusively — no shell commands needed.
 2. **`mgconsole`** — fallback when no MCP tool is available; always use `--output-format=csv`. **One Cypher statement per `echo` pipe** — do not chain multiple statements with `;` in a single pipe.
 
-   **Use `mode="sync"` for all queries.** Define `mgq` inline at the top of each bash block and run queries directly. Do **not** rely on a persistent async shell — bare `bash` launched with `mode="async"` exits immediately, so any subsequent `write_bash` call fails with `<unable to send input. no command with id: mgraph is currently running>`.
+   **Use a persistent async shell for the entire session.** Open it once with `bash --norc -i` (the `-i` flag keeps the shell alive waiting for input), `shellId="mgraph"`, `mode="async"`. Then define `mgq` via `write_bash` and reuse it for all subsequent queries. Do **not** use bare `bash` without `-i` — it exits immediately and subsequent `write_bash` calls fail.
 
-   ```bash
-   # All queries in one sync bash block — define mgq inline, run in parallel with & + wait:
+   ```
+   # Step 1 — open ONCE at session start (mode="async", shellId="mgraph"):
+   bash tool: command="bash --norc -i", mode="async", shellId="mgraph", initial_wait=5
+
+   # Step 2 — define mgq (write_bash to shellId="mgraph"):
    mgq() { mgconsole --host ${MG_HOST:-127.0.0.1} --port ${MG_PORT:-7687} ${MG_USER:+--username $MG_USER} ${MG_PASS:+--password $MG_PASS} --output-format=csv "$@"; }
+   echo "mgq ready"
+
+   # Step 3 — run queries in parallel (write_bash to shellId="mgraph"):
    (echo "=== SECTION 1 ===" && echo "<cypher query 1>" | mgq) &
    (echo "=== SECTION 2 ===" && echo "<cypher query 2>" | mgq) &
    wait && echo "--- done ---"
@@ -222,16 +228,17 @@ If the MCP tool saves results to a file due to size, re-query with a tighter `WH
 
 #### Orientation (run at task start)
 
-Run all six in **one bash block**. If `mgq` is not on `PATH`, define it once at the top of the first bash block (see Memgraph query tool section). Empty output = 0 rows (normal).
+If the async shell (`shellId="mgraph"`) is not yet open, start it first — see the Memgraph query tool section above. Then run all six orientation queries in a single `write_bash` call using parallel subshells. Empty output = 0 rows (normal).
 
-```bash
-mgq() { mgconsole --host ${MG_HOST:-127.0.0.1} --port ${MG_PORT:-7687} ${MG_USER:+--username $MG_USER} ${MG_PASS:+--password $MG_PASS} --output-format=csv "$@"; }
-echo "MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_RULE]->(r:Rule) RETURN r.id, r.severity, r.description ORDER BY r.severity;" | mgq
-echo "MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_FINDING]->(f:Finding) WHERE f.status = 'open' RETURN f.id, f.type, f.summary;" | mgq
-echo "MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_CONTEXT]->(c:Context) RETURN c.id, c.content, c.source;" | mgq
-echo "MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_TASK]->(t:Task) WHERE t.status IN ['todo','doing','blocked'] RETURN t.id, t.title, t.status, t.priority ORDER BY t.priority, t.status;" | mgq
-echo "MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_QUESTION]->(q:Question) WHERE q.status = 'open' RETURN q.id, q.title;" | mgq
-echo "MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_RISK]->(r:Risk) WHERE r.status = 'open' RETURN r.id, r.title, r.severity;" | mgq
+```
+# write_bash to shellId="mgraph":
+(echo "=== RULES ===" && echo "MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_RULE]->(r:Rule) RETURN r.id, r.severity, r.description ORDER BY r.severity;" | mgq) &
+(echo "=== FINDINGS ===" && echo "MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_FINDING]->(f:Finding) WHERE f.status = 'open' RETURN f.id, f.type, f.summary;" | mgq) &
+(echo "=== CONTEXT ===" && echo "MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_CONTEXT]->(c:Context) RETURN c.id, c.content, c.source;" | mgq) &
+(echo "=== TASKS ===" && echo "MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_TASK]->(t:Task) WHERE t.status IN ['todo','doing','blocked'] RETURN t.id, t.title, t.status, t.priority ORDER BY t.priority, t.status;" | mgq) &
+(echo "=== QUESTIONS ===" && echo "MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_QUESTION]->(q:Question) WHERE q.status = 'open' RETURN q.id, q.title;" | mgq) &
+(echo "=== RISKS ===" && echo "MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_RISK]->(r:Risk) WHERE r.status = 'open' RETURN r.id, r.title, r.severity;" | mgq) &
+wait && echo "--- orientation done ---"
 ```
 
 #### Hierarchy (before touching any class/interface)
