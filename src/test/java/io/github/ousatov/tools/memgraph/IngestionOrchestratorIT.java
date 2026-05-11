@@ -761,6 +761,62 @@ class IngestionOrchestratorIT {
     }
   }
 
+  /**
+   * A class with no declared constructor must have a synthesized {@code <init>()} node so that
+   * {@code new ClassName()} CALLS edges survive phantom cleanup.
+   */
+  @Test
+  void callsEdgeToImplicitDefaultConstructorPreservedAfterIngestion() throws Exception {
+    currentProject = PROJECT_BASE + "-implicit-ctor";
+    sourceDir = Files.createTempDirectory("orch-implicit-ctor-src-");
+    Path pkgDir = sourceDir.resolve("com/example");
+    Files.createDirectories(pkgDir);
+    Files.writeString(
+        pkgDir.resolve("Service.java"),
+        """
+        package com.example;
+        public class Service {
+          public void serve() {}
+        }
+        """);
+    Files.writeString(
+        pkgDir.resolve("Client.java"),
+        """
+        package com.example;
+        public class Client {
+          public void run() {
+            new Service().serve();
+          }
+        }
+        """);
+
+    new IngestionOrchestrator(sourceDir, currentProject, 1, driver, new ParseService(sourceDir))
+        .run(Settings.def());
+
+    try (Session s = driver.session()) {
+      long initEdges =
+          s.run(
+                  "MATCH (:Method {project: $p})-[:CALLS]->(m:Method {name: '<init>', project: $p})"
+                      + " RETURN count(m) AS n",
+                  Map.of("p", currentProject))
+              .single()
+              .get("n")
+              .asLong();
+      assertTrue(
+          initEdges >= 1,
+          "CALLS edge to implicit default constructor must survive phantom cleanup");
+
+      long phantomMethods =
+          s.run(
+                  "MATCH (m:Method {project: $p}) WHERE m.startLine IS NULL RETURN count(m) AS n",
+                  Map.of("p", currentProject))
+              .single()
+              .get("n")
+              .asLong();
+      assertEquals(0, phantomMethods, "No phantom nodes must remain after ingestion");
+    }
+  }
+
   /** Sequential and parallel ingestion must produce the same CALLS edge count. */
   @Test
   void sequentialAndParallelProduceSameCallEdgeCount() throws Exception {

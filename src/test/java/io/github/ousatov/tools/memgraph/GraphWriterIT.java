@@ -495,6 +495,96 @@ class GraphWriterIT {
   }
 
   @Test
+  void upsertTypeCreatesImplicitDefaultConstructorForClassWithNoCtor() {
+    writer.upsertFile(TEST_FILE);
+    writer.upsertPackage(PKG);
+    ClassOrInterfaceDeclaration decl = parseDecl("package com.example; public class Widget {}");
+
+    writer.upsertType(TEST_FILE, PKG, decl);
+
+    var row =
+        session
+            .run(
+                "MATCH (:Class {fqn: $fqn, project: $p})-[:DECLARES]->(m:Method {name: '<init>'})"
+                    + " RETURN count(m) AS n, m.isSynthetic AS syn",
+                Map.of("fqn", "com.example.Widget", "p", PROJECT))
+            .single();
+
+    assertEquals(1, row.get("n").asLong(), "Implicit default constructor must be synthesized");
+    assertTrue(row.get("syn").asBoolean(), "Synthesized constructor must be isSynthetic=true");
+  }
+
+  @Test
+  void upsertTypeDoesNotSynthesizeConstructorForInterface() {
+    writer.upsertFile(TEST_FILE);
+    writer.upsertPackage(PKG);
+    ClassOrInterfaceDeclaration decl =
+        parseDecl("package com.example; public interface Runnable { void run(); }");
+
+    writer.upsertType(TEST_FILE, PKG, decl);
+
+    long count =
+        session
+            .run(
+                "MATCH (:Interface {fqn: $fqn, project: $p})-[:DECLARES]->(m:Method {name: '<init>'})"
+                    + " RETURN count(m) AS n",
+                Map.of("fqn", "com.example.Runnable", "p", PROJECT))
+            .single()
+            .get("n")
+            .asLong();
+
+    assertEquals(0, count, "Interfaces must not receive a synthesized constructor");
+  }
+
+  @Test
+  void implicitDefaultConstructorCallsEdgePreservedAfterPhantomCleanup() throws IOException {
+    Path tempDir = Files.createTempDirectory("implicit-ctor-test");
+    Path serviceFile = tempDir.resolve("com/example/Service.java");
+    Path clientFile = tempDir.resolve("com/example/Client.java");
+    Files.createDirectories(serviceFile.getParent());
+    Files.writeString(
+        serviceFile, "package com.example; public class Service { public void serve() {} }");
+    Files.writeString(
+        clientFile,
+        "package com.example;"
+            + " public class Client {"
+            + "   public void run() { new Service().serve(); }"
+            + " }");
+
+    ParseService parseService = new ParseService(tempDir);
+    for (Path f : List.of(serviceFile, clientFile)) {
+      var cu = parseService.parse(f).orElseThrow();
+      String pkg = cu.getPackageDeclaration().map(pd -> pd.getName().asString()).orElse("");
+      writer.upsertFile(f);
+      writer.upsertPackage(pkg);
+      cu.findFirst(ClassOrInterfaceDeclaration.class)
+          .ifPresent(d -> writer.upsertType(f, pkg, d));
+    }
+    for (Path f : List.of(serviceFile, clientFile)) {
+      var cu = parseService.parse(f).orElseThrow();
+      String pkg = cu.getPackageDeclaration().map(pd -> pd.getName().asString()).orElse("");
+      cu.findFirst(ClassOrInterfaceDeclaration.class)
+          .ifPresent(d -> writer.upsertTypeCallEdges(pkg, d));
+    }
+    writer.deletePhantomMethods();
+
+    long initEdges =
+        session
+            .run(
+                "MATCH (:Method {name: 'run', project: $p})"
+                    + "-[:CALLS]->(m:Method {name: '<init>', project: $p})"
+                    + " RETURN count(m) AS n",
+                Map.of("p", PROJECT))
+            .single()
+            .get("n")
+            .asLong();
+
+    assertEquals(
+        1, initEdges, "CALLS edge to implicit default constructor must survive phantom cleanup");
+    deleteDir(tempDir);
+  }
+
+  @Test
   void wipeDeletesOnlyProjectCodeNodes() {
     writer.upsertFile(TEST_FILE);
     writer.upsertPackage(PKG);
