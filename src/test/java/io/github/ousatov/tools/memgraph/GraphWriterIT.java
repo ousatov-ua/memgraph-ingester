@@ -526,8 +526,8 @@ class GraphWriterIT {
     long count =
         session
             .run(
-                "MATCH (:Interface {fqn: $fqn, project: $p})-[:DECLARES]->(m:Method {name: '<init>'})"
-                    + " RETURN count(m) AS n",
+                "MATCH (:Interface {fqn: $fqn, project: $p})-[:DECLARES]->(m:Method {name:"
+                    + " '<init>'}) RETURN count(m) AS n",
                 Map.of("fqn", "com.example.Runnable", "p", PROJECT))
             .single()
             .get("n")
@@ -557,8 +557,7 @@ class GraphWriterIT {
       String pkg = cu.getPackageDeclaration().map(pd -> pd.getName().asString()).orElse("");
       writer.upsertFile(f);
       writer.upsertPackage(pkg);
-      cu.findFirst(ClassOrInterfaceDeclaration.class)
-          .ifPresent(d -> writer.upsertType(f, pkg, d));
+      cu.findFirst(ClassOrInterfaceDeclaration.class).ifPresent(d -> writer.upsertType(f, pkg, d));
     }
     for (Path f : List.of(serviceFile, clientFile)) {
       var cu = parseService.parse(f).orElseThrow();

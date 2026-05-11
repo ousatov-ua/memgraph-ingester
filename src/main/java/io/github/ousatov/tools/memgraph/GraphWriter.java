@@ -780,8 +780,7 @@ public final class GraphWriter {
    * isSynthetic=true} so it is invisible to default method-count queries but exists as a valid
    * CALLS target — preventing phantom cleanup from erasing {@code new ClassName()} call edges.
    */
-  private void upsertImplicitDefaultConstructor(
-      String fqn, ClassOrInterfaceDeclaration decl) {
+  private void upsertImplicitDefaultConstructor(String fqn, ClassOrInterfaceDeclaration decl) {
     upsertMethodNode(
         new Method(
             fqn,
