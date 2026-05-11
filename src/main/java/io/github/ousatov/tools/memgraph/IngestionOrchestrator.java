@@ -19,7 +19,6 @@ import java.nio.file.WatchEvent;
 import java.nio.file.WatchKey;
 import java.nio.file.WatchService;
 import java.nio.file.attribute.BasicFileAttributes;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -141,7 +140,10 @@ public final class IngestionOrchestrator {
     }
 
     try (Session session = driver.session()) {
-      new GraphWriter(session, project).resolveCodeRefs();
+      GraphWriter postWriter = new GraphWriter(session, project);
+      postWriter.deletePhantomMethods();
+      log.info("Removed phantom external Method nodes for '{}'", project);
+      postWriter.resolveCodeRefs();
       log.info("Refreshed :CodeRef resolution edges for '{}'", project);
     }
 
@@ -212,19 +214,14 @@ public final class IngestionOrchestrator {
   private void ingestChangedFiles(Set<Path> files) {
     try (Session session = driver.session()) {
       GraphWriter writer = new GraphWriter(session, project);
-      List<Path> successFiles = new ArrayList<>();
+      boolean anySuccess = false;
       for (Path file : files) {
         if (Files.exists(file) && ingestFile(writer, file)) {
-
-          // In watch mode, we always re-ingest if the file was modified
-          successFiles.add(file);
+          anySuccess = true;
         }
       }
-      if (!successFiles.isEmpty()) {
-        log.info("Creating CALLS edges for {} changed files...", successFiles.size());
-        for (Path file : successFiles) {
-          ingestFileCallEdges(writer, file);
-        }
+      if (anySuccess) {
+        writer.deletePhantomMethods();
         writer.resolveCodeRefs();
         log.info("Watch re-ingestion complete.");
       }
@@ -256,24 +253,15 @@ public final class IngestionOrchestrator {
     int total = files.size();
     int step = Math.clamp(total / PROGRESS_DIVISOR, 1, 100);
     int done = 0;
-    List<Path> successFiles = new ArrayList<>();
     try (Session session = driver.session()) {
       GraphWriter writer = new GraphWriter(session, project);
       for (Path file : files) {
-        if (ingestFileBatched(writer, file, mtimeCache)) {
-          successFiles.add(file);
-        } else {
+        if (!ingestFileBatched(writer, file, mtimeCache)) {
           failures++;
         }
         done++;
         if (done % step == 0 || done == total) {
-          log.info("Progress (nodes): {}/{} files", done, total);
-        }
-      }
-      log.info("Creating CALLS edges for {} files...", successFiles.size());
-      for (Path file : successFiles) {
-        if (!ingestFileCallEdges(writer, file)) {
-          failures++;
+          log.info("Progress: {}/{} files", done, total);
         }
       }
     }
@@ -351,21 +339,16 @@ public final class IngestionOrchestrator {
 
     AtomicInteger done = new AtomicInteger();
     AtomicInteger failures = new AtomicInteger();
-    CopyOnWriteArrayList<Path> successFiles = new CopyOnWriteArrayList<>();
     int total = files.size();
     int step = Math.clamp(total / PROGRESS_DIVISOR, 1, 100);
 
     try {
-      // Phase 1: upsert all nodes
-      CountDownLatch phase1Latch = new CountDownLatch(total);
+      CountDownLatch latch = new CountDownLatch(total);
       for (Path file : files) {
         pool.submit(
             () -> {
               try {
-                boolean success = ingestFileChecked(threadWriter.get(), file, mtimeCache);
-                if (success) {
-                  successFiles.add(file);
-                } else {
+                if (!ingestFileChecked(threadWriter.get(), file, mtimeCache)) {
                   failures.incrementAndGet();
                 }
               } catch (Exception e) {
@@ -374,36 +357,14 @@ public final class IngestionOrchestrator {
               } finally {
                 int n = done.incrementAndGet();
                 if (n % step == 0 || n == total) {
-                  log.info("Progress (nodes): {}/{} files", n, total);
+                  log.info("Progress: {}/{} files", n, total);
                 }
-                phase1Latch.countDown();
+                latch.countDown();
               }
             });
       }
-      if (!phase1Latch.await(SHUTDOWN_TIMEOUT_MINUTES, TimeUnit.MINUTES)) {
-        log.warn("Node ingestion did not complete within {} minutes.", SHUTDOWN_TIMEOUT_MINUTES);
-      }
-
-      // Phase 2: CALLS edges (all callee nodes now exist)
-      log.info("Creating CALLS edges for {} files...", successFiles.size());
-      CountDownLatch phase2Latch = new CountDownLatch(successFiles.size());
-      for (Path file : successFiles) {
-        pool.submit(
-            () -> {
-              try {
-                if (!ingestFileCallEdges(threadWriter.get(), file)) {
-                  failures.incrementAndGet();
-                }
-              } catch (Exception e) {
-                log.warn("Thread failure creating CALLS for {}: {}", file, e.getMessage());
-                failures.incrementAndGet();
-              } finally {
-                phase2Latch.countDown();
-              }
-            });
-      }
-      if (!phase2Latch.await(SHUTDOWN_TIMEOUT_MINUTES, TimeUnit.MINUTES)) {
-        log.warn("CALLS ingestion did not complete within {} minutes.", SHUTDOWN_TIMEOUT_MINUTES);
+      if (!latch.await(SHUTDOWN_TIMEOUT_MINUTES, TimeUnit.MINUTES)) {
+        log.warn("Ingestion did not complete within {} minutes.", SHUTDOWN_TIMEOUT_MINUTES);
       }
 
       pool.shutdown();
@@ -436,9 +397,11 @@ public final class IngestionOrchestrator {
   }
 
   /**
-   * Parses a single file and writes all derived nodes and edges (except {@code CALLS}) to the
-   * graph. {@code CALLS} edges are deferred to {@link #ingestFileCallEdges} so all callee nodes
-   * exist first.
+   * Parses a single file, writes all structural nodes, and immediately creates {@code CALLS} edges
+   * inline. Callee nodes that do not yet exist are created as thin placeholder {@code :Method}
+   * nodes (signature + project only); they are upgraded when the callee file is processed, and any
+   * that remain unpopulated after full ingestion (external/JDK callees) are removed by {@link
+   * GraphWriter#deletePhantomMethods()}.
    *
    * @return true on success, false if parsing or graph write fails
    */
@@ -466,27 +429,6 @@ public final class IngestionOrchestrator {
                   writer.upsertAnnotation(file, pkg, ann);
                 }
               });
-      return true;
-    } catch (Exception e) {
-      log.warn("Failed to ingest {}: {}", file, e.getMessage());
-      return false;
-    }
-  }
-
-  /**
-   * Re-parses {@code file} and writes {@code CALLS} edges. Runs in a separate global phase after
-   * all files have completed node ingestion, ensuring all callee Method nodes exist.
-   *
-   * @return true on success, false if parsing or edge creation fails
-   */
-  private boolean ingestFileCallEdges(GraphWriter writer, Path file) {
-    var cuOpt = parseService.parse(file);
-    if (cuOpt.isEmpty()) {
-      return false;
-    }
-    CompilationUnit cu = cuOpt.get();
-    String pkg = cu.getPackageDeclaration().map(pd -> pd.getName().asString()).orElse("");
-    try {
       cu.getTypes()
           .forEach(
               typeDecl -> {
@@ -500,7 +442,7 @@ public final class IngestionOrchestrator {
               });
       return true;
     } catch (Exception e) {
-      log.warn("Failed to create CALLS edges for {}: {}", file, e.getMessage());
+      log.warn("Failed to ingest {}: {}", file, e.getMessage());
       return false;
     }
   }
