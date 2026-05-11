@@ -545,6 +545,9 @@ public final class GraphWriter {
     decl.getFields().forEach(f -> upsertField(fqn, f));
     decl.getMethods().forEach(m -> upsertMethod(fqn, m));
     decl.getConstructors().forEach(c -> upsertConstructor(fqn, c));
+    if (!decl.isInterface() && decl.getConstructors().isEmpty()) {
+      upsertImplicitDefaultConstructor(fqn, decl);
+    }
     // Recurse into directly nested class/interface declarations with correct FQN.
     nestedClassDeclarationsOf(decl.getMembers())
         .forEach(nested -> upsertTypeInternal(file, pkg, fqn, nested));
@@ -770,6 +773,26 @@ public final class GraphWriter {
               0,
               true));
     }
+  }
+
+  /**
+   * Synthesizes the implicit no-arg constructor for a class that declares none. Stored with {@code
+   * isSynthetic=true} so it is invisible to default method-count queries but exists as a valid
+   * CALLS target — preventing phantom cleanup from erasing {@code new ClassName()} call edges.
+   */
+  private void upsertImplicitDefaultConstructor(
+      String fqn, ClassOrInterfaceDeclaration decl) {
+    upsertMethodNode(
+        new Method(
+            fqn,
+            fqn + "." + Labels.INIT + "()",
+            Labels.INIT,
+            Labels.VOID,
+            false,
+            decl.getAccessSpecifier().asString(),
+            0,
+            0,
+            true));
   }
 
   /**

@@ -57,7 +57,7 @@ When Memgraph returns no results, fall back to text search and state why.
    ```
    > **Empty output = 0 rows, not an error.** `mgconsole` emits no output when a query returns nothing — normal for orientation queries with no data yet.
    > If `mgconsole` is not in `$PATH`, locate it first: `which mgconsole || find /opt /usr/local -name mgconsole 2>/dev/null | head -1`
-   > **Large result sets**: add `LIMIT` or filter by class/package. If a temp file path is returned, read it with `head -100 <path>`.
+   > **Large result sets — paginate in Cypher** with `SKIP`/`LIMIT` (see *Pagination* section). Filter in `WHERE` first to reduce size. Never post-process with shell tools.
 
 State which tool was used when reporting query results.
 
@@ -161,6 +161,7 @@ RETURN c.fqn AS cls, f.name, f.type, f.visibility ORDER BY c.fqn, f.name;
 - **Label-less node patterns**: `MATCH (n {project: ...})-[:REL]->()` fails without an explicit label. Use `(n:Class {project: ...})` or `(n:Interface {project: ...})`.
 - **`NOT property` vs `= false`**: prefer `c.isExternal = false` over `NOT c.isExternal` for reliability in multi-hop patterns.
 - **`OPTIONAL MATCH` chaining on label scans**: chaining two or more `OPTIONAL MATCH` clauses after a label scan (e.g. `MATCH (c:Class) WHERE c.isExternal = false OPTIONAL MATCH ... OPTIONAL MATCH ...`) fails in Memgraph with *"Unbound variable"* when `collect()` aggregates appear in `RETURN`. **Fix:** move node filters into the MATCH pattern (`{isExternal: false}`), not `WHERE`, and never chain OPTIONAL MATCHes on a label scan — split into separate queries if multiple optional relationships are needed.
+- **Implicit default constructors**: a class with no declared constructor gets a synthesized `<init>()` Method node (`isSynthetic=true`, `startLine=0`, `endLine=0`). This keeps `new ClassName()` CALLS edges alive through phantom cleanup. Invisible in `WHERE NOT m.isSynthetic` queries — add `OR m.isSynthetic = true` to include them.
 
 ---
 
@@ -206,6 +207,26 @@ All nodes also have `createdAt`, `updatedAt`.
 ---
 
 ### Queries
+
+#### Pagination
+
+Always add `ORDER BY` for stable page boundaries. Use `SKIP`/`LIMIT` to paginate in Cypher — never in shell post-processing.
+
+```cypher
+// Filter by class first, then paginate — page 1
+MATCH (a:Method {project: '{{PROJECT_NAME}}'})-[:CALLS]->(b:Method {project: '{{PROJECT_NAME}}'})
+WHERE a.signature CONTAINS 'ClassName.'
+RETURN a.signature AS caller, b.signature AS callee
+ORDER BY caller SKIP 0 LIMIT 200
+
+// Page 2: increment SKIP by page size
+... ORDER BY caller SKIP 200 LIMIT 200
+```
+
+Recommended page size: **200** for Method/CALLS queries, **100** for node-with-properties queries.
+If the MCP tool saves results to a file due to size, re-query with a tighter `WHERE` filter first.
+
+---
 
 #### Orientation (run at task start)
 
