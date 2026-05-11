@@ -38,21 +38,13 @@ When Memgraph returns no results, fall back to text search and state why.
 1. **MCP Memgraph tool** — scan your available tools list for any tool whose name contains `memgraph` or `cypher` (e.g. `mcp_memgraph_query`). If found, use it exclusively — no shell commands needed.
 2. **`mgconsole`** — fallback when no MCP tool is available; always use `--output-format=csv`. **One Cypher statement per `echo` pipe** — do not chain multiple statements with `;` in a single pipe.
 
-   **Use a single persistent async shell for the entire session.** Open it once with `shellId="mgraph"`, define `mgq` there, then reuse it for all queries via `write_bash`. This avoids redefining `mgq` on every call and enables parallel queries with `&` + `wait`.
+   **Use `mode="sync"` for all queries.** Define `mgq` inline at the top of each bash block and run queries directly. Do **not** rely on a persistent async shell — bare `bash` launched with `mode="async"` exits immediately, so any subsequent `write_bash` call fails with `<unable to send input. no command with id: mgraph is currently running>`.
 
    ```bash
-   # Step 1 — open once at session start (mode=async, shellId="mgraph"):
-   bash
-   ```
-   ```bash
-   # Step 2 — define mgq (write_bash to shellId="mgraph"):
+   # All queries in one sync bash block — define mgq inline, run in parallel with & + wait:
    mgq() { mgconsole --host ${MG_HOST:-127.0.0.1} --port ${MG_PORT:-7687} ${MG_USER:+--username $MG_USER} ${MG_PASS:+--password $MG_PASS} --output-format=csv "$@"; }
-   echo "mgq ready"
-   ```
-   ```bash
-   # Step 3 — run queries in parallel (write_bash to shellId="mgraph"):
-   (echo "=== SECTION ===" && echo "<cypher query 1>" | mgq) &
-   (echo "=== SECTION ===" && echo "<cypher query 2>" | mgq) &
+   (echo "=== SECTION 1 ===" && echo "<cypher query 1>" | mgq) &
+   (echo "=== SECTION 2 ===" && echo "<cypher query 2>" | mgq) &
    wait && echo "--- done ---"
    ```
    > **Empty output = 0 rows, not an error.** `mgconsole` emits no output when a query returns nothing — normal for orientation queries with no data yet.
