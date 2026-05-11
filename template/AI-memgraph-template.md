@@ -12,8 +12,12 @@ Repo indexed under **`{{PROJECT_NAME}}`**. All queries MUST include `project: '{
 **BLOCKING — before any task involving code changes:** run orientation queries (Rules, open Findings, Context, active Tasks). Empty results are valid — proceed normally. Skip if already run in this session. **Read-only investigations (no code changes planned) may skip orientation.**
 
 **BLOCKING — before any class/interface work:** query full hierarchy.  
-**BLOCKING — for any Java code investigation (fields, methods, callers, type usages):**
-Query Memgraph BEFORE opening source files or running grep/glob.
+
+**BLOCKING — for any Java code investigation involving symbols,
+fields, methods, callers, implementations, inheritance, annotations,
+or type usages: query Memgraph first. This must happen before using any
+other code-discovery, source-inspection, filesystem, search, IDE,
+language-server, or runtime-introspection tool.**
 
 **BLOCKING — before closing task:** save all findings/decisions as Memory nodes and verify.
 **BLOCKING — on any Memory node lifecycle change (Task/Risk/Question/Decision/ADR/Idea):**
