@@ -38,7 +38,7 @@ When Memgraph returns no results, fall back to text search and state why.
 1. **MCP Memgraph tool** — scan your available tools list for any tool whose name contains `memgraph` or `cypher` (e.g. `mcp_memgraph_query`). If found, use it exclusively — no shell commands needed.
 2. **`mgconsole`** — fallback when no MCP tool is available; always use `--output-format=csv`. **One Cypher statement per `echo` pipe** — do not chain multiple statements with `;` in a single pipe.
 
-   **Use a persistent async shell for the entire session.** Open it once with `bash --norc -i` (the `-i` flag keeps the shell alive waiting for input), `shellId="mgraph"`, `mode="async"`. Then define `mgq` via `write_bash` and reuse it for all subsequent queries. Do **not** use bare `bash` without `-i` — it exits immediately and subsequent `write_bash` calls fail.
+   **Preferred: persistent async shell.** Open it once with `bash --norc -i` (the `-i` flag keeps the shell alive waiting for input), `shellId="mgraph"`, `mode="async"`. Then define `mgq` via `write_bash` and reuse it for all subsequent queries. Do **not** use bare `bash` without `-i` — it exits immediately and subsequent `write_bash` calls fail.
 
    ```
    # Step 1 — open ONCE at session start (mode="async", shellId="mgraph"):
@@ -53,6 +53,17 @@ When Memgraph returns no results, fall back to text search and state why.
    (echo "=== SECTION 2 ===" && echo "<cypher query 2>" | mgq) &
    wait && echo "--- done ---"
    ```
+
+   **Fallback: plain sync bash.** If the persistent async shell cannot be created (tool unavailable, session limit reached, or `write_bash` fails), fall back to individual sync `bash` calls — define `mgq` inline at the top of each block:
+
+   ```bash
+   mgq() { mgconsole --host ${MG_HOST:-127.0.0.1} --port ${MG_PORT:-7687} ${MG_USER:+--username $MG_USER} ${MG_PASS:+--password $MG_PASS} --output-format=csv "$@"; }
+   echo "<cypher query 1>" | mgq
+   echo "<cypher query 2>" | mgq
+   ```
+
+   > **When to switch to fallback:** if `bash --norc -i` hangs, if `write_bash` returns an error, or if the async shell session is unavailable — immediately switch to plain sync `bash` calls for the remainder of the session. Do NOT retry the async approach more than once.
+
    > **Empty output = 0 rows, not an error.** `mgconsole` emits no output when a query returns nothing — normal for orientation queries with no data yet.
    > If `mgconsole` is not in `$PATH`, locate it first: `which mgconsole || find /opt /usr/local -name mgconsole 2>/dev/null | head -1`
    > **Large result sets — paginate in Cypher** with `SKIP`/`LIMIT` (see *Pagination* section). Filter in `WHERE` first to reduce size. Never post-process with shell tools.
@@ -228,7 +239,7 @@ If the MCP tool saves results to a file due to size, re-query with a tighter `WH
 
 #### Orientation (run at task start)
 
-If the async shell (`shellId="mgraph"`) is not yet open, start it first — see the Memgraph query tool section above. Then run all six orientation queries in a single `write_bash` call using parallel subshells. Empty output = 0 rows (normal).
+**Preferred (async shell):** If the async shell (`shellId="mgraph"`) is not yet open, start it first — see the Memgraph query tool section above. Then run all six orientation queries in a single `write_bash` call using parallel subshells. Empty output = 0 rows (normal).
 
 ```
 # write_bash to shellId="mgraph":
@@ -239,6 +250,18 @@ If the async shell (`shellId="mgraph"`) is not yet open, start it first — see 
 (echo "=== QUESTIONS ===" && echo "MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_QUESTION]->(q:Question) WHERE q.status = 'open' RETURN q.id, q.title;" | mgq) &
 (echo "=== RISKS ===" && echo "MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_RISK]->(r:Risk) WHERE r.status = 'open' RETURN r.id, r.title, r.severity;" | mgq) &
 wait && echo "--- orientation done ---"
+```
+
+**Fallback (sync bash):** If the persistent async shell cannot be created, use plain sync `bash` calls instead — define `mgq` inline:
+
+```bash
+mgq() { mgconsole --host ${MG_HOST:-127.0.0.1} --port ${MG_PORT:-7687} ${MG_USER:+--username $MG_USER} ${MG_PASS:+--password $MG_PASS} --output-format=csv "$@"; }
+echo "=== RULES ===" && echo "MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_RULE]->(r:Rule) RETURN r.id, r.severity, r.description ORDER BY r.severity;" | mgq
+echo "=== FINDINGS ===" && echo "MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_FINDING]->(f:Finding) WHERE f.status = 'open' RETURN f.id, f.type, f.summary;" | mgq
+echo "=== CONTEXT ===" && echo "MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_CONTEXT]->(c:Context) RETURN c.id, c.content, c.source;" | mgq
+echo "=== TASKS ===" && echo "MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_TASK]->(t:Task) WHERE t.status IN ['todo','doing','blocked'] RETURN t.id, t.title, t.status, t.priority ORDER BY t.priority, t.status;" | mgq
+echo "=== QUESTIONS ===" && echo "MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_QUESTION]->(q:Question) WHERE q.status = 'open' RETURN q.id, q.title;" | mgq
+echo "=== RISKS ===" && echo "MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_RISK]->(r:Risk) WHERE r.status = 'open' RETURN r.id, r.title, r.severity;" | mgq
 ```
 
 #### Hierarchy (before touching any class/interface)
