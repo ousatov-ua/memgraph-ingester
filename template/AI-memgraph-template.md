@@ -62,11 +62,18 @@ When Memgraph returns no results, fall back to text search and state why.
    echo "<cypher query 2>" | mgq
    ```
 
+   if mgq is undefined, run commands directly:
+
+   ```bash
+   echo "<cypher query 1>" | mgconsole --host ${MG_HOST:-127.0.0.1} --port ${MG_PORT:-7687} ${MG_USER:+--username $MG_USER} ${MG_PASS:+--password $MG_PASS} --output-format=csv
+   ```
+
    > **When to switch to fallback:** if `bash --norc -i` hangs, if `write_bash` returns an error, or if the async shell session is unavailable — immediately switch to plain sync `bash` calls for the remainder of the session. Do NOT retry the async approach more than once.
 
    > **Empty output = 0 rows, not an error.** `mgconsole` emits no output when a query returns nothing — normal for orientation queries with no data yet.
    > If `mgconsole` is not in `$PATH`, locate it first: `which mgconsole || find /opt /usr/local -name mgconsole 2>/dev/null | head -1`
    > **Large result sets — paginate in Cypher** with `SKIP`/`LIMIT` (see *Pagination* section). Filter in `WHERE` first to reduce size. Never post-process with shell tools.
+   > **Important** Remember to put semicolons after each statement.
 
 State which tool was used when reporting query results.
 
