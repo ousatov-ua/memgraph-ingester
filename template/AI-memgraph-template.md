@@ -87,6 +87,27 @@ State which tool was used when reporting query results.
 
 ---
 
+### mgconsole query execution format (HARD RULE)
+**CRITICAL: NEVER pass Cypher queries as direct arguments to mgconsole.**
+
+**WRONG** — query as argument:
+
+```bash
+mgconsole [options] "MATCH (n) RETURN n;"
+```
+**CORRECT** — do always query piped via echo:
+
+```bash
+echo "MATCH (n) RETURN n;" | mgconsole [options] 
+```
+
+Pattern:
+```bash
+echo "<cypher>" | mgconsole [options]
+```
+
+----
+
 ### Tagged-file requests (BLOCKING)
 
 `@`-tagged paths (e.g. `@src/main/java`) do **NOT** bypass Memgraph. They hint at scope only.
