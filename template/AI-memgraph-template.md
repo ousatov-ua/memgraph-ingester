@@ -1,3 +1,7 @@
+**BLOCKING — Work incrementally** Before large reads or broad repository scans, summarize current findings into a short plan. 
+If the context becomes large, compact and continue from the compacted summary. 
+Avoid reading huge generated files, target/classes, node_modules, build outputs, logs, or binaries.
+
 ## Knowledge graph (Memgraph)
 
 Repo indexed under **`{{PROJECT_NAME}}`**. All queries MUST include `project: '{{PROJECT_NAME}}'`.
@@ -241,6 +245,21 @@ ORDER BY caller SKIP 0 LIMIT 200
 
 Recommended page size: **200** for Method/CALLS queries, **100** for node-with-properties queries.
 If the MCP tool saves results to a file due to size, re-query with a tighter `WHERE` filter first.
+
+**Cypher aggregation rule:** Aggregation functions (COUNT, SUM, collect, etc.) are only allowed in WITH and RETURN clauses. Never use them in WHERE or ORDER BY directly. First aggregate in WITH/RETURN, then sort or filter on the aliased result.
+
+```cypher
+// WRONG — COUNT in ORDER BY:
+MATCH (a:Method)-[:CALLS]->(b:Method)
+WHERE a.signature CONTAINS 'ClassName.'
+RETURN a.signature, b.signature ORDER BY COUNT(*) DESC
+
+// CORRECT — aggregate first, then sort:
+MATCH (a:Method)-[:CALLS]->(b:Method)
+WHERE a.signature CONTAINS 'ClassName.'
+WITH a.signature AS caller, b.signature AS callee, COUNT(*) AS cnt
+RETURN caller, callee ORDER BY cnt DESC LIMIT 20
+```
 
 ---
 
