@@ -31,6 +31,10 @@ immediately update the status in Memgraph before proceeding.
 always create and link at least one CodeRef via `REFERS_TO` → `RESOLVES_TO` pointing to
 the relevant Class, Method, Field, Package, or File.
 
+**BLOCKING — when need to check the body of a Method:**
+query Memgraph first to find out `startLine` and `endLine`, 
+then read only those lines from the source file with `view_range: [startLine, endLine]` — do not load the entire file.
+
 When Memgraph returns no results, fall back to text search and state why.
 
 ---
