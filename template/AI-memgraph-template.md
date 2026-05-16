@@ -13,7 +13,9 @@ Repo indexed under **`{{PROJECT_NAME}}`**. All queries MUST include `project: '{
 3. **grep/glob** — strings, comments, non-Java resources
 4. **Other tools** — last resort
 
-**BLOCKING — before any task involving code changes:** run orientation queries (Rules, open Findings, Context, active Tasks). Empty results are valid — proceed normally. Skip if already run in this session. **Read-only investigations (no code changes planned) may skip orientation.**
+**BLOCKING — before any task involving code changes:** run orientation queries (Rules, open Findings, Context, active Tasks). 
+Empty results are valid — proceed normally. Skip if already run in this session. Use Context, Decisions, and Rules as your context.
+**Read-only investigations (no code changes planned)** may skip Findings, active Tasks but must load Context, Decisions, and Rules and use them as your context.
 
 **BLOCKING — before any class/interface work:** query full hierarchy.  
 
