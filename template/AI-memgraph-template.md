@@ -368,7 +368,12 @@ MATCH (t:Task {id: 'TASK-<id>', project: '{{PROJECT_NAME}}'}) SET t.status = 'do
 
 ---
 
-### Saving memory (mandatory before task close)
+### Saving memory (mandatory before the task closes)
+
+Memory is not a changelog. Store only information that improves future decisions,
+investigations, or implementation work. Do not create memory nodes just because a
+file changed; routine edits are represented by the git diff, tests, and final
+response.
 
 | Trigger                              | Node                            |
 |--------------------------------------|---------------------------------|
@@ -377,10 +382,42 @@ MATCH (t:Task {id: 'TASK-<id>', project: '{{PROJECT_NAME}}'}) SET t.status = 'do
 | Future rule/constraint               | `:Rule`                         |
 | Bug / perf issue / wrong assumption  | `:Finding` (`bug`/`perf`)       |
 | Codebase limitation                  | `:Finding` (`constraint`)       |
-| Files/schema/config/Cypher modified  | `:Context`                      |
+| Durable reusable project knowledge   | `:Context`                      |
 | Unfinished work / follow-up          | `:Task` (`todo`)                |
 | Open question                        | `:Question` (`open`)            |
 | New/discovered risk                  | `:Risk` (`open`)                |
+
+#### Context policy
+
+Use `:Context` as reusable knowledge for future sessions, not as a history record
+of edits. Context should answer: "What should a future agent know before working
+in this area?"
+
+Create or update Context only when the session discovers durable knowledge such
+as:
+
+- stable subsystem behavior not obvious from source;
+- operational constraints, caveats, or recurring failure modes;
+- summarized knowledge from a completed investigation;
+- ADR background that remains useful outside the ADR itself.
+
+Prefer updating an existing summarized Context for the topic instead of creating
+timestamped or session-scoped records. Use IDs like
+`CTX-<topic>-summary`, `CTX-<subsystem>-constraints`, or
+`CTX-<workflow>-notes`. Keep `content` concise and current; replace obsolete
+details rather than appending a log.
+
+Do not create Context for:
+
+- routine file/schema/config/Cypher modifications;
+- a list of files changed;
+- test commands run;
+- information already captured better as a Decision, ADR, Finding, Task, Risk,
+  Question, or Rule.
+
+When an ADR is created, create or update Context only if the background knowledge
+will be useful independently of the ADR. The ADR remains the authoritative
+decision record.
 
 ```cypher
 // Create (adapt label/id/HAS_* for other types)
@@ -402,6 +439,17 @@ MERGE (ref)-[:RESOLVES_TO]->(c);
 MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[r]->(n)
 WHERE n.updatedAt >= datetime()-duration('PT5M')
 RETURN type(r) AS rel, n.id AS id, labels(n) AS type;
+```
+
+```cypher
+// Update summarized Context only when reusable knowledge was learned.
+MERGE (m:Memory {project: '{{PROJECT_NAME}}'})
+MERGE (c:Context {id: 'CTX-<topic>-summary', project: '{{PROJECT_NAME}}'})
+SET c.title='<summary title>', c.topic='<topic>',
+    c.content='<concise current knowledge useful to future sessions>',
+    c.source='<why this knowledge is trustworthy>',
+    c.createdAt=coalesce(c.createdAt, datetime()), c.updatedAt=datetime()
+MERGE (m)-[:HAS_CONTEXT]->(c);
 ```
 
 ---
