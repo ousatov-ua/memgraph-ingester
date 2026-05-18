@@ -168,7 +168,7 @@ ORDER BY c.fqn, f.name;
 ### Query Caveats
 
 - `CALLS` has no `project`; filter both endpoints.
-- `CALLS` and `ANNOTATED_WITH` are best-effort; missing edges prove no relationship.
+- `CALLS` and `ANNOTATED_WITH` are best-effort; missing edges do not prove no relationship.
 - External nodes use `isExternal = true`. External interfaces implemented by project classes still have `IMPLEMENTS` edges, but are excluded by internal-interface filters.
 - Non-JDK annotation FQNs may be stored as simple names.
 - Constructors use `name = '<init>'`.
