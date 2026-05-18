@@ -273,21 +273,42 @@ ORDER BY caller SKIP 0 LIMIT 200
 Recommended page size: **200** for Method/CALLS queries, **100** for node-with-properties queries.
 If the MCP tool saves results to a file due to size, re-query with a tighter `WHERE` filter first.
 
-**Cypher aggregation rule:** Aggregation functions (COUNT, SUM, collect, etc.) are only allowed in WITH and RETURN clauses. Never use them in WHERE or ORDER BY directly. First aggregate in WITH/RETURN, then sort or filter on the aliased result.
+**Cypher aggregation rule:** Aggregation functions (`COUNT`, `SUM`, `collect`, etc.)
+are only allowed in `WITH` and `RETURN` clauses. Never use aggregation functions
+in `WHERE` or `ORDER BY` directly.
 
-```cypher
-// WRONG — COUNT in ORDER BY:
-MATCH (a:Method)-[:CALLS]->(b:Method)
-WHERE a.signature CONTAINS 'ClassName.'
-RETURN a.signature, b.signature ORDER BY COUNT(*) DESC
+**Memgraph-specific hard rule:** In any query that uses aggregation, do not
+`RETURN` or `ORDER BY` node-property expressions directly, such as `c.fqn`,
+`m.signature`, or `iface.fqn`. First project every grouping key and aggregate into
+aliases with `WITH`, then `RETURN`, `ORDER BY`, filter, or paginate only by those
+aliases.
 
-// CORRECT — aggregate first, then sort:
-MATCH (a:Method)-[:CALLS]->(b:Method)
-WHERE a.signature CONTAINS 'ClassName.'
-WITH a.signature AS caller, b.signature AS callee, COUNT(*) AS cnt
-RETURN caller, callee ORDER BY cnt DESC LIMIT 20
-```
+  ```cypher
+  // WRONG — aggregate plus direct node-property expressions:
+  MATCH (c:Class {project: '{{PROJECT_NAME}}'})-[:IMPLEMENTS]->(iface:Interface)
+  RETURN c.fqn, collect(DISTINCT iface.fqn) AS ifaces
+  ORDER BY c.fqn
 
+  // WRONG — aggregate directly in ORDER BY:
+  MATCH (a:Method)-[:CALLS]->(b:Method)
+  WHERE a.signature CONTAINS 'ClassName.'
+  RETURN a.signature, b.signature
+  ORDER BY COUNT(*) DESC
+
+  // CORRECT — alias grouping keys and aggregates first:
+  MATCH (c:Class {project: '{{PROJECT_NAME}}'})-[:IMPLEMENTS]->(iface:Interface)
+  WITH c.fqn AS classFqn, collect(DISTINCT iface.fqn) AS ifaces
+  RETURN classFqn, ifaces
+  ORDER BY classFqn
+
+  // CORRECT — aggregate first, then sort by the aggregate alias:
+  MATCH (a:Method)-[:CALLS]->(b:Method)
+  WHERE a.signature CONTAINS 'ClassName.'
+  WITH a.signature AS caller, b.signature AS callee, COUNT(*) AS cnt
+  RETURN caller, callee
+  ORDER BY cnt DESC
+  LIMIT 20
+  ```
 ---
 
 #### Orientation (run at task start)
