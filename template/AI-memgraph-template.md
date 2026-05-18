@@ -18,8 +18,6 @@ Repo indexed under **`{{PROJECT_NAME}}`**. All queries MUST include `project: '{
 Findings, Context, active Tasks).
 Empty results are valid — proceed normally. Skip if already run in this session. Use Context,
 Decisions, and Rules as your context.
-**Read-only investigations (no code changes planned)** may skip Findings, active Tasks but must load
-Context, Decisions, and Rules and use them as your context.
 
 **BLOCKING — before any class/interface work:** query full hierarchy.
 
