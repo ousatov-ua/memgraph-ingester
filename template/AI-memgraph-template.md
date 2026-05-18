@@ -64,6 +64,12 @@ When Memgraph returns no results, fall back to text search and state why.
    **Preferred `mgconsole` fallback: one interactive session.** Start `mgconsole` once, run one
    Cypher statement at a time, end every statement with `;`, and exit with `:quit`.
 
+   **BLOCKING — interactive TTY line submission:** when using interactive `mgconsole` through a
+   TTY/tool session, submit lines with carriage return (`\r`). A multiline query pasted with
+   LF-only (`\n`) may appear at the prompt but not execute even if it ends with `;`. If that
+   happens, send an extra `\r`. Prefer one Cypher statement per write unless testing interactive
+   behavior.
+
    ```bash
    mgconsole --host ${MG_HOST:-127.0.0.1} --port ${MG_PORT:-7687} ${MG_USER:+--username $MG_USER} ${MG_PASS:+--password $MG_PASS} --output-format=csv --no_history
    ```
