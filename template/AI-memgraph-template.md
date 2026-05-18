@@ -14,6 +14,11 @@ Repo indexed under **`{{PROJECT_NAME}}`**. All queries MUST include `project: '{
 3. **grep/glob** — strings, comments, non-Java resources
 4. **Other tools** — last resort
 
+**BLOCKING — status/pending-work requests:** For any request about pending work, status,
+open work, remaining work, or whether the task is done, run Memgraph Orientation queries first.
+Then check Git if local file changes are relevant. Never answer from Git alone unless the user
+explicitly asks for Git-only status.
+
 **BLOCKING — before any task involving code changes:** run orientation queries (Rules, open
 Findings, Context, active Tasks).
 Empty results are valid — proceed normally. Skip if already run in this session. Use Context,
