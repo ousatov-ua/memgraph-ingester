@@ -9,7 +9,7 @@ Operate in concise execution mode:
 ## Incremental Work
 
 **BLOCKING:** Before large reads or broad repository scans, summarize current findings into a short plan.
-If context becomes large, compact and continue from the compacted summary.
+If the context becomes large, compact and continue from the compacted summary.
 Avoid huge generated files, `target/classes`, `node_modules`, build outputs, logs, and binaries.
 
 ## Knowledge Graph
@@ -47,7 +47,7 @@ When Memgraph returns no relevant rows, fall back to text search and state why.
 For Cypher queries:
 
 1. Use an MCP tool whose name contains `memgraph` or `cypher` if available.
-2. Otherwise use `mgconsole` with `--output-format=csv`.
+2. Otherwise, use `mgconsole` with `--output-format=csv`.
 
 Report which query tool was used.
 
@@ -139,17 +139,17 @@ ORDER BY c.fqn, f.name;
 
 ### Code Nodes
 
-| Label | Key | Notable properties |
-| --- | --- | --- |
-| `:Project` | `name` | - |
-| `:Code` | `project` | `lastIngested` |
-| `:Package` | `(name, project)` | - |
-| `:File` | `(path, project)` | `lastModified` |
-| `:Class` | `(fqn, project)` | `name`, `isAbstract`, `isEnum`, `isRecord`, `isFinal`, `isExternal`, `visibility` |
-| `:Interface` | `(fqn, project)` | `name`, `visibility`, `isFinal`, `isExternal` |
-| `:Annotation` | `(fqn, project)` | `name`, `visibility`, `isExternal` |
-| `:Method` | `(signature, project)` | `name`, `returnType`, `visibility`, `isStatic`, `startLine`, `endLine`, `isSynthetic` |
-| `:Field` | `(fqn, project)` | `name`, `type`, `visibility`, `isStatic` |
+| Label         | Key                    | Notable properties                                                                    |
+|---------------|------------------------|---------------------------------------------------------------------------------------|
+| `:Project`    | `name`                 | -                                                                                     |
+| `:Code`       | `project`              | `lastIngested`                                                                        |
+| `:Package`    | `(name, project)`      | -                                                                                     |
+| `:File`       | `(path, project)`      | `lastModified`                                                                        |
+| `:Class`      | `(fqn, project)`       | `name`, `isAbstract`, `isEnum`, `isRecord`, `isFinal`, `isExternal`, `visibility`     |
+| `:Interface`  | `(fqn, project)`       | `name`, `visibility`, `isFinal`, `isExternal`                                         |
+| `:Annotation` | `(fqn, project)`       | `name`, `visibility`, `isExternal`                                                    |
+| `:Method`     | `(signature, project)` | `name`, `returnType`, `visibility`, `isStatic`, `startLine`, `endLine`, `isSynthetic` |
+| `:Field`      | `(fqn, project)`       | `name`, `type`, `visibility`, `isStatic`                                              |
 
 ### Code Relationships
 
@@ -168,7 +168,7 @@ ORDER BY c.fqn, f.name;
 ### Query Caveats
 
 - `CALLS` has no `project`; filter both endpoints.
-- `CALLS` and `ANNOTATED_WITH` are best-effort; missing edges do not prove no relationship.
+- `CALLS` and `ANNOTATED_WITH` are best-effort; missing edges prove no relationship.
 - External nodes use `isExternal = true`. External interfaces implemented by project classes still have `IMPLEMENTS` edges, but are excluded by internal-interface filters.
 - Non-JDK annotation FQNs may be stored as simple names.
 - Constructors use `name = '<init>'`.
@@ -285,19 +285,19 @@ RETURN c.lastIngested;
 
 **Strict:** no extra properties.
 
-| Label | Key props | Additional properties |
-| --- | --- | --- |
-| `:Memory` | `project` | - |
-| `:Decision` | `id`, `project` | `title`, `topic`, `status`, `rationale`, `consequences` |
-| `:ADR` | `id`, `project` | `number`, `title`, `status`, `context`, `decision`, `consequences` |
-| `:Rule` | `id`, `project` | `title`, `topic`, `severity`, `description` |
-| `:Context` | `id`, `project` | `title`, `topic`, `content`, `source` |
-| `:Finding` | `id`, `project` | `title`, `topic`, `type`, `status`, `summary`, `evidence` |
-| `:Task` | `id`, `project` | `title`, `status`, `priority`, `description` |
-| `:Risk` | `id`, `project` | `title`, `topic`, `severity`, `status`, `mitigation` |
-| `:Question` | `id`, `project` | `title`, `status`, `answer` |
-| `:Idea` | `id`, `project` | `title`, `topic`, `status`, `notes` |
-| `:CodeRef` | `project`, `targetType`, `key` | - |
+| Label       | Key props                      | Additional properties                                              |
+|-------------|--------------------------------|--------------------------------------------------------------------|
+| `:Memory`   | `project`                      | -                                                                  |
+| `:Decision` | `id`, `project`                | `title`, `topic`, `status`, `rationale`, `consequences`            |
+| `:ADR`      | `id`, `project`                | `number`, `title`, `status`, `context`, `decision`, `consequences` |
+| `:Rule`     | `id`, `project`                | `title`, `topic`, `severity`, `description`                        |
+| `:Context`  | `id`, `project`                | `title`, `topic`, `content`, `source`                              |
+| `:Finding`  | `id`, `project`                | `title`, `topic`, `type`, `status`, `summary`, `evidence`          |
+| `:Task`     | `id`, `project`                | `title`, `status`, `priority`, `description`                       |
+| `:Risk`     | `id`, `project`                | `title`, `topic`, `severity`, `status`, `mitigation`               |
+| `:Question` | `id`, `project`                | `title`, `status`, `answer`                                        |
+| `:Idea`     | `id`, `project`                | `title`, `topic`, `status`, `notes`                                |
+| `:CodeRef`  | `project`, `targetType`, `key` | -                                                                  |
 
 All memory nodes have `createdAt` and `updatedAt`.
 
@@ -372,7 +372,7 @@ MERGE (d)-[:REFERS_TO]->(ref)
 MERGE (ref)-[:RESOLVES_TO]->(c);
 ```
 
-Verify recent memory and its code link before final response. Adapt `HAS_DECISION`,
+Verify recent memory and its code link before the final response. Adapt `HAS_DECISION`,
 `:Decision`, and `d` to the memory type just created:
 
 ```cypher
