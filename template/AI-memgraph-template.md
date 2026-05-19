@@ -317,7 +317,7 @@ Memory links:
 
 Memory is not a changelog. Store only information useful for future decisions, investigations, or implementation work.
 Do not create memory nodes just because files changed; routine edits belong in Git diff, tests, and final response.
-When the user asks you to do work, create or update a `Task` by default unless the user explicitly says not to create one. Reuse an existing matching `Task` when possible, mark it `doing` before starting, and close it as `done`, `blocked`, or `cancelled` when the work ends.
+A `Task` is for durable work tracking, not every assistant action. Create or update a `Task` only for explicit tracking/follow-up requests, multi-step implementation/debugging/refactoring/documentation work, unfinished work, or continuation/closure of an existing matching `Task`. Do not create a `Task` for one-off read-only requests such as printing or explaining code, answering from existing memory/source, status checks, simple lookups, or verification completed in the same response. When unsure, prefer not creating a `Task`.
 
 Create/update:
 - `Decision` for design or implementation choices.
@@ -325,7 +325,7 @@ Create/update:
 - `Rule` for future constraints.
 - `Finding` for bugs, performance issues, wrong assumptions, or codebase limitations.
 - `Context` for durable subsystem behavior, operational caveats, recurring failure modes, or reusable investigation summaries.
-- `Task` for user-requested work and unfinished follow-up.
+- `Task` for durable tracked work, active implementation/debugging/documentation work, or unfinished follow-up.
 - `Question` for open questions.
 - `Risk` for new or discovered risks.
 
