@@ -45,7 +45,7 @@ Report which query tool was used.
 
 ### `mgconsole` Rules
 
-**BLOCKING:** Use one interactive `mgconsole --no_history` session per task and reuse it for all Memgraph queries until the task is finished. Close it with `:quit` before final response.
+**BLOCKING:** Use one interactive `mgconsole --no_history --output-format=csv` session per task and reuse it for all Memgraph queries until the task is finished. Close it with `:quit` before final response.
 
 Start command:
 
