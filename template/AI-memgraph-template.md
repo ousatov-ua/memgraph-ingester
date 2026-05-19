@@ -39,7 +39,7 @@ When Memgraph returns no relevant rows, fall back to text search and state why.
 For Cypher queries:
 
 1. Use an MCP tool whose name contains `memgraph` or `cypher` if available.
-2. Otherwise, use `mgconsole` with `--output-format=csv`.
+2. Otherwise, use `mgconsole` with `--no_history --output-format=csv`.
 
 Report which query tool was used.
 
