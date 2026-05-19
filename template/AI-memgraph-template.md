@@ -259,13 +259,13 @@ RETURN [n IN nodes(path) | n.fqn] AS ancestors;
 MATCH path = (child:Class {project: '{{PROJECT_NAME}}'})-[:EXTENDS*]->(c:Class {fqn: 'com.example.MyClass', project: '{{PROJECT_NAME}}'})
 RETURN [n IN nodes(path) | n.fqn] AS descendants;
 
-MATCH path = (c:Class {fqn: 'com.example.MyClass', project: '{{PROJECT_NAME}}'})-[:IMPLEMENTS]->(:Interface {project: '{{PROJECT_NAME}}'})-[:EXTENDS*0..]->(i:Interface {project: '{{PROJECT_NAME}}'})
+MATCH path = (c:Class {fqn: 'com.example.MyClass', project: '{{PROJECT_NAME}}'})-[:EXTENDS*0..]->(:Class {project: '{{PROJECT_NAME}}'})-[:IMPLEMENTS]->(:Interface {project: '{{PROJECT_NAME}}'})-[:EXTENDS*0..]->(i:Interface {project: '{{PROJECT_NAME}}'})
 RETURN DISTINCT i.fqn AS iface;
 
 MATCH path = (i:Interface {fqn: 'com.example.MyInterface', project: '{{PROJECT_NAME}}'})-[:EXTENDS*]->(parent:Interface {project: '{{PROJECT_NAME}}'})
 RETURN [n IN nodes(path) | n.fqn] AS interfaceAncestors;
 
-MATCH (c:Class {project: '{{PROJECT_NAME}}'})-[:IMPLEMENTS]->(:Interface {project: '{{PROJECT_NAME}}'})-[:EXTENDS*0..]->(i:Interface {fqn: 'com.example.MyInterface', project: '{{PROJECT_NAME}}'})
+MATCH (c:Class {project: '{{PROJECT_NAME}}'})-[:EXTENDS*0..]->(:Class {project: '{{PROJECT_NAME}}'})-[:IMPLEMENTS]->(:Interface {project: '{{PROJECT_NAME}}'})-[:EXTENDS*0..]->(i:Interface {fqn: 'com.example.MyInterface', project: '{{PROJECT_NAME}}'})
 RETURN DISTINCT c.fqn AS implementor ORDER BY implementor;
 ```
 
