@@ -95,10 +95,24 @@ RETURN p.name AS pkg, c.name AS cls, c.isAbstract, c.isFinal
 ORDER BY p.name, c.name;
 
 // Cross-class call graph
-MATCH (a:Method {project: '{{PROJECT_NAME}}'})-[:CALLS]->(b:Method {project: '{{PROJECT_NAME}}'})
-MATCH (ca:Class {project: '{{PROJECT_NAME}}'})-[:DECLARES]->(a)
-MATCH (cb:Class {project: '{{PROJECT_NAME}}'})-[:DECLARES]->(b)
-WITH ca.fqn AS af, cb.fqn AS bf, COUNT(*) AS calls
+CALL {
+  MATCH (oa:Class {project: '{{PROJECT_NAME}}'})-[:DECLARES]->(a:Method {project: '{{PROJECT_NAME}}'})
+  RETURN a, oa.fqn AS af
+  UNION ALL
+  MATCH (oa:Interface {project: '{{PROJECT_NAME}}'})-[:DECLARES]->(a:Method {project: '{{PROJECT_NAME}}'})
+  RETURN a, oa.fqn AS af
+}
+MATCH (a)-[:CALLS]->(b:Method {project: '{{PROJECT_NAME}}'})
+CALL {
+  WITH b
+  MATCH (ob:Class {project: '{{PROJECT_NAME}}'})-[:DECLARES]->(b)
+  RETURN ob.fqn AS bf
+  UNION ALL
+  WITH b
+  MATCH (ob:Interface {project: '{{PROJECT_NAME}}'})-[:DECLARES]->(b)
+  RETURN ob.fqn AS bf
+}
+WITH af, bf, COUNT(*) AS calls
 WITH split(af, '.') AS ap, split(bf, '.') AS bp, calls
 WITH ap[size(ap) - 1] AS ac, bp[size(bp) - 1] AS bc, calls
 WHERE ac <> bc
