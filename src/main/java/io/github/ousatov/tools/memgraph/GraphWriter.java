@@ -332,6 +332,11 @@ public final class GraphWriter {
     runWithRetry(Cypher.CYPHER_UPSERT_PROJECT, Map.of("sourceRoot", sourceRoot.toString()));
   }
 
+  /** Backfills method owner metadata for graphs ingested before owner properties existed. */
+  public void backfillMethodOwnerMetadata() {
+    runWithRetry(Cypher.CYPHER_BACKFILL_METHOD_OWNER_METADATA, Map.of());
+  }
+
   /** Upserts a {@code :File} node and links it to the code anchor. */
   public void upsertFile(Path file) {
     long lastModified;

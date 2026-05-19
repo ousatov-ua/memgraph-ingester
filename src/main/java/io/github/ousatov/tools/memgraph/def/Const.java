@@ -88,6 +88,8 @@ public final class Const {
     public static final String CYPHER_UPSERT_IMPLEMENTS = action("upsert-implements.cypher");
     public static final String CYPHER_UPSERT_FIELD = action("upsert-field.cypher");
     public static final String CYPHER_UPSERT_METHOD = action("upsert-method.cypher");
+    public static final String CYPHER_BACKFILL_METHOD_OWNER_METADATA =
+        action("backfill-method-owner-metadata.cypher");
 
     /**
      * Callee is merged (not matched), creating a thin placeholder node if the callee file has not

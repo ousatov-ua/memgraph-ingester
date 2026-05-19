@@ -24,6 +24,7 @@ When Memgraph returns no relevant rows, fall back to text search and state why.
 
 - **Status/pending-work requests:** run Orientation queries first, then check Git if local changes are relevant. Never answer from Git alone unless the user explicitly asks for Git-only status.
 - **Orientation reuse:** Orientation queries are session-scoped. If they were already run for `{{PROJECT_NAME}}` in this assistant session, reuse those results for follow-up work and skip rerunning them unless memory was changed, the user asks for a refresh, or the task scope is unrelated.
+- **Relationship refresh after edits:** if source files changed during the session, re-query Memgraph relationships before relying on earlier relationship results; live ingestion may make cached relationships stale.
 - **Code changes:** before any code-change task, run Orientation queries for Rules, open Findings, Context, active Tasks, open Questions, and open Risks. Empty results are valid. Skip only if already run in this session.
 - **Class/interface work:** before touching a class or interface, query its full hierarchy.
 - **Java symbol work:** for investigations involving symbols, fields, methods, callers, implementations, inheritance, annotations, or type usages, query Memgraph before source inspection, filesystem search, IDE/LSP, or runtime introspection.

@@ -109,6 +109,8 @@ public final class IngestionOrchestrator {
       }
       bootstrapWriter.upsertProject(sourceRoot);
       log.info("Upserted :Project -> :Code and :Project -> :Memory anchors for '{}'", project);
+      bootstrapWriter.backfillMethodOwnerMetadata();
+      log.info("Backfilled :Method owner metadata for '{}'", project);
     }
 
     List<Path> files;
@@ -153,6 +155,7 @@ public final class IngestionOrchestrator {
     return failures;
   }
 
+  @SuppressWarnings({"java:S3776", "java:S135"})
   private void startWatchLoop() {
     log.info("Starting watch mode for {}...", sourceRoot);
     try (WatchService watcher = FileSystems.getDefault().newWatchService()) {

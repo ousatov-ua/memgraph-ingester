@@ -606,6 +606,75 @@ class IngestionOrchestratorIT {
     }
   }
 
+  @Test
+  void incrementalRunBackfillsOwnerMetadataForUnchangedMethods() throws Exception {
+    currentProject = PROJECT_BASE + "-incremental-owner-backfill";
+    sourceDir = Files.createTempDirectory("orch-incremental-owner-src-");
+    Path pkgDir = sourceDir.resolve("com/example");
+    Files.createDirectories(pkgDir);
+    Files.writeString(
+        pkgDir.resolve("AAACaller.java"),
+        """
+        package com.example;
+
+        public class AAACaller {
+          public void doWork() {
+            new BBBService().serve();
+          }
+        }
+        """);
+    Files.writeString(
+        pkgDir.resolve("BBBService.java"),
+        """
+        package com.example;
+
+        public class BBBService {
+          public void serve() {}
+        }
+        """);
+
+    var orchestrator =
+        new IngestionOrchestrator(
+            sourceDir, currentProject, 1, driver, new ParseService(sourceDir));
+    assertEquals(0, orchestrator.run(Settings.def()));
+
+    try (Session s = driver.session()) {
+      s.run(
+              "MATCH (m:Method {project: $p}) REMOVE m.ownerFqn, m.ownerDisplayName",
+              Map.of("p", currentProject))
+          .consume();
+    }
+
+    assertEquals(0, orchestrator.run(new Settings(false, false, false, false, true, false)));
+
+    try (Session s = driver.session()) {
+      long missingOwnerMetadata =
+          s.run(
+                  "MATCH (owner)-[:DECLARES]->(m:Method {project: $p})"
+                      + " WHERE owner.project = $p"
+                      + " AND (owner:Class OR owner:Interface OR owner:Annotation)"
+                      + " AND (m.ownerFqn IS NULL OR m.ownerDisplayName IS NULL)"
+                      + " RETURN count(m) AS n",
+                  Map.of("p", currentProject))
+              .single()
+              .get("n")
+              .asLong();
+      assertEquals(0, missingOwnerMetadata, "Incremental run must backfill skipped methods");
+
+      List<String> ownerEdges =
+          s.run(
+                  "MATCH (caller:Method {project: $p})-[:CALLS]->(callee:Method {project: $p})"
+                      + " WHERE caller.ownerFqn IS NOT NULL"
+                      + " AND callee.ownerFqn IS NOT NULL"
+                      + " AND caller.ownerFqn <> callee.ownerFqn"
+                      + " RETURN caller.ownerDisplayName + ' -> ' + callee.ownerDisplayName"
+                      + " AS edge ORDER BY edge",
+                  Map.of("p", currentProject))
+              .list(r -> r.get("edge").asString());
+      assertTrue(ownerEdges.contains("AAACaller -> BBBService"));
+    }
+  }
+
   /**
    * Verifies that inline CALLS creation works when the callee file is processed after the caller —
    * the MERGE-on-callee trick creates a placeholder that is upgraded when BBBService is ingested.
