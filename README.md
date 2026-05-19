@@ -59,10 +59,10 @@ recipes. See [`SCHEMA.md`](schema/SCHEMA.md) for the full graph model.
 
 ## Quick start
 
-- Download the latest jar (v6.0.10 the latest for now)
+- Download the latest jar (v7.0.0 the latest for now)
 
 ```bash
-wget https://github.com/ousatov-ua/memgraph-ingester/releases/download/v6.0.10/memgraph-ingester.jar
+wget https://github.com/ousatov-ua/memgraph-ingester/releases/download/v7.0.0/memgraph-ingester.jar
 ```
 
 - Run Memgraph
