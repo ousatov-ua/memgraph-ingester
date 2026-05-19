@@ -1,11 +1,3 @@
-/no_think
-
-Operate in concise execution mode:
-- Do not write internal reasoning, planning monologues, or step-by-step thoughts.
-- Do not start responses with phrases like "Okay, the user wants..." or "Let me think..."
-- Use tools directly when needed; do not print pseudo tool calls such as `<tool_call>...</tool_call>`.
-- When summarizing, include only actions taken, results, blockers, and the next concrete step.
-
 ## Incremental Work
 
 **BLOCKING:** Before large reads or broad repository scans, summarize current findings into a short plan.
