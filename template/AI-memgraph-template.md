@@ -1,9 +1,3 @@
-## Incremental Work
-
-**BLOCKING:** Before large reads or broad repository scans, summarize current findings into a short plan.
-If the context becomes large, compact and continue from the compacted summary.
-Avoid huge generated files, `target/classes`, `node_modules`, build outputs, logs, and binaries.
-
 ## Knowledge Graph
 
 Repo is indexed in Memgraph as **`{{PROJECT_NAME}}`**. Every query MUST include
