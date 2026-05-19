@@ -265,8 +265,8 @@ RETURN DISTINCT i.fqn AS iface;
 MATCH path = (i:Interface {fqn: 'com.example.MyInterface', project: '{{PROJECT_NAME}}'})-[:EXTENDS*]->(parent:Interface {project: '{{PROJECT_NAME}}'})
 RETURN [n IN nodes(path) | n.fqn] AS interfaceAncestors;
 
-MATCH (c:Class {project: '{{PROJECT_NAME}}'})-[:IMPLEMENTS]->(i:Interface {fqn: 'com.example.MyInterface', project: '{{PROJECT_NAME}}'})
-RETURN c.fqn AS implementor ORDER BY implementor;
+MATCH (c:Class {project: '{{PROJECT_NAME}}'})-[:IMPLEMENTS]->(:Interface {project: '{{PROJECT_NAME}}'})-[:EXTENDS*0..]->(i:Interface {fqn: 'com.example.MyInterface', project: '{{PROJECT_NAME}}'})
+RETURN DISTINCT c.fqn AS implementor ORDER BY implementor;
 ```
 
 ### Code Search
