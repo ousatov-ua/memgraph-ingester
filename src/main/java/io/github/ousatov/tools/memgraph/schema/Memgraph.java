@@ -6,6 +6,7 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import org.neo4j.driver.Session;
 
 /**
@@ -48,9 +49,35 @@ public final class Memgraph {
   }
 
   private static void applyTo(String cypher, Session session) {
+    applyTo(cypher, session, false);
+  }
+
+  private static void applyTo(String cypher, Session session, boolean ignoreMissingSchemaDrops) {
     for (String stmt : splitStatements(cypher)) {
-      session.run(stmt);
+      try {
+        session.run(stmt).consume();
+      } catch (RuntimeException e) {
+        if (!ignoreMissingSchemaDrops || !isMissingSchemaDrop(stmt, e)) {
+          throw e;
+        }
+      }
     }
+  }
+
+  static boolean isMissingSchemaDrop(String stmt, RuntimeException e) {
+    String normalizedStmt = stmt.stripLeading().toUpperCase(Locale.ROOT);
+    if (!normalizedStmt.startsWith("DROP INDEX") && !normalizedStmt.startsWith("DROP CONSTRAINT")) {
+      return false;
+    }
+    String message = e.getMessage();
+    if (message == null) {
+      return false;
+    }
+    String normalizedMessage = message.toLowerCase(Locale.ROOT);
+    return normalizedMessage.contains("doesn't exist")
+        || normalizedMessage.contains("does not exist")
+        || normalizedMessage.contains("not found")
+        || normalizedMessage.contains("no such");
   }
 
   /**
@@ -82,7 +109,7 @@ public final class Memgraph {
    * @param session session to use
    */
   public static void wipeAllData(Session session) {
-    applyTo(dropSchemaQuery(), session);
+    applyTo(dropSchemaQuery(), session, true);
     applyTo(wipeAllDataQuery(), session);
   }
 

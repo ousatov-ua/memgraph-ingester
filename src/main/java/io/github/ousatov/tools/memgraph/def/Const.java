@@ -43,8 +43,6 @@ public final class Const {
     public static final String CYPHER_WIPE_PROJECT_CODE = action("wipe-project-code.cypher");
     public static final String CYPHER_WIPE_PROJECT_CODE_BATCH =
         action("wipe-project-code-batch.cypher");
-    public static final String CYPHER_GET_FILE_LAST_MODIFIED =
-        action("get-file-last-modified.cypher");
 
     /**
      * Batch-fetches {@code lastModified} for a list of file paths in one query. Returns one row per
@@ -90,6 +88,8 @@ public final class Const {
     public static final String CYPHER_UPSERT_IMPLEMENTS = action("upsert-implements.cypher");
     public static final String CYPHER_UPSERT_FIELD = action("upsert-field.cypher");
     public static final String CYPHER_UPSERT_METHOD = action("upsert-method.cypher");
+    public static final String CYPHER_BACKFILL_METHOD_OWNER_METADATA =
+        action("backfill-method-owner-metadata.cypher");
 
     /**
      * Callee is merged (not matched), creating a thin placeholder node if the callee file has not
@@ -150,6 +150,7 @@ public final class Const {
     public static final String CALLEE = "callee";
     public static final String CALLEE_NAME = "calleeName";
     public static final String OWNER_FQN = "ownerFqn";
+    public static final String OWNER_DISPLAY_NAME = "ownerDisplayName";
     public static final String FQN = "fqn";
     public static final String NAME = "name";
     public static final String ANNOT_FQN = "annotFqn";

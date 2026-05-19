@@ -95,6 +95,7 @@ DROP INDEX ON :Annotation(name);
 
 DROP INDEX ON :Method(project);
 DROP INDEX ON :Method(name);
+DROP INDEX ON :Method(ownerFqn);
 
 DROP INDEX ON :Field(project);
 DROP INDEX ON :Field(name);
