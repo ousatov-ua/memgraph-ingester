@@ -292,7 +292,7 @@ RETURN c.lastIngested;
 
 **Strict:** no extra properties.
 
-Use `dateTime()` for all property `createdAt` and `updatedAt` values; do not use `localDateTime()` for memory timestamps.
+Use `datetime()` for all property `createdAt` and `updatedAt` values; do not use `localDateTime()` for memory timestamps.
 
 | Label       | Key props                      | Additional properties                                                                        |
 |-------------|--------------------------------|----------------------------------------------------------------------------------------------|
