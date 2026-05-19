@@ -317,7 +317,11 @@ Memory links:
 
 Memory is not a changelog. Store only information useful for future decisions, investigations, or implementation work.
 Do not create memory nodes just because files changed; routine edits belong in Git diff, tests, and final response.
-A `Task` is for durable work tracking, not every assistant action. Create or update a `Task` only for explicit tracking/follow-up requests, multi-step implementation/debugging/refactoring/documentation work, unfinished work, or continuation/closure of an existing matching `Task`. Do not create a `Task` for one-off read-only requests such as printing or explaining code, answering from existing memory/source, status checks, simple lookups, or verification completed in the same response. When unsure, prefer not creating a `Task`.
+
+A `Task` is for durable work tracking, not every assistant action. 
+Create or update a `Task` only for explicit tracking/follow-up requests, multi-step implementation/debugging/refactoring/documentation work, unfinished work, or continuation/closure of an existing matching `Task`. 
+Do not create a `Task` for one-off read-only requests such as printing or explaining code, answering from existing memory/source, status checks, simple lookups, or verification completed in the same response. 
+When unsure, prefer not creating a `Task`.
 
 Create/update:
 - `Decision` for design or implementation choices.
