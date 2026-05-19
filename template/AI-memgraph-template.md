@@ -30,7 +30,7 @@ When Memgraph returns no relevant rows, fall back to text search and state why.
 - **Method body reads:** first query `startLine` and `endLine`, then read only that source range.
 - **Task close:** save durable findings/decisions as Memory nodes and verify them.
 - **Memory lifecycle changes:** immediately update Task/Risk/Question/Decision/ADR/Idea status in Memgraph before proceeding.
-- **Code-related memory:** when creating Task/Decision/Finding/Rule/ADR/Risk/Idea nodes related to code, create at least one `CodeRef` and link `(:MemoryNode)-[:REFERS_TO]->(:CodeRef)-[:RESOLVES_TO]->(:Code|:Package|:File|:Class|:Interface|:Annotation|:Method|:Field)`.
+- **Code-related memory:** when creating Task/Decision/Finding/Rule/ADR/Risk/Idea nodes related to code, create at least one `CodeRef` and link `(:Decision|:ADR|:Rule|:Context|:Finding|:Task|:Risk|:Question|:Idea)-[:REFERS_TO]->(:CodeRef)-[:RESOLVES_TO]->(:Code|:Package|:File|:Class|:Interface|:Annotation|:Method|:Field)`.
 
 ## Memgraph Access
 
@@ -96,10 +96,13 @@ ORDER BY p.name, c.name;
 
 // Cross-class call graph
 MATCH (a:Method {project: '{{PROJECT_NAME}}'})-[:CALLS]->(b:Method {project: '{{PROJECT_NAME}}'})
-WITH split(split(a.signature, '(')[0], '.') AS ap, split(split(b.signature, '(')[0], '.') AS bp
-WITH ap[size(ap) - 2] AS ac, bp[size(bp) - 2] AS bc
+MATCH (ca:Class {project: '{{PROJECT_NAME}}'})-[:DECLARES]->(a)
+MATCH (cb:Class {project: '{{PROJECT_NAME}}'})-[:DECLARES]->(b)
+WITH ca.fqn AS af, cb.fqn AS bf, COUNT(*) AS calls
+WITH split(af, '.') AS ap, split(bf, '.') AS bp, calls
+WITH ap[size(ap) - 1] AS ac, bp[size(bp) - 1] AS bc, calls
 WHERE ac <> bc
-WITH ac + ' -> ' + bc AS edge, COUNT(*) AS n
+WITH ac + ' -> ' + bc AS edge, SUM(calls) AS n
 RETURN edge, n ORDER BY n DESC LIMIT 30;
 
 // Method-count hotspots
@@ -277,21 +280,19 @@ RETURN c.lastIngested;
 
 **Strict:** no extra properties.
 
-| Label       | Key props                      | Additional properties                                              |
-|-------------|--------------------------------|--------------------------------------------------------------------|
-| `:Memory`   | `project`                      | -                                                                  |
-| `:Decision` | `id`, `project`                | `title`, `topic`, `status`, `rationale`, `consequences`            |
-| `:ADR`      | `id`, `project`                | `number`, `title`, `status`, `context`, `decision`, `consequences` |
-| `:Rule`     | `id`, `project`                | `title`, `topic`, `severity`, `description`                        |
-| `:Context`  | `id`, `project`                | `title`, `topic`, `content`, `source`                              |
-| `:Finding`  | `id`, `project`                | `title`, `topic`, `type`, `status`, `summary`, `evidence`          |
-| `:Task`     | `id`, `project`                | `title`, `status`, `priority`, `description`                       |
-| `:Risk`     | `id`, `project`                | `title`, `topic`, `severity`, `status`, `mitigation`               |
-| `:Question` | `id`, `project`                | `title`, `status`, `answer`                                        |
-| `:Idea`     | `id`, `project`                | `title`, `topic`, `status`, `notes`                                |
-| `:CodeRef`  | `project`, `targetType`, `key` | -                                                                  |
-
-All memory nodes have `createdAt` and `updatedAt`.
+| Label       | Key props                      | Additional properties                                                                        |
+|-------------|--------------------------------|----------------------------------------------------------------------------------------------|
+| `:Memory`   | `project`                      | -                                                                                            |
+| `:Decision` | `id`, `project`                | `title`, `topic`, `status`, `rationale`, `consequences`, `createdAt`, `updatedAt`            |
+| `:ADR`      | `id`, `project`                | `number`, `title`, `status`, `context`, `decision`, `consequences`, `createdAt`, `updatedAt` |
+| `:Rule`     | `id`, `project`                | `title`, `topic`, `severity`, `description`, `createdAt`, `updatedAt`                        |
+| `:Context`  | `id`, `project`                | `title`, `topic`, `content`, `source`, `createdAt`, `updatedAt`                              |
+| `:Finding`  | `id`, `project`                | `title`, `topic`, `type`, `status`, `summary`, `evidence`, `createdAt`, `updatedAt`          |
+| `:Task`     | `id`, `project`                | `title`, `status`, `priority`, `description`, `createdAt`, `updatedAt`                       |
+| `:Risk`     | `id`, `project`                | `title`, `topic`, `severity`, `status`, `mitigation`, `createdAt`, `updatedAt`               |
+| `:Question` | `id`, `project`                | `title`, `status`, `answer`, `createdAt`, `updatedAt`                                        |
+| `:Idea`     | `id`, `project`                | `title`, `topic`, `status`, `notes`, `createdAt`, `updatedAt`                                |
+| `:CodeRef`  | `project`, `targetType`, `key` | -                                                                                            |
 
 Controlled values:
 - Decision/ADR `status`: `proposed`, `accepted`, `rejected`, `superseded`; ADR also `draft`.
@@ -381,9 +382,5 @@ MATCH (d:Decision {project: '{{PROJECT_NAME}}'})-[:REFERS_TO]->(ref:CodeRef)-[:R
 WHERE d.updatedAt >= datetime() - duration('PT5M')
 RETURN d.id AS id, ref.targetType AS targetType, ref.key AS key, labels(target) AS targetLabels;
 ```
-
-> `:Code` is the intermediary node between `:Project` and `:Package`/`:File` — it is **not** listed
-> in the schema table above but exists in the graph. `lastIngested` is a Unix-epoch **microseconds**
-> integer (e.g. `1778314313032240`).
 
 > Memory is not logs. Store only what improves future decisions.
