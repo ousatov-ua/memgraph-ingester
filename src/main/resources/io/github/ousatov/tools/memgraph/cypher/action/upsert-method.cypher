@@ -5,6 +5,8 @@ MERGE (m:Method {signature: $sig, project: $project})
       m.visibility = $visibility,
       m.startLine = $start,
       m.endLine = $end,
+      m.ownerFqn = $owner,
+      m.ownerDisplayName = $ownerDisplayName,
       m.isSynthetic = $isSynthetic
 WITH m
 MATCH (owner)

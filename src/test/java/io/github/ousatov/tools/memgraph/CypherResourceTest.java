@@ -53,6 +53,7 @@ class CypherResourceTest {
     assertTrue(schema.contains("CREATE INDEX ON :Decision(topic)"));
     assertTrue(schema.contains("CREATE INDEX ON :Idea(status)"));
     assertTrue(schema.contains("CREATE INDEX ON :Context(updatedAt)"));
+    assertTrue(schema.contains("CREATE INDEX ON :Method(ownerFqn)"));
     assertTrue(schema.contains("CREATE INDEX ON :Rule(severity)"));
     assertTrue(schema.contains("CREATE INDEX ON :Task(priority)"));
     assertTrue(schema.contains("CREATE INDEX ON :Finding(type)"));

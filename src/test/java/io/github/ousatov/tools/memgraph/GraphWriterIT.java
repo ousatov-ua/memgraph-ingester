@@ -386,6 +386,31 @@ class GraphWriterIT {
   }
 
   @Test
+  void upsertTypePersistsMethodOwnerMetadata() {
+    writer.upsertFile(TEST_FILE);
+    writer.upsertPackage(PKG);
+    ClassOrInterfaceDeclaration decl =
+        parseDecl(
+            "package com.example;"
+                + " public class Widget {"
+                + "   public String getName() { return \"widget\"; }"
+                + " }");
+
+    writer.upsertType(TEST_FILE, PKG, decl);
+
+    var row =
+        session
+            .run(
+                "MATCH (m:Method {signature: $sig, project: $p})"
+                    + " RETURN m.ownerFqn AS ownerFqn, m.ownerDisplayName AS ownerDisplayName",
+                Map.of("sig", "com.example.Widget.getName()", "p", PROJECT))
+            .single();
+
+    assertEquals("com.example.Widget", row.get("ownerFqn").asString());
+    assertEquals("Widget", row.get("ownerDisplayName").asString());
+  }
+
+  @Test
   void upsertTypeLinksTypeToFileAndPackage() {
     writer.upsertFile(TEST_FILE);
     writer.upsertPackage(PKG);
@@ -1076,7 +1101,11 @@ class GraphWriterIT {
 
   private static void deleteDir(Path dir) throws IOException {
     try (var walk = Files.walk(dir)) {
-      walk.sorted(java.util.Comparator.reverseOrder()).forEach(p -> p.toFile().delete());
+      walk.sorted(java.util.Comparator.reverseOrder())
+          .forEach(
+              p -> {
+                var _ = p.toFile().delete();
+              });
     }
   }
 

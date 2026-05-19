@@ -32,6 +32,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -743,6 +744,8 @@ public final class GraphWriter {
             method.endLine(),
             Params.OWNER,
             method.ownerFqn(),
+            Params.OWNER_DISPLAY_NAME,
+            nameFromFqn(method.ownerFqn()),
             Params.IS_SYNTHETIC,
             method.isSynthetic()));
   }
@@ -1016,8 +1019,8 @@ public final class GraphWriter {
     if (resolved.isPresent()) {
       return resolved;
     }
-    String inferred = inferFqnFromImports(type);
-    return inferred.equals(type.getNameAsString()) ? Optional.empty() : Optional.of(inferred);
+    return Optional.ofNullable(inferFqnFromImports(type))
+        .filter(inferred -> !inferred.equals(type.getNameAsString()));
   }
 
   /**
@@ -1052,7 +1055,7 @@ public final class GraphWriter {
                     return Optional.of(imp.getNameAsString());
                   }
                 }
-                return Optional.<String>empty();
+                return Optional.empty();
               });
     }
     return Optional.empty();
@@ -1105,7 +1108,7 @@ public final class GraphWriter {
    */
   private void withResolvedType(ClassOrInterfaceType type, Consumer<String> action) {
     Optional<String> resolved = resolveQualifiedName(type);
-    action.accept(resolved.orElseGet(() -> inferFqnFromImports(type)));
+    resolved.or(() -> Optional.ofNullable(inferFqnFromImports(type))).ifPresent(action);
   }
 
   /**
@@ -1140,7 +1143,7 @@ public final class GraphWriter {
                       }
                     }
                   }
-                  return Optional.<String>empty();
+                  return Optional.empty();
                 })
             .orElse(fullName);
     return normalizeNestedFqn(result);
@@ -1207,7 +1210,7 @@ public final class GraphWriter {
           "Cypher failed after " + MAX_RETRY_ATTEMPTS + " attempts: " + cypher, e);
     }
     try {
-      long jitter = (long) (backoffMs * Math.random() * 0.5);
+      long jitter = ThreadLocalRandom.current().nextLong(Math.max(1L, backoffMs / 2));
       Thread.sleep(backoffMs + jitter);
     } catch (InterruptedException ie) {
       Thread.currentThread().interrupt();

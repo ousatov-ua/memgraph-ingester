@@ -19,6 +19,7 @@ CREATE INDEX ON :Annotation(project);
 CREATE INDEX ON :Annotation(name);
 CREATE INDEX ON :Method(project);
 CREATE INDEX ON :Method(name);
+CREATE INDEX ON :Method(ownerFqn);
 CREATE INDEX ON :Field(project);
 CREATE INDEX ON :Field(name);
 CREATE INDEX ON :Class(packageName);

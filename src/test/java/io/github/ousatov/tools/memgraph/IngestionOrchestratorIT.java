@@ -589,6 +589,20 @@ class IngestionOrchestratorIT {
               .get("n")
               .asLong();
       assertTrue(callEdges >= 1, "Cross-file CALLS edge must exist (AAACaller -> BBBService)");
+
+      List<String> ownerEdges =
+          s.run(
+                  "MATCH (caller:Method {project: $p})-[:CALLS]->(callee:Method {project: $p})"
+                      + " WHERE caller.ownerFqn IS NOT NULL"
+                      + " AND callee.ownerFqn IS NOT NULL"
+                      + " AND caller.ownerFqn <> callee.ownerFqn"
+                      + " RETURN caller.ownerDisplayName + ' -> ' + callee.ownerDisplayName"
+                      + " AS edge ORDER BY edge",
+                  Map.of("p", currentProject))
+              .list(r -> r.get("edge").asString());
+      assertTrue(
+          ownerEdges.contains("AAACaller -> BBBService"),
+          "CALLS summaries should use persisted Method owner metadata");
     }
   }
 
@@ -728,7 +742,7 @@ class IngestionOrchestratorIT {
             }
           }
           """
-              .formatted(i, i));
+              .formatted(i));
     }
 
     int failures =

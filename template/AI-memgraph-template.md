@@ -95,28 +95,11 @@ RETURN p.name AS pkg, c.name AS cls, c.isAbstract, c.isFinal
 ORDER BY p.name, c.name;
 
 // Cross-class call graph
-CALL {
-  MATCH (oa:Class {project: '{{PROJECT_NAME}}'})-[:DECLARES]->(a:Method {project: '{{PROJECT_NAME}}'})
-  RETURN a, oa.fqn AS af
-  UNION ALL
-  MATCH (oa:Interface {project: '{{PROJECT_NAME}}'})-[:DECLARES]->(a:Method {project: '{{PROJECT_NAME}}'})
-  RETURN a, oa.fqn AS af
-}
-MATCH (a)-[:CALLS]->(b:Method {project: '{{PROJECT_NAME}}'})
-CALL {
-  WITH b
-  MATCH (ob:Class {project: '{{PROJECT_NAME}}'})-[:DECLARES]->(b)
-  RETURN ob.fqn AS bf
-  UNION ALL
-  WITH b
-  MATCH (ob:Interface {project: '{{PROJECT_NAME}}'})-[:DECLARES]->(b)
-  RETURN ob.fqn AS bf
-}
-WITH af, bf, COUNT(*) AS calls
-WITH split(af, '.') AS ap, split(bf, '.') AS bp, calls
-WITH ap[size(ap) - 1] AS ac, bp[size(bp) - 1] AS bc, calls
-WHERE ac <> bc
-WITH ac + ' -> ' + bc AS edge, SUM(calls) AS n
+MATCH (caller:Method {project: '{{PROJECT_NAME}}'})-[:CALLS]->(callee:Method {project: '{{PROJECT_NAME}}'})
+WHERE caller.ownerFqn IS NOT NULL
+  AND callee.ownerFqn IS NOT NULL
+  AND caller.ownerFqn <> callee.ownerFqn
+WITH caller.ownerDisplayName + ' -> ' + callee.ownerDisplayName AS edge, COUNT(*) AS n
 RETURN edge, n ORDER BY n DESC LIMIT 30;
 
 // Method-count hotspots
@@ -148,17 +131,17 @@ ORDER BY c.fqn, f.name;
 
 ### Code Nodes
 
-| Label         | Key                    | Notable properties                                                                    |
-|---------------|------------------------|---------------------------------------------------------------------------------------|
-| `:Project`    | `name`                 | -                                                                                     |
-| `:Code`       | `project`              | `lastIngested`                                                                        |
-| `:Package`    | `(name, project)`      | -                                                                                     |
-| `:File`       | `(path, project)`      | `lastModified`                                                                        |
-| `:Class`      | `(fqn, project)`       | `name`, `isAbstract`, `isEnum`, `isRecord`, `isFinal`, `isExternal`, `visibility`     |
-| `:Interface`  | `(fqn, project)`       | `name`, `visibility`, `isFinal`, `isExternal`                                         |
-| `:Annotation` | `(fqn, project)`       | `name`, `visibility`, `isExternal`                                                    |
-| `:Method`     | `(signature, project)` | `name`, `returnType`, `visibility`, `isStatic`, `startLine`, `endLine`, `isSynthetic` |
-| `:Field`      | `(fqn, project)`       | `name`, `type`, `visibility`, `isStatic`                                              |
+| Label         | Key                    | Notable properties                                                                                                    |
+|---------------|------------------------|-----------------------------------------------------------------------------------------------------------------------|
+| `:Project`    | `name`                 | -                                                                                                                     |
+| `:Code`       | `project`              | `lastIngested`                                                                                                        |
+| `:Package`    | `(name, project)`      | -                                                                                                                     |
+| `:File`       | `(path, project)`      | `lastModified`                                                                                                        |
+| `:Class`      | `(fqn, project)`       | `name`, `isAbstract`, `isEnum`, `isRecord`, `isFinal`, `isExternal`, `visibility`                                     |
+| `:Interface`  | `(fqn, project)`       | `name`, `visibility`, `isFinal`, `isExternal`                                                                         |
+| `:Annotation` | `(fqn, project)`       | `name`, `visibility`, `isExternal`                                                                                    |
+| `:Method`     | `(signature, project)` | `name`, `ownerFqn`, `ownerDisplayName`, `returnType`, `visibility`, `isStatic`, `startLine`, `endLine`, `isSynthetic` |
+| `:Field`      | `(fqn, project)`       | `name`, `type`, `visibility`, `isStatic`                                                                              |
 
 ### Code Relationships
 
@@ -178,6 +161,8 @@ ORDER BY c.fqn, f.name;
 
 - `CALLS` has no `project`; filter both endpoints.
 - `CALLS` and `ANNOTATED_WITH` are best-effort; missing edges do not prove no relationship.
+- Fully ingested `Method` nodes store `ownerFqn` and `ownerDisplayName`; prefer those properties for relationship summaries instead of parsing `signature` or traversing `DECLARES`.
+- Placeholder callee `Method` nodes created during call-edge ingestion can lack owner metadata until the callee is ingested; phantom cleanup normally removes unresolved placeholders.
 - External nodes use `isExternal = true`. External interfaces implemented by project classes still have `IMPLEMENTS` edges, but are excluded by internal-interface filters.
 - Non-JDK annotation FQNs may be stored as simple names.
 - Constructors use `name = '<init>'`.
@@ -275,7 +260,7 @@ Always include method line numbers when fetching methods.
 
 ```cypher
 MATCH (c:Class {fqn: '...', project: '{{PROJECT_NAME}}'})-[:DECLARES]->(m:Method)
-RETURN m.signature, m.visibility, m.returnType, m.startLine, m.endLine
+RETURN m.signature, m.ownerFqn, m.ownerDisplayName, m.visibility, m.returnType, m.startLine, m.endLine
 ORDER BY m.name;
 
 MATCH (caller:Method {project: '{{PROJECT_NAME}}'})-[:CALLS]->(callee:Method {project: '{{PROJECT_NAME}}'})
@@ -283,10 +268,10 @@ WHERE callee.signature CONTAINS 'MyClass.myMethod('
 RETURN caller.signature;
 
 MATCH (caller:Method {project: '{{PROJECT_NAME}}'})-[:CALLS]->(callee:Method {project: '{{PROJECT_NAME}}'})
-WITH split(split(caller.signature, '(')[0], '.') AS cp, split(split(callee.signature, '(')[0], '.') AS tp
-WITH cp[size(cp) - 2] AS cc, tp[size(tp) - 2] AS tc
-WHERE cc <> tc
-WITH cc + ' -> ' + tc AS edge, COUNT(*) AS cnt
+WHERE caller.ownerFqn IS NOT NULL
+  AND callee.ownerFqn IS NOT NULL
+  AND caller.ownerFqn <> callee.ownerFqn
+WITH caller.ownerDisplayName + ' -> ' + callee.ownerDisplayName AS edge, COUNT(*) AS cnt
 RETURN edge, cnt ORDER BY cnt DESC;
 ```
 
