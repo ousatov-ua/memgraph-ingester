@@ -186,7 +186,7 @@ ORDER BY c.fqn, f.name;
 - Always label `DECLARES` targets, e.g. `-[:DECLARES]->(m:Method)`.
 - `visibility` values are `"public"`, `"protected"`, `"private"`, or `""` for package-private.
 - Prefer `c.isExternal = false` over `NOT c.isExternal` in multi-hop patterns.
-- Label-less relationship patterns such as `MATCH (n {project: ...})-[:REL]->()` fail; use explicit labels.
+- Prefer explicit labels in relationship patterns for precision and planner behavior.
 - Aggregation must be in `WITH` or `RETURN`; never use aggregate functions directly in `WHERE` or `ORDER BY`.
 - When a query uses aggregation, first alias grouping keys and aggregate values with `WITH`; then `RETURN`, `ORDER BY`, filter, or paginate by aliases only.
 - Avoid chaining multiple `OPTIONAL MATCH` clauses after label scans when aggregates appear. Move filters into node patterns and split into separate queries if needed.
@@ -246,15 +246,27 @@ Run before class/interface work:
 
 ```cypher
 MATCH (c:Class {fqn: 'com.example.MyClass', project: '{{PROJECT_NAME}}'})
-OPTIONAL MATCH (c)-[:EXTENDS]->(parent:Class)
-OPTIONAL MATCH (c)-[:IMPLEMENTS]->(iface:Interface)
-OPTIONAL MATCH (child:Class)-[:EXTENDS]->(c)
+OPTIONAL MATCH (c)-[:EXTENDS]->(parent:Class {project: '{{PROJECT_NAME}}'})
+OPTIONAL MATCH (c)-[:IMPLEMENTS]->(iface:Interface {project: '{{PROJECT_NAME}}'})
+OPTIONAL MATCH (child:Class {project: '{{PROJECT_NAME}}'})-[:EXTENDS]->(c)
 WITH c.fqn AS classFqn, collect(DISTINCT parent.fqn) AS parents,
      collect(DISTINCT iface.fqn) AS ifaces, collect(DISTINCT child.fqn) AS children
 RETURN classFqn, parents, ifaces, children;
 
 MATCH path = (c:Class {fqn: 'com.example.MyClass', project: '{{PROJECT_NAME}}'})-[:EXTENDS*]->(a:Class {project: '{{PROJECT_NAME}}'})
 RETURN [n IN nodes(path) | n.fqn] AS ancestors;
+
+MATCH path = (child:Class {project: '{{PROJECT_NAME}}'})-[:EXTENDS*]->(c:Class {fqn: 'com.example.MyClass', project: '{{PROJECT_NAME}}'})
+RETURN [n IN nodes(path) | n.fqn] AS descendants;
+
+MATCH path = (c:Class {fqn: 'com.example.MyClass', project: '{{PROJECT_NAME}}'})-[:IMPLEMENTS]->(:Interface {project: '{{PROJECT_NAME}}'})-[:EXTENDS*0..]->(i:Interface {project: '{{PROJECT_NAME}}'})
+RETURN DISTINCT i.fqn AS iface;
+
+MATCH path = (i:Interface {fqn: 'com.example.MyInterface', project: '{{PROJECT_NAME}}'})-[:EXTENDS*]->(parent:Interface {project: '{{PROJECT_NAME}}'})
+RETURN [n IN nodes(path) | n.fqn] AS interfaceAncestors;
+
+MATCH (c:Class {project: '{{PROJECT_NAME}}'})-[:IMPLEMENTS]->(i:Interface {fqn: 'com.example.MyInterface', project: '{{PROJECT_NAME}}'})
+RETURN c.fqn AS implementor ORDER BY implementor;
 ```
 
 ### Code Search
