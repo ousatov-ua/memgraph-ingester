@@ -1,0 +1,23 @@
+FROM ghcr.io/graalvm/native-image-community:25-ol9
+
+ARG MAVEN_VERSION=3.9.16
+
+RUN microdnf install -y \
+    curl \
+    tar \
+    gzip \
+    git \
+    findutils \
+ && microdnf clean all
+
+RUN curl -fsSL "https://archive.apache.org/dist/maven/maven-3/${MAVEN_VERSION}/binaries/apache-maven-${MAVEN_VERSION}-bin.tar.gz" \
+    | tar -xz -C /opt \
+ && ln -s "/opt/apache-maven-${MAVEN_VERSION}" /opt/maven
+
+ENV MAVEN_HOME=/opt/maven
+ENV PATH="${MAVEN_HOME}/bin:${PATH}"
+
+WORKDIR /workspace
+
+ENTRYPOINT []
+CMD ["/bin/bash"]
