@@ -17,27 +17,19 @@ import com.github.javaparser.ast.nodeTypes.NodeWithImplements;
 import com.github.javaparser.ast.stmt.ExplicitConstructorInvocationStmt;
 import com.github.javaparser.ast.type.ClassOrInterfaceType;
 import com.github.javaparser.resolution.declarations.ResolvedMethodDeclaration;
-import com.github.javaparser.resolution.declarations.ResolvedTypeDeclaration;
-import com.github.javaparser.resolution.types.ResolvedReferenceType;
 import io.github.ousatov.tools.memgraph.def.Const.Cypher;
 import io.github.ousatov.tools.memgraph.def.Const.Labels;
 import io.github.ousatov.tools.memgraph.def.Const.Params;
-import io.github.ousatov.tools.memgraph.exception.ProcessingException;
 import io.github.ousatov.tools.memgraph.vo.Method;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
-import java.util.Optional;
-import java.util.concurrent.ThreadLocalRandom;
-import java.util.function.Consumer;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.neo4j.driver.Session;
-import org.neo4j.driver.Transaction;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -61,39 +53,28 @@ public final class GraphWriter {
 
   private static final Logger log = LoggerFactory.getLogger(GraphWriter.class);
 
-  private static final int MAX_RETRY_ATTEMPTS = 8;
-  private static final long INITIAL_BACKOFF_MS = 10L;
-  private static final long MAX_BACKOFF_MS = 500L;
   private static final int WIPE_BATCH_SIZE = 10_000;
 
-  private final Session session;
-  private final String project;
-
-  /**
-   * Non-null while an explicit file-level transaction is open (sequential mode only). When set,
-   * {@link #runWithRetry} routes through this transaction instead of autocommit session.run().
-   */
-  private Transaction currentTx;
+  private final CypherExecutor cypher;
 
   /**
    * @param session Bolt session — must not be shared with other threads
    * @param project project name used to scope all Cypher operations
    */
   public GraphWriter(Session session, String project) {
-    this.session = session;
-    this.project = project;
+    this.cypher = new CypherExecutor(session, project);
   }
 
   /**
-   * Opens an explicit Bolt transaction so that all subsequent {@link #runWithRetry} calls are
-   * batched into a single round-trip. Must only be called in sequential (single-writer) mode;
-   * concurrent writers sharing the same nodes will trigger Memgraph MVCC conflicts.
+   * Opens an explicit Bolt transaction so that all subsequent Cypher writes are batched into a
+   * single round-trip. Must only be called in sequential (single-writer) mode; concurrent writers
+   * sharing the same nodes will trigger Memgraph MVCC conflicts.
    *
    * <p>Call {@link #commitFileTransaction()} when all writes succeed, or {@link
    * #rollbackFileTransaction()} on any failure.
    */
   public void beginFileTransaction() {
-    currentTx = session.beginTransaction();
+    cypher.beginTransaction();
   }
 
   /**
@@ -101,10 +82,7 @@ public final class GraphWriter {
    * {@link #beginFileTransaction()}.
    */
   public void commitFileTransaction() {
-    if (currentTx != null) {
-      currentTx.commit();
-      currentTx = null;
-    }
+    cypher.commitTransaction();
   }
 
   /**
@@ -112,151 +90,11 @@ public final class GraphWriter {
    * discard partial state so the file can be retried cleanly.
    */
   public void rollbackFileTransaction() {
-    if (currentTx != null) {
-      try {
-        currentTx.rollback();
-      } catch (Exception e) {
-        log.debug("Rollback failed: {}", e.getMessage());
-      } finally {
-        currentTx = null;
-      }
-    }
+    cypher.rollbackTransaction();
   }
 
   static boolean isRetryable(RuntimeException e) {
-    String msg = e.getMessage() == null ? "" : e.getMessage().toLowerCase(Locale.ROOT);
-    return msg.contains("conflicting transactions")
-        || msg.contains("deadlock")
-        || msg.contains("serializationerror")
-        || msg.contains("unique constraint violation");
-  }
-
-  /**
-   * Resolves a class/interface reference to its FQN. Returns empty for unresolvable types (e.g.
-   * generics, missing classpath entries).
-   */
-  private static Optional<String> resolveQualifiedName(ClassOrInterfaceType type) {
-    try {
-      ResolvedReferenceType resolved = type.resolve().asReferenceType();
-      return resolved
-          .getTypeDeclaration()
-          .map(ResolvedTypeDeclaration::getQualifiedName)
-          .map(GraphWriter::normalizeNestedFqn);
-    } catch (Exception _) {
-      return Optional.empty();
-    }
-  }
-
-  /**
-   * Builds the method signature using symbol resolution when available, falling back to
-   * per-parameter resolution. Both paths produce the same format as {@code
-   * call.resolve().getQualifiedSignature()}, so CALLS edges connect correctly.
-   */
-  private static String buildSignature(String ownerFqn, MethodDeclaration m) {
-    try {
-      String qualSig = m.resolve().getQualifiedSignature();
-      int parenIdx = qualSig.indexOf('(');
-      return ownerFqn + "." + m.getNameAsString() + qualSig.substring(parenIdx);
-    } catch (Exception _) {
-      String params =
-          m.getParameters().stream()
-              .map(GraphWriter::resolveParamType)
-              .collect(Collectors.joining(", "));
-      return ownerFqn + "." + m.getNameAsString() + "(" + params + ")";
-    }
-  }
-
-  /**
-   * Builds the constructor signature using symbol resolution for FQN parameter types, falling back
-   * to per-parameter resolution. Uses the {@code <init>} convention for consistent identification.
-   */
-  private static String buildConstructorSignature(String ownerFqn, ConstructorDeclaration ctor) {
-    try {
-      return buildInitCallSig(ownerFqn, ctor.resolve().getQualifiedSignature());
-    } catch (Exception _) {
-      String params =
-          ctor.getParameters().stream()
-              .map(GraphWriter::resolveParamType)
-              .collect(Collectors.joining(", "));
-      return ownerFqn + "." + Labels.INIT + "(" + params + ")";
-    }
-  }
-
-  /**
-   * Converts a resolved constructor's qualified signature to the {@code <init>} form used
-   * throughout the graph. Extracts the parameter list from {@code qualSig} and composes {@code
-   * ownerFqn.<init>(params)}.
-   */
-  private static String buildInitCallSig(String ownerFqn, String qualSig) {
-    int parenIdx = qualSig.indexOf('(');
-    String params = qualSig.substring(parenIdx + 1, qualSig.length() - 1);
-    return ownerFqn + "." + Labels.INIT + "(" + params + ")";
-  }
-
-  /**
-   * Resolves a single parameter type to its FQN, falling back to the source-level name when
-   * resolution fails. This ensures each parameter is independently resolved rather than treating
-   * the whole method signature as all-or-nothing.
-   */
-  private static String resolveParamType(Parameter p) {
-    try {
-      return p.getType().resolve().describe();
-    } catch (Exception _) {
-      return p.getType().asString();
-    }
-  }
-
-  /** Constructs a fully qualified name from {@code pkg} and {@code simpleName}. */
-  private static String buildFqn(String pkg, String simpleName) {
-    return pkg.isEmpty() ? simpleName : pkg + "." + simpleName;
-  }
-
-  /** Extracts the simple name from a fully qualified name. */
-  static String nameFromFqn(String fqn) {
-    int dot = fqn.lastIndexOf('.');
-    return dot < 0 ? fqn : fqn.substring(dot + 1);
-  }
-
-  /** Extracts the package name from a fully qualified name. */
-  static String packageFromFqn(String fqn) {
-    int dot = fqn.lastIndexOf('.');
-    return dot < 0 ? "" : fqn.substring(0, dot);
-  }
-
-  /**
-   * Converts resolver-produced dot-separated nested-class FQNs to {@code $}-separated JVM
-   * convention. Package segments (lowercase-start) keep dots; consecutive uppercase-start segments
-   * are joined with {@code $}. For example, {@code a.b.Outer.Inner} becomes {@code
-   * a.b.Outer$Inner}.
-   */
-  static String normalizeNestedFqn(String fqn) {
-    if (fqn == null || !fqn.contains(".")) {
-      return fqn;
-    }
-    String[] parts = fqn.split("\\.");
-    StringBuilder sb = new StringBuilder(parts[0]);
-    boolean seenClass = !parts[0].isEmpty() && Character.isUpperCase(parts[0].charAt(0));
-    for (int i = 1; i < parts.length; i++) {
-      boolean isUpperStart = !parts[i].isEmpty() && Character.isUpperCase(parts[i].charAt(0));
-      sb.append(seenClass && isUpperStart ? '$' : '.');
-      if (isUpperStart) {
-        seenClass = true;
-      }
-      sb.append(parts[i]);
-    }
-    return sb.toString();
-  }
-
-  /**
-   * Resolves a type to its FQN via the symbol solver, falling back to the source-level name when
-   * resolution fails.
-   */
-  private static String resolveType(com.github.javaparser.ast.type.Type type) {
-    try {
-      return type.resolve().describe();
-    } catch (Exception _) {
-      return type.asString();
-    }
+    return CypherExecutor.isRetryable(e);
   }
 
   /** Deletes the project-scoped {@code :Code} graph in batches, keeping the {@code :Project}. */
@@ -264,14 +102,14 @@ public final class GraphWriter {
     long deleted;
     do {
       deleted =
-          runCountWithRetry(
+          cypher.runCount(
               Cypher.CYPHER_WIPE_PROJECT_CODE_BATCH, "batchSize", WIPE_BATCH_SIZE, "deleted");
     } while (deleted > 0);
   }
 
   /** Deletes the project-scoped {@code :Memory} graph while keeping the {@code :Project} anchor. */
   public void wipeMemories() {
-    runWithRetry(Cypher.CYPHER_WIPE_PROJECT_MEMORIES, Map.of());
+    cypher.run(Cypher.CYPHER_WIPE_PROJECT_MEMORIES, Map.of());
   }
 
   /**
@@ -279,7 +117,7 @@ public final class GraphWriter {
    * ingested (external/JDK methods have no {@code startLine}).
    */
   public void deletePhantomMethods() {
-    runWithRetry(Cypher.CYPHER_DELETE_PHANTOM_METHODS, Map.of());
+    cypher.run(Cypher.CYPHER_DELETE_PHANTOM_METHODS, Map.of());
   }
 
   /** Refreshes {@code :CodeRef} resolution edges to the current project-scoped code graph. */
@@ -293,7 +131,7 @@ public final class GraphWriter {
             Cypher.CYPHER_RESOLVE_CODE_REFS_ANNOTATION,
             Cypher.CYPHER_RESOLVE_CODE_REFS_METHOD,
             Cypher.CYPHER_RESOLVE_CODE_REFS_FIELD)
-        .forEach(q -> runWithRetry(q, Map.of()));
+        .forEach(q -> cypher.run(q, Map.of()));
   }
 
   /**
@@ -305,19 +143,22 @@ public final class GraphWriter {
    */
   public Map<String, Long> getAllFileLastModified(List<Path> files) {
     List<String> paths = files.stream().map(Path::toString).toList();
-    Map<String, Object> params = Map.of("paths", paths, Labels.PROJECT, project);
     try {
-      var result = session.run(Cypher.CYPHER_GET_FILES_LAST_MODIFIED, params);
-      Map<String, Long> mtimes = HashMap.newHashMap(files.size() * 2);
-      while (result.hasNext()) {
-        var currentRec = result.next();
-        String path = currentRec.get("path").asString(null);
-        var value = currentRec.get(Params.LAST_MODIFIED);
-        if (path != null && !value.isNull()) {
-          mtimes.put(path, value.asLong());
-        }
-      }
-      return mtimes;
+      return cypher.read(
+          Cypher.CYPHER_GET_FILES_LAST_MODIFIED,
+          Map.of("paths", paths),
+          result -> {
+            Map<String, Long> mtimes = HashMap.newHashMap(files.size() * 2);
+            while (result.hasNext()) {
+              var currentRec = result.next();
+              String path = currentRec.get("path").asString(null);
+              var value = currentRec.get(Params.LAST_MODIFIED);
+              if (path != null && !value.isNull()) {
+                mtimes.put(path, value.asLong());
+              }
+            }
+            return mtimes;
+          });
     } catch (RuntimeException e) {
       log.warn(
           "Could not batch-fetch lastModified values, incremental mode will re-ingest all files:"
@@ -329,12 +170,12 @@ public final class GraphWriter {
 
   /** Creates or refreshes the {@code :Project -> :Code} and {@code :Project -> :Memory} anchors. */
   public void upsertProject(Path sourceRoot) {
-    runWithRetry(Cypher.CYPHER_UPSERT_PROJECT, Map.of("sourceRoot", sourceRoot.toString()));
+    cypher.run(Cypher.CYPHER_UPSERT_PROJECT, Map.of("sourceRoot", sourceRoot.toString()));
   }
 
   /** Backfills method owner metadata for graphs ingested before owner properties existed. */
   public void backfillMethodOwnerMetadata() {
-    runWithRetry(Cypher.CYPHER_BACKFILL_METHOD_OWNER_METADATA, Map.of());
+    cypher.run(Cypher.CYPHER_BACKFILL_METHOD_OWNER_METADATA, Map.of());
   }
 
   /** Upserts a {@code :File} node and links it to the code anchor. */
@@ -345,14 +186,14 @@ public final class GraphWriter {
     } catch (IOException _) {
       lastModified = -1L;
     }
-    runWithRetry(
+    cypher.run(
         Cypher.CYPHER_UPSERT_FILE,
         Map.of(Params.PATH, file.toString(), Params.LAST_MODIFIED, lastModified));
   }
 
   /** Upserts a {@code :Package} node and links it to the code anchor. */
   public void upsertPackage(String pkg) {
-    runWithRetry(Cypher.CYPHER_UPSERT_PACKAGE, Map.of(Params.NAME, pkg));
+    cypher.run(Cypher.CYPHER_UPSERT_PACKAGE, Map.of(Params.NAME, pkg));
   }
 
   /**
@@ -368,8 +209,8 @@ public final class GraphWriter {
    * fields, methods, constructors, implemented interfaces, and nested types.
    */
   public void upsertEnum(Path file, String pkg, EnumDeclaration decl) {
-    String fqn = buildFqn(pkg, decl.getNameAsString());
-    runWithRetry(
+    String fqn = JavaTypeNames.buildFqn(pkg, decl.getNameAsString());
+    cypher.run(
         Cypher.CYPHER_UPSERT_CLASS,
         Map.of(
             Params.FQN,
@@ -404,8 +245,8 @@ public final class GraphWriter {
    * fields, methods, constructors, implemented interfaces, and nested types.
    */
   public void upsertRecord(Path file, String pkg, RecordDeclaration decl) {
-    String fqn = buildFqn(pkg, decl.getNameAsString());
-    runWithRetry(
+    String fqn = JavaTypeNames.buildFqn(pkg, decl.getNameAsString());
+    cypher.run(
         Cypher.CYPHER_UPSERT_CLASS,
         Map.of(
             Params.FQN,
@@ -443,8 +284,8 @@ public final class GraphWriter {
    * ANNOTATED_WITH} edges for any meta-annotations applied to it.
    */
   public void upsertAnnotation(Path file, String pkg, AnnotationDeclaration decl) {
-    String fqn = buildFqn(pkg, decl.getNameAsString());
-    runWithRetry(
+    String fqn = JavaTypeNames.buildFqn(pkg, decl.getNameAsString());
+    cypher.run(
         Cypher.CYPHER_UPSERT_ANNOTATION,
         Map.of(
             Params.FQN,
@@ -474,7 +315,7 @@ public final class GraphWriter {
    * types. Call this after all structural upserts for the file are complete.
    */
   public void upsertEnumCallEdges(String pkg, EnumDeclaration decl) {
-    String fqn = buildFqn(pkg, decl.getNameAsString());
+    String fqn = JavaTypeNames.buildFqn(pkg, decl.getNameAsString());
     upsertCallEdgesForDecl(pkg, fqn, decl.getMethods(), decl.getConstructors(), decl.getMembers());
   }
 
@@ -483,7 +324,7 @@ public final class GraphWriter {
    * types. Call this after all structural upserts for the file are complete.
    */
   public void upsertRecordCallEdges(String pkg, RecordDeclaration decl) {
-    String fqn = buildFqn(pkg, decl.getNameAsString());
+    String fqn = JavaTypeNames.buildFqn(pkg, decl.getNameAsString());
     upsertCallEdgesForDecl(pkg, fqn, decl.getMethods(), decl.getConstructors(), decl.getMembers());
   }
 
@@ -492,9 +333,10 @@ public final class GraphWriter {
     String fqn =
         outerFqn != null
             ? outerFqn + "$" + decl.getNameAsString()
-            : buildFqn(pkg, decl.getNameAsString());
-    decl.getMethods().forEach(m -> upsertCallEdges(buildSignature(fqn, m), fqn, m));
-    decl.getConstructors().forEach(c -> upsertCallEdges(buildConstructorSignature(fqn, c), fqn, c));
+            : JavaTypeNames.buildFqn(pkg, decl.getNameAsString());
+    decl.getMethods().forEach(m -> upsertCallEdges(JavaTypeNames.buildSignature(fqn, m), fqn, m));
+    decl.getConstructors()
+        .forEach(c -> upsertCallEdges(JavaTypeNames.buildConstructorSignature(fqn, c), fqn, c));
     nestedClassDeclarationsOf(decl.getMembers())
         .forEach(nested -> upsertTypeCallEdgesInternal(pkg, fqn, nested));
   }
@@ -504,9 +346,9 @@ public final class GraphWriter {
     String fqn =
         outerFqn != null
             ? outerFqn + "$" + decl.getNameAsString()
-            : buildFqn(pkg, decl.getNameAsString());
+            : JavaTypeNames.buildFqn(pkg, decl.getNameAsString());
     if (decl.isInterface()) {
-      runWithRetry(
+      cypher.run(
           Cypher.CYPHER_UPSERT_INTERFACE,
           Map.of(
               Params.FQN,
@@ -524,7 +366,7 @@ public final class GraphWriter {
               Params.IS_FINAL,
               false));
     } else {
-      runWithRetry(
+      cypher.run(
           Cypher.CYPHER_UPSERT_CLASS,
           Map.of(
               Params.FQN,
@@ -580,8 +422,9 @@ public final class GraphWriter {
       List<MethodDeclaration> methods,
       List<ConstructorDeclaration> constructors,
       List<?> members) {
-    methods.forEach(m -> upsertCallEdges(buildSignature(fqn, m), fqn, m));
-    constructors.forEach(c -> upsertCallEdges(buildConstructorSignature(fqn, c), fqn, c));
+    methods.forEach(m -> upsertCallEdges(JavaTypeNames.buildSignature(fqn, m), fqn, m));
+    constructors.forEach(
+        c -> upsertCallEdges(JavaTypeNames.buildConstructorSignature(fqn, c), fqn, c));
     nestedClassDeclarationsOf(members)
         .forEach(nested -> upsertTypeCallEdgesInternal(pkg, fqn, nested));
   }
@@ -594,10 +437,10 @@ public final class GraphWriter {
     decl.getExtendedTypes()
         .forEach(
             ext ->
-                withResolvedType(
+                JavaTypeNames.withResolvedType(
                     ext,
                     parent ->
-                        runWithRetry(
+                        cypher.run(
                             extendsCypher,
                             Map.of(
                                 Params.CHILD,
@@ -605,16 +448,16 @@ public final class GraphWriter {
                                 Params.PARENT,
                                 parent,
                                 Params.PARENT_NAME,
-                                nameFromFqn(parent),
+                                JavaTypeNames.nameFromFqn(parent),
                                 Params.PARENT_PKG,
-                                packageFromFqn(parent)))));
+                                JavaTypeNames.packageFromFqn(parent)))));
     decl.getImplementedTypes()
         .forEach(
             impl ->
-                withResolvedType(
+                JavaTypeNames.withResolvedType(
                     impl,
                     iface ->
-                        runWithRetry(
+                        cypher.run(
                             Cypher.CYPHER_UPSERT_IMPLEMENTS,
                             Map.of(
                                 Params.CHILD,
@@ -622,9 +465,9 @@ public final class GraphWriter {
                                 Params.IFACE,
                                 iface,
                                 Params.IFACE_NAME,
-                                nameFromFqn(iface),
+                                JavaTypeNames.nameFromFqn(iface),
                                 Params.IFACE_PKG,
-                                packageFromFqn(iface)))));
+                                JavaTypeNames.packageFromFqn(iface)))));
   }
 
   /** Writes {@code IMPLEMENTS} edges for enums and records that implement interfaces. */
@@ -632,10 +475,10 @@ public final class GraphWriter {
     decl.getImplementedTypes()
         .forEach(
             impl ->
-                withResolvedType(
+                JavaTypeNames.withResolvedType(
                     impl,
                     iface ->
-                        runWithRetry(
+                        cypher.run(
                             Cypher.CYPHER_UPSERT_IMPLEMENTS,
                             Map.of(
                                 Params.CHILD,
@@ -643,16 +486,16 @@ public final class GraphWriter {
                                 Params.IFACE,
                                 iface,
                                 Params.IFACE_NAME,
-                                nameFromFqn(iface),
+                                JavaTypeNames.nameFromFqn(iface),
                                 Params.IFACE_PKG,
-                                packageFromFqn(iface)))));
+                                JavaTypeNames.packageFromFqn(iface)))));
   }
 
   /** Upserts record components (parameters) as {@code :Field} nodes. */
   private void upsertRecordComponents(String ownerFqn, RecordDeclaration decl) {
     for (Parameter param : decl.getParameters()) {
       String fqn = ownerFqn + "#" + param.getNameAsString();
-      runWithRetry(
+      cypher.run(
           Cypher.CYPHER_UPSERT_FIELD,
           Map.of(
               Params.FQN,
@@ -660,7 +503,7 @@ public final class GraphWriter {
               Params.NAME,
               param.getNameAsString(),
               Params.TYPE,
-              resolveType(param.getType()),
+              JavaTypeNames.resolveType(param.getType()),
               Params.IS_STATIC,
               false,
               Params.VISIBILITY,
@@ -677,7 +520,7 @@ public final class GraphWriter {
         .forEach(
             v -> {
               String fqn = ownerFqn + "#" + v.getNameAsString();
-              runWithRetry(
+              cypher.run(
                   Cypher.CYPHER_UPSERT_FIELD,
                   Map.of(
                       Params.FQN,
@@ -685,7 +528,7 @@ public final class GraphWriter {
                       Params.NAME,
                       v.getNameAsString(),
                       Params.TYPE,
-                      resolveType(v.getType()),
+                      JavaTypeNames.resolveType(v.getType()),
                       Params.IS_STATIC,
                       field.isStatic(),
                       Params.VISIBILITY,
@@ -697,13 +540,13 @@ public final class GraphWriter {
   }
 
   private void upsertMethod(String ownerFqn, MethodDeclaration method) {
-    String signature = buildSignature(ownerFqn, method);
+    String signature = JavaTypeNames.buildSignature(ownerFqn, method);
     upsertMethodNode(
         new Method(
             ownerFqn,
             signature,
             method.getNameAsString(),
-            resolveType(method.getType()),
+            JavaTypeNames.resolveType(method.getType()),
             method.isStatic(),
             method.getAccessSpecifier().asString(),
             method.getBegin().map(p -> p.line).orElse(0),
@@ -713,7 +556,7 @@ public final class GraphWriter {
   }
 
   private void upsertConstructor(String ownerFqn, ConstructorDeclaration ctor) {
-    String signature = buildConstructorSignature(ownerFqn, ctor);
+    String signature = JavaTypeNames.buildConstructorSignature(ownerFqn, ctor);
     upsertMethodNode(
         new Method(
             ownerFqn,
@@ -730,7 +573,7 @@ public final class GraphWriter {
 
   /** Shared helper that creates or updates a {@code :Method} node with all properties. */
   private void upsertMethodNode(Method method) {
-    runWithRetry(
+    cypher.run(
         Cypher.CYPHER_UPSERT_METHOD,
         Map.of(
             Params.SIG,
@@ -750,7 +593,7 @@ public final class GraphWriter {
             Params.OWNER,
             method.ownerFqn(),
             Params.OWNER_DISPLAY_NAME,
-            nameFromFqn(method.ownerFqn()),
+            JavaTypeNames.nameFromFqn(method.ownerFqn()),
             Params.IS_SYNTHETIC,
             method.isSynthetic()));
   }
@@ -762,12 +605,12 @@ public final class GraphWriter {
   private void upsertRecordCanonicalConstructor(String fqn, RecordDeclaration decl) {
     String canonicalParams =
         decl.getParameters().stream()
-            .map(GraphWriter::resolveParamType)
+            .map(JavaTypeNames::resolveParamType)
             .collect(Collectors.joining(", "));
     String canonicalSig = fqn + "." + Labels.INIT + "(" + canonicalParams + ")";
     boolean hasCanonical =
         decl.getConstructors().stream()
-            .anyMatch(c -> buildConstructorSignature(fqn, c).equals(canonicalSig));
+            .anyMatch(c -> JavaTypeNames.buildConstructorSignature(fqn, c).equals(canonicalSig));
     if (!hasCanonical) {
       upsertMethodNode(
           new Method(
@@ -819,7 +662,15 @@ public final class GraphWriter {
         String sig = fqn + "." + accessorName + "()";
         upsertMethodNode(
             new Method(
-                fqn, sig, accessorName, resolveType(param.getType()), false, "public", 0, 0, true));
+                fqn,
+                sig,
+                accessorName,
+                JavaTypeNames.resolveType(param.getType()),
+                false,
+                "public",
+                0,
+                0,
+                true));
       }
     }
   }
@@ -841,18 +692,18 @@ public final class GraphWriter {
               try {
                 ResolvedMethodDeclaration resolved = call.resolve();
                 String calleeSig =
-                    normalizeNestedFqn(resolved.declaringType().getQualifiedName())
+                    JavaTypeNames.normalizeNestedFqn(resolved.declaringType().getQualifiedName())
                         + "."
                         + resolved.getName()
                         + resolved
                             .getQualifiedSignature()
                             .substring(resolved.getQualifiedSignature().indexOf('('));
-                runWithRetry(
+                cypher.run(
                     Cypher.CYPHER_UPSERT_CALL,
                     Map.of(Params.CALLER, callerSig, Params.CALLEE, calleeSig));
               } catch (Exception _) {
                 if (call.getScope().isEmpty()) {
-                  runWithRetry(
+                  cypher.run(
                       Cypher.CYPHER_UPSERT_CALL_BY_NAME,
                       Map.of(
                           Params.CALLER,
@@ -862,10 +713,10 @@ public final class GraphWriter {
                           Params.CALLEE_NAME,
                           call.getNameAsString()));
                 } else {
-                  resolveScopeTypeFqn(call)
+                  JavaTypeNames.resolveScopeTypeFqn(call)
                       .ifPresent(
                           scopeFqn ->
-                              runWithRetry(
+                              cypher.run(
                                   Cypher.CYPHER_UPSERT_CALL_BY_NAME,
                                   Map.of(
                                       Params.CALLER,
@@ -906,13 +757,13 @@ public final class GraphWriter {
     try {
       ResolvedMethodDeclaration resolved = ref.resolve();
       String calleeSig =
-          normalizeNestedFqn(resolved.declaringType().getQualifiedName())
+          JavaTypeNames.normalizeNestedFqn(resolved.declaringType().getQualifiedName())
               + "."
               + resolved.getName()
               + resolved
                   .getQualifiedSignature()
                   .substring(resolved.getQualifiedSignature().indexOf('('));
-      runWithRetry(
+      cypher.run(
           Cypher.CYPHER_UPSERT_CALL, Map.of(Params.CALLER, callerSig, Params.CALLEE, calleeSig));
     } catch (Exception _) {
       var scope = ref.getScope();
@@ -923,8 +774,8 @@ public final class GraphWriter {
               .getType()
               .asClassOrInterfaceType()
               .getNameAsString()
-              .equals(nameFromFqn(ownerFqn))) {
-        runWithRetry(
+              .equals(JavaTypeNames.nameFromFqn(ownerFqn))) {
+        cypher.run(
             Cypher.CYPHER_UPSERT_CALL_BY_NAME,
             Map.of(
                 Params.CALLER,
@@ -944,15 +795,17 @@ public final class GraphWriter {
   private void upsertObjectCreationEdge(String callerSig, ObjectCreationExpr creation) {
     try {
       var resolvedCtor = creation.resolve();
-      String typeFqn = normalizeNestedFqn(resolvedCtor.declaringType().getQualifiedName());
-      String calleeSig = buildInitCallSig(typeFqn, resolvedCtor.getQualifiedSignature());
-      runWithRetry(
+      String typeFqn =
+          JavaTypeNames.normalizeNestedFqn(resolvedCtor.declaringType().getQualifiedName());
+      String calleeSig =
+          JavaTypeNames.buildInitCallSig(typeFqn, resolvedCtor.getQualifiedSignature());
+      cypher.run(
           Cypher.CYPHER_UPSERT_CALL, Map.of(Params.CALLER, callerSig, Params.CALLEE, calleeSig));
     } catch (Exception _) {
-      resolveOrInferFqn(creation.getType())
+      JavaTypeNames.resolveOrInferFqn(creation.getType())
           .ifPresent(
               fqn ->
-                  runWithRetry(
+                  cypher.run(
                       Cypher.CYPHER_UPSERT_CALL_BY_NAME,
                       Map.of(
                           Params.CALLER,
@@ -973,13 +826,15 @@ public final class GraphWriter {
       String callerSig, String ownerFqn, ExplicitConstructorInvocationStmt stmt) {
     try {
       var resolvedCtor = stmt.resolve();
-      String typeFqn = normalizeNestedFqn(resolvedCtor.declaringType().getQualifiedName());
-      String calleeSig = buildInitCallSig(typeFqn, resolvedCtor.getQualifiedSignature());
-      runWithRetry(
+      String typeFqn =
+          JavaTypeNames.normalizeNestedFqn(resolvedCtor.declaringType().getQualifiedName());
+      String calleeSig =
+          JavaTypeNames.buildInitCallSig(typeFqn, resolvedCtor.getQualifiedSignature());
+      cypher.run(
           Cypher.CYPHER_UPSERT_CALL, Map.of(Params.CALLER, callerSig, Params.CALLEE, calleeSig));
     } catch (Exception _) {
       if (stmt.isThis()) {
-        runWithRetry(
+        cypher.run(
             Cypher.CYPHER_UPSERT_CALL_BY_NAME,
             Map.of(
                 Params.CALLER,
@@ -1000,10 +855,10 @@ public final class GraphWriter {
     var scope = ref.getScope();
     if (scope.isTypeExpr() && scope.asTypeExpr().getType().isClassOrInterfaceType()) {
       ClassOrInterfaceType type = scope.asTypeExpr().getType().asClassOrInterfaceType();
-      resolveOrInferFqn(type)
+      JavaTypeNames.resolveOrInferFqn(type)
           .ifPresent(
               fqn ->
-                  runWithRetry(
+                  cypher.run(
                       Cypher.CYPHER_UPSERT_CALL_BY_NAME,
                       Map.of(
                           Params.CALLER,
@@ -1013,57 +868,6 @@ public final class GraphWriter {
                           Params.CALLEE_NAME,
                           Labels.INIT)));
     }
-  }
-
-  /**
-   * Resolves a type to its FQN via the symbol solver, falling back to import-based inference.
-   * Returns empty only when both strategies fail.
-   */
-  private static Optional<String> resolveOrInferFqn(ClassOrInterfaceType type) {
-    Optional<String> resolved = resolveQualifiedName(type);
-    if (resolved.isPresent()) {
-      return resolved;
-    }
-    return Optional.ofNullable(inferFqnFromImports(type))
-        .filter(inferred -> !inferred.equals(type.getNameAsString()));
-  }
-
-  /**
-   * Attempts to determine the FQN of the type targeted by a scoped method call. Tries expression
-   * type resolution first (works for instance calls), then import-based inference (works for static
-   * calls via imported type names).
-   */
-  private static Optional<String> resolveScopeTypeFqn(MethodCallExpr call) {
-    var scope = call.getScope().orElse(null);
-    if (scope == null) {
-      return Optional.empty();
-    }
-    try {
-      return scope
-          .calculateResolvedType()
-          .asReferenceType()
-          .getTypeDeclaration()
-          .map(ResolvedTypeDeclaration::getQualifiedName)
-          .map(GraphWriter::normalizeNestedFqn);
-    } catch (Exception _) {
-      // Expression-level resolution failed; try import inference for static calls.
-    }
-    if (scope.isNameExpr()) {
-      String name = scope.asNameExpr().getNameAsString();
-      return call.findCompilationUnit()
-          .flatMap(
-              cu -> {
-                for (var imp : cu.getImports()) {
-                  if (!imp.isAsterisk()
-                      && !imp.isStatic()
-                      && imp.getName().getIdentifier().equals(name)) {
-                    return Optional.of(imp.getNameAsString());
-                  }
-                }
-                return Optional.empty();
-              });
-    }
-    return Optional.empty();
   }
 
   /**
@@ -1085,144 +889,25 @@ public final class GraphWriter {
   }
 
   private void upsertAnnotations(
-      String paramKey, String paramValue, NodeWithAnnotations<?> node, String cypher) {
+      String paramKey, String paramValue, NodeWithAnnotations<?> node, String query) {
     node.getAnnotations()
         .forEach(
             ann -> {
               String annotFqn;
               try {
-                annotFqn = normalizeNestedFqn(ann.resolve().getQualifiedName());
+                annotFqn = JavaTypeNames.normalizeNestedFqn(ann.resolve().getQualifiedName());
               } catch (Exception _) {
                 annotFqn = ann.getNameAsString();
               }
-              runWithRetry(
-                  cypher,
+              cypher.run(
+                  query,
                   Map.of(
                       paramKey,
                       paramValue,
                       Params.ANNOT_FQN,
                       annotFqn,
                       Params.ANNOT_NAME,
-                      nameFromFqn(annotFqn)));
+                      JavaTypeNames.nameFromFqn(annotFqn)));
             });
-  }
-
-  /**
-   * Resolves {@code type} and invokes {@code action} with the FQN. Falls back to import-based
-   * inference when the symbol solver cannot determine the FQN, then to the source-level name.
-   */
-  private void withResolvedType(ClassOrInterfaceType type, Consumer<String> action) {
-    Optional<String> resolved = resolveQualifiedName(type);
-    resolved.or(() -> Optional.ofNullable(inferFqnFromImports(type))).ifPresent(action);
-  }
-
-  /**
-   * Infers a type FQN from the compilation unit's imports when symbol resolution fails. Checks
-   * explicit single-type imports first, then handles scoped names (e.g., {@code
-   * ExtensionContext.Store.CloseableResource}) by matching the top-level scope against imports.
-   * Falls back to the source-level type name if no import matches.
-   */
-  @SuppressWarnings("java:S3776")
-  private static String inferFqnFromImports(ClassOrInterfaceType type) {
-    String simpleName = type.getNameAsString();
-    String fullName = type.asString();
-    String result =
-        type.findCompilationUnit()
-            .flatMap(
-                cu -> {
-                  for (var imp : cu.getImports()) {
-                    if (!imp.isAsterisk()
-                        && !imp.isStatic()
-                        && imp.getName().getIdentifier().equals(simpleName)) {
-                      return Optional.of(imp.getNameAsString());
-                    }
-                  }
-                  if (fullName.contains(".")) {
-                    String topLevel = fullName.substring(0, fullName.indexOf('.'));
-                    for (var imp : cu.getImports()) {
-                      if (!imp.isAsterisk()
-                          && !imp.isStatic()
-                          && imp.getName().getIdentifier().equals(topLevel)) {
-                        return Optional.of(
-                            imp.getNameAsString() + fullName.substring(fullName.indexOf('.')));
-                      }
-                    }
-                  }
-                  return Optional.empty();
-                })
-            .orElse(fullName);
-    return normalizeNestedFqn(result);
-  }
-
-  /**
-   * Runs {@code cypher} with retry-on-conflict. Routes through the open file-level transaction when
-   * one is active (sequential batch mode); otherwise falls back to autocommit session.run().
-   * Auto-injects the {@code project} parameter so callers do not need to include it in {@code
-   * params}.
-   */
-  private void runWithRetry(String cypher, Map<String, Object> params) {
-    Map<String, Object> allParams = new HashMap<>(params);
-    allParams.put(Labels.PROJECT, project);
-    long backoffMs = INITIAL_BACKOFF_MS;
-    for (int attempt = 1; attempt <= MAX_RETRY_ATTEMPTS; attempt++) {
-      try {
-        if (currentTx != null) {
-          currentTx.run(cypher, allParams).consume();
-        } else {
-          session.run(cypher, allParams).consume();
-        }
-        return;
-      } catch (RuntimeException e) {
-        backoffMs = proceedException(cypher, e, attempt, backoffMs);
-      }
-    }
-  }
-
-  /**
-   * Runs a Cypher query that returns a single numeric result column, with retry-on-conflict.
-   * Auto-injects the {@code project} parameter.
-   */
-  private long runCountWithRetry(
-      String cypher, String extraKey, Object extraValue, String resultKey) {
-    Map<String, Object> allParams =
-        new HashMap<>(Map.of(extraKey, extraValue, Labels.PROJECT, project));
-    long backoffMs = INITIAL_BACKOFF_MS;
-    for (int attempt = 1; attempt <= MAX_RETRY_ATTEMPTS; attempt++) {
-      try {
-        return session.run(cypher, allParams).single().get(resultKey).asLong();
-      } catch (RuntimeException e) {
-        backoffMs = proceedException(cypher, e, attempt, backoffMs);
-      }
-    }
-    return 0L;
-  }
-
-  /**
-   * Proceeds with exception handling for retryable Cypher operations.
-   *
-   * @param cypher The Cypher query that failed.
-   * @param e The caught runtime exception.
-   * @param attempt The current retry attempt number.
-   * @param backoffMs The current backoff time in milliseconds.
-   * @return The updated backoff time in milliseconds.
-   */
-  private long proceedException(String cypher, RuntimeException e, int attempt, long backoffMs) {
-    if (!isRetryable(e)) {
-      throw e;
-    }
-    if (attempt == MAX_RETRY_ATTEMPTS) {
-      throw new ProcessingException(
-          "Cypher failed after " + MAX_RETRY_ATTEMPTS + " attempts: " + cypher, e);
-    }
-    try {
-      long jitter = ThreadLocalRandom.current().nextLong(Math.max(1L, backoffMs / 2));
-      Thread.sleep(backoffMs + jitter);
-    } catch (InterruptedException ie) {
-      Thread.currentThread().interrupt();
-      throw new ProcessingException("Interrupted during retry", ie);
-    }
-    backoffMs = Math.min(backoffMs * 2, MAX_BACKOFF_MS);
-    log.debug("Conflict on attempt {}; will retry: {}", attempt, e.getMessage());
-    return backoffMs;
   }
 }
