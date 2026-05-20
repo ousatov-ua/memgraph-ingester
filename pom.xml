@@ -4,7 +4,7 @@
 
   <groupId>io.github.ousatov-ua</groupId>
   <artifactId>memgraph-ingester</artifactId>
-  <version>8.1.1</version>
+  <version>8.1.2</version>
   <packaging>jar</packaging>
 
   <name>Memgraph Ingester</name>
@@ -32,10 +32,13 @@
     <javaparser.version>3.28.0</javaparser.version>
     <neo4j.driver.version>6.0.5</neo4j.driver.version>
     <picocli.version>4.7.6</picocli.version>
+    <maven.compiler.plugin.version>3.14.1</maven.compiler.plugin.version>
     <spotless.version>3.3.0</spotless.version>
     <jacoco.version>0.8.14</jacoco.version>
     <testcontainers.version>2.0.5</testcontainers.version>
     <awaitility.version>4.3.0</awaitility.version>
+    <native.maven.plugin.version>1.1.0</native.maven.plugin.version>
+    <maven.enforcer.version>3.6.2</maven.enforcer.version>
   </properties>
 
   <dependencies>
@@ -105,6 +108,28 @@
       </resource>
     </resources>
     <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <version>${maven.compiler.plugin.version}</version>
+        <executions>
+          <execution>
+            <id>default-compile</id>
+            <configuration>
+              <annotationProcessorPaths>
+                <path>
+                  <groupId>info.picocli</groupId>
+                  <artifactId>picocli-codegen</artifactId>
+                  <version>${picocli.version}</version>
+                </path>
+              </annotationProcessorPaths>
+              <compilerArgs>
+                <arg>-Aproject=${project.groupId}/${project.artifactId}</arg>
+              </compilerArgs>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
       <plugin>
         <groupId>com.diffplug.spotless</groupId>
         <artifactId>spotless-maven-plugin</artifactId>
@@ -294,6 +319,120 @@
                 </configuration>
               </execution>
             </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+    <profile>
+      <id>native-linux</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-enforcer-plugin</artifactId>
+            <version>${maven.enforcer.version}</version>
+            <executions>
+              <execution>
+                <id>enforce-linux-native-build</id>
+                <phase>validate</phase>
+                <goals>
+                  <goal>enforce</goal>
+                </goals>
+                <configuration>
+                  <rules>
+                    <requireOS>
+                      <family>unix</family>
+                      <name>linux</name>
+                      <message>
+                        The native-linux profile must run on Linux. On macOS, run Maven from a
+                        Linux container or VM because GraalVM Native Image builds for the
+                        operating system where Maven runs.
+                      </message>
+                    </requireOS>
+                  </rules>
+                  <fail>true</fail>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+          <plugin>
+            <groupId>org.graalvm.buildtools</groupId>
+            <artifactId>native-maven-plugin</artifactId>
+            <version>${native.maven.plugin.version}</version>
+            <extensions>true</extensions>
+            <executions>
+              <execution>
+                <id>build-native-linux</id>
+                <phase>package</phase>
+                <goals>
+                  <goal>compile-no-fork</goal>
+                </goals>
+              </execution>
+            </executions>
+            <configuration>
+              <mainClass>io.github.ousatov.tools.memgraph.IngesterCli</mainClass>
+              <imageName>memgraph-ingester</imageName>
+              <fallback>false</fallback>
+              <metadataRepository>
+                <enabled>true</enabled>
+              </metadataRepository>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+    <profile>
+      <id>native-macos</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-enforcer-plugin</artifactId>
+            <version>${maven.enforcer.version}</version>
+            <executions>
+              <execution>
+                <id>enforce-macos-native-build</id>
+                <phase>validate</phase>
+                <goals>
+                  <goal>enforce</goal>
+                </goals>
+                <configuration>
+                  <rules>
+                    <requireOS>
+                      <family>mac</family>
+                      <message>
+                        The native-macos profile must run on macOS because GraalVM Native Image
+                        builds for the operating system where Maven runs.
+                      </message>
+                    </requireOS>
+                  </rules>
+                  <fail>true</fail>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+          <plugin>
+            <groupId>org.graalvm.buildtools</groupId>
+            <artifactId>native-maven-plugin</artifactId>
+            <version>${native.maven.plugin.version}</version>
+            <extensions>true</extensions>
+            <executions>
+              <execution>
+                <id>build-native-macos</id>
+                <phase>package</phase>
+                <goals>
+                  <goal>compile-no-fork</goal>
+                </goals>
+              </execution>
+            </executions>
+            <configuration>
+              <mainClass>io.github.ousatov.tools.memgraph.IngesterCli</mainClass>
+              <imageName>memgraph-ingester</imageName>
+              <fallback>false</fallback>
+              <metadataRepository>
+                <enabled>true</enabled>
+              </metadataRepository>
+            </configuration>
           </plugin>
         </plugins>
       </build>
