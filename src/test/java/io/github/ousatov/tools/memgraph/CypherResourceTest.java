@@ -18,7 +18,10 @@ import org.junit.jupiter.api.Test;
 class CypherResourceTest {
 
   private static String resource(String file) {
-    String path = "/io/github/ousatov/tools/memgraph/cypher/" + file;
+    return resourceAt("/io/github/ousatov/tools/memgraph/cypher/" + file);
+  }
+
+  private static String resourceAt(String path) {
     try (InputStream in = CypherResourceTest.class.getResourceAsStream(path)) {
       assertNotNull(in, path + " must be present");
       return new String(in.readAllBytes(), StandardCharsets.UTF_8);
@@ -98,5 +101,15 @@ class CypherResourceTest {
     assertTrue(cypher.contains("n:CodeRef"));
     assertFalse(cypher.matches("(?s).*\\bn:Code(?!Ref)\\b.*"));
     assertFalse(cypher.contains("n:Class"));
+  }
+
+  @Test
+  void nativeImageResourceConfigIncludesCypherResources() {
+    String config =
+        resourceAt(
+            "/META-INF/native-image/io.github.ousatov-ua/memgraph-ingester/resource-config.json");
+
+    assertTrue(config.contains("io/github/ousatov/tools/memgraph/cypher/.*[.]cypher$"));
+    assertTrue(config.contains("simplelogger[.]properties$"));
   }
 }
