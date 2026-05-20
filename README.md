@@ -157,7 +157,7 @@ curl -s https://raw.githubusercontent.com/ousatov-ua/memgraph-ingester/refs/head
 - Enable MCP Memgraph for your AI agent ([below](#mcp-server-setup) you can find examples) **OR**
   put `mgconsole` in the path
 
-## Going further
+## Build from sources or using in your project
 
 ### Maven dependency (optional)
 
