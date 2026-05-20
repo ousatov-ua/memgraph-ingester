@@ -80,7 +80,9 @@ java -jar path/to/memgraph-ingester.jar
 ```
 
 **Without** classpath libs (weaker resolving):
-  
+
+*First run*
+
 ```bash
 cd /path/to/your/java/project
 <executable_memgraph_ingester> \
@@ -92,7 +94,20 @@ cd /path/to/your/java/project
   --apply-schema
 ```
 
+*Next runs* (you may want to check `--incremental` argument)
+
+```bash
+cd /path/to/your/java/project
+<executable_memgraph_ingester> \
+  --source path/to/src \
+  --bolt bolt://localhost:7687 \
+  --project my-project \
+  --wipe-project-code
+```
+
 **With** classpath libs (better resolving). Example for Maven projects:
+
+**First run**
 
 ```bash
 cd /path/to/your/java/project
@@ -107,6 +122,18 @@ CP=$(mvn -q dependency:build-classpath -DincludeScope=test -Dmdep.outputFile=/de
   --classpath "$CP"
 ```
 
+**Next runs** (you may want to check `--incremental` argument)
+
+```bash
+cd /path/to/your/java/project
+CP=$(mvn -q dependency:build-classpath -DincludeScope=test -Dmdep.outputFile=/dev/stdout 2>/dev/null)
+<executable_memgraph_ingester> \
+  --source path/to/src \
+  --bolt bolt://localhost:7687 \
+  --project my-project \
+  --wipe-project-code \
+  --classpath "$CP"
+```
 
 - Append knowledge for your agent
 
