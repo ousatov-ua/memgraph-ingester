@@ -5,6 +5,7 @@ import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.body.Parameter;
 import com.github.javaparser.ast.expr.MethodCallExpr;
 import com.github.javaparser.ast.type.ClassOrInterfaceType;
+import com.github.javaparser.resolution.declarations.ResolvedMethodDeclaration;
 import com.github.javaparser.resolution.declarations.ResolvedTypeDeclaration;
 import com.github.javaparser.resolution.types.ResolvedReferenceType;
 import io.github.ousatov.tools.memgraph.def.Const.Labels;
@@ -46,9 +47,8 @@ final class JavaTypeNames {
    */
   static String buildSignature(String ownerFqn, MethodDeclaration method) {
     try {
-      String qualifiedSignature = method.resolve().getQualifiedSignature();
-      int parenIdx = qualifiedSignature.indexOf('(');
-      return ownerFqn + "." + method.getNameAsString() + qualifiedSignature.substring(parenIdx);
+      return buildMethodSignature(
+          ownerFqn, method.getNameAsString(), method.resolve().getQualifiedSignature());
     } catch (Exception _) {
       String params =
           method.getParameters().stream()
@@ -56,6 +56,21 @@ final class JavaTypeNames {
               .collect(Collectors.joining(", "));
       return ownerFqn + "." + method.getNameAsString() + "(" + params + ")";
     }
+  }
+
+  /** Builds {@code ownerFqn.methodName(params)} from a resolved qualified signature. */
+  static String buildMethodSignature(
+      String ownerFqn, String methodName, String qualifiedSignature) {
+    int parenIdx = qualifiedSignature.indexOf('(');
+    return ownerFqn + "." + methodName + qualifiedSignature.substring(parenIdx);
+  }
+
+  /** Builds a graph method signature from a resolved JavaParser method declaration. */
+  static String buildResolvedMethodSignature(ResolvedMethodDeclaration resolved) {
+    return buildMethodSignature(
+        normalizeNestedFqn(resolved.declaringType().getQualifiedName()),
+        resolved.getName(),
+        resolved.getQualifiedSignature());
   }
 
   /** Builds the constructor signature using the graph's {@code <init>} convention. */

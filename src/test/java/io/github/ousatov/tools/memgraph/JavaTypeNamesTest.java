@@ -39,6 +39,14 @@ class JavaTypeNamesTest {
   }
 
   @Test
+  void buildsMethodSignatureFromQualifiedSignature() {
+    assertEquals(
+        "com.example.Widget.work(java.lang.String, int)",
+        JavaTypeNames.buildMethodSignature(
+            "com.example.Widget", "work", "work(java.lang.String, int)"));
+  }
+
+  @Test
   void buildsFallbackMethodAndConstructorSignatures() {
     CompilationUnit unit =
         StaticJavaParser.parse(
