@@ -112,4 +112,15 @@ class CypherResourceTest {
     assertTrue(config.contains("io/github/ousatov/tools/memgraph/cypher/.*[.]cypher$"));
     assertTrue(config.contains("simplelogger[.]properties$"));
   }
+
+  @Test
+  void nativeImageReflectConfigIncludesJavaParserAstFields() {
+    String config =
+        resourceAt(
+            "/META-INF/native-image/io.github.ousatov-ua/memgraph-ingester/reflect-config.json");
+
+    assertTrue(
+        config.contains("\"name\": \"com.github.javaparser.ast.expr.VariableDeclarationExpr\""));
+    assertTrue(config.contains("\"allDeclaredFields\": true"));
+  }
 }
