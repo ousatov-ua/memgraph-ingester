@@ -1099,6 +1099,133 @@ class GraphWriterIT {
     deleteDir(tempDir);
   }
 
+  @Test
+  void unresolvedUnscopedCallFallsBackByOwnerName() {
+    writer.upsertFile(TEST_FILE);
+    writer.upsertPackage(PKG);
+    ClassOrInterfaceDeclaration decl =
+        parseDecl(
+            "package com.example;"
+                + " public class Service {"
+                + "   private void helper() {}"
+                + "   public void doWork() { helper(); }"
+                + " }");
+
+    writer.upsertType(TEST_FILE, PKG, decl);
+    writer.upsertTypeCallEdges(PKG, decl);
+
+    long callCount =
+        session
+            .run(
+                "MATCH (caller:Method {project: $p})-[:CALLS]->(callee:Method {name: 'helper'})"
+                    + " WHERE caller.name = 'doWork'"
+                    + " RETURN count(*) AS n",
+                Map.of("p", PROJECT))
+            .single()
+            .get("n")
+            .asLong();
+
+    assertEquals(1, callCount);
+  }
+
+  @Test
+  void unresolvedScopedCallFallsBackByImportedType() {
+    writer.upsertFile(TEST_FILE);
+    writer.upsertPackage(PKG);
+    ClassOrInterfaceDeclaration helper =
+        parseDecl("package com.example; public class Helper { public static void assist() {} }");
+    ClassOrInterfaceDeclaration caller =
+        parseDecl(
+            "package com.example;"
+                + " import com.example.Helper;"
+                + " public class Caller {"
+                + "   public void doWork() { Helper.assist(); }"
+                + " }");
+
+    writer.upsertType(TEST_FILE, PKG, helper);
+    writer.upsertType(TEST_FILE, PKG, caller);
+    writer.upsertTypeCallEdges(PKG, caller);
+
+    long callCount =
+        session
+            .run(
+                "MATCH (caller:Method {project: $p})-[:CALLS]->(callee:Method {name: 'assist'})"
+                    + " WHERE caller.name = 'doWork'"
+                    + " RETURN count(*) AS n",
+                Map.of("p", PROJECT))
+            .single()
+            .get("n")
+            .asLong();
+
+    assertEquals(1, callCount);
+  }
+
+  @Test
+  void unresolvedConstructorsFallBackByImportedType() {
+    writer.upsertFile(TEST_FILE);
+    writer.upsertPackage(PKG);
+    ClassOrInterfaceDeclaration widget =
+        parseDecl("package com.example; public class Widget { public Widget() {} }");
+    ClassOrInterfaceDeclaration maker =
+        parseDecl(
+            "package com.example;"
+                + " import com.example.Widget;"
+                + " import java.util.function.Supplier;"
+                + " public class Maker {"
+                + "   public Widget make() { return new Widget(); }"
+                + "   public Supplier<Widget> factory() { return Widget::new; }"
+                + " }");
+
+    writer.upsertType(TEST_FILE, PKG, widget);
+    writer.upsertType(TEST_FILE, PKG, maker);
+    writer.upsertTypeCallEdges(PKG, maker);
+
+    long callCount =
+        session
+            .run(
+                "MATCH (caller:Method {project: $p})-[:CALLS]->(callee:Method {name: '<init>'})"
+                    + " WHERE caller.name IN ['make', 'factory']"
+                    + " RETURN count(callee) AS n",
+                Map.of("p", PROJECT))
+            .single()
+            .get("n")
+            .asLong();
+
+    assertEquals(2, callCount);
+  }
+
+  @Test
+  void unresolvedMethodReferenceFallsBackWithinOwner() {
+    writer.upsertFile(TEST_FILE);
+    writer.upsertPackage(PKG);
+    ClassOrInterfaceDeclaration decl =
+        parseDecl(
+            "package com.example;"
+                + " import java.util.List;"
+                + " public class Mapper {"
+                + "   private static String transform(String s) { return s; }"
+                + "   public List<String> map(List<String> items) {"
+                + "     return items.stream().map(Mapper::transform).toList();"
+                + "   }"
+                + " }");
+
+    writer.upsertType(TEST_FILE, PKG, decl);
+    writer.upsertTypeCallEdges(PKG, decl);
+
+    long callCount =
+        session
+            .run(
+                "MATCH (caller:Method {project: $p})-[:CALLS]->(callee:Method {name: 'transform'})"
+                    + " WHERE caller.name = 'map'"
+                    + " RETURN count(*) AS n",
+                Map.of("p", PROJECT))
+            .single()
+            .get("n")
+            .asLong();
+
+    assertEquals(1, callCount);
+  }
+
   private static void deleteDir(Path dir) throws IOException {
     try (var walk = Files.walk(dir)) {
       walk.sorted(java.util.Comparator.reverseOrder())

@@ -1,6 +1,9 @@
 package io.github.ousatov.tools.memgraph;
 
+import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.ousatov.tools.memgraph.extension.MemgraphExtension;
@@ -9,10 +12,14 @@ import io.github.ousatov.tools.memgraph.vo.Settings;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.FileTime;
+import java.time.Duration;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
@@ -88,6 +95,18 @@ class IngestionOrchestratorIT {
     try (Session s = driver.session()) {
       s.run("MATCH (n) WHERE n.project = $p DETACH DELETE n", Map.of("p", project)).consume();
       s.run("MATCH (p:Project {name: $p}) DETACH DELETE p", Map.of("p", project)).consume();
+    }
+  }
+
+  private static boolean classExists(String project, String fqn) {
+    try (Session s = driver.session()) {
+      return s.run(
+                  "MATCH (c:Class {project: $p, fqn: $fqn}) RETURN count(c) AS n",
+                  Map.of("p", project, "fqn", fqn))
+              .single()
+              .get("n")
+              .asLong()
+          > 0;
     }
   }
 
@@ -180,6 +199,61 @@ class IngestionOrchestratorIT {
   }
 
   @Test
+  void watchModeStopsWhenInterrupted() throws Exception {
+    currentProject = PROJECT_BASE + "-watch";
+    sourceDir = Files.createTempDirectory("orch-watch-src-");
+    IngestionOrchestrator orchestrator =
+        new IngestionOrchestrator(
+            sourceDir, currentProject, 1, driver, new ParseService(sourceDir));
+    AtomicReference<Throwable> failure = new AtomicReference<>();
+    Thread worker =
+        new Thread(
+            () -> {
+              try {
+                orchestrator.run(new Settings(false, true, false, false, false, true));
+              } catch (Throwable t) {
+                failure.set(t);
+              }
+            },
+            "watch-mode-test");
+    worker.start();
+
+    await()
+        .atMost(Duration.ofSeconds(10))
+        .pollInterval(Duration.ofMillis(50))
+        .until(() -> worker.getState() == Thread.State.WAITING);
+    await().pollDelay(Duration.ofMillis(300)).atMost(Duration.ofSeconds(1)).until(() -> true);
+
+    Path watchedFile = sourceDir.resolve("Watched.java");
+
+    try {
+      await()
+          .atMost(Duration.ofSeconds(10))
+          .pollInterval(Duration.ofMillis(250))
+          .untilAsserted(
+              () -> {
+                Files.writeString(
+                    watchedFile,
+                    """
+                    public class Watched {
+                      public String value() {
+                        return "changed";
+                      }
+                    }
+                    """);
+                assertTrue(
+                    classExists(currentProject, "Watched"), "Watch mode must ingest changed files");
+              });
+    } finally {
+      worker.interrupt();
+      worker.join(TimeUnit.SECONDS.toMillis(5));
+    }
+
+    assertFalse(worker.isAlive(), "Watch mode must exit after interruption");
+    assertNull(failure.get(), () -> "Watch mode failed: " + failure.get());
+  }
+
+  @Test
   void ingestsSequentiallyWithZeroFailures() throws Exception {
     currentProject = PROJECT_BASE + "-seq";
     sourceDir = buildSampleSourceTree();
@@ -252,6 +326,69 @@ class IngestionOrchestratorIT {
               .get("n")
               .asLong();
       assertEquals(1, annotationCount, "Repeated annotations must converge to one node");
+    }
+  }
+
+  @Test
+  void ingestsEnumRecordAndAnnotationTopLevelTypes() throws Exception {
+    currentProject = PROJECT_BASE + "-mixed-types";
+    sourceDir = Files.createTempDirectory("orch-mixed-types-src-");
+    Path pkgDir = sourceDir.resolve("com/example");
+    Files.createDirectories(pkgDir);
+    Files.writeString(
+        pkgDir.resolve("AllTypes.java"),
+        """
+        package com.example;
+
+        @interface Marker {}
+
+        enum Status {
+          ACTIVE
+        }
+
+        record Point(int x) {}
+
+        class Holder {
+          @Marker void marked() {}
+          Status status;
+          Point point;
+        }
+        """);
+
+    int failures =
+        new IngestionOrchestrator(sourceDir, currentProject, 1, driver, new ParseService(sourceDir))
+            .run(Settings.def());
+
+    assertEquals(0, failures);
+    try (Session s = driver.session()) {
+      long enumCount =
+          s.run(
+                  "MATCH (c:Class {project: $p, fqn: 'com.example.Status', isEnum: true})"
+                      + " RETURN count(c) AS n",
+                  Map.of("p", currentProject))
+              .single()
+              .get("n")
+              .asLong();
+      long recordCount =
+          s.run(
+                  "MATCH (c:Class {project: $p, fqn: 'com.example.Point', isRecord: true})"
+                      + " RETURN count(c) AS n",
+                  Map.of("p", currentProject))
+              .single()
+              .get("n")
+              .asLong();
+      long annotationCount =
+          s.run(
+                  "MATCH (a:Annotation {project: $p, fqn: 'com.example.Marker'})"
+                      + " RETURN count(a) AS n",
+                  Map.of("p", currentProject))
+              .single()
+              .get("n")
+              .asLong();
+
+      assertEquals(1, enumCount);
+      assertEquals(1, recordCount);
+      assertEquals(1, annotationCount);
     }
   }
 
@@ -672,6 +809,95 @@ class IngestionOrchestratorIT {
                   Map.of("p", currentProject))
               .list(r -> r.get("edge").asString());
       assertTrue(ownerEdges.contains("AAACaller -> BBBService"));
+    }
+  }
+
+  @Test
+  void incrementalRunReingestsChangedInvalidAndNewFiles() throws Exception {
+    currentProject = PROJECT_BASE + "-incremental-changes";
+    sourceDir = buildSampleSourceTree();
+
+    var orchestrator =
+        new IngestionOrchestrator(
+            sourceDir, currentProject, 1, driver, new ParseService(sourceDir));
+    assertEquals(0, orchestrator.run(Settings.def()));
+
+    Path widgetFile = sourceDir.resolve("com/example/Widget.java");
+    Files.writeString(
+        widgetFile,
+        """
+        package com.example;
+
+        public class Widget {
+          public String changed() {
+            return "changed";
+          }
+        }
+        """);
+    Files.setLastModifiedTime(
+        widgetFile, FileTime.fromMillis(System.currentTimeMillis() + TimeUnit.SECONDS.toMillis(5)));
+
+    Path newFile = sourceDir.resolve("com/example/NewThing.java");
+    Files.writeString(
+        newFile,
+        """
+        package com.example;
+
+        public class NewThing {}
+        """);
+
+    Path interfaceFile = sourceDir.resolve("com/example/Describable.java");
+    try (Session s = driver.session()) {
+      s.run(
+              "MATCH (f:File {project: $p, path: $path}) SET f.lastModified = 0",
+              Map.of("p", currentProject, "path", interfaceFile.toString()))
+          .consume();
+    }
+
+    assertEquals(0, orchestrator.run(new Settings(false, false, false, false, true, false)));
+
+    try (Session s = driver.session()) {
+      long newThingCount =
+          s.run(
+                  "MATCH (c:Class {project: $p, fqn: 'com.example.NewThing'}) RETURN count(c) AS n",
+                  Map.of("p", currentProject))
+              .single()
+              .get("n")
+              .asLong();
+      long changedMethodCount =
+          s.run(
+                  "MATCH (m:Method {project: $p, signature: 'com.example.Widget.changed()'})"
+                      + " RETURN count(m) AS n",
+                  Map.of("p", currentProject))
+              .single()
+              .get("n")
+              .asLong();
+
+      assertEquals(1, newThingCount);
+      assertEquals(1, changedMethodCount);
+    }
+  }
+
+  @Test
+  void incrementalModeIsDisabledWhenWipingProjectData() throws Exception {
+    currentProject = PROJECT_BASE + "-incremental-wipe";
+    sourceDir = buildSampleSourceTree();
+    var orchestrator =
+        new IngestionOrchestrator(
+            sourceDir, currentProject, 1, driver, new ParseService(sourceDir));
+
+    assertEquals(0, orchestrator.run(Settings.def()));
+    assertEquals(0, orchestrator.run(new Settings(false, false, true, false, true, false)));
+    assertEquals(0, orchestrator.run(new Settings(true, false, false, false, true, false)));
+
+    try (Session s = driver.session()) {
+      long classCount =
+          s.run("MATCH (c:Class {project: $p}) RETURN count(c) AS n", Map.of("p", currentProject))
+              .single()
+              .get("n")
+              .asLong();
+
+      assertTrue(classCount >= 1);
     }
   }
 

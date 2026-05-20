@@ -20,10 +20,11 @@ When Memgraph returns no relevant rows, fall back to text search and state why.
 - **Orientation reuse:** Orientation queries are session-scoped. If they were already run for `{{PROJECT_NAME}}` in this assistant session, reuse those results for follow-up work and skip rerunning them unless memory was changed, the user asks for a refresh, or the task scope is unrelated.
 - **Relationship refresh after edits:** if source files changed during the session, re-query Memgraph relationships before relying on earlier relationship results; live ingestion may make cached relationships stale.
 - **Code changes:** before any code-change task, run Orientation queries for Rules, open Findings, Context, active Tasks, open Questions, and open Risks. Empty results are valid. Skip only if already run in this session.
+- **Multi-step work tracking:** for multi-step implementation, debugging, refactoring, documentation, dependency, test, or coverage work, create/update a `Task` as `doing` before edits, even if you expect to finish in the same response.
 - **Class/interface work:** before touching a class or interface, query its full hierarchy.
 - **Java symbol work:** for investigations involving symbols, fields, methods, callers, implementations, inheritance, annotations, or type usages, query Memgraph before source inspection, filesystem search, IDE/LSP, or runtime introspection.
 - **Method body reads:** first query `startLine` and `endLine`, then read only that source range.
-- **Task close:** save durable findings/decisions as Memory nodes and verify them.
+- **Task close:** set any task you created or updated to `done`, `blocked`, or `cancelled` before final response and verify it. Also save durable findings/decisions when useful.
 - **Memory lifecycle changes:** immediately update Task/Risk/Question/Decision/ADR/Idea status in Memgraph before proceeding.
 - **Code-related memory:** when creating Task/Decision/Finding/Rule/ADR/Risk/Idea nodes related to code, create at least one `CodeRef` and link `(:Decision|:ADR|:Rule|:Context|:Finding|:Task|:Risk|:Question|:Idea)-[:REFERS_TO]->(:CodeRef)-[:RESOLVES_TO]->(:Code|:Package|:File|:Class|:Interface|:Annotation|:Method|:Field)`.
 
@@ -327,10 +328,11 @@ Memory links:
 Memory is not a changelog. Store only information useful for future decisions, investigations, or implementation work.
 Do not create memory nodes just because files changed; routine edits belong in Git diff, tests, and final response.
 
-A `Task` is for durable work tracking, not every assistant action. 
-Create or update a `Task` only for explicit tracking/follow-up requests, multi-step implementation/debugging/refactoring/documentation work, unfinished work, or continuation/closure of an existing matching `Task`. 
-Do not create a `Task` for one-off read-only requests such as printing or explaining code, answering from existing memory/source, status checks, simple lookups, or verification completed in the same response. 
-When unsure, prefer not creating a `Task`.
+A `Task` is for durable work tracking, not every assistant action.
+Create or update a `Task` for explicit tracking/follow-up requests, unfinished or blocked work, continuation of an existing Task, or multi-step implementation/debugging/refactoring/documentation/dependency/test/coverage work.
+Create the `Task` even when the work is completed in the same response.
+Do not create a `Task` for one-off read-only requests, status checks, simple lookups, or pure verification that does not modify files.
+When unsure: if multi-step file edits are involved, create a `Task`; otherwise prefer not creating one.
 
 Create/update:
 - `Decision` for design or implementation choices.
