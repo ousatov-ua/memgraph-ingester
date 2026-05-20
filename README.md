@@ -71,7 +71,7 @@ Download one of `<executable_memgraph_ingester>` from the list:
 
 1. Java shaded JAR - [memgraph-ingester](https://github.com/ousatov-ua/memgraph-ingester/releases/download/v8.1.4/memgraph-ingester.jar)
 2. Linux AMD64- [memgraph-ingester-linux-amd64](https://github.com/ousatov-ua/memgraph-ingester/releases/download/v8.1.4/memgraph-ingester-linux-amd64)
-3. Mac OS X ARM64 - [memgraph-ingester-arm64](https://github.com/ousatov-ua/memgraph-ingester/releases/download/v8.1.4/memgraph-ingester-macos-arm64)
+3. Mac OS X ARM64 - [memgraph-ingester-macos-arm64](https://github.com/ousatov-ua/memgraph-ingester/releases/download/v8.1.4/memgraph-ingester-macos-arm64)
 
 If you choose JAR distributive, the command is:
 
