@@ -94,7 +94,8 @@ cd /path/to/your/java/project
   --apply-schema
 ```
 
-**Next runs** (you may want to check `--incremental` argument)
+**Next runs** (you may want to check `--incremental` 
+and `--watch` arguments)
 
 ```bash
 cd /path/to/your/java/project
@@ -122,7 +123,8 @@ CP=$(mvn -q dependency:build-classpath -DincludeScope=test -Dmdep.outputFile=/de
   --classpath "$CP"
 ```
 
-**Next runs** (you may want to check `--incremental` argument)
+**Next runs** (you may want to check `--incremental` 
+and `--watch` arguments)
 
 ```bash
 cd /path/to/your/java/project
