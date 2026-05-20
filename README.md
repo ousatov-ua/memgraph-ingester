@@ -52,17 +52,17 @@ recipes. See [`SCHEMA.md`](schema/SCHEMA.md) for the full graph model.
 
 ## Requirements
 
-- Required: **Java 25 JRE** to run
+- Required: **Java 25 JRE** to run if you choose shaded JAR.
 - Required: Memgraph instance (or Docker)
-- Optional: **Java 25 SDK**, **Maven 3.9+** to build
-- Optional: `mgconsole`
+- Optional: **Java 25 SDK**, **Maven 3.9+** only if you want to build it from sources.
+- Optional: `mgconsole` - if you choose to not use MCP (* BTW, it produces lesst tokens comparing to MCP)
 
 ## Quick start
 
-- Download the latest jar (v8.1.0 the latest for now)
+- Download the latest jar (v8.1.2 the latest for now)
 
 ```bash
-wget https://github.com/ousatov-ua/memgraph-ingester/releases/download/v8.1.0/memgraph-ingester.jar
+wget https://github.com/ousatov-ua/memgraph-ingester/releases/download/v8.1.2/memgraph-ingester.jar
 ```
 
 - Run Memgraph
@@ -73,11 +73,23 @@ docker run -p 7687:7687 -p 7444:7444 --name memgraph memgraph/memgraph-mage:3.9.
 
 - Ingest the project:
 
+`<executable_memgraph_ingester>` in below commands is the one you can choose:
+
+1. Java shaded JAR - [memgraph-ingester](https://github.com/ousatov-ua/memgraph-ingester/releases/download/v8.1.2/memgraph-ingester.jar)
+2. AMD64 linux - [memgraph-ingester-amd64](https://github.com/ousatov-ua/memgraph-ingester/releases/download/v8.1.2/memgraph-ingester-amd64)
+3. ARM64 MacOS - [memgraph-ingester-arm64](https://github.com/ousatov-ua/memgraph-ingester/releases/download/v8.1.2/memgraph-ingester-macos-arm64)
+
+If you choose JAR distributive, the command is:
+
+```bash
+java -jar path/to/memgraph-ingester.jar
+```
+
 **Without** classpath libs (weaker resolving):
   
 ```bash
 cd /path/to/your/java/project
-java -jar path/to/memgraph-ingester.jar \
+<executable_memgraph_ingester> \
   --source path/to/src \
   --bolt bolt://localhost:7687 \
   --project my-project \
@@ -91,7 +103,7 @@ java -jar path/to/memgraph-ingester.jar \
 ```bash
 cd /path/to/your/java/project
 CP=$(mvn -q dependency:build-classpath -DincludeScope=test -Dmdep.outputFile=/dev/stdout 2>/dev/null)
-java -jar path/to/memgraph-ingester.jar \
+<executable_memgraph_ingester> \
   --source path/to/src \
   --bolt bolt://localhost:7687 \
   --project my-project \
@@ -100,6 +112,7 @@ java -jar path/to/memgraph-ingester.jar \
   --apply-schema \
   --classpath "$CP"
 ```
+
 
 - Append knowledge for your agent
 
