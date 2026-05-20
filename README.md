@@ -81,7 +81,7 @@ java -jar path/to/memgraph-ingester.jar
 
 **Without** classpath libs (weaker resolving):
 
-*First run*
+**First run**
 
 ```bash
 cd /path/to/your/java/project
@@ -94,7 +94,7 @@ cd /path/to/your/java/project
   --apply-schema
 ```
 
-*Next runs* (you may want to check `--incremental` argument)
+**Next runs** (you may want to check `--incremental` argument)
 
 ```bash
 cd /path/to/your/java/project
