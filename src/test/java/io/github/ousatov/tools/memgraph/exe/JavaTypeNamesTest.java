@@ -1,4 +1,4 @@
-package io.github.ousatov.tools.memgraph;
+package io.github.ousatov.tools.memgraph.exe;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;

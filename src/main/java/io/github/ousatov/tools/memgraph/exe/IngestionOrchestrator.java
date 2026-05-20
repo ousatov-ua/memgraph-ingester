@@ -1,10 +1,11 @@
-package io.github.ousatov.tools.memgraph;
+package io.github.ousatov.tools.memgraph.exe;
 
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.AnnotationDeclaration;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.EnumDeclaration;
 import com.github.javaparser.ast.body.RecordDeclaration;
+import io.github.ousatov.tools.memgraph.IngesterCli;
 import io.github.ousatov.tools.memgraph.exception.ProcessingException;
 import io.github.ousatov.tools.memgraph.schema.Memgraph;
 import io.github.ousatov.tools.memgraph.vo.Settings;
@@ -318,7 +319,7 @@ public final class IngestionOrchestrator {
     }
   }
 
-  @SuppressWarnings(value = {"java:S2095", "java:S3776"})
+  @SuppressWarnings(value = {"java:S3776"})
   private int ingestParallel(List<Path> files, Map<String, Long> mtimeCache)
       throws InterruptedException {
     CopyOnWriteArrayList<Session> sessions = new CopyOnWriteArrayList<>();
@@ -331,6 +332,7 @@ public final class IngestionOrchestrator {
             });
 
     AtomicInteger threadCounter = new AtomicInteger();
+    @SuppressWarnings("java:S2095")
     ExecutorService pool =
         Executors.newFixedThreadPool(
             threads,

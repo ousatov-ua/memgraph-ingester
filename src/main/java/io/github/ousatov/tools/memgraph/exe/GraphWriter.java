@@ -1,4 +1,4 @@
-package io.github.ousatov.tools.memgraph;
+package io.github.ousatov.tools.memgraph.exe;
 
 import com.github.javaparser.ast.body.AnnotationDeclaration;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
