@@ -130,6 +130,6 @@ public final class JsLanguageAdapter implements LanguageAdapter {
       writer.upsertCall(call.callerSignature(), call.calleeSignature());
       return;
     }
-    writer.upsertCallByName(call.callerSignature(), call.calleeOwnerFqn(), call.calleeName());
+    writer.upsertPendingCallByName(call.callerSignature(), call.calleeOwnerFqn(), call.calleeName());
   }
 }

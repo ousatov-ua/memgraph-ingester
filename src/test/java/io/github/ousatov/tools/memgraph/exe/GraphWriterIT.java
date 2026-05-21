@@ -1186,6 +1186,61 @@ class GraphWriterIT {
   }
 
   @Test
+  void pendingCallByNameResolvesAfterCalleeArrives() {
+    writer.upsertFile(TEST_FILE);
+    writer.upsertPackage(PKG);
+    ClassOrInterfaceDeclaration caller =
+        parseDecl("package com.example; public class Caller { public void run() {} }");
+    ClassOrInterfaceDeclaration helper =
+        parseDecl("package com.example; public class Helper { public static void assist() {} }");
+
+    writer.upsertType(TEST_FILE, PKG, caller);
+    writer.upsertPendingCallByName("com.example.Caller.run()", "com.example.Helper", "assist");
+
+    long pendingBefore =
+        session
+            .run("MATCH (p:PendingCall {project: $p}) RETURN count(p) AS n", Map.of("p", PROJECT))
+            .single()
+            .get("n")
+            .asLong();
+    long callsBefore =
+        session
+            .run(
+                "MATCH (:Method {name: 'run', project: $p})"
+                    + "-[:CALLS]->(:Method {name: 'assist', project: $p})"
+                    + " RETURN count(*) AS n",
+                Map.of("p", PROJECT))
+            .single()
+            .get("n")
+            .asLong();
+
+    writer.upsertType(TEST_FILE, PKG, helper);
+    writer.resolvePendingCalls();
+
+    long pendingAfter =
+        session
+            .run("MATCH (p:PendingCall {project: $p}) RETURN count(p) AS n", Map.of("p", PROJECT))
+            .single()
+            .get("n")
+            .asLong();
+    long callsAfter =
+        session
+            .run(
+                "MATCH (:Method {name: 'run', project: $p})"
+                    + "-[:CALLS]->(:Method {name: 'assist', project: $p})"
+                    + " RETURN count(*) AS n",
+                Map.of("p", PROJECT))
+            .single()
+            .get("n")
+            .asLong();
+
+    assertEquals(1, pendingBefore);
+    assertEquals(0, callsBefore);
+    assertEquals(0, pendingAfter);
+    assertEquals(1, callsAfter);
+  }
+
+  @Test
   void unresolvedScopedCallFallsBackByImportedType() {
     writer.upsertFile(TEST_FILE);
     writer.upsertPackage(PKG);

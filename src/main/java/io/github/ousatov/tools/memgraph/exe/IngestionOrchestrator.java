@@ -155,6 +155,8 @@ public final class IngestionOrchestrator {
 
     try (Session session = driver.session()) {
       GraphWriter postWriter = new GraphWriter(session, project);
+      postWriter.resolvePendingCalls();
+      log.info("Resolved pending owner/name CALLS edges for '{}'", project);
       postWriter.deletePhantomMethods();
       log.info("Removed phantom external Method nodes for '{}'", project);
       postWriter.resolveCodeRefs();
@@ -236,6 +238,7 @@ public final class IngestionOrchestrator {
         }
       }
       if (anySuccess) {
+        writer.resolvePendingCalls();
         writer.deletePhantomMethods();
         writer.resolveCodeRefs();
         log.info("Watch re-ingestion complete.");
@@ -422,9 +425,9 @@ public final class IngestionOrchestrator {
 
   /**
    * Parses a single file through the selected language adapter and writes all structural nodes.
-   * Java call edges still use placeholder callee nodes that are later upgraded or cleaned up by
-   * {@link GraphWriter#deletePhantomMethods()}; JavaScript call edges are emitted only when the
-   * analyzer can identify an in-project callee signature.
+   * Fully resolved Java call edges may use placeholder callee nodes that are later upgraded or
+   * cleaned up by {@link GraphWriter#deletePhantomMethods()}. Adapters can also persist deferred
+   * owner/name calls that are resolved after the batch.
    *
    * @return true on success, false if parsing or graph write fails
    */

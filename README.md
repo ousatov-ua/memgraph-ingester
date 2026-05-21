@@ -358,7 +358,7 @@ Captured JS/TS structure:
 - Methods, constructors, function-valued class fields, fields, static flags, line ranges, and kinds.
 - Decorators as annotations.
 - Angular decorators with framework metadata when detected.
-- Syntax-based best-effort call edges, including resolvable relative imports.
+- Syntax-based best-effort call edges, including deferred resolution for resolvable relative imports.
 
 Runtime modes:
 
@@ -639,6 +639,7 @@ Every code and memory node uses the same `project` namespace.
 | `:Annotation` | `(fqn, project)` | `name`, `packageName`, `language`, `kind`, `modulePath`, `framework`. |
 | `:Method` | `(signature, project)` | `name`, `returnType`, `visibility`, `isStatic`, `startLine`, `endLine`, `ownerFqn`, `ownerDisplayName`, `language`, `kind`. |
 | `:Field` | `(fqn, project)` | `name`, `type`, `visibility`, `isStatic`, `language`, `kind`. |
+| `:PendingCall` | `(project, callerSignature, calleeOwnerFqn, calleeName)` | Temporary owner/name call record resolved after ingestion. |
 
 ### Code Relationships
 
@@ -653,6 +654,7 @@ Every code and memory node uses the same `project` namespace.
 | `(:Interface)-[:EXTENDS]->(:Interface)` | Interface inheritance. |
 | `(:Class \| :Interface \| :Annotation)-[:DECLARES]->(:Method \| :Field)` | Type members. |
 | `(:Method)-[:CALLS]->(:Method)` | Best-effort call graph. |
+| `(:Method)-[:PENDING_CALL]->(:PendingCall)` | Deferred owner/name call awaiting unique target resolution. |
 | `(:*)-[:ANNOTATED_WITH]->(:Annotation)` | Annotation or decorator usage. |
 
 ### Memory Nodes
@@ -750,7 +752,8 @@ RETURN labels(memory), memory.id, memory.title;
 - Use `--classpath` for better Java FQN and call-edge coverage.
 - External Java parent types and annotations can appear as project-scoped nodes with
   `isExternal = true`.
-- JS/TS `CALLS` edges are syntax-based and best-effort.
+- JS/TS `CALLS` edges are syntax-based and best-effort. Owner/name calls that cannot be
+  resolved in-file are stored as `:PendingCall` records and retried after the batch.
 - Generated code is indexed only when its generated source directory is passed to `--source`.
 - With `--threads > 1`, log order is non-deterministic. Graph writes are idempotent.
 

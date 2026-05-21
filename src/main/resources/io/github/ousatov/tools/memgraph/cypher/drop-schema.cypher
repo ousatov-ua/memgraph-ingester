@@ -30,6 +30,7 @@ DROP CONSTRAINT ON (a:Annotation) ASSERT a.fqn, a.project IS UNIQUE;
 DROP CONSTRAINT ON (m:Method) ASSERT m.signature, m.project IS UNIQUE;
 DROP CONSTRAINT ON (f:Field) ASSERT f.fqn, f.project IS UNIQUE;
 DROP CONSTRAINT ON (file:File) ASSERT file.path, file.project IS UNIQUE;
+DROP CONSTRAINT ON (pc:PendingCall) ASSERT pc.project, pc.callerSignature, pc.calleeOwnerFqn, pc.calleeName IS UNIQUE;
 
 
 // =====================================================
@@ -101,3 +102,5 @@ DROP INDEX ON :Field(project);
 DROP INDEX ON :Field(name);
 
 DROP INDEX ON :Class(packageName);
+DROP INDEX ON :PendingCall(project);
+DROP INDEX ON :PendingCall(calleeOwnerFqn);

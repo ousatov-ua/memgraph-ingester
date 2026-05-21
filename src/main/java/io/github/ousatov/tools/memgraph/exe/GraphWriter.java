@@ -118,6 +118,11 @@ public final class GraphWriter {
     cypher.run(Cypher.CYPHER_DELETE_PHANTOM_METHODS, Map.of());
   }
 
+  /** Resolves deferred owner/name call records after all in-project methods are available. */
+  public void resolvePendingCalls() {
+    cypher.run(Cypher.CYPHER_RESOLVE_PENDING_CALLS, Map.of());
+  }
+
   /** Refreshes {@code :CodeRef} resolution edges to the current project-scoped code graph. */
   public void resolveCodeRefs() {
     List.of(
@@ -374,6 +379,19 @@ public final class GraphWriter {
   public void upsertCallByName(String callerSignature, String ownerFqn, String calleeName) {
     cypher.run(
         Cypher.CYPHER_UPSERT_CALL_BY_NAME,
+        Map.of(
+            Params.CALLER,
+            callerSignature,
+            Params.OWNER_FQN,
+            ownerFqn,
+            Params.CALLEE_NAME,
+            calleeName));
+  }
+
+  /** Stores a deferred owner/name call for post-ingestion resolution. */
+  public void upsertPendingCallByName(String callerSignature, String ownerFqn, String calleeName) {
+    cypher.run(
+        Cypher.CYPHER_UPSERT_PENDING_CALL_BY_NAME,
         Map.of(
             Params.CALLER,
             callerSignature,

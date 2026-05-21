@@ -28,6 +28,7 @@ intended for durable agent/client-authored decisions, context, and follow-up wor
 | `:Annotation` | `fqn`, `project` | `name`, `packageName`, `visibility`, `isExternal`, `language`, `kind`, `modulePath`, `framework` |
 | `:Method` | `signature`, `project` | `name`, `returnType`, `visibility`, `isStatic`, `startLine`, `endLine`, `isSynthetic`, `ownerFqn`, `ownerDisplayName`, `language`, `kind` |
 | `:Field` | `fqn`, `project` | `name`, `type`, `visibility`, `isStatic`, `language`, `kind` |
+| `:PendingCall` | `project`, `callerSignature`, `calleeOwnerFqn`, `calleeName` | Temporary owner/name call record resolved after ingestion |
 
 ## Memory nodes
 
@@ -61,6 +62,7 @@ All memory item labels are unique by `(id, project)`. Most memory items also use
 (Class)     -[:IMPLEMENTS]->    (Interface)
 (Class | Interface | Annotation) -[:DECLARES]-> (Method | Field)
 (Method)    -[:CALLS]->         (Method)
+(Method)    -[:PENDING_CALL]->  (PendingCall)
 (Class | Interface | Annotation | Method | Field) -[:ANNOTATED_WITH]-> (Annotation)
 ```
 
@@ -131,7 +133,7 @@ Common memory-to-memory links:
 - JavaScript/TypeScript class expressions assigned to variables are emitted as `:Class` nodes using
   the variable name. Relative imports that resolve to local source files can produce owner/name
   `CALLS` edges when the target owner has exactly one method with the imported name.
-- `CALLS` edges only connect methods within the same project. External library calls are dropped to avoid phantom nodes. A second wipe-less re-ingestion pass fills in any cross-file edges missed due to ingestion ordering. For unresolved same-class calls, a name-based fallback creates the edge when exactly one method with that name exists in the owning type.
+- `CALLS` edges only connect methods within the same project. External library calls are dropped to avoid phantom nodes. JavaScript/TypeScript owner/name calls that cross file-order boundaries are first stored as `:PendingCall` records, then resolved after the ingestion batch when the target owner declares exactly one method with that name. Unresolved or ambiguous pending calls can remain until a later ingestion supplies a unique target.
 - JavaScript/TypeScript `CALLS` edges are syntax-only best effort. Dynamic dispatch, framework
   templates, dependency injection, monkey-patching, and generated code can be missing.
 - **External / phantom nodes.** When a class extends or implements an external type, the parent node is created with `isExternal = true`. Its `name` and `packageName` are inferred from the FQN. External annotations (those not defined in the ingested source tree) are also marked `isExternal = true`. Project-internal nodes always have `isExternal = false`. Use `WHERE NOT n.isExternal` to exclude external types from queries.

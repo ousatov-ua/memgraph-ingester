@@ -105,6 +105,16 @@ public final class Const {
      */
     public static final String CYPHER_UPSERT_CALL_BY_NAME = action("upsert-call-by-name.cypher");
 
+    /** Stores unresolved owner/name calls until a post-ingestion resolution pass can match them. */
+    public static final String CYPHER_UPSERT_PENDING_CALL_BY_NAME =
+        action("upsert-pending-call-by-name.cypher");
+
+    /**
+     * Resolves pending owner/name calls once all candidate owners and methods have been ingested.
+     * Only creates the edge when exactly one method has that name (no overloading ambiguity).
+     */
+    public static final String CYPHER_RESOLVE_PENDING_CALLS = action("resolve-pending-calls.cypher");
+
     /**
      * Removes placeholder {@code :Method} nodes that were created by {@link #CYPHER_UPSERT_CALL}
      * but never fully ingested (i.e. external/JDK callees).
