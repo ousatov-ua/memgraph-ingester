@@ -371,7 +371,7 @@
             </executions>
             <configuration>
               <mainClass>io.github.ousatov.tools.memgraph.IngesterCli</mainClass>
-              <imageName>memgraph-ingester</imageName>
+              <imageName>memgraph-ingester-linux-amd64</imageName>
               <fallback>false</fallback>
               <metadataRepository>
                 <enabled>true</enabled>
@@ -427,7 +427,63 @@
             </executions>
             <configuration>
               <mainClass>io.github.ousatov.tools.memgraph.IngesterCli</mainClass>
-              <imageName>memgraph-ingester</imageName>
+              <imageName>memgraph-ingester-macos-arm64</imageName>
+              <fallback>false</fallback>
+              <metadataRepository>
+                <enabled>true</enabled>
+              </metadataRepository>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+    <profile>
+      <id>native-windows</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-enforcer-plugin</artifactId>
+            <version>${maven.enforcer.version}</version>
+            <executions>
+              <execution>
+                <id>enforce-windows-native-build</id>
+                <phase>validate</phase>
+                <goals>
+                  <goal>enforce</goal>
+                </goals>
+                <configuration>
+                  <rules>
+                    <requireOS>
+                      <family>windows</family>
+                      <message>
+                        The native-windows profile must run on Windows because GraalVM Native
+                        Image builds for the operating system where Maven runs.
+                      </message>
+                    </requireOS>
+                  </rules>
+                  <fail>true</fail>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+          <plugin>
+            <groupId>org.graalvm.buildtools</groupId>
+            <artifactId>native-maven-plugin</artifactId>
+            <version>${native.maven.plugin.version}</version>
+            <extensions>true</extensions>
+            <executions>
+              <execution>
+                <id>build-native-windows</id>
+                <phase>package</phase>
+                <goals>
+                  <goal>compile-no-fork</goal>
+                </goals>
+              </execution>
+            </executions>
+            <configuration>
+              <mainClass>io.github.ousatov.tools.memgraph.IngesterCli</mainClass>
+              <imageName>memgraph-ingester-windows-amd64</imageName>
               <fallback>false</fallback>
               <metadataRepository>
                 <enabled>true</enabled>
