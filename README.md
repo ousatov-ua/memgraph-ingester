@@ -69,7 +69,7 @@ docker run -p 7687:7687 -p 7444:7444 --name memgraph memgraph/memgraph-mage:3.9.
 
 Download one of `<executable_memgraph_ingester>` from the list:
 
-1. Java shaded JAR: [memgraph-ingester](https://github.com/ousatov-ua/memgraph-ingester/releases/download/v8.1.4/memgraph-ingester.jar)
+1. Java shaded JAR: [memgraph-ingester.jar](https://github.com/ousatov-ua/memgraph-ingester/releases/download/v8.1.4/memgraph-ingester.jar)
 2. Linux AMD64: [memgraph-ingester-linux-amd64.zip](https://github.com/ousatov-ua/memgraph-ingester/releases/download/v8.1.4/memgraph-ingester-linux-amd64.zip)
 3. Mac OS X ARM64: [memgraph-ingester-macos-arm64.zip](https://github.com/ousatov-ua/memgraph-ingester/releases/download/v8.1.4/memgraph-ingester-macos-arm64.zip)
 4. Windows AMD64: [memgraph-ingester-windows-amd64.zip](https://github.com/ousatov-ua/memgraph-ingester/releases/download/v8.1.4/memgraph-ingester-windows-amd64.zip)
