@@ -42,6 +42,7 @@ import picocli.CommandLine.Option;
 public final class IngesterCli implements Callable<Integer> {
 
   private static final Logger log = LoggerFactory.getLogger(IngesterCli.class);
+  private static final String EXPORT_CONST_VALUE_1 = "export const value = 1;\n";
 
   @Option(
       names = {"-s", "--source"},
@@ -249,6 +250,10 @@ public final class IngesterCli implements Callable<Integer> {
       Path defaultFunction = tempDir.resolve("default-function.js");
       Path indexJs = tempDir.resolve("index.js");
       Path indexTs = tempDir.resolve("index.ts");
+      Path hyphenModule = tempDir.resolve("my-file.js");
+      Path underscoreModule = tempDir.resolve("my_file.js");
+      Path dottedModule = tempDir.resolve("a.b.js");
+      Path underscoredDottedModule = tempDir.resolve("a_b.js");
       Path constructorCall = tempDir.resolve("constructor-call.js");
       Files.writeString(
           defaultClass,
@@ -268,6 +273,10 @@ public final class IngesterCli implements Callable<Integer> {
           """);
       Files.writeString(indexJs, "export const jsValue = 1;\n");
       Files.writeString(indexTs, "export const tsValue: number = 1;\n");
+      Files.writeString(hyphenModule, EXPORT_CONST_VALUE_1);
+      Files.writeString(underscoreModule, EXPORT_CONST_VALUE_1);
+      Files.writeString(dottedModule, EXPORT_CONST_VALUE_1);
+      Files.writeString(underscoredDottedModule, EXPORT_CONST_VALUE_1);
       Files.writeString(
           constructorCall,
           """
@@ -290,6 +299,14 @@ public final class IngesterCli implements Callable<Integer> {
       assertDefaultClass(analyzer.analyze(defaultClass));
       assertDefaultFunction(analyzer.analyze(defaultFunction));
       assertDistinctModuleFqns(analyzer.analyze(indexJs), analyzer.analyze(indexTs));
+      assertDistinctModuleFqns(
+          analyzer.analyze(hyphenModule),
+          analyzer.analyze(underscoreModule),
+          "hyphen and underscore module FQNs");
+      assertDistinctModuleFqns(
+          analyzer.analyze(dottedModule),
+          analyzer.analyze(underscoredDottedModule),
+          "dotted and underscored module FQNs");
       assertConstructorCall(analyzer.analyze(constructorCall));
       log.info("JavaScript parser runtime check succeeded using cache {}", cacheRoot);
       return 0;
@@ -304,8 +321,13 @@ public final class IngesterCli implements Callable<Integer> {
   }
 
   private static void assertDistinctModuleFqns(JsAnalysis jsAnalysis, JsAnalysis tsAnalysis) {
+    assertDistinctModuleFqns(jsAnalysis, tsAnalysis, "JavaScript and TypeScript module FQNs");
+  }
+
+  private static void assertDistinctModuleFqns(
+      JsAnalysis jsAnalysis, JsAnalysis tsAnalysis, String description) {
     if (jsAnalysis.moduleFqn().equals(tsAnalysis.moduleFqn())) {
-      throw new ProcessingException("JavaScript and TypeScript module FQNs must be distinct");
+      throw new ProcessingException(description + " must be distinct");
     }
   }
 

@@ -27,10 +27,10 @@ const modulePath = path.relative(root, file).replace(/\\/g, '/');
 const moduleDir = path.dirname(modulePath);
 const dirParts = moduleDir === '.'
   ? []
-  : moduleDir.split('/').map(sanitizePart).filter(Boolean);
+  : moduleDir.split('/').map(pathIdentityPart).filter(Boolean);
 const moduleBaseName = path.basename(modulePath).replace(/\.[^.]+$/, '');
 const moduleName = sanitizePart(moduleBaseName);
-const moduleFqnName = sanitizePart(path.basename(modulePath).replace(/\./g, '_'));
+const moduleFqnName = pathIdentityPart(path.basename(modulePath));
 const packageName = ['js', ...dirParts].join('.');
 const moduleFqn = `${packageName}.${moduleFqnName}`;
 const moduleSignature = `${moduleFqn}.<init>()`;
@@ -495,6 +495,18 @@ function scriptKind(name) {
 function sanitizePart(part) {
   const value = part.replace(/[^A-Za-z0-9_$]/g, '_').replace(/^([0-9])/, '_$1');
   return value || 'module';
+}
+
+function pathIdentityPart(part) {
+  const encoded = Array.from(part).map(encodeIdentityChar).join('');
+  if (!encoded) {
+    return 'module';
+  }
+  return /^[A-Za-z_$]/.test(encoded) ? encoded : `_${encoded}`;
+}
+
+function encodeIdentityChar(char) {
+  return /^[A-Za-z0-9]$/.test(char) ? char : `$${char.codePointAt(0).toString(16)}$`;
 }
 
 function argValue(name) {

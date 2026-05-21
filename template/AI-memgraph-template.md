@@ -162,7 +162,7 @@ ORDER BY c.fqn, f.name;
 - JavaScript/TypeScript classes reuse `:Class`; TypeScript interfaces and type aliases reuse `:Interface`; decorators reuse `:Annotation` plus `ANNOTATED_WITH`.
 - Angular decorators such as `Component`, `Directive`, `Injectable`, `NgModule`, and `Pipe` may set `framework = "angular"` on the decorated type.
 - JavaScript/TypeScript `CALLS` edges are syntax-only and intra-project best effort. Dynamic dispatch, dependency injection, framework templates, monkey-patching, and generated code can be missing.
-- JavaScript/TypeScript `packageName` values are synthetic path-derived namespaces with a `js.` prefix; they are not npm package names.
+- JavaScript/TypeScript `packageName` and module owner FQN values are synthetic, collision-safe encoded path identities with a `js.` prefix; they are not npm package names or raw filenames.
 - Fully ingested `Method` nodes store `ownerFqn` and `ownerDisplayName`; prefer those properties for relationship summaries instead of parsing `signature` or traversing `DECLARES`.
 - Placeholder callee `Method` nodes created during call-edge ingestion can lack owner metadata until the callee is ingested; phantom cleanup normally removes unresolved placeholders.
 - External nodes use `isExternal = true`. External interfaces implemented by project classes still have `IMPLEMENTS` edges, but are excluded by internal-interface filters.
