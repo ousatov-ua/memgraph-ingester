@@ -753,32 +753,43 @@ graph wipes and re-ingestion.
 
 ```
 .
-├── src/main/java/io/github/ousatov/tools/memgraph/
-│   ├── IngesterCli.java                    # CLI entry point (picocli Callable)
-│   ├── IngestionOrchestrator.java          # Orchestrates sequential / parallel ingestion
-│   ├── ParseService.java                   # JavaParser + symbol resolution
-│   ├── GraphWriter.java                    # Cypher MERGE writes to Memgraph
-│   ├── def/Const.java                      # Shared constants
-│   ├── exception/ProcessingException.java  # Checked processing error
-│   └── schema/Memgraph.java                # Schema loader (create / drop / wipe)
-├── src/main/resources/io/github/ousatov/tools/memgraph/cypher/
-│   ├── action/                             # Per-operation Cypher templates (upsert, wipe, resolve)
-│   ├── create-schema.cypher                # Uniqueness constraints + indexes
-│   ├── drop-schema.cypher                  # Schema teardown
-│   └── wipe-all-data.cypher                # Full data wipe
-├── src/test/java/                          # Unit + integration tests (JUnit 5, Testcontainers)
-├── schema/
-│   └── SCHEMA.md                           # Graph model reference (human-readable)
-├── script/
-│   ├── init-memgraph-claude.sh             # Appends Memgraph section to a repo's CLAUDE.md
-│   ├── init-memgraph-codex.sh              # Appends Memgraph section to a repo's AGENTS.md (Codex)
-│   ├── init-memgraph-gemini.sh             # Appends Memgraph section to a repo's AGENTS.md (Gemini)
-│   └── init-memgraph-github.sh             # Appends Memgraph section to a repo's AGENTS.md (Copilot)
-├── template/
-│   ├── AI-memgraph-template.md             # Template for *.md injection
+├── .github/workflows/
+│   ├── maven.yml                               # Maven CI
+│   └── native-binaries.yml                     # Native binary release builds
+├── doc/
+│   └── MEMORY.md                               # Memory graph usage guide and recipes
+├── image/                                      # README banners and social preview assets
 ├── memgraph-platform/
-│   └── docker-compose.yml                  # Memgraph + Lab (with UI)
-├── pom.xml                                 # Maven build (shaded fat JAR, spotless-enforced)
+│   └── docker-compose.yml                      # Local Memgraph + Lab stack
+├── schema/
+│   └── SCHEMA.md                               # Full code + memory graph schema reference
+├── script/
+│   ├── init-memgraph-claude.sh                 # Injects Memgraph instructions for Claude
+│   ├── init-memgraph-codex.sh                  # Injects Memgraph instructions for Codex
+│   ├── init-memgraph-gemini.sh                 # Injects Memgraph instructions for Gemini
+│   ├── init-memgraph-github.sh                 # Injects Memgraph instructions for Copilot
+│   └── mgq                                     # Token-light mgconsole query wrapper
+├── src/main/java/io/github/ousatov/tools/memgraph/
+│   ├── IngesterCli.java                        # picocli CLI entry point
+│   ├── def/                                    # Shared constants and Cypher resource names
+│   ├── exception/                              # Domain exceptions
+│   ├── exe/                                    # Parsing, orchestration, and Memgraph writers
+│   ├── schema/                                 # Schema loader and wipe helpers
+│   └── vo/                                     # Immutable value objects
+├── src/main/resources/
+│   ├── META-INF/native-image/                  # GraalVM native-image configuration
+│   ├── io/github/ousatov/tools/memgraph/cypher/
+│   │   ├── action/                             # Per-operation Cypher templates
+│   │   ├── create-schema.cypher                # Constraints and indexes
+│   │   ├── drop-schema.cypher                  # Schema teardown
+│   │   └── wipe-all-data.cypher                # Full data wipe
+│   └── simplelogger.properties                 # Runtime logging defaults
+├── src/test/java/io/github/ousatov/tools/memgraph/
+│   ├── extension/                              # Testcontainers Memgraph JUnit extension
+│   └── ...                                     # Unit and integration tests
+├── template/
+│   └── AI-memgraph-template.md                 # Shared agent-instruction template
+├── pom.xml                                     # Maven build and release configuration
 └── README.md
 ```
 
