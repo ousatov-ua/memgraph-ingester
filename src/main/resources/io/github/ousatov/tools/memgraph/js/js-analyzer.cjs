@@ -34,6 +34,9 @@ const moduleFqn = `${packageName}.${moduleName}`;
 const moduleSignature = `${moduleFqn}.<init>()`;
 const ANGULAR_DECORATORS = new Set(['Component', 'Directive', 'Injectable', 'NgModule', 'Pipe']);
 const declarationsByName = new Map();
+const declarationsByOwnerAndName = new Map();
+const staticDeclarationsByOwnerAndName = new Map();
+const classesByName = new Map();
 const callables = [];
 const imports = collectImports(sourceFile);
 
@@ -50,12 +53,12 @@ write({
 sourceFile.statements.forEach(collectDeclaration);
 sourceFile.statements.forEach(statement => {
   if (!isDeclarationWithOwnCallableScope(statement)) {
-    collectCalls(statement, moduleSignature);
+    collectCalls(statement, moduleSignature, moduleFqn);
   }
 });
 for (const item of callables) {
   if (item.body) {
-    collectCalls(item.body, item.signature);
+    collectCalls(item.body, item.signature, item.ownerFqn);
   }
 }
 
@@ -85,6 +88,7 @@ function collectDeclaration(node) {
 
 function collectClass(node, name) {
   const fqn = `${moduleFqn}.${name}`;
+  classesByName.set(name, fqn);
   const framework = frameworkFor(node);
   const range = lineRange(node);
   write({
@@ -198,6 +202,7 @@ function collectExportAssignment(node) {
 function collectFunction(ownerFqn, name, node, kind) {
   const signature = buildSignature(ownerFqn, name, node.parameters || []);
   const range = lineRange(node);
+  const isStatic = hasStatic(node);
   write({
     record: 'member',
     ownerFqn,
@@ -206,16 +211,17 @@ function collectFunction(ownerFqn, name, node, kind) {
     key: signature,
     name,
     dataType: typeText(node.type),
-    isStatic: hasStatic(node),
+    isStatic,
     startLine: range.start,
     endLine: range.end
   });
   addDeclaration(name, signature);
+  addScopedDeclaration(ownerFqn, name, signature, isStatic);
   writeDecorators(node, 'sig', signature);
-  callables.push({ signature, body: node.body });
+  callables.push({ signature, ownerFqn, body: node.body });
 }
 
-function collectCalls(node, callerSignature) {
+function collectCalls(node, callerSignature, callerOwnerFqn) {
   if (!node) {
     return;
   }
@@ -223,20 +229,45 @@ function collectCalls(node, callerSignature) {
     return;
   }
   if (ts.isCallExpression(node)) {
-    const calleeSignature = calleeFor(node.expression);
+    const calleeSignature = calleeFor(node.expression, callerOwnerFqn);
     if (calleeSignature && calleeSignature !== callerSignature) {
       write({ record: 'call', callerSignature, calleeSignature });
     }
   }
-  ts.forEachChild(node, child => collectCalls(child, callerSignature));
+  ts.forEachChild(node, child => collectCalls(child, callerSignature, callerOwnerFqn));
 }
 
-function calleeFor(expr) {
+function calleeFor(expr, callerOwnerFqn) {
   if (ts.isIdentifier(expr)) {
     return uniqueDeclaration(expr.text);
   }
   if (ts.isPropertyAccessExpression(expr)) {
-    return uniqueDeclaration(expr.name.text);
+    const receiver = receiverOwner(expr.expression, callerOwnerFqn);
+    if (!receiver) {
+      return null;
+    }
+    return receiver.staticOnly
+      ? uniqueScopedDeclaration(staticDeclarationsByOwnerAndName, receiver.ownerFqn, expr.name.text)
+      : uniqueScopedDeclaration(declarationsByOwnerAndName, receiver.ownerFqn, expr.name.text);
+  }
+  return null;
+}
+
+function receiverOwner(expr, callerOwnerFqn) {
+  const receiver = unwrapExpression(expr);
+  if (receiver.kind === ts.SyntaxKind.ThisKeyword) {
+    return callerOwnerFqn === moduleFqn ? null : { ownerFqn: callerOwnerFqn, staticOnly: false };
+  }
+  if (ts.isIdentifier(receiver)) {
+    const ownerFqn = classesByName.get(receiver.text);
+    return ownerFqn ? { ownerFqn, staticOnly: true } : null;
+  }
+  if (ts.isNewExpression(receiver)) {
+    const target = unwrapExpression(receiver.expression);
+    if (ts.isIdentifier(target)) {
+      const ownerFqn = classesByName.get(target.text);
+      return ownerFqn ? { ownerFqn, staticOnly: false } : null;
+    }
   }
   return null;
 }
@@ -248,8 +279,31 @@ function addDeclaration(name, signature) {
   declarationsByName.get(name).add(signature);
 }
 
+function addScopedDeclaration(ownerFqn, name, signature, isStatic) {
+  addDeclarationTo(declarationsByOwnerAndName, ownerFqn, name, signature);
+  if (isStatic) {
+    addDeclarationTo(staticDeclarationsByOwnerAndName, ownerFqn, name, signature);
+  }
+}
+
+function addDeclarationTo(target, ownerFqn, name, signature) {
+  const key = `${ownerFqn}\u0000${name}`;
+  if (!target.has(key)) {
+    target.set(key, new Set());
+  }
+  target.get(key).add(signature);
+}
+
 function uniqueDeclaration(name) {
   const matches = declarationsByName.get(name);
+  if (!matches || matches.size !== 1) {
+    return null;
+  }
+  return matches.values().next().value;
+}
+
+function uniqueScopedDeclaration(target, ownerFqn, name) {
+  const matches = target.get(`${ownerFqn}\u0000${name}`);
   if (!matches || matches.size !== 1) {
     return null;
   }

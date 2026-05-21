@@ -7,15 +7,19 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.util.Base64;
 import java.util.Objects;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.regex.Pattern;
 import java.util.zip.GZIPInputStream;
 import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
@@ -35,6 +39,10 @@ public final class ManagedTypescriptPackage {
   private static final Pattern INTEGRITY_PATTERN =
       Pattern.compile("\"integrity\"\\s*:\\s*\"sha512-([^\"]+)\"");
   public static final String PACKAGE = "package/";
+  private static final String INSTALL_LOCK_FILE = ".install.lock";
+  private static final String INSTALL_READY_FILE = ".install-complete";
+  private static final String TYPESCRIPT_COMPILER = "lib/typescript.js";
+  private static final ConcurrentMap<Path, Object> INSTALL_LOCKS = new ConcurrentHashMap<>();
 
   private final Path cacheRoot;
   private final String version;
@@ -52,36 +60,77 @@ public final class ManagedTypescriptPackage {
   public Path nodeModulesDir() {
     Path nodeModules = cacheRoot.resolve("node_modules").resolve("typescript-" + version);
     Path typescriptDir = nodeModules.resolve("typescript");
-    if (Files.isRegularFile(typescriptDir.resolve("lib/typescript.js"))) {
+    if (isTypescriptReady(typescriptDir)) {
       return nodeModules;
     }
-    if (runtimeMode == RuntimeMode.OFFLINE) {
-      throw new ProcessingException(
-          "TypeScript "
-              + version
-              + " is not cached at "
-              + typescriptDir
-              + "; disable --js-runtime-mode=offline or pre-warm the cache.");
-    }
-    install(nodeModules, typescriptDir);
+    ensureTypescriptInstalled(typescriptDir);
     return nodeModules;
   }
 
-  private void install(
-      @SuppressWarnings({"java:S1172", "unused"}) Path nodeModules, Path typescriptDir) {
+  private void ensureTypescriptInstalled(Path typescriptDir) {
     try {
       Files.createDirectories(typescriptDir);
-      String metadata =
-          downloadText(URI.create("https://registry.npmjs.org/typescript/" + version));
-      String tarball = extract(metadata, TARBALL_PATTERN, "TypeScript tarball URL");
-      String integrity = extract(metadata, INTEGRITY_PATTERN, "TypeScript sha512 integrity");
-      log.info("Downloading TypeScript compiler {}", version);
-      byte[] archive = download(URI.create(tarball));
-      verifySha512(archive, integrity);
-      extractTgz(archive, typescriptDir);
+      Object localLock = INSTALL_LOCKS.computeIfAbsent(lockKey(typescriptDir), _ -> new Object());
+      synchronized (localLock) {
+        try (FileChannel channel =
+                FileChannel.open(
+                    typescriptDir.resolve(INSTALL_LOCK_FILE),
+                    StandardOpenOption.CREATE,
+                    StandardOpenOption.WRITE);
+            var _ = channel.lock()) {
+          if (isTypescriptReady(typescriptDir)) {
+            return;
+          }
+          if (runtimeMode == RuntimeMode.OFFLINE
+              && Files.isRegularFile(typescriptDir.resolve(TYPESCRIPT_COMPILER))) {
+            markTypescriptReady(typescriptDir);
+            return;
+          }
+          if (runtimeMode == RuntimeMode.OFFLINE) {
+            throw new ProcessingException(
+                "TypeScript "
+                    + version
+                    + " is not cached at "
+                    + typescriptDir
+                    + "; disable --js-runtime-mode=offline or pre-warm the cache.");
+          }
+          install(typescriptDir);
+        }
+      }
     } catch (IOException e) {
       throw new ProcessingException("Could not install TypeScript " + version, e);
     }
+  }
+
+  private boolean isTypescriptReady(Path typescriptDir) {
+    return Files.isRegularFile(typescriptDir.resolve(TYPESCRIPT_COMPILER))
+        && Files.isRegularFile(typescriptDir.resolve(INSTALL_READY_FILE));
+  }
+
+  private void markTypescriptReady(Path typescriptDir) throws IOException {
+    Files.writeString(
+        typescriptDir.resolve(INSTALL_READY_FILE),
+        "typescript " + version + System.lineSeparator(),
+        StandardOpenOption.CREATE,
+        StandardOpenOption.TRUNCATE_EXISTING);
+  }
+
+  private static Path lockKey(Path typescriptDir) {
+    return typescriptDir.toAbsolutePath().normalize();
+  }
+
+  private void install(Path typescriptDir) throws IOException {
+    String metadata = downloadText(URI.create("https://registry.npmjs.org/typescript/" + version));
+    String tarball = extract(metadata, TARBALL_PATTERN, "TypeScript tarball URL");
+    String integrity = extract(metadata, INTEGRITY_PATTERN, "TypeScript sha512 integrity");
+    log.info("Downloading TypeScript compiler {}", version);
+    byte[] archive = download(URI.create(tarball));
+    verifySha512(archive, integrity);
+    extractTgz(archive, typescriptDir);
+    if (!Files.isRegularFile(typescriptDir.resolve(TYPESCRIPT_COMPILER))) {
+      throw new ProcessingException("TypeScript compiler was not created: " + typescriptDir);
+    }
+    markTypescriptReady(typescriptDir);
   }
 
   private byte[] download(URI uri) throws IOException {
