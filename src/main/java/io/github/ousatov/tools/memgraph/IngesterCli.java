@@ -247,6 +247,9 @@ public final class IngesterCli implements Callable<Integer> {
       tempDir = Files.createTempDirectory("memgraph-ingester-js-runtime-check-");
       Path defaultClass = tempDir.resolve("default-class.js");
       Path defaultFunction = tempDir.resolve("default-function.js");
+      Path indexJs = tempDir.resolve("index.js");
+      Path indexTs = tempDir.resolve("index.ts");
+      Path constructorCall = tempDir.resolve("constructor-call.js");
       Files.writeString(
           defaultClass,
           """
@@ -263,6 +266,21 @@ public final class IngesterCli implements Callable<Integer> {
             return value;
           }
           """);
+      Files.writeString(indexJs, "export const jsValue = 1;\n");
+      Files.writeString(indexTs, "export const tsValue: number = 1;\n");
+      Files.writeString(
+          constructorCall,
+          """
+          class Service {
+            constructor(value) {
+              this.value = value;
+            }
+          }
+
+          export function make() {
+            return new Service(1);
+          }
+          """);
 
       JsAnalyzer analyzer =
           new JsAnalyzer(
@@ -271,6 +289,8 @@ public final class IngesterCli implements Callable<Integer> {
               new ManagedTypescriptPackage(cacheRoot, jsTypescriptVersion, selectedRuntimeMode));
       assertDefaultClass(analyzer.analyze(defaultClass));
       assertDefaultFunction(analyzer.analyze(defaultFunction));
+      assertDistinctModuleFqns(analyzer.analyze(indexJs), analyzer.analyze(indexTs));
+      assertConstructorCall(analyzer.analyze(constructorCall));
       log.info("JavaScript parser runtime check succeeded using cache {}", cacheRoot);
       return 0;
     } catch (IOException | RuntimeException e) {
@@ -280,6 +300,24 @@ public final class IngesterCli implements Callable<Integer> {
       if (tempDir != null) {
         deleteDir(tempDir);
       }
+    }
+  }
+
+  private static void assertDistinctModuleFqns(JsAnalysis jsAnalysis, JsAnalysis tsAnalysis) {
+    if (jsAnalysis.moduleFqn().equals(tsAnalysis.moduleFqn())) {
+      throw new ProcessingException("JavaScript and TypeScript module FQNs must be distinct");
+    }
+  }
+
+  private static void assertConstructorCall(JsAnalysis analysis) {
+    boolean constructorCallFound =
+        analysis.calls().stream()
+            .anyMatch(
+                call ->
+                    call.callerSignature().endsWith(".make()")
+                        && call.calleeSignature().endsWith(".Service.<init>(any)"));
+    if (!constructorCallFound) {
+      throw new ProcessingException("JavaScript constructor call was not parsed correctly");
     }
   }
 

@@ -28,9 +28,11 @@ const moduleDir = path.dirname(modulePath);
 const dirParts = moduleDir === '.'
   ? []
   : moduleDir.split('/').map(sanitizePart).filter(Boolean);
-const moduleName = sanitizePart(path.basename(modulePath).replace(/\.[^.]+$/, ''));
+const moduleBaseName = path.basename(modulePath).replace(/\.[^.]+$/, '');
+const moduleName = sanitizePart(moduleBaseName);
+const moduleFqnName = sanitizePart(path.basename(modulePath).replace(/\./g, '_'));
 const packageName = ['js', ...dirParts].join('.');
-const moduleFqn = `${packageName}.${moduleName}`;
+const moduleFqn = `${packageName}.${moduleFqnName}`;
 const moduleSignature = `${moduleFqn}.<init>()`;
 const ANGULAR_DECORATORS = new Set(['Component', 'Directive', 'Injectable', 'NgModule', 'Pipe']);
 const declarationsByName = new Map();
@@ -233,8 +235,29 @@ function collectCalls(node, callerSignature, callerOwnerFqn) {
     if (calleeSignature && calleeSignature !== callerSignature) {
       write({ record: 'call', callerSignature, calleeSignature });
     }
+  } else if (ts.isNewExpression(node)) {
+    const calleeSignature = constructorCalleeFor(node.expression);
+    if (calleeSignature && calleeSignature !== callerSignature) {
+      write({ record: 'call', callerSignature, calleeSignature });
+    }
   }
   ts.forEachChild(node, child => collectCalls(child, callerSignature, callerOwnerFqn));
+}
+
+function constructorCalleeFor(expr) {
+  const target = unwrapExpression(expr);
+  if (!ts.isIdentifier(target)) {
+    return null;
+  }
+  const ownerFqn = classesByName.get(target.text);
+  if (!ownerFqn) {
+    return null;
+  }
+  const constructors = declarationsByOwnerAndName.get(`${ownerFqn}\u0000<init>`);
+  if (!constructors) {
+    return `${ownerFqn}.<init>()`;
+  }
+  return constructors.size === 1 ? constructors.values().next().value : null;
 }
 
 function calleeFor(expr, callerOwnerFqn) {
