@@ -216,7 +216,7 @@ You can also use the CLI. This command will apply the schema to the `memgraph` d
 ingest the project:
 
 ```bash
-java -jar target/memgraph-ingester.jar \
+<executable_memgraph_ingester> \
   --source /path/to/your/java/project/src/main/java \
   --bolt bolt://localhost:7687 \
   --project my-project \
@@ -227,7 +227,7 @@ Next command will also wipe **all** data in the `memgraph` database first, then 
 schema and ingest the project:
 
 ```bash
-java -jar target/memgraph-ingester.jar \
+<executable_memgraph_ingester> \
   --source /path/to/your/java/project/src/main/java \
   --bolt bolt://localhost:7687 \
   --project my-project \
@@ -240,7 +240,7 @@ java -jar target/memgraph-ingester.jar \
 This will wipe the Code graph for this project first:
 
 ```bash
-java -jar target/memgraph-ingester.jar \
+<executable_memgraph_ingester> \
   --source /path/to/your/java/project/src/main/java \
   --bolt bolt://localhost:7687 \
   --project my-project \
@@ -250,7 +250,7 @@ java -jar target/memgraph-ingester.jar \
 This will wipe the Code and Memory graph for this project first:
 
 ```bash
-java -jar target/memgraph-ingester.jar \
+<executable_memgraph_ingester> \
   --source /path/to/your/java/project/src/main/java \
   --bolt bolt://localhost:7687 \
   --project my-project \
@@ -297,7 +297,7 @@ the `:Project` anchor remain.
 Large codebases ingest faster with multiple parser threads:
 
 ```bash
-java -jar target/memgraph-ingester.jar \
+<executable_memgraph_ingester> \
   --source /path/to/your/java/project/src/main/java \
   --bolt bolt://localhost:7687 \
   --project my-project \
@@ -329,7 +329,7 @@ ingester will automatically re-ingest modified `.java` files, update call edges,
 references whenever a change is detected:
 
 ```bash
-java -jar target/memgraph-ingester.jar \
+<executable_memgraph_ingester> \
   --source /path/to/your/java/project/src/main/java \
   --bolt bolt://localhost:7687 \
   --project my-project \
@@ -579,7 +579,7 @@ external library types, pass dependency JARs via `--classpath`:
 ```bash
 # Use Maven to collect the classpath (compile + test scopes)
 CP=$(mvn -q dependency:build-classpath -DincludeScope=test -Dmdep.outputFile=/dev/stdout 2>/dev/null)
-java -jar target/memgraph-ingester.jar \
+<executable_memgraph_ingester> \
   --source /path/to/your/java/project/src/main/java \
   --bolt bolt://localhost:7687 \
   --project my-project \
@@ -600,7 +600,7 @@ JUnit 5, picocli, etc. — dramatically increasing the number of `CALLS` edges i
 The graph goes stale as code changes. Re-run the ingester with `--wipe-project-code` to refresh:
 
 ```bash
-java -jar target/memgraph-ingester.jar \
+<executable_memgraph_ingester> \
   --source /path/to/your/java/project/src/main/java \
   --bolt bolt://localhost:7687 \
   --project my-project \
@@ -611,7 +611,7 @@ For faster re-runs, use `--incremental` to skip files that haven't changed since
 (compared by filesystem `lastModified` timestamp):
 
 ```bash
-java -jar target/memgraph-ingester.jar \
+<executable_memgraph_ingester> \
   --source /path/to/your/java/project/src/main/java \
   --bolt bolt://localhost:7687 \
   --project my-project \
@@ -633,8 +633,8 @@ Run the ingester once per codebase with different `--project` values. Each gets 
 collides.
 
 ```bash
-java -jar target/memgraph-ingester.jar -s ~/code/repo-a/src/main/java -b bolt://localhost:7687 -P repo-a --wipe-project-code
-java -jar target/memgraph-ingester.jar -s ~/code/repo-b/src/main/java -b bolt://localhost:7687 -P repo-b --wipe-project-code
+<executable_memgraph_ingester> -s ~/code/repo-a/src/main/java -b bolt://localhost:7687 -P repo-a --wipe-project-code
+<executable_memgraph_ingester> -s ~/code/repo-b/src/main/java -b bolt://localhost:7687 -P repo-b --wipe-project-code
 ```
 
 List everything that's indexed:
@@ -742,7 +742,7 @@ graph wipes and re-ingestion.
   to the ingester too:
 
 ```shell
-java -jar memgraph-ingester.jar \
+<executable_memgraph_ingester> \
   --source target/generated-sources/annotations \
   --bolt bolt://localhost:7687 \
   --project work
