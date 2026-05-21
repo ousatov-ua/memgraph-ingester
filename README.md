@@ -7,6 +7,8 @@
 [![GitHub commits](https://img.shields.io/github/commit-activity/t/ousatov-ua/memgraph-ingester)](https://github.com/ousatov-ua/memgraph-ingester/commits/main)
 [![GitHub last commit](https://img.shields.io/github/last-commit/ousatov-ua/memgraph-ingester)](https://github.com/ousatov-ua/memgraph-ingester/commits/main)
 
+![memgraph-ingester-readme-banner-640x320.svg](image/memgraph-ingester-readme-banner-640x320.svg)
+
 Ingests the structural model of a Java codebase into [Memgraph](https://memgraph.com/) as a
 queryable **code + memory knowledge graph**, combining source structure with persistent engineering
 context (decisions, rules, findings, etc.).
