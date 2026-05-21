@@ -61,6 +61,43 @@ class IngesterCliTest {
   }
 
   @Test
+  void rejectsOmittedSourceBeforeOpeningDriver() {
+    int exitCode =
+        new CommandLine(new IngesterCli())
+            .execute("-b", "bolt://127.0.0.1:1", "-P", "cli-omitted-source");
+
+    assertEquals(1, exitCode);
+  }
+
+  @Test
+  void rejectsMissingBoltBeforeOpeningDriver() throws IOException {
+    Path sourceDir = Files.createTempDirectory("cli-missing-bolt-");
+    try {
+      int exitCode =
+          new CommandLine(new IngesterCli())
+              .execute("-s", sourceDir.toString(), "-P", "cli-missing-bolt");
+
+      assertEquals(1, exitCode);
+    } finally {
+      deleteDir(sourceDir);
+    }
+  }
+
+  @Test
+  void rejectsMissingProjectBeforeOpeningDriver() throws IOException {
+    Path sourceDir = Files.createTempDirectory("cli-missing-project-");
+    try {
+      int exitCode =
+          new CommandLine(new IngesterCli())
+              .execute("-s", sourceDir.toString(), "-b", "bolt://127.0.0.1:1");
+
+      assertEquals(1, exitCode);
+    } finally {
+      deleteDir(sourceDir);
+    }
+  }
+
+  @Test
   void rejectsUnsupportedLanguageBeforeOpeningDriver() throws IOException {
     Path sourceDir = Files.createTempDirectory("cli-invalid-language-");
     try {

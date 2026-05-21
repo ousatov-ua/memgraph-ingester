@@ -19,13 +19,12 @@ import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/**
- * Invokes the bundled Node.js helper and converts its NDJSON output into neutral records.
- */
+/** Invokes the bundled Node.js helper and converts its NDJSON output into neutral records. */
 public final class JsAnalyzer {
 
   private static final Logger log = LoggerFactory.getLogger(JsAnalyzer.class);
-  private static final String HELPER_RESOURCE = "/io/github/ousatov/tools/memgraph/js/js-analyzer.cjs";
+  private static final String HELPER_RESOURCE =
+      "/io/github/ousatov/tools/memgraph/js/js-analyzer.cjs";
   private static final Duration PROCESS_TIMEOUT = Duration.ofMinutes(2);
 
   private final Path sourceRoot;
@@ -33,8 +32,8 @@ public final class JsAnalyzer {
   private final ManagedTypescriptPackage typescriptPackage;
   private final Path helperScript;
 
-  public JsAnalyzer(Path sourceRoot, ManagedNodeRuntime nodeRuntime,
-      ManagedTypescriptPackage typescriptPackage) {
+  public JsAnalyzer(
+      Path sourceRoot, ManagedNodeRuntime nodeRuntime, ManagedTypescriptPackage typescriptPackage) {
     this.sourceRoot = sourceRoot;
     this.nodeRuntime = nodeRuntime;
     this.typescriptPackage = typescriptPackage;
@@ -42,13 +41,14 @@ public final class JsAnalyzer {
   }
 
   private static CompletableFuture<String> readAsync(InputStream input) {
-    return CompletableFuture.supplyAsync(() -> {
-      try (input) {
-        return new String(input.readAllBytes(), StandardCharsets.UTF_8);
-      } catch (IOException e) {
-        throw new CompletionException(e);
-      }
-    });
+    return CompletableFuture.supplyAsync(
+        () -> {
+          try (input) {
+            return new String(input.readAllBytes(), StandardCharsets.UTF_8);
+          } catch (IOException e) {
+            throw new CompletionException(e);
+          }
+        });
   }
 
   private static String outputOf(CompletableFuture<String> output, Path file, String streamName) {
@@ -86,27 +86,56 @@ public final class JsAnalyzer {
           startLine = intValue(obj, Params.START_LINE);
           endLine = intValue(obj, Params.END_LINE);
         }
-        case "type" -> types.add(
-            new JsAnalysis.TypeDecl(value(obj, "kind"), value(obj, "fqn"), value(obj, "name"),
-                value(obj, "framework"), intValue(obj, "startLine"), intValue(obj, "endLine")));
-        case "member" -> members.add(
-            new JsAnalysis.MemberDecl(value(obj, "ownerFqn"), value(obj, "memberType"),
-                value(obj, "kind"), value(obj, "key"), value(obj, "name"), value(obj, "dataType"),
-                booleanValue(obj, "isStatic"), intValue(obj, "startLine"),
-                intValue(obj, "endLine")));
-        case "annotation" -> annotations.add(
-            new JsAnalysis.AnnotationDecl(value(obj, "ownerKind"), value(obj, "ownerKey"),
-                value(obj, "fqn"), value(obj, "name")));
-        case "call" -> calls.add(
-            new JsAnalysis.CallDecl(value(obj, "callerSignature"), value(obj, "calleeSignature")));
+        case "type" ->
+            types.add(
+                new JsAnalysis.TypeDecl(
+                    value(obj, "kind"),
+                    value(obj, "fqn"),
+                    value(obj, "name"),
+                    value(obj, "framework"),
+                    booleanValue(obj, "hasConstructor"),
+                    intValue(obj, "startLine"),
+                    intValue(obj, "endLine")));
+        case "member" ->
+            members.add(
+                new JsAnalysis.MemberDecl(
+                    value(obj, "ownerFqn"),
+                    value(obj, "memberType"),
+                    value(obj, "kind"),
+                    value(obj, "key"),
+                    value(obj, "name"),
+                    value(obj, "dataType"),
+                    booleanValue(obj, "isStatic"),
+                    intValue(obj, "startLine"),
+                    intValue(obj, "endLine")));
+        case "annotation" ->
+            annotations.add(
+                new JsAnalysis.AnnotationDecl(
+                    value(obj, "ownerKind"),
+                    value(obj, "ownerKey"),
+                    value(obj, "fqn"),
+                    value(obj, "name")));
+        case "call" ->
+            calls.add(
+                new JsAnalysis.CallDecl(
+                    value(obj, "callerSignature"), value(obj, "calleeSignature")));
         default -> log.debug("Ignoring unknown JavaScript analyzer record: {}", line);
       }
     }
     if (moduleFqn == null) {
       throw new ProcessingException("JavaScript analyzer produced no module record for " + file);
     }
-    return new JsAnalysis(moduleFqn, moduleName, packageName, modulePath, startLine, endLine,
-        List.copyOf(types), List.copyOf(members), List.copyOf(annotations), List.copyOf(calls));
+    return new JsAnalysis(
+        moduleFqn,
+        moduleName,
+        packageName,
+        modulePath,
+        startLine,
+        endLine,
+        List.copyOf(types),
+        List.copyOf(members),
+        List.copyOf(annotations),
+        List.copyOf(calls));
   }
 
   private static String value(Map<String, String> obj, String key) {
@@ -144,8 +173,14 @@ public final class JsAnalyzer {
   public JsAnalysis analyze(Path file) {
     Path node = nodeRuntime.nodeExecutable();
     Path nodeModules = typescriptPackage.nodeModulesDir();
-    ProcessBuilder processBuilder = new ProcessBuilder(node.toString(), helperScript.toString(),
-        "--file", file.toString(), "--root", sourceRoot.toString());
+    ProcessBuilder processBuilder =
+        new ProcessBuilder(
+            node.toString(),
+            helperScript.toString(),
+            "--file",
+            file.toString(),
+            "--root",
+            sourceRoot.toString());
     processBuilder.environment().put("NODE_PATH", nodeModules.toString());
     try {
       Process process = processBuilder.start();

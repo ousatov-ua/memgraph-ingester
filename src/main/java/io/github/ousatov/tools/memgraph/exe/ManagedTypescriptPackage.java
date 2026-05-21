@@ -67,7 +67,8 @@ public final class ManagedTypescriptPackage {
     return nodeModules;
   }
 
-  private void install(@SuppressWarnings({"java:S1172", "unused"}) Path nodeModules, Path typescriptDir) {
+  private void install(
+      @SuppressWarnings({"java:S1172", "unused"}) Path nodeModules, Path typescriptDir) {
     try {
       Files.createDirectories(typescriptDir);
       String metadata =

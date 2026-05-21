@@ -80,6 +80,7 @@ public final class JsLanguageAdapter implements LanguageAdapter {
           type.name(),
           modulePath,
           type.framework(),
+          type.hasConstructor(),
           type.startLine(),
           type.endLine());
     } else {

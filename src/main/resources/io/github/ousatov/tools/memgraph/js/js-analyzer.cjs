@@ -60,23 +60,28 @@ for (const item of callables) {
 }
 
 function collectDeclaration(node) {
-  if (ts.isClassDeclaration(node) && node.name) {
-    collectClass(node);
+  if (ts.isClassDeclaration(node)) {
+    const name = declarationName(node);
+    if (name) {
+      collectClass(node, name);
+    }
   } else if (ts.isInterfaceDeclaration(node)) {
     collectInterface(node, 'interface');
   } else if (ts.isTypeAliasDeclaration(node)) {
     collectInterface(node, 'type');
   } else if (ts.isEnumDeclaration(node)) {
     collectEnum(node);
-  } else if (ts.isFunctionDeclaration(node) && node.name) {
-    collectFunction(moduleFqn, node.name.text, node, 'function');
+  } else if (ts.isFunctionDeclaration(node)) {
+    const name = declarationName(node);
+    if (name) {
+      collectFunction(moduleFqn, name, node, 'function');
+    }
   } else if (ts.isVariableStatement(node)) {
     collectVariables(node, moduleFqn);
   }
 }
 
-function collectClass(node) {
-  const name = node.name.text;
+function collectClass(node, name) {
   const fqn = `${moduleFqn}.${name}`;
   const framework = frameworkFor(node);
   const range = lineRange(node);
@@ -86,6 +91,7 @@ function collectClass(node) {
     fqn,
     name,
     framework,
+    hasConstructor: node.members.some(member => ts.isConstructorDeclaration(member)),
     startLine: range.start,
     endLine: range.end
   });
@@ -344,10 +350,7 @@ function methodKind(node) {
 }
 
 function hasStatic(node) {
-  const modifiers = typeof ts.canHaveModifiers === 'function' && ts.canHaveModifiers(node)
-    ? ts.getModifiers(node) || []
-    : node.modifiers || [];
-  return Array.from(modifiers).some(modifier => modifier.kind === ts.SyntaxKind.StaticKeyword);
+  return hasModifier(node, ts.SyntaxKind.StaticKeyword);
 }
 
 function isFunctionInitializer(initializer) {
@@ -357,6 +360,23 @@ function isFunctionInitializer(initializer) {
 
 function isDeclarationWithOwnCallableScope(node) {
   return ts.isFunctionDeclaration(node) || ts.isClassDeclaration(node);
+}
+
+function declarationName(node) {
+  if (node.name) {
+    return node.name.text;
+  }
+  return hasModifier(node, ts.SyntaxKind.DefaultKeyword) &&
+    hasModifier(node, ts.SyntaxKind.ExportKeyword)
+    ? 'default'
+    : '';
+}
+
+function hasModifier(node, kind) {
+  const modifiers = typeof ts.canHaveModifiers === 'function' && ts.canHaveModifiers(node)
+    ? ts.getModifiers(node) || []
+    : node.modifiers || [];
+  return Array.from(modifiers).some(modifier => modifier.kind === kind);
 }
 
 function scriptKind(name) {

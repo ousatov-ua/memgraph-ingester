@@ -304,6 +304,10 @@ You should see your project with a fresh `lastIngested` timestamp.
 | `--incremental`           | no    | no       | false   | Skip files whose last-modified timestamp matches the stored value                                                                                      |
 | `--watch`                 | `-w`  | no       | false   | Watch for changes in the source directory and automatically re-ingest                                                                                  |
 | `--classpath`             | no    | no       |         | Additional classpath entries (JARs) for symbol resolution, separated by the platform path separator. Improves CALLS edge and type resolution coverage. |
+| `--language`              | no    | no       | java    | Source language to ingest: `java` or `js`.                                                                                                             |
+| `--js-runtime-mode`       | no    | no       | managed | JavaScript runtime mode: `managed`, `system`, or `offline`.                                                                                            |
+| `--js-runtime-cache`      | no    | no       |         | Cache directory for managed Node.js and TypeScript downloads.                                                                                          |
+| `--check-js-runtime`      | no    | no       | false   | Run a local JS parser runtime smoke check without connecting to Memgraph.                                                                               |
 
 `--wipe-project-code` only affects code nodes matching the given `--project`; other codebases in the
 same Memgraph instance are untouched, and the `:Project` anchor remains.

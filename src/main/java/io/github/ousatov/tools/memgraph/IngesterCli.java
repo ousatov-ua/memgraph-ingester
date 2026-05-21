@@ -1,7 +1,9 @@
 package io.github.ousatov.tools.memgraph;
 
+import io.github.ousatov.tools.memgraph.exception.ProcessingException;
 import io.github.ousatov.tools.memgraph.exe.IngestionOrchestrator;
 import io.github.ousatov.tools.memgraph.exe.JavaLanguageAdapter;
+import io.github.ousatov.tools.memgraph.exe.JsAnalysis;
 import io.github.ousatov.tools.memgraph.exe.JsAnalyzer;
 import io.github.ousatov.tools.memgraph.exe.JsLanguageAdapter;
 import io.github.ousatov.tools.memgraph.exe.LanguageAdapter;
@@ -12,9 +14,11 @@ import io.github.ousatov.tools.memgraph.exe.RuntimeMode;
 import io.github.ousatov.tools.memgraph.exe.SourceLanguage;
 import io.github.ousatov.tools.memgraph.vo.Settings;
 import java.io.File;
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.Callable;
 import org.neo4j.driver.AuthTokens;
@@ -41,14 +45,12 @@ public final class IngesterCli implements Callable<Integer> {
 
   @Option(
       names = {"-s", "--source"},
-      required = true,
       description = "Root source directory (e.g. src/main/java)")
   @SuppressWarnings("unused")
   private Path sourceRoot;
 
   @Option(
       names = {"-b", "--bolt"},
-      required = true,
       description = "Bolt URL, e.g. bolt://host:7687")
   @SuppressWarnings("unused")
   private String boltUrl;
@@ -67,7 +69,6 @@ public final class IngesterCli implements Callable<Integer> {
 
   @Option(
       names = {"-P", "--project"},
-      required = true,
       description =
           "Logical project name; namespaces all nodes so multiple "
               + "projects can share one Memgraph instance")
@@ -165,6 +166,14 @@ public final class IngesterCli implements Callable<Integer> {
   @SuppressWarnings("unused")
   private String jsTypescriptVersion;
 
+  @Option(
+      names = {"--check-js-runtime"},
+      description =
+          "Download/cache the managed JavaScript parser runtime if needed and run a local "
+              + "parser smoke check without connecting to Memgraph.")
+  @SuppressWarnings("unused")
+  private boolean checkJsRuntime;
+
   /** Entry point. */
   public static void main(String[] args) {
     int exit = new CommandLine(new IngesterCli()).execute(args);
@@ -173,20 +182,40 @@ public final class IngesterCli implements Callable<Integer> {
 
   @Override
   public Integer call() {
+    RuntimeMode selectedRuntimeMode;
+    try {
+      selectedRuntimeMode = RuntimeMode.parse(jsRuntimeMode);
+    } catch (IllegalArgumentException e) {
+      log.error(e.getMessage());
+      return 1;
+    }
+    if (checkJsRuntime) {
+      return runJsRuntimeCheck(selectedRuntimeMode);
+    }
     if (threads < 1) {
       log.error("--threads must be >= 1 (got {})", threads);
+      return 1;
+    }
+    if (sourceRoot == null) {
+      log.error("--source is required");
       return 1;
     }
     if (!Files.isDirectory(sourceRoot)) {
       log.error("--source must be an existing directory: {}", sourceRoot);
       return 1;
     }
+    if (boltUrl == null || boltUrl.isBlank()) {
+      log.error("--bolt is required");
+      return 1;
+    }
+    if (project == null || project.isBlank()) {
+      log.error("--project is required");
+      return 1;
+    }
     log.info("Using next classpath entries: {}", classpath);
     SourceLanguage selectedLanguage;
-    RuntimeMode selectedRuntimeMode;
     try {
       selectedLanguage = SourceLanguage.parse(language);
-      selectedRuntimeMode = RuntimeMode.parse(jsRuntimeMode);
     } catch (IllegalArgumentException e) {
       log.error(e.getMessage());
       return 1;
@@ -208,6 +237,100 @@ public final class IngesterCli implements Callable<Integer> {
     }
     log.info("Ingestion complete for project '{}'.", project);
     return 0;
+  }
+
+  private Integer runJsRuntimeCheck(RuntimeMode selectedRuntimeMode) {
+    Path cacheRoot =
+        jsRuntimeCache == null ? ManagedNodeRuntime.defaultCacheRoot() : jsRuntimeCache;
+    Path tempDir = null;
+    try {
+      tempDir = Files.createTempDirectory("memgraph-ingester-js-runtime-check-");
+      Path defaultClass = tempDir.resolve("default-class.js");
+      Path defaultFunction = tempDir.resolve("default-function.js");
+      Files.writeString(
+          defaultClass,
+          """
+          export default class {
+            constructor(value) {
+              this.value = value;
+            }
+          }
+          """);
+      Files.writeString(
+          defaultFunction,
+          """
+          export default function(value) {
+            return value;
+          }
+          """);
+
+      JsAnalyzer analyzer =
+          new JsAnalyzer(
+              tempDir,
+              new ManagedNodeRuntime(cacheRoot, jsNodeVersion, selectedRuntimeMode),
+              new ManagedTypescriptPackage(cacheRoot, jsTypescriptVersion, selectedRuntimeMode));
+      assertDefaultClass(analyzer.analyze(defaultClass));
+      assertDefaultFunction(analyzer.analyze(defaultFunction));
+      log.info("JavaScript parser runtime check succeeded using cache {}", cacheRoot);
+      return 0;
+    } catch (IOException | RuntimeException e) {
+      log.error("JavaScript parser runtime check failed: {}", e.getMessage());
+      return 1;
+    } finally {
+      if (tempDir != null) {
+        deleteDir(tempDir);
+      }
+    }
+  }
+
+  private static void assertDefaultClass(JsAnalysis analysis) {
+    boolean defaultClassFound =
+        analysis.types().stream()
+            .anyMatch(
+                type ->
+                    "class".equals(type.kind())
+                        && "default".equals(type.name())
+                        && type.hasConstructor());
+    boolean constructorFound =
+        analysis.members().stream()
+            .anyMatch(
+                member ->
+                    "method".equals(member.memberType())
+                        && "constructor".equals(member.kind())
+                        && "<init>".equals(member.name()));
+    if (!defaultClassFound || !constructorFound) {
+      throw new ProcessingException("Default anonymous class was not parsed correctly");
+    }
+  }
+
+  private static void assertDefaultFunction(JsAnalysis analysis) {
+    boolean defaultFunctionFound =
+        analysis.members().stream()
+            .anyMatch(
+                member ->
+                    "method".equals(member.memberType())
+                        && "function".equals(member.kind())
+                        && "default".equals(member.name()));
+    if (!defaultFunctionFound) {
+      throw new ProcessingException("Default anonymous function was not parsed correctly");
+    }
+  }
+
+  private static void deleteDir(Path root) {
+    try (var paths = Files.walk(root)) {
+      paths
+          .sorted(Comparator.reverseOrder())
+          .forEach(
+              path -> {
+                try {
+                  Files.deleteIfExists(path);
+                } catch (IOException e) {
+                  log.warn("Could not delete temporary path {}: {}", path, e.getMessage());
+                }
+              });
+    } catch (IOException e) {
+      log.warn("Could not clean temporary directory {}: {}", root, e.getMessage());
+    }
   }
 
   private LanguageAdapter createLanguageAdapter(

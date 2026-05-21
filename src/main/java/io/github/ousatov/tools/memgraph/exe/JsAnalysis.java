@@ -17,7 +17,13 @@ public record JsAnalysis(
     List<CallDecl> calls) {
 
   public record TypeDecl(
-      String kind, String fqn, String name, String framework, int startLine, int endLine) {}
+      String kind,
+      String fqn,
+      String name,
+      String framework,
+      boolean hasConstructor,
+      int startLine,
+      int endLine) {}
 
   @SuppressWarnings("java:S107")
   public record MemberDecl(

@@ -38,7 +38,6 @@ public final class ManagedNodeRuntime {
   private static final Duration HTTP_TIMEOUT = Duration.ofMinutes(5);
   private static final String LINUX = "linux";
 
-
   private final Path cacheRoot;
   private final String nodeVersion;
   private final RuntimeMode runtimeMode;
@@ -87,7 +86,8 @@ public final class ManagedNodeRuntime {
       String archiveName = platform.archiveName(nodeVersion);
       URI archiveUri = URI.create(NODE_DIST + "v" + nodeVersion + "/" + archiveName);
       URI sumsUri = URI.create(NODE_DIST + "v" + nodeVersion + "/SHASUMS256.txt");
-      log.atInfo().setMessage("Checking managed Node.js {} ({}) availability")
+      log.atInfo()
+          .setMessage("Checking managed Node.js {} ({}) availability")
           .addArgument(nodeVersion)
           .addArgument(platform::id)
           .log();
@@ -244,14 +244,10 @@ public final class ManagedNodeRuntime {
 
   private record Platform(String os, String arch) {
 
-
     static Platform current() {
       String osName = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
       String archName = System.getProperty("os.arch", "").toLowerCase(Locale.ROOT);
-      String os =
-          osName.contains("win")
-              ? "win"
-              : getNix(osName);
+      String os = osName.contains("win") ? "win" : getNix(osName);
       String arch =
           switch (archName) {
             case "aarch64", "arm64" -> "arm64";

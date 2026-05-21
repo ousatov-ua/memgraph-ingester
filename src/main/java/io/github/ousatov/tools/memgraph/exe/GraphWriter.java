@@ -252,6 +252,7 @@ public final class GraphWriter {
       String name,
       String modulePath,
       String framework,
+      boolean hasDeclaredConstructor,
       int startLine,
       int endLine) {
     upsertClassNode(
@@ -268,19 +269,21 @@ public final class GraphWriter {
         "class",
         modulePath,
         framework);
-    upsertMethodNode(
-        new Method(
-            fqn,
-            fqn + "." + Labels.INIT + "()",
-            Labels.INIT,
-            Labels.VOID,
-            false,
-            "",
-            startLine,
-            endLine,
-            true,
-            JAVASCRIPT_LANGUAGE,
-            "constructor"));
+    if (!hasDeclaredConstructor) {
+      upsertMethodNode(
+          new Method(
+              fqn,
+              fqn + "." + Labels.INIT + "()",
+              Labels.INIT,
+              Labels.VOID,
+              false,
+              "",
+              startLine,
+              endLine,
+              true,
+              JAVASCRIPT_LANGUAGE,
+              "constructor"));
+    }
   }
 
   /** Upserts a TypeScript interface or type alias using the compatible {@code :Interface} label. */
