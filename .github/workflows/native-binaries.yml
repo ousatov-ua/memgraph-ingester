@@ -1,0 +1,106 @@
+name: Native Binaries
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  build:
+    name: Build ${{ matrix.binary }}
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - binary: memgraph-ingester-linux-amd64
+            id: linux-amd64
+            profile: native-linux
+            runner: ubuntu-latest
+            artifact_path: target/memgraph-ingester-linux-amd64
+          - binary: memgraph-ingester-macos-arm64
+            id: macos-arm64
+            profile: native-macos
+            runner: macos-15
+            artifact_path: target/memgraph-ingester-macos-arm64
+          - binary: memgraph-ingester-windows-amd64
+            id: windows-amd64
+            profile: native-windows
+            runner: windows-latest
+            artifact_path: target/memgraph-ingester-windows-amd64.exe
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Cache Maven packages
+        if: matrix.id == 'linux-amd64'
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
+          restore-keys: ${{ runner.os }}-maven-
+
+      - name: Build Linux binary
+        if: matrix.id == 'linux-amd64'
+        shell: bash
+        run: |
+          docker build \
+            --platform linux/amd64 \
+            -f build/linux/amd64/Dockerfile.linux-native-builder \
+            -t graalvm25-maven-native-amd64 .
+
+          docker run --rm \
+            --platform linux/amd64 \
+            --entrypoint /bin/bash \
+            -v "$PWD":/workspace \
+            -v "$HOME/.m2":/root/.m2 \
+            -w /workspace \
+            graalvm25-maven-native-amd64 \
+            -lc 'mvn --batch-mode --no-transfer-progress -Pnative-linux -DskipTests package'
+
+          test -x '${{ matrix.artifact_path }}'
+
+      - name: Set up GraalVM
+        if: matrix.id != 'linux-amd64'
+        uses: graalvm/setup-graalvm@v1
+        with:
+          java-version: '25'
+          distribution: 'graalvm-community'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          cache: 'maven'
+          native-image-job-reports: 'true'
+
+      - name: Build macOS binary
+        if: matrix.id == 'macos-arm64'
+        shell: bash
+        run: |
+          mvn --batch-mode --no-transfer-progress -Pnative-macos -DskipTests package
+          test -x '${{ matrix.artifact_path }}'
+
+      - name: Build Windows binary
+        if: matrix.id == 'windows-amd64'
+        shell: cmd
+        run: |
+          for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set "VSINSTALL=%%i"
+          if not defined VSINSTALL (
+            echo Visual Studio installation with VC tools not found.
+            exit /b 1
+          )
+          call "%VSINSTALL%\Common7\Tools\VsDevCmd.bat" -arch=amd64
+          mvn --batch-mode --no-transfer-progress -Pnative-windows -DskipTests package
+          if not exist target\memgraph-ingester-windows-amd64.exe (
+            echo target\memgraph-ingester-windows-amd64.exe was not produced.
+            exit /b 1
+          )
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.binary }}
+          path: ${{ matrix.artifact_path }}
+          if-no-files-found: error
+          retention-days: 14
