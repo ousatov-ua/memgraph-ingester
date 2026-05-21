@@ -8,16 +8,20 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.util.HexFormat;
 import java.util.Locale;
 import java.util.Objects;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.zip.GZIPInputStream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
@@ -28,7 +32,11 @@ import org.jspecify.annotations.NonNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/** Downloads, verifies, caches, and exposes the Node.js executable owned by this ingester. */
+/**
+ * Downloads, verifies, caches, and exposes the Node.js executable owned by this ingester.
+ *
+ * @author Oleksii Usatov
+ */
 public final class ManagedNodeRuntime {
 
   public static final String DEFAULT_NODE_VERSION = "22.11.0";
@@ -37,6 +45,9 @@ public final class ManagedNodeRuntime {
   private static final String NODE_DIST = "https://nodejs.org/dist/";
   private static final Duration HTTP_TIMEOUT = Duration.ofMinutes(5);
   private static final String LINUX = "linux";
+  private static final String INSTALL_LOCK_FILE = ".install.lock";
+  private static final String INSTALL_READY_FILE = ".install-complete";
+  private static final ConcurrentMap<Path, Object> INSTALL_LOCKS = new ConcurrentHashMap<>();
 
   private final Path cacheRoot;
   private final String nodeVersion;
@@ -54,19 +65,13 @@ public final class ManagedNodeRuntime {
     if (runtimeMode == RuntimeMode.SYSTEM) {
       return systemNode();
     }
-    Path executable = cachedNodeExecutable();
-    if (Files.isExecutable(executable)) {
+    Platform platform = Platform.current();
+    Path installDir = installDir(platform);
+    Path executable = cachedNodeExecutable(platform, installDir);
+    if (isManagedNodeReady(executable, installDir)) {
       return executable;
     }
-    if (runtimeMode == RuntimeMode.OFFLINE) {
-      throw new ProcessingException(
-          "Managed Node.js "
-              + nodeVersion
-              + " is not cached at "
-              + executable
-              + "; disable --js-runtime-mode=offline or pre-warm the cache.");
-    }
-    installManagedNode(executable);
+    ensureManagedNodeInstalled(platform, installDir, executable);
     return executable;
   }
 
@@ -75,45 +80,87 @@ public final class ManagedNodeRuntime {
     return Path.of(executable);
   }
 
-  private void installManagedNode(Path executable) {
-    Platform platform = Platform.current();
-    Path installDir = installDir(platform);
+  private void ensureManagedNodeInstalled(Platform platform, Path installDir, Path executable) {
     try {
       Files.createDirectories(installDir);
-      if (Files.isExecutable(executable)) {
-        return;
-      }
-      String archiveName = platform.archiveName(nodeVersion);
-      URI archiveUri = URI.create(NODE_DIST + "v" + nodeVersion + "/" + archiveName);
-      URI sumsUri = URI.create(NODE_DIST + "v" + nodeVersion + "/SHASUMS256.txt");
-      log.atInfo()
-          .setMessage("Checking managed Node.js {} ({}) availability")
-          .addArgument(nodeVersion)
-          .addArgument(platform::id)
-          .log();
-      byte[] archive = download(archiveUri);
-      verifySha256(archive, archiveName, downloadText(sumsUri));
-      extractNodeArchive(archiveName, archive, installDir);
-      if (!Files.isExecutable(executable)) {
-        @SuppressWarnings("java:S899")
-        var _ = executable.toFile().setExecutable(true, true);
-      }
-      if (!Files.isExecutable(executable)) {
-        throw new ProcessingException("Managed Node.js executable was not created: " + executable);
+      Object localLock = INSTALL_LOCKS.computeIfAbsent(lockKey(installDir), _ -> new Object());
+      synchronized (localLock) {
+        try (FileChannel channel =
+                FileChannel.open(
+                    installDir.resolve(INSTALL_LOCK_FILE),
+                    StandardOpenOption.CREATE,
+                    StandardOpenOption.WRITE);
+            var _ = channel.lock()) {
+          if (isManagedNodeReady(executable, installDir)) {
+            return;
+          }
+          if (runtimeMode == RuntimeMode.OFFLINE && Files.isExecutable(executable)) {
+            markManagedNodeReady(installDir);
+            return;
+          }
+          if (runtimeMode == RuntimeMode.OFFLINE) {
+            throw new ProcessingException(
+                "Managed Node.js "
+                    + nodeVersion
+                    + " is not cached at "
+                    + executable
+                    + "; disable --js-runtime-mode=offline or pre-warm the cache.");
+          }
+          installManagedNode(platform, installDir, executable);
+        }
       }
     } catch (IOException e) {
       throw new ProcessingException("Could not install managed Node.js " + nodeVersion, e);
     }
   }
 
-  private Path cachedNodeExecutable() {
-    Platform platform = Platform.current();
+  private void installManagedNode(Platform platform, Path installDir, Path executable)
+      throws IOException {
+    String archiveName = platform.archiveName(nodeVersion);
+    URI archiveUri = URI.create(NODE_DIST + "v" + nodeVersion + "/" + archiveName);
+    URI sumsUri = URI.create(NODE_DIST + "v" + nodeVersion + "/SHASUMS256.txt");
+    log.atInfo()
+        .setMessage("Checking managed Node.js {} ({}) availability")
+        .addArgument(nodeVersion)
+        .addArgument(platform::id)
+        .log();
+    byte[] archive = download(archiveUri);
+    verifySha256(archive, archiveName, downloadText(sumsUri));
+    extractNodeArchive(archiveName, archive, installDir);
+    if (!Files.isExecutable(executable)) {
+      @SuppressWarnings("java:S899")
+      var _ = executable.toFile().setExecutable(true, true);
+    }
+    if (!Files.isExecutable(executable)) {
+      throw new ProcessingException("Managed Node.js executable was not created: " + executable);
+    }
+    markManagedNodeReady(installDir);
+  }
+
+  private Path cachedNodeExecutable(Platform platform, Path installDir) {
     String executable = platform.isWindows() ? "node.exe" : "bin/node";
-    return installDir(platform).resolve(executable);
+    return installDir.resolve(executable);
   }
 
   private Path installDir(Platform platform) {
     return cacheRoot.resolve("node").resolve(nodeVersion).resolve(platform.id());
+  }
+
+  private boolean isManagedNodeReady(Path executable, Path installDir) {
+    return Files.isExecutable(executable)
+        && Files.isRegularFile(installDir.resolve(INSTALL_READY_FILE));
+  }
+
+  private void markManagedNodeReady(Path installDir) throws IOException {
+    Files.writeString(
+        installDir.resolve(INSTALL_READY_FILE),
+        "node " + nodeVersion + System.lineSeparator(),
+        StandardOpenOption.CREATE,
+        StandardOpenOption.TRUNCATE_EXISTING);
+  }
+
+  private static Path lockKey(Path installDir) {
+    return installDir.toAbsolutePath().normalize();
   }
 
   private byte[] download(URI uri) throws IOException {

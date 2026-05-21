@@ -78,6 +78,8 @@ function collectDeclaration(node) {
     }
   } else if (ts.isVariableStatement(node)) {
     collectVariables(node, moduleFqn);
+  } else if (ts.isExportAssignment(node)) {
+    collectExportAssignment(node);
   }
 }
 
@@ -178,6 +180,18 @@ function collectVariables(node, ownerFqn) {
         endLine: lineRange(decl).end
       });
     }
+  }
+}
+
+function collectExportAssignment(node) {
+  if (node.isExportEquals) {
+    return;
+  }
+  const expression = unwrapExpression(node.expression);
+  if (isFunctionInitializer(expression)) {
+    collectFunction(moduleFqn, 'default', expression, 'function');
+  } else if (ts.isClassExpression(expression)) {
+    collectClass(expression, 'default');
   }
 }
 
@@ -358,6 +372,14 @@ function isFunctionInitializer(initializer) {
     (ts.isArrowFunction(initializer) || ts.isFunctionExpression(initializer));
 }
 
+function unwrapExpression(expression) {
+  let current = expression;
+  while (ts.isParenthesizedExpression(current)) {
+    current = current.expression;
+  }
+  return current;
+}
+
 function isDeclarationWithOwnCallableScope(node) {
   return ts.isFunctionDeclaration(node) || ts.isClassDeclaration(node);
 }
@@ -387,7 +409,7 @@ function scriptKind(name) {
   if (lower.endsWith('.jsx')) {
     return ts.ScriptKind.JSX;
   }
-  if (lower.endsWith('.ts')) {
+  if (lower.endsWith('.ts') || lower.endsWith('.mts') || lower.endsWith('.cts')) {
     return ts.ScriptKind.TS;
   }
   return ts.ScriptKind.JS;

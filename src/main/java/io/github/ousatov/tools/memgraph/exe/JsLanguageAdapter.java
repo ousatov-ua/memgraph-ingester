@@ -7,12 +7,17 @@ import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/** Node/TypeScript-backed adapter for JavaScript and TypeScript source structure. */
+/**
+ * Node/TypeScript-backed adapter for JavaScript and TypeScript source structure.
+ *
+ * @author Oleksii Usatov
+ */
 public final class JsLanguageAdapter implements LanguageAdapter {
 
   private static final Logger log = LoggerFactory.getLogger(JsLanguageAdapter.class);
   private static final Set<String> EXTENSIONS =
-      Set.of(".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs");
+      Set.of(".js", ".jsx", ".ts", ".tsx", ".mts", ".cts", ".mjs", ".cjs");
+  private static final Set<String> DECLARATION_EXTENSIONS = Set.of(".d.ts", ".d.mts", ".d.cts");
 
   private final JsAnalyzer analyzer;
 
@@ -28,10 +33,11 @@ public final class JsLanguageAdapter implements LanguageAdapter {
   @Override
   public boolean accepts(Path file) {
     String path = file.toString().replace('\\', '/');
-    if (path.contains("/node_modules/") || path.endsWith(".d.ts")) {
+    String lower = path.toLowerCase(Locale.ROOT);
+    if (lower.contains("/node_modules/")
+        || DECLARATION_EXTENSIONS.stream().anyMatch(lower::endsWith)) {
       return false;
     }
-    String lower = path.toLowerCase(Locale.ROOT);
     return EXTENSIONS.stream().anyMatch(lower::endsWith);
   }
 
