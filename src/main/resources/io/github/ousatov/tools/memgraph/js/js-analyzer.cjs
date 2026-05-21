@@ -35,12 +35,16 @@ const packageName = ['js', ...dirParts].join('.');
 const moduleFqn = `${packageName}.${moduleFqnName}`;
 const moduleSignature = `${moduleFqn}.<init>()`;
 const ANGULAR_DECORATORS = new Set(['Component', 'Directive', 'Injectable', 'NgModule', 'Pipe']);
+const SOURCE_EXTENSIONS = ['.js', '.jsx', '.ts', '.tsx', '.mts', '.cts', '.mjs', '.cjs'];
+const DECLARATION_EXTENSIONS = ['.d.ts', '.d.mts', '.d.cts'];
 const declarationsByName = new Map();
 const declarationsByOwnerAndName = new Map();
 const staticDeclarationsByOwnerAndName = new Map();
 const classesByName = new Map();
 const callables = [];
 const imports = collectImports(sourceFile);
+const importedNames = collectImportedNames(sourceFile);
+const importedNamespaces = collectImportedNamespaces(sourceFile);
 
 write({
   record: 'module',
@@ -55,12 +59,12 @@ write({
 sourceFile.statements.forEach(collectDeclaration);
 sourceFile.statements.forEach(statement => {
   if (!isDeclarationWithOwnCallableScope(statement)) {
-    collectCalls(statement, moduleSignature, moduleFqn);
+    collectCalls(statement, moduleSignature, moduleFqn, false);
   }
 });
 for (const item of callables) {
   if (item.body) {
-    collectCalls(item.body, item.signature, item.ownerFqn);
+    collectCalls(item.body, item.signature, item.ownerFqn, true);
   }
 }
 
@@ -78,7 +82,7 @@ function collectDeclaration(node) {
     collectEnum(node);
   } else if (ts.isFunctionDeclaration(node)) {
     const name = declarationName(node);
-    if (name) {
+    if (name && node.body) {
       collectFunction(moduleFqn, name, node, 'function');
     }
   } else if (ts.isVariableStatement(node)) {
@@ -113,12 +117,19 @@ function collectClass(node, name) {
       ts.isSetAccessor(member)
     ) {
       const memberName = memberNameText(member.name);
-      if (memberName) {
+      if (memberName && member.body) {
         collectFunction(fqn, memberName, member, methodKind(member));
       }
     } else if (ts.isPropertyDeclaration(member)) {
       const nameText = memberNameText(member.name);
       if (nameText) {
+        if (isFunctionInitializer(member.initializer)) {
+          collectFunction(fqn, nameText, member.initializer, 'property-function', {
+            decoratorNode: member,
+            isStatic: hasStatic(member),
+            rangeNode: member
+          });
+        }
         const fieldFqn = `${fqn}#${nameText}`;
         write({
           record: 'member',
@@ -172,6 +183,8 @@ function collectVariables(node, ownerFqn) {
     const name = decl.name.text;
     if (isFunctionInitializer(decl.initializer)) {
       collectFunction(ownerFqn, name, decl.initializer, 'function');
+    } else if (ts.isClassExpression(decl.initializer)) {
+      collectClass(decl.initializer, name);
     } else {
       write({
         record: 'member',
@@ -201,10 +214,13 @@ function collectExportAssignment(node) {
   }
 }
 
-function collectFunction(ownerFqn, name, node, kind) {
+function collectFunction(ownerFqn, name, node, kind, options = {}) {
+  if (!node.body) {
+    return;
+  }
   const signature = buildSignature(ownerFqn, name, node.parameters || []);
-  const range = lineRange(node);
-  const isStatic = hasStatic(node);
+  const range = lineRange(options.rangeNode || node);
+  const isStatic = options.isStatic ?? hasStatic(node);
   write({
     record: 'member',
     ownerFqn,
@@ -219,29 +235,44 @@ function collectFunction(ownerFqn, name, node, kind) {
   });
   addDeclaration(name, signature);
   addScopedDeclaration(ownerFqn, name, signature, isStatic);
-  writeDecorators(node, 'sig', signature);
+  writeDecorators(options.decoratorNode || node, 'sig', signature);
   callables.push({ signature, ownerFqn, body: node.body });
 }
 
-function collectCalls(node, callerSignature, callerOwnerFqn) {
+function collectCalls(node, callerSignature, callerOwnerFqn, includeNestedFunctionCalls) {
   if (!node) {
     return;
   }
-  if (ts.isFunctionLike(node)) {
+  if (ts.isFunctionLike(node) && !includeNestedFunctionCalls) {
     return;
   }
   if (ts.isCallExpression(node)) {
-    const calleeSignature = calleeFor(node.expression, callerOwnerFqn);
-    if (calleeSignature && calleeSignature !== callerSignature) {
-      write({ record: 'call', callerSignature, calleeSignature });
-    }
+    writeCall(callerSignature, calleeFor(node.expression, callerOwnerFqn));
   } else if (ts.isNewExpression(node)) {
-    const calleeSignature = constructorCalleeFor(node.expression);
-    if (calleeSignature && calleeSignature !== callerSignature) {
-      write({ record: 'call', callerSignature, calleeSignature });
-    }
+    writeCall(callerSignature, constructorCalleeFor(node.expression));
   }
-  ts.forEachChild(node, child => collectCalls(child, callerSignature, callerOwnerFqn));
+  ts.forEachChild(
+    node,
+    child => collectCalls(child, callerSignature, callerOwnerFqn, includeNestedFunctionCalls)
+  );
+}
+
+function writeCall(callerSignature, callee) {
+  if (!callee) {
+    return;
+  }
+  if (typeof callee === 'string') {
+    if (callee !== callerSignature) {
+      write({ record: 'call', callerSignature, calleeSignature: callee });
+    }
+    return;
+  }
+  write({
+    record: 'callByName',
+    callerSignature,
+    calleeOwnerFqn: callee.ownerFqn,
+    calleeName: callee.name
+  });
 }
 
 function constructorCalleeFor(expr) {
@@ -251,7 +282,10 @@ function constructorCalleeFor(expr) {
   }
   const ownerFqn = classesByName.get(target.text);
   if (!ownerFqn) {
-    return null;
+    const imported = importedNames.get(target.text);
+    return imported
+      ? { ownerFqn: `${imported.moduleFqn}.${imported.importedName}`, name: '<init>' }
+      : null;
   }
   const constructors = declarationsByOwnerAndName.get(`${ownerFqn}\u0000<init>`);
   if (!constructors) {
@@ -262,12 +296,15 @@ function constructorCalleeFor(expr) {
 
 function calleeFor(expr, callerOwnerFqn) {
   if (ts.isIdentifier(expr)) {
-    return uniqueDeclaration(expr.text);
+    return uniqueDeclaration(expr.text) || importedCallable(expr.text);
   }
   if (ts.isPropertyAccessExpression(expr)) {
     const receiver = receiverOwner(expr.expression, callerOwnerFqn);
     if (!receiver) {
       return null;
+    }
+    if (receiver.byName) {
+      return { ownerFqn: receiver.ownerFqn, name: expr.name.text };
     }
     return receiver.staticOnly
       ? uniqueScopedDeclaration(staticDeclarationsByOwnerAndName, receiver.ownerFqn, expr.name.text)
@@ -282,6 +319,14 @@ function receiverOwner(expr, callerOwnerFqn) {
     return callerOwnerFqn === moduleFqn ? null : { ownerFqn: callerOwnerFqn, staticOnly: false };
   }
   if (ts.isIdentifier(receiver)) {
+    const namespaceOwner = importedNamespaces.get(receiver.text);
+    if (namespaceOwner) {
+      return { ownerFqn: namespaceOwner, byName: true };
+    }
+    const imported = importedNames.get(receiver.text);
+    if (imported) {
+      return { ownerFqn: `${imported.moduleFqn}.${imported.importedName}`, byName: true };
+    }
     const ownerFqn = classesByName.get(receiver.text);
     return ownerFqn ? { ownerFqn, staticOnly: true } : null;
   }
@@ -289,10 +334,19 @@ function receiverOwner(expr, callerOwnerFqn) {
     const target = unwrapExpression(receiver.expression);
     if (ts.isIdentifier(target)) {
       const ownerFqn = classesByName.get(target.text);
-      return ownerFqn ? { ownerFqn, staticOnly: false } : null;
+      if (ownerFqn) {
+        return { ownerFqn, staticOnly: false };
+      }
+      const imported = importedNames.get(target.text);
+      return imported ? { ownerFqn: `${imported.moduleFqn}.${imported.importedName}`, byName: true } : null;
     }
   }
   return null;
+}
+
+function importedCallable(name) {
+  const imported = importedNames.get(name);
+  return imported ? { ownerFqn: imported.moduleFqn, name: imported.importedName } : null;
 }
 
 function addDeclaration(name, signature) {
@@ -392,6 +446,46 @@ function collectImports(sf) {
         const imported = element.propertyName ? element.propertyName.text : element.name.text;
         result.set(element.name.text, `${moduleNameText}.${imported}`);
       }
+    }
+  }
+  return result;
+}
+
+function collectImportedNames(sf) {
+  const result = new Map();
+  for (const statement of sf.statements) {
+    if (!isNamedModuleImport(statement)) {
+      continue;
+    }
+    const moduleFqn = localImportedModuleFqn(statement.moduleSpecifier.text);
+    if (!moduleFqn) {
+      continue;
+    }
+    const clause = statement.importClause;
+    if (clause.name) {
+      result.set(clause.name.text, { moduleFqn, importedName: 'default' });
+    }
+    const bindings = clause.namedBindings;
+    if (bindings && ts.isNamedImports(bindings)) {
+      for (const element of bindings.elements) {
+        const importedName = element.propertyName ? element.propertyName.text : element.name.text;
+        result.set(element.name.text, { moduleFqn, importedName });
+      }
+    }
+  }
+  return result;
+}
+
+function collectImportedNamespaces(sf) {
+  const result = new Map();
+  for (const statement of sf.statements) {
+    if (!isNamedModuleImport(statement)) {
+      continue;
+    }
+    const moduleFqn = localImportedModuleFqn(statement.moduleSpecifier.text);
+    const bindings = statement.importClause.namedBindings;
+    if (moduleFqn && bindings && ts.isNamespaceImport(bindings)) {
+      result.set(bindings.name.text, moduleFqn);
     }
   }
   return result;
@@ -507,6 +601,50 @@ function pathIdentityPart(part) {
 
 function encodeIdentityChar(char) {
   return /^[A-Za-z0-9]$/.test(char) ? char : `$${char.codePointAt(0).toString(16)}$`;
+}
+
+function localImportedModuleFqn(moduleSpecifier) {
+  if (!moduleSpecifier.startsWith('.')) {
+    return '';
+  }
+  const resolved = resolveLocalModulePath(moduleSpecifier);
+  return resolved ? moduleFqnForModulePath(resolved) : '';
+}
+
+function resolveLocalModulePath(moduleSpecifier) {
+  const importBase = path.resolve(root, moduleDir, moduleSpecifier);
+  const candidates = [];
+  if (path.extname(importBase)) {
+    candidates.push(importBase);
+  } else {
+    for (const extension of SOURCE_EXTENSIONS) {
+      candidates.push(importBase + extension);
+    }
+    for (const extension of SOURCE_EXTENSIONS) {
+      candidates.push(path.join(importBase, 'index' + extension));
+    }
+  }
+  for (const candidate of candidates) {
+    const relative = path.relative(root, candidate).replace(/\\/g, '/');
+    if (relative.startsWith('..') || path.isAbsolute(relative)) {
+      continue;
+    }
+    if (DECLARATION_EXTENSIONS.some(extension => relative.endsWith(extension))) {
+      continue;
+    }
+    if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
+      return relative;
+    }
+  }
+  return '';
+}
+
+function moduleFqnForModulePath(targetModulePath) {
+  const targetDir = path.dirname(targetModulePath);
+  const targetDirParts = targetDir === '.'
+    ? []
+    : targetDir.split('/').map(pathIdentityPart).filter(Boolean);
+  return `${['js', ...targetDirParts].join('.')}.${pathIdentityPart(path.basename(targetModulePath))}`;
 }
 
 function argValue(name) {

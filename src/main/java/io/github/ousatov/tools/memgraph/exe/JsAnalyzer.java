@@ -13,13 +13,16 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/** Invokes the bundled Node.js helper and converts its NDJSON output into neutral records. */
+/**
+ * Invokes the bundled Node.js helper and converts its NDJSON output into neutral records.
+ *
+ * @author Oleksii Usatov
+ */
 public final class JsAnalyzer {
 
   private static final Logger log = LoggerFactory.getLogger(JsAnalyzer.class);
@@ -40,15 +43,21 @@ public final class JsAnalyzer {
     this.helperScript = extractHelperScript();
   }
 
-  private static CompletableFuture<String> readAsync(InputStream input) {
-    return CompletableFuture.supplyAsync(
-        () -> {
-          try (input) {
-            return new String(input.readAllBytes(), StandardCharsets.UTF_8);
-          } catch (IOException e) {
-            throw new CompletionException(e);
-          }
-        });
+  private static CompletableFuture<String> readAsync(InputStream input, String streamName) {
+    CompletableFuture<String> output = new CompletableFuture<>();
+    Thread reader =
+        new Thread(
+            () -> {
+              try (input) {
+                output.complete(new String(input.readAllBytes(), StandardCharsets.UTF_8));
+              } catch (IOException e) {
+                output.completeExceptionally(e);
+              }
+            },
+            "memgraph-js-analyzer-" + streamName);
+    reader.setDaemon(true);
+    reader.start();
+    return output;
   }
 
   private static String outputOf(CompletableFuture<String> output, Path file, String streamName) {
@@ -115,10 +124,13 @@ public final class JsAnalyzer {
                     value(obj, "ownerKey"),
                     value(obj, "fqn"),
                     value(obj, "name")));
-        case "call" ->
+        case "call", "callByName" ->
             calls.add(
                 new JsAnalysis.CallDecl(
-                    value(obj, "callerSignature"), value(obj, "calleeSignature")));
+                    value(obj, "callerSignature"),
+                    value(obj, "calleeSignature"),
+                    value(obj, "calleeOwnerFqn"),
+                    value(obj, "calleeName")));
         default -> log.debug("Ignoring unknown JavaScript analyzer record: {}", line);
       }
     }
@@ -184,8 +196,8 @@ public final class JsAnalyzer {
     processBuilder.environment().put("NODE_PATH", nodeModules.toString());
     try {
       Process process = processBuilder.start();
-      CompletableFuture<String> stdout = readAsync(process.getInputStream());
-      CompletableFuture<String> stderr = readAsync(process.getErrorStream());
+      CompletableFuture<String> stdout = readAsync(process.getInputStream(), "stdout");
+      CompletableFuture<String> stderr = readAsync(process.getErrorStream(), "stderr");
       if (!process.waitFor(PROCESS_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS)) {
         process.destroyForcibly();
         throw new ProcessingException("JavaScript analyzer timed out for " + file);

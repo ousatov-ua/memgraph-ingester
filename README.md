@@ -54,7 +54,8 @@ For JS/TS, managed runtime mode is explicit and controlled:
 - It caches both under `~/.cache/memgraph-ingester` by default.
 - It never installs Node.js globally.
 - It never runs `npm install` in your project.
-- It skips `node_modules` and TypeScript declaration files during source ingestion.
+- It skips `node_modules` and TypeScript declaration files during source ingestion and watch
+  registration.
 
 If you do not want the ingester to download Node.js, use your own Node.js:
 
@@ -351,13 +352,13 @@ Skipped paths:
 Captured JS/TS structure:
 
 - Files and synthetic module owners.
-- Classes.
+- Classes and class expressions assigned to variables.
 - Interfaces and type aliases as graph interfaces.
 - Top-level functions and variables under the module owner.
-- Methods, constructors, fields, static flags, line ranges, and kinds.
+- Methods, constructors, function-valued class fields, fields, static flags, line ranges, and kinds.
 - Decorators as annotations.
 - Angular decorators with framework metadata when detected.
-- Syntax-based best-effort call edges.
+- Syntax-based best-effort call edges, including resolvable relative imports.
 
 Runtime modes:
 

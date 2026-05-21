@@ -323,6 +323,12 @@ public final class ManagedNodeRuntime {
   }
 
   private static @NonNull String getNix(String osName) {
-    return osName.contains("mac") || osName.contains("darwin") ? "darwin" : LINUX;
+    if (osName.contains("mac") || osName.contains("darwin")) {
+      return "darwin";
+    }
+    if (osName.contains(LINUX)) {
+      return LINUX;
+    }
+    throw new ProcessingException("Unsupported operating system for managed Node.js: " + osName);
   }
 }

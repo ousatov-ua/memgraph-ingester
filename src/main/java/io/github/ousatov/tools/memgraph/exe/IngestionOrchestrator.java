@@ -251,6 +251,9 @@ public final class IngestionOrchestrator {
           @Override
           public FileVisitResult preVisitDirectory(
               @NonNull Path dir, @NonNull BasicFileAttributes attrs) throws IOException {
+            if (isNodeModulesDirectory(dir)) {
+              return FileVisitResult.SKIP_SUBTREE;
+            }
             WatchKey key =
                 dir.register(
                     watcher,
@@ -261,6 +264,11 @@ public final class IngestionOrchestrator {
             return FileVisitResult.CONTINUE;
           }
         });
+  }
+
+  private static boolean isNodeModulesDirectory(Path dir) {
+    Path fileName = dir.getFileName();
+    return fileName != null && "node_modules".equals(fileName.toString());
   }
 
   private int ingestSequential(List<Path> files, Map<String, Long> mtimeCache) {

@@ -2,7 +2,11 @@ package io.github.ousatov.tools.memgraph.exe;
 
 import java.util.List;
 
-/** Neutral JavaScript/TypeScript structure emitted by the Node helper before graph writes. */
+/**
+ * Neutral JavaScript/TypeScript structure emitted by the Node helper before graph writes.
+ *
+ * @author Oleksii Usatov
+ */
 @SuppressWarnings("java:S107")
 public record JsAnalysis(
     String moduleFqn,
@@ -39,5 +43,6 @@ public record JsAnalysis(
 
   public record AnnotationDecl(String ownerKind, String ownerKey, String fqn, String name) {}
 
-  public record CallDecl(String callerSignature, String calleeSignature) {}
+  public record CallDecl(
+      String callerSignature, String calleeSignature, String calleeOwnerFqn, String calleeName) {}
 }

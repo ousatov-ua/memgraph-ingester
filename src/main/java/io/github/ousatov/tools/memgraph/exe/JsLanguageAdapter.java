@@ -62,9 +62,7 @@ public final class JsLanguageAdapter implements LanguageAdapter {
                   upsertType(writer, file, analysis.packageName(), analysis.modulePath(), type));
       analysis.members().forEach(member -> upsertMember(writer, member));
       analysis.annotations().forEach(annotation -> upsertAnnotation(writer, annotation));
-      analysis
-          .calls()
-          .forEach(call -> writer.upsertCall(call.callerSignature(), call.calleeSignature()));
+      analysis.calls().forEach(call -> upsertCall(writer, call));
       return true;
     } catch (ProcessingException e) {
       log.warn("Failed to ingest {}: {}", file, e.getMessage());
@@ -125,5 +123,13 @@ public final class JsLanguageAdapter implements LanguageAdapter {
       writer.upsertAnnotationReferenceByFqn(
           annotation.ownerKey(), annotation.fqn(), annotation.name());
     }
+  }
+
+  private static void upsertCall(GraphWriter writer, JsAnalysis.CallDecl call) {
+    if (!call.calleeSignature().isBlank()) {
+      writer.upsertCall(call.callerSignature(), call.calleeSignature());
+      return;
+    }
+    writer.upsertCallByName(call.callerSignature(), call.calleeOwnerFqn(), call.calleeName());
   }
 }

@@ -125,6 +125,12 @@ Common memory-to-memory links:
   `language = "javascript"` and `kind = "module"`. Top-level functions and variables are declared
   by the module owner. TypeScript interfaces and type aliases reuse `:Interface`; decorators reuse
   `:Annotation` and `ANNOTATED_WITH`. Angular decorators can set `framework = "angular"`.
+- JavaScript/TypeScript function-valued class fields are emitted as `:Method` records for callable
+  inventories and receiver-scoped `CALLS` resolution. They can also appear as `:Field` records
+  because the source member is still a class field.
+- JavaScript/TypeScript class expressions assigned to variables are emitted as `:Class` nodes using
+  the variable name. Relative imports that resolve to local source files can produce owner/name
+  `CALLS` edges when the target owner has exactly one method with the imported name.
 - `CALLS` edges only connect methods within the same project. External library calls are dropped to avoid phantom nodes. A second wipe-less re-ingestion pass fills in any cross-file edges missed due to ingestion ordering. For unresolved same-class calls, a name-based fallback creates the edge when exactly one method with that name exists in the owning type.
 - JavaScript/TypeScript `CALLS` edges are syntax-only best effort. Dynamic dispatch, framework
   templates, dependency injection, monkey-patching, and generated code can be missing.

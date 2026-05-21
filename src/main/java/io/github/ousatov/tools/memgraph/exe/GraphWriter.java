@@ -370,6 +370,19 @@ public final class GraphWriter {
         Map.of(Params.CALLER, callerSignature, Params.CALLEE, calleeSignature));
   }
 
+  /** Upserts a call edge when the callee owner is known but its full signature is not. */
+  public void upsertCallByName(String callerSignature, String ownerFqn, String calleeName) {
+    cypher.run(
+        Cypher.CYPHER_UPSERT_CALL_BY_NAME,
+        Map.of(
+            Params.CALLER,
+            callerSignature,
+            Params.OWNER_FQN,
+            ownerFqn,
+            Params.CALLEE_NAME,
+            calleeName));
+  }
+
   private static String typeFqn(String pkg, String outerFqn, String simpleName) {
     return outerFqn != null ? outerFqn + "$" + simpleName : JavaTypeNames.buildFqn(pkg, simpleName);
   }
