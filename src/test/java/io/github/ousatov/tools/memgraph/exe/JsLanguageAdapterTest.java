@@ -29,4 +29,9 @@ class JsLanguageAdapterTest {
       assertFalse(adapter.accepts(Path.of("src/index" + extension)));
     }
   }
+
+  @Test
+  void returnsFalseWhenRuntimeFailureEscapesAnalyzer() {
+    assertFalse(adapter.ingestFile(null, Path.of("src/broken.js")));
+  }
 }

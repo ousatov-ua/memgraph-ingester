@@ -113,7 +113,8 @@ public final class Const {
      * Resolves pending owner/name calls once all candidate owners and methods have been ingested.
      * Only creates the edge when exactly one method has that name (no overloading ambiguity).
      */
-    public static final String CYPHER_RESOLVE_PENDING_CALLS = action("resolve-pending-calls.cypher");
+    public static final String CYPHER_RESOLVE_PENDING_CALLS =
+        action("resolve-pending-calls.cypher");
 
     /**
      * Removes placeholder {@code :Method} nodes that were created by {@link #CYPHER_UPSERT_CALL}

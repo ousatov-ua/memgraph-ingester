@@ -133,6 +133,9 @@ Common memory-to-memory links:
 - JavaScript/TypeScript class expressions assigned to variables are emitted as `:Class` nodes using
   the variable name. Relative imports that resolve to local source files can produce owner/name
   `CALLS` edges when the target owner has exactly one method with the imported name.
+- JavaScript/TypeScript exported callable aliases such as `export { foo as bar }` and `export
+  default foo` are emitted as graph-visible declarations for the public export names so deferred
+  owner/name call resolution can match imports by exported name.
 - `CALLS` edges only connect methods within the same project. External library calls are dropped to avoid phantom nodes. JavaScript/TypeScript owner/name calls that cross file-order boundaries are first stored as `:PendingCall` records, then resolved after the ingestion batch when the target owner declares exactly one method with that name. Unresolved or ambiguous pending calls can remain until a later ingestion supplies a unique target.
 - JavaScript/TypeScript `CALLS` edges are syntax-only best effort. Dynamic dispatch, framework
   templates, dependency injection, monkey-patching, and generated code can be missing.

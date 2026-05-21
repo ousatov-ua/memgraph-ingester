@@ -1,6 +1,5 @@
 package io.github.ousatov.tools.memgraph.exe;
 
-import io.github.ousatov.tools.memgraph.exception.ProcessingException;
 import java.nio.file.Path;
 import java.util.Locale;
 import java.util.Set;
@@ -64,7 +63,7 @@ public final class JsLanguageAdapter implements LanguageAdapter {
       analysis.annotations().forEach(annotation -> upsertAnnotation(writer, annotation));
       analysis.calls().forEach(call -> upsertCall(writer, call));
       return true;
-    } catch (ProcessingException e) {
+    } catch (RuntimeException e) {
       log.warn("Failed to ingest {}: {}", file, e.getMessage());
       return false;
     }
@@ -130,6 +129,7 @@ public final class JsLanguageAdapter implements LanguageAdapter {
       writer.upsertCall(call.callerSignature(), call.calleeSignature());
       return;
     }
-    writer.upsertPendingCallByName(call.callerSignature(), call.calleeOwnerFqn(), call.calleeName());
+    writer.upsertPendingCallByName(
+        call.callerSignature(), call.calleeOwnerFqn(), call.calleeName());
   }
 }

@@ -355,6 +355,7 @@ Captured JS/TS structure:
 - Classes and class expressions assigned to variables.
 - Interfaces and type aliases as graph interfaces.
 - Top-level functions and variables under the module owner.
+- Exported callable aliases as graph-visible declarations for their public export names.
 - Methods, constructors, function-valued class fields, fields, static flags, line ranges, and kinds.
 - Decorators as annotations.
 - Angular decorators with framework metadata when detected.

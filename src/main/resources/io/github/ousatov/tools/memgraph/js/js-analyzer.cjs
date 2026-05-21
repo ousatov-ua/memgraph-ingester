@@ -45,6 +45,9 @@ const callables = [];
 const imports = collectImports(sourceFile);
 const importedNames = collectImportedNames(sourceFile);
 const importedNamespaces = collectImportedNamespaces(sourceFile);
+const topLevelFunctionsByName = new Map();
+const topLevelClassesByName = new Map();
+const emittedExportAliases = new Set();
 
 write({
   record: 'module',
@@ -57,6 +60,7 @@ write({
 });
 
 sourceFile.statements.forEach(collectDeclaration);
+sourceFile.statements.forEach(collectExportBinding);
 sourceFile.statements.forEach(statement => {
   if (!isDeclarationWithOwnCallableScope(statement)) {
     collectCalls(statement, moduleSignature, moduleFqn, false);
@@ -94,16 +98,23 @@ function collectDeclaration(node) {
     }
   } else if (ts.isVariableStatement(node)) {
     collectVariables(node, moduleFqn);
-  } else if (ts.isExportAssignment(node)) {
-    collectExportAssignment(node);
   }
 }
 
-function collectClass(node, name, aliases = []) {
+function collectClass(node, name, aliases = [], options = {}) {
   const fqn = `${moduleFqn}.${name}`;
-  classesByName.set(name, fqn);
-  for (const alias of aliases) {
-    classesByName.set(alias, fqn);
+  if (!options.skipClassNameLookup) {
+    classesByName.set(name, fqn);
+    for (const alias of aliases) {
+      classesByName.set(alias, fqn);
+    }
+  }
+  if (!options.skipExportModel) {
+    const model = { node };
+    topLevelClassesByName.set(name, model);
+    for (const alias of aliases) {
+      topLevelClassesByName.set(alias, model);
+    }
   }
   const framework = frameworkFor(node);
   const range = lineRange(node);
@@ -222,6 +233,14 @@ function collectVariables(node, ownerFqn) {
   }
 }
 
+function collectExportBinding(node) {
+  if (ts.isExportAssignment(node)) {
+    collectExportAssignment(node);
+  } else if (ts.isExportDeclaration(node)) {
+    collectExportDeclarationAliases(node);
+  }
+}
+
 function collectExportAssignment(node) {
   if (node.isExportEquals) {
     return;
@@ -231,6 +250,48 @@ function collectExportAssignment(node) {
     collectFunction(moduleFqn, 'default', expression, 'function');
   } else if (ts.isClassExpression(expression)) {
     collectClass(expression, 'default');
+  } else if (ts.isIdentifier(expression)) {
+    collectExportAlias(expression.text, 'default');
+  }
+}
+
+function collectExportDeclarationAliases(node) {
+  if (node.moduleSpecifier || !node.exportClause || !ts.isNamedExports(node.exportClause)) {
+    return;
+  }
+  for (const element of node.exportClause.elements) {
+    const localName = element.propertyName ? element.propertyName.text : element.name.text;
+    collectExportAlias(localName, element.name.text);
+  }
+}
+
+function collectExportAlias(localName, exportedName) {
+  if (!localName || !exportedName || localName === exportedName) {
+    return;
+  }
+  const key = `${localName}\u0000${exportedName}`;
+  if (emittedExportAliases.has(key)) {
+    return;
+  }
+  const fn = topLevelFunctionsByName.get(localName);
+  if (fn) {
+    emittedExportAliases.add(key);
+    collectFunction(moduleFqn, exportedName, fn.node, fn.kind, {
+      decoratorNode: fn.decoratorNode,
+      isStatic: fn.isStatic,
+      rangeNode: fn.rangeNode,
+      skipExportModel: true,
+      skipUnscopedLookup: true
+    });
+    return;
+  }
+  const cls = topLevelClassesByName.get(localName);
+  if (cls) {
+    emittedExportAliases.add(key);
+    collectClass(cls.node, exportedName, [], {
+      skipClassNameLookup: true,
+      skipExportModel: true
+    });
   }
 }
 
@@ -253,10 +314,27 @@ function collectFunction(ownerFqn, name, node, kind, options = {}) {
     startLine: range.start,
     endLine: range.end
   });
-  addDeclaration(name, signature);
+  if (ownerFqn === moduleFqn && !options.skipExportModel) {
+    const model = {
+      node,
+      kind,
+      decoratorNode: options.decoratorNode,
+      isStatic,
+      rangeNode: options.rangeNode
+    };
+    topLevelFunctionsByName.set(name, model);
+    for (const alias of options.aliases || []) {
+      topLevelFunctionsByName.set(alias, model);
+    }
+  }
+  if (!options.skipUnscopedLookup) {
+    addDeclaration(name, signature);
+  }
   addScopedDeclaration(ownerFqn, name, signature, isStatic);
   for (const alias of options.aliases || []) {
-    addDeclaration(alias, signature);
+    if (!options.skipUnscopedLookup) {
+      addDeclaration(alias, signature);
+    }
     addScopedDeclaration(ownerFqn, alias, signature, isStatic);
   }
   writeDecorators(options.decoratorNode || node, 'sig', signature);
@@ -268,11 +346,22 @@ function collectFunction(ownerFqn, name, node, kind, options = {}) {
   });
 }
 
-function collectCalls(node, callerSignature, callerOwnerFqn, includeNestedFunctionCalls) {
+function collectCalls(
+  node,
+  callerSignature,
+  callerOwnerFqn,
+  includeNestedFunctionCalls,
+  parent = null,
+  grandparent = null
+) {
   if (!node) {
     return;
   }
-  if (ts.isFunctionLike(node) && !includeNestedFunctionCalls) {
+  if (
+    ts.isFunctionLike(node) &&
+    parent &&
+    !shouldTraverseNestedFunction(node, includeNestedFunctionCalls, parent, grandparent)
+  ) {
     return;
   }
   if (ts.isCallExpression(node)) {
@@ -282,8 +371,39 @@ function collectCalls(node, callerSignature, callerOwnerFqn, includeNestedFuncti
   }
   ts.forEachChild(
     node,
-    child => collectCalls(child, callerSignature, callerOwnerFqn, includeNestedFunctionCalls)
+    child => collectCalls(
+      child,
+      callerSignature,
+      callerOwnerFqn,
+      includeNestedFunctionCalls,
+      node,
+      parent
+    )
   );
+}
+
+function shouldTraverseNestedFunction(node, includeNestedFunctionCalls, parent, grandparent) {
+  if (!includeNestedFunctionCalls) {
+    return false;
+  }
+  return isCallArgument(node, parent) ||
+    (ts.isParenthesizedExpression(parent) && isCallArgument(parent, grandparent)) ||
+    isImmediatelyInvoked(node, parent) ||
+    (ts.isParenthesizedExpression(parent) && isImmediatelyInvoked(parent, grandparent));
+}
+
+function isCallArgument(candidate, parent) {
+  if (!parent || !(ts.isCallExpression(parent) || ts.isNewExpression(parent)) || !parent.arguments) {
+    return false;
+  }
+  const unwrapped = unwrapExpression(candidate);
+  return Array.from(parent.arguments).some(argument => unwrapExpression(argument) === unwrapped);
+}
+
+function isImmediatelyInvoked(candidate, parent) {
+  return Boolean(parent) &&
+    ts.isCallExpression(parent) &&
+    unwrapExpression(parent.expression) === unwrapExpression(candidate);
 }
 
 function writeCall(callerSignature, callee) {
