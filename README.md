@@ -99,7 +99,7 @@ Runtime requirements by artifact:
 
 Optional tools:
 
-- `mgconsole`, if you want to query Memgraph directly without MCP.
+- `mgconsole`, if you want to query Memgraph directly without MCP (***produces much fewer tokens***)
 - Maven, only if you want a richer Java classpath or you want to build from source.
 - Java 25 SDK, only if you build from source.
 
@@ -444,7 +444,7 @@ Commit the updated instruction file so future agent sessions get the same graph 
 
 ## MCP or mgconsole
 
-MCP is optional. Agents can query Memgraph through MCP, and humans can query directly with
+MCP is optional. Agents can query Memgraph through MCP or via
 `mgconsole`.
 
 Use MCP when you want the agent to query the graph automatically.
