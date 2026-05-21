@@ -36,36 +36,14 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@v4
 
-      - name: Cache Maven packages
-        if: matrix.id == 'linux-amd64'
-        uses: actions/cache@v4
-        with:
-          path: ~/.m2/repository
-          key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
-          restore-keys: ${{ runner.os }}-maven-
-
-      - name: Build Linux binary
+      - name: Install Linux native-image toolchain
         if: matrix.id == 'linux-amd64'
         shell: bash
         run: |
-          docker build \
-            --platform linux/amd64 \
-            -f build/linux/amd64/Dockerfile.linux-native-builder \
-            -t graalvm25-maven-native-amd64 .
-
-          docker run --rm \
-            --platform linux/amd64 \
-            --entrypoint /bin/bash \
-            -v "$PWD":/workspace \
-            -v "$HOME/.m2":/root/.m2 \
-            -w /workspace \
-            graalvm25-maven-native-amd64 \
-            -lc 'mvn --batch-mode --no-transfer-progress -Pnative-linux -DskipTests package'
-
-          test -x '${{ matrix.artifact_path }}'
+          sudo apt-get update
+          sudo apt-get install -y build-essential zlib1g-dev
 
       - name: Set up GraalVM
-        if: matrix.id != 'linux-amd64'
         uses: graalvm/setup-graalvm@v1
         with:
           java-version: '25'
@@ -74,11 +52,11 @@ jobs:
           cache: 'maven'
           native-image-job-reports: 'true'
 
-      - name: Build macOS binary
-        if: matrix.id == 'macos-arm64'
+      - name: Build Unix binary
+        if: matrix.id == 'linux-amd64' || matrix.id == 'macos-arm64'
         shell: bash
         run: |
-          mvn --batch-mode --no-transfer-progress -Pnative-macos -DskipTests package
+          mvn --batch-mode --no-transfer-progress -P${{ matrix.profile }} -DskipTests package
           test -x '${{ matrix.artifact_path }}'
 
       - name: Build Windows binary
