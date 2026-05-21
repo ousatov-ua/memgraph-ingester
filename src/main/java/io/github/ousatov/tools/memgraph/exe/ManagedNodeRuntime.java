@@ -301,12 +301,6 @@ public final class ManagedNodeRuntime {
             case "amd64", "x86_64" -> "x64";
             default -> throw new ProcessingException("Unsupported CPU architecture: " + archName);
           };
-      if (os.equals(LINUX) && !arch.equals("x64")) {
-        throw new ProcessingException("Managed Node.js currently supports linux-x64 only");
-      }
-      if (os.equals("win") && !arch.equals("x64")) {
-        throw new ProcessingException("Managed Node.js currently supports win-x64 only");
-      }
       return new Platform(os, arch);
     }
 

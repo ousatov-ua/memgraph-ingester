@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import java.io.IOException;
+import java.lang.reflect.Method;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Locale;
@@ -40,6 +41,12 @@ class ManagedNodeRuntimeTest {
     assertTrue(Files.isRegularFile(installDir.resolve(".install-complete")));
   }
 
+  @Test
+  void platformCurrentAllowsArm64RuntimeIds() throws Exception {
+    assertEquals("linux-arm64", platformIdFor("Linux", "aarch64"));
+    assertEquals("win-arm64", platformIdFor("Windows 11", "arm64"));
+  }
+
   private static String platformId() {
     String osName = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
     String archName = System.getProperty("os.arch", "").toLowerCase(Locale.ROOT);
@@ -51,9 +58,34 @@ class ManagedNodeRuntimeTest {
           default -> "";
         };
     assumeTrue(!arch.isBlank(), "Managed Node.js test requires a supported CPU architecture");
-    assumeTrue(!os.equals("linux") || arch.equals("x64"), "Managed Node.js supports linux-x64");
-    assumeTrue(!os.equals("win") || arch.equals("x64"), "Managed Node.js supports win-x64");
     return os + "-" + arch;
+  }
+
+  private static String platformIdFor(String osName, String archName) throws Exception {
+    String originalOsName = System.getProperty("os.name");
+    String originalArchName = System.getProperty("os.arch");
+    try {
+      System.setProperty("os.name", osName);
+      System.setProperty("os.arch", archName);
+      Class<?> platformClass = Class.forName(ManagedNodeRuntime.class.getName() + "$Platform");
+      Method current = platformClass.getDeclaredMethod("current");
+      current.setAccessible(true);
+      Object platform = current.invoke(null);
+      Method id = platformClass.getDeclaredMethod("id");
+      id.setAccessible(true);
+      return (String) id.invoke(platform);
+    } finally {
+      restoreSystemProperty("os.name", originalOsName);
+      restoreSystemProperty("os.arch", originalArchName);
+    }
+  }
+
+  private static void restoreSystemProperty(String key, String value) {
+    if (value == null) {
+      System.clearProperty(key);
+      return;
+    }
+    System.setProperty(key, value);
   }
 
   private static String nixOs(String osName) {
