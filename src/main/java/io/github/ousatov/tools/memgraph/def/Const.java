@@ -178,6 +178,12 @@ public final class Const {
     public static final String IS_FINAL = "isFinal";
     public static final String IS_SYNTHETIC = "isSynthetic";
     public static final String TYPE = "type";
+    public static final String LANGUAGE = "language";
+    public static final String KIND = "kind";
+    public static final String MODULE_PATH = "modulePath";
+    public static final String FRAMEWORK = "framework";
+    public static final String END_LINE = "endLine";
+    public static final String START_LINE = "startLine";
 
     private Params() {
 

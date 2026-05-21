@@ -56,6 +56,8 @@ recipes. See [`SCHEMA.md`](schema/SCHEMA.md) for the full graph model.
 
 - Required: **Java 25 JRE** to run if you choose shaded JAR.
 - Required: Memgraph instance (or Docker)
+- Not required for JavaScript/TypeScript ingestion: a user-installed Node.js. The native
+  executable can download, verify, cache, and run its own managed Node.js and TypeScript parser.
 - Optional: **Java 25 SDK**, **Maven 3.9+** only if you want to build it from sources.
 - Optional: `mgconsole` - if you choose to not use MCP (* BTW, it produces lesst tokens comparing to MCP)
 
@@ -139,6 +141,23 @@ CP=$(mvn -q dependency:build-classpath -DincludeScope=test -Dmdep.outputFile=/de
   --wipe-project-code \
   --classpath "$CP"
 ```
+
+**JavaScript / TypeScript** (managed Node.js, no manual Node install):
+
+```bash
+cd /path/to/your/js/project
+<executable_memgraph_ingester> \
+  --source . \
+  --bolt bolt://localhost:7687 \
+  --project my-js-project \
+  --language js \
+  --wipe-project-code \
+  --apply-schema
+```
+
+The first JS/TS run downloads pinned parser tooling into `~/.cache/memgraph-ingester`. Use
+`--js-runtime-mode offline` only after that cache is warmed, or `--js-runtime-mode system` to use a
+`node` executable already on `PATH`.
 
 - Append knowledge for your agent
 

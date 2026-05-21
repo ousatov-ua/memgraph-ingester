@@ -48,6 +48,8 @@ public final class GraphWriter {
   private static final Logger log = LoggerFactory.getLogger(GraphWriter.class);
 
   private static final int WIPE_BATCH_SIZE = 10_000;
+  private static final String JAVA_LANGUAGE = SourceLanguage.JAVA.graphName();
+  private static final String JAVASCRIPT_LANGUAGE = SourceLanguage.JAVASCRIPT.graphName();
 
   private final CypherExecutor cypher;
   private final CallEdgeWriter callEdges;
@@ -176,6 +178,11 @@ public final class GraphWriter {
 
   /** Upserts a {@code :File} node and links it to the code anchor. */
   public void upsertFile(Path file) {
+    upsertFile(file, JAVA_LANGUAGE);
+  }
+
+  /** Upserts a {@code :File} node and records the source language that produced it. */
+  public void upsertFile(Path file, String language) {
     long lastModified;
     try {
       lastModified = Files.getLastModifiedTime(file).toMillis();
@@ -184,12 +191,180 @@ public final class GraphWriter {
     }
     cypher.run(
         Cypher.CYPHER_UPSERT_FILE,
-        Map.of(Params.PATH, file.toString(), Params.LAST_MODIFIED, lastModified));
+        Map.of(
+            Params.PATH,
+            file.toString(),
+            Params.LAST_MODIFIED,
+            lastModified,
+            Params.LANGUAGE,
+            language));
   }
 
   /** Upserts a {@code :Package} node and links it to the code anchor. */
   public void upsertPackage(String pkg) {
     cypher.run(Cypher.CYPHER_UPSERT_PACKAGE, Map.of(Params.NAME, pkg));
+  }
+
+  /** Upserts the synthetic module owner used for top-level JavaScript declarations. */
+  public void upsertJavascriptModule(
+      Path file,
+      String pkg,
+      String fqn,
+      String name,
+      String modulePath,
+      int startLine,
+      int endLine) {
+    upsertClassNode(
+        file,
+        pkg,
+        fqn,
+        name,
+        false,
+        "",
+        false,
+        false,
+        false,
+        JAVASCRIPT_LANGUAGE,
+        "module",
+        modulePath,
+        "");
+    upsertMethodNode(
+        new Method(
+            fqn,
+            fqn + "." + Labels.INIT + "()",
+            Labels.INIT,
+            Labels.VOID,
+            true,
+            "",
+            startLine,
+            endLine,
+            true,
+            JAVASCRIPT_LANGUAGE,
+            "module"));
+  }
+
+  /** Upserts a JavaScript/TypeScript class declaration using the existing {@code :Class} label. */
+  @SuppressWarnings("java:S107")
+  public void upsertJavascriptClass(
+      Path file,
+      String pkg,
+      String fqn,
+      String name,
+      String modulePath,
+      String framework,
+      int startLine,
+      int endLine) {
+    upsertClassNode(
+        file,
+        pkg,
+        fqn,
+        name,
+        false,
+        "",
+        false,
+        false,
+        false,
+        JAVASCRIPT_LANGUAGE,
+        "class",
+        modulePath,
+        framework);
+    upsertMethodNode(
+        new Method(
+            fqn,
+            fqn + "." + Labels.INIT + "()",
+            Labels.INIT,
+            Labels.VOID,
+            false,
+            "",
+            startLine,
+            endLine,
+            true,
+            JAVASCRIPT_LANGUAGE,
+            "constructor"));
+  }
+
+  /** Upserts a TypeScript interface or type alias using the compatible {@code :Interface} label. */
+  public void upsertJavascriptInterface(
+      Path file,
+      String pkg,
+      String fqn,
+      String name,
+      String kind,
+      String modulePath,
+      String framework) {
+    upsertInterfaceNode(
+        file, pkg, fqn, name, true, "", JAVASCRIPT_LANGUAGE, kind, modulePath, framework);
+  }
+
+  /** Upserts a JavaScript/TypeScript property or top-level variable as a {@code :Field}. */
+  public void upsertJavascriptField(
+      String ownerFqn, String fqn, String name, String type, boolean isStatic, String kind) {
+    cypher.run(
+        Cypher.CYPHER_UPSERT_FIELD,
+        Map.of(
+            Params.FQN,
+            fqn,
+            Params.NAME,
+            name,
+            Params.TYPE,
+            type,
+            Params.IS_STATIC,
+            isStatic,
+            Params.VISIBILITY,
+            "",
+            Params.LANGUAGE,
+            JAVASCRIPT_LANGUAGE,
+            Params.KIND,
+            kind,
+            Params.OWNER,
+            ownerFqn));
+  }
+
+  /** Upserts a JavaScript/TypeScript function or method as a {@code :Method}. */
+  @SuppressWarnings("java:S107")
+  public void upsertJavascriptMethod(
+      String ownerFqn,
+      String signature,
+      String name,
+      String returnType,
+      boolean isStatic,
+      int startLine,
+      int endLine,
+      String kind) {
+    upsertMethodNode(
+        new Method(
+            ownerFqn,
+            signature,
+            name,
+            returnType,
+            isStatic,
+            "",
+            startLine,
+            endLine,
+            false,
+            JAVASCRIPT_LANGUAGE,
+            kind));
+  }
+
+  /** Adds an annotation/decorator edge for a type or field identified by FQN. */
+  public void upsertAnnotationReferenceByFqn(String ownerFqn, String annotationFqn, String name) {
+    cypher.run(
+        Cypher.CYPHER_UPSERT_ANNOTATED_WITH_BY_FQN,
+        Map.of(Params.OWNER, ownerFqn, Params.ANNOT_FQN, annotationFqn, Params.ANNOT_NAME, name));
+  }
+
+  /** Adds an annotation/decorator edge for a method identified by signature. */
+  public void upsertAnnotationReferenceBySig(String signature, String annotationFqn, String name) {
+    cypher.run(
+        Cypher.CYPHER_UPSERT_ANNOTATED_WITH_BY_SIG,
+        Map.of(Params.SIG, signature, Params.ANNOT_FQN, annotationFqn, Params.ANNOT_NAME, name));
+  }
+
+  /** Upserts a resolved in-project call edge. */
+  public void upsertCall(String callerSignature, String calleeSignature) {
+    cypher.run(
+        Cypher.CYPHER_UPSERT_CALL,
+        Map.of(Params.CALLER, callerSignature, Params.CALLEE, calleeSignature));
   }
 
   private static String typeFqn(String pkg, String outerFqn, String simpleName) {
@@ -207,48 +382,97 @@ public final class GraphWriter {
       boolean isEnum,
       boolean isRecord,
       boolean isFinal) {
+    upsertClassNode(
+        file,
+        pkg,
+        fqn,
+        name,
+        isAbstract,
+        visibility,
+        isEnum,
+        isRecord,
+        isFinal,
+        JAVA_LANGUAGE,
+        classKind(isEnum, isRecord),
+        "",
+        "");
+  }
+
+  @SuppressWarnings("java:S107")
+  private void upsertClassNode(
+      Path file,
+      String pkg,
+      String fqn,
+      String name,
+      boolean isAbstract,
+      String visibility,
+      boolean isEnum,
+      boolean isRecord,
+      boolean isFinal,
+      String language,
+      String kind,
+      String modulePath,
+      String framework) {
     cypher.run(
         Cypher.CYPHER_UPSERT_CLASS,
-        Map.of(
-            Params.FQN,
-            fqn,
-            Params.NAME,
-            name,
-            Params.PKG,
-            pkg,
-            Params.PATH,
-            file.toString(),
-            Params.IS_ABSTRACT,
-            isAbstract,
-            Params.VISIBILITY,
-            visibility,
-            Params.IS_ENUM,
-            isEnum,
-            Params.IS_RECORD,
-            isRecord,
-            Params.IS_FINAL,
-            isFinal));
+        Map.ofEntries(
+            Map.entry(Params.FQN, fqn),
+            Map.entry(Params.NAME, name),
+            Map.entry(Params.PKG, pkg),
+            Map.entry(Params.PATH, file.toString()),
+            Map.entry(Params.IS_ABSTRACT, isAbstract),
+            Map.entry(Params.VISIBILITY, visibility),
+            Map.entry(Params.IS_ENUM, isEnum),
+            Map.entry(Params.IS_RECORD, isRecord),
+            Map.entry(Params.IS_FINAL, isFinal),
+            Map.entry(Params.LANGUAGE, language),
+            Map.entry(Params.KIND, kind),
+            Map.entry(Params.MODULE_PATH, modulePath),
+            Map.entry(Params.FRAMEWORK, framework)));
   }
 
   private void upsertInterfaceNode(
       Path file, String pkg, String fqn, String name, boolean isAbstract, String visibility) {
+    upsertInterfaceNode(
+        file, pkg, fqn, name, isAbstract, visibility, JAVA_LANGUAGE, "interface", "", "");
+  }
+
+  @SuppressWarnings("java:S107")
+  private void upsertInterfaceNode(
+      Path file,
+      String pkg,
+      String fqn,
+      String name,
+      boolean isAbstract,
+      String visibility,
+      String language,
+      String kind,
+      String modulePath,
+      String framework) {
     cypher.run(
         Cypher.CYPHER_UPSERT_INTERFACE,
-        Map.of(
-            Params.FQN,
-            fqn,
-            Params.NAME,
-            name,
-            Params.PKG,
-            pkg,
-            Params.PATH,
-            file.toString(),
-            Params.IS_ABSTRACT,
-            isAbstract,
-            Params.VISIBILITY,
-            visibility,
-            Params.IS_FINAL,
-            false));
+        Map.ofEntries(
+            Map.entry(Params.FQN, fqn),
+            Map.entry(Params.NAME, name),
+            Map.entry(Params.PKG, pkg),
+            Map.entry(Params.PATH, file.toString()),
+            Map.entry(Params.IS_ABSTRACT, isAbstract),
+            Map.entry(Params.VISIBILITY, visibility),
+            Map.entry(Params.IS_FINAL, false),
+            Map.entry(Params.LANGUAGE, language),
+            Map.entry(Params.KIND, kind),
+            Map.entry(Params.MODULE_PATH, modulePath),
+            Map.entry(Params.FRAMEWORK, framework)));
+  }
+
+  private static String classKind(boolean isEnum, boolean isRecord) {
+    if (isEnum) {
+      return "enum";
+    }
+    if (isRecord) {
+      return "record";
+    }
+    return "class";
   }
 
   /**
@@ -330,7 +554,15 @@ public final class GraphWriter {
             Params.PATH,
             file.toString(),
             Params.VISIBILITY,
-            decl.getAccessSpecifier().asString()));
+            decl.getAccessSpecifier().asString(),
+            Params.LANGUAGE,
+            JAVA_LANGUAGE,
+            Params.KIND,
+            "annotation",
+            Params.MODULE_PATH,
+            "",
+            Params.FRAMEWORK,
+            ""));
     upsertAnnotationsByFqn(fqn, decl);
   }
 
@@ -503,6 +735,10 @@ public final class GraphWriter {
               false,
               Params.VISIBILITY,
               "private",
+              Params.LANGUAGE,
+              JAVA_LANGUAGE,
+              Params.KIND,
+              "record-component",
               Params.OWNER,
               ownerFqn));
       upsertAnnotationsByFqn(fqn, param);
@@ -528,6 +764,10 @@ public final class GraphWriter {
                       field.isStatic(),
                       Params.VISIBILITY,
                       field.getAccessSpecifier().asString(),
+                      Params.LANGUAGE,
+                      JAVA_LANGUAGE,
+                      Params.KIND,
+                      "field",
                       Params.OWNER,
                       ownerFqn));
               upsertAnnotationsByFqn(fqn, field);
@@ -570,27 +810,19 @@ public final class GraphWriter {
   private void upsertMethodNode(Method method) {
     cypher.run(
         Cypher.CYPHER_UPSERT_METHOD,
-        Map.of(
-            Params.SIG,
-            method.signature(),
-            Params.NAME,
-            method.name(),
-            Params.RET,
-            method.returnType(),
-            Params.IS_STATIC,
-            method.isStatic(),
-            Params.VISIBILITY,
-            method.visibility(),
-            Params.START,
-            method.startLine(),
-            Params.END,
-            method.endLine(),
-            Params.OWNER,
-            method.ownerFqn(),
-            Params.OWNER_DISPLAY_NAME,
-            JavaTypeNames.nameFromFqn(method.ownerFqn()),
-            Params.IS_SYNTHETIC,
-            method.isSynthetic()));
+        Map.ofEntries(
+            Map.entry(Params.SIG, method.signature()),
+            Map.entry(Params.NAME, method.name()),
+            Map.entry(Params.RET, method.returnType()),
+            Map.entry(Params.IS_STATIC, method.isStatic()),
+            Map.entry(Params.VISIBILITY, method.visibility()),
+            Map.entry(Params.START, method.startLine()),
+            Map.entry(Params.END, method.endLine()),
+            Map.entry(Params.OWNER, method.ownerFqn()),
+            Map.entry(Params.OWNER_DISPLAY_NAME, JavaTypeNames.nameFromFqn(method.ownerFqn())),
+            Map.entry(Params.LANGUAGE, method.language()),
+            Map.entry(Params.KIND, method.kind()),
+            Map.entry(Params.IS_SYNTHETIC, method.isSynthetic())));
   }
 
   /**

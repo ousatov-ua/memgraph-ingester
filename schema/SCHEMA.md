@@ -1,6 +1,6 @@
 # Memgraph Graph Model Reference
 
-Documentation for the Java codebase and Memory knowledge graph. The DDL lives in
+Documentation for the codebase and Memory knowledge graph. The DDL lives in
 `src/main/resources/io/github/ousatov/tools/memgraph/cypher/create-schema.cypher` — this file
 describes the model.
 
@@ -22,12 +22,12 @@ intended for durable agent/client-authored decisions, context, and follow-up wor
 | `:Project` | `name` | — |
 | `:Code` | `project` | `sourceRoots` (string array), `lastIngested` |
 | `:Package` | `name`, `project` | — |
-| `:File` | `path`, `project` | `lastModified` (epoch millis) |
-| `:Class` | `fqn`, `project` | `name`, `packageName`, `isAbstract`, `visibility`, `isEnum`, `isRecord`, `isFinal`, `isExternal` |
-| `:Interface` | `fqn`, `project` | `name`, `packageName`, `visibility`, `isFinal`, `isExternal` |
-| `:Annotation` | `fqn`, `project` | `name`, `packageName`, `visibility`, `isExternal` |
-| `:Method` | `signature`, `project` | `name`, `returnType`, `visibility`, `isStatic`, `startLine`, `endLine`, `isSynthetic` |
-| `:Field` | `fqn`, `project` | `name`, `type`, `visibility`, `isStatic` |
+| `:File` | `path`, `project` | `lastModified` (epoch millis), `language` |
+| `:Class` | `fqn`, `project` | `name`, `packageName`, `isAbstract`, `visibility`, `isEnum`, `isRecord`, `isFinal`, `isExternal`, `language`, `kind`, `modulePath`, `framework` |
+| `:Interface` | `fqn`, `project` | `name`, `packageName`, `visibility`, `isFinal`, `isExternal`, `language`, `kind`, `modulePath`, `framework` |
+| `:Annotation` | `fqn`, `project` | `name`, `packageName`, `visibility`, `isExternal`, `language`, `kind`, `modulePath`, `framework` |
+| `:Method` | `signature`, `project` | `name`, `returnType`, `visibility`, `isStatic`, `startLine`, `endLine`, `isSynthetic`, `ownerFqn`, `ownerDisplayName`, `language`, `kind` |
+| `:Field` | `fqn`, `project` | `name`, `type`, `visibility`, `isStatic`, `language`, `kind` |
 
 ## Memory nodes
 
@@ -59,7 +59,7 @@ All memory item labels are unique by `(id, project)`. Most memory items also use
 (Class)     -[:EXTENDS]->       (Class)
 (Interface) -[:EXTENDS]->       (Interface)
 (Class)     -[:IMPLEMENTS]->    (Interface)
-(Class | Interface) -[:DECLARES]-> (Method | Field)
+(Class | Interface | Annotation) -[:DECLARES]-> (Method | Field)
 (Method)    -[:CALLS]->         (Method)
 (Class | Interface | Annotation | Method | Field) -[:ANNOTATED_WITH]-> (Annotation)
 ```
@@ -118,7 +118,16 @@ Common memory-to-memory links:
 - No existence constraints are enforced. Earlier versions used them, but they caused failures when ingesting partial graphs or when external types were referenced without a `project`. The composite uniqueness constraints are sufficient — the ingester always sets `project`.
 - `:Project`, `:Code`, and `:Memory` each use a single-property uniqueness constraint. Code and memory item nodes use composite `(key, project)` uniqueness. `:CodeRef` is unique by `(project, targetType, key)`.
 - Nested/inner classes use `$` as separator in FQN (e.g. `com.example.Outer$Inner`).
+- `language`, `kind`, `modulePath`, and `framework` are optional compatibility metadata. Current
+  emitted language values are `java` and `javascript`; older ingestions may not have these
+  properties.
+- JavaScript/TypeScript modules are represented as synthetic `:Class` nodes with
+  `language = "javascript"` and `kind = "module"`. Top-level functions and variables are declared
+  by the module owner. TypeScript interfaces and type aliases reuse `:Interface`; decorators reuse
+  `:Annotation` and `ANNOTATED_WITH`. Angular decorators can set `framework = "angular"`.
 - `CALLS` edges only connect methods within the same project. External library calls are dropped to avoid phantom nodes. A second wipe-less re-ingestion pass fills in any cross-file edges missed due to ingestion ordering. For unresolved same-class calls, a name-based fallback creates the edge when exactly one method with that name exists in the owning type.
+- JavaScript/TypeScript `CALLS` edges are syntax-only best effort. Dynamic dispatch, framework
+  templates, dependency injection, monkey-patching, and generated code can be missing.
 - **External / phantom nodes.** When a class extends or implements an external type, the parent node is created with `isExternal = true`. Its `name` and `packageName` are inferred from the FQN. External annotations (those not defined in the ingested source tree) are also marked `isExternal = true`. Project-internal nodes always have `isExternal = false`. Use `WHERE NOT n.isExternal` to exclude external types from queries.
 - Memory relationships are conventional, not constrained by DDL. Agents should keep memory scoped with `project` and link memory to `:CodeRef`, not directly to code nodes.
 

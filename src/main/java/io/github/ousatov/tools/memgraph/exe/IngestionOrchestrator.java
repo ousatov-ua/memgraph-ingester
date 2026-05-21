@@ -1,10 +1,5 @@
 package io.github.ousatov.tools.memgraph.exe;
 
-import com.github.javaparser.ast.CompilationUnit;
-import com.github.javaparser.ast.body.AnnotationDeclaration;
-import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
-import com.github.javaparser.ast.body.EnumDeclaration;
-import com.github.javaparser.ast.body.RecordDeclaration;
 import io.github.ousatov.tools.memgraph.IngesterCli;
 import io.github.ousatov.tools.memgraph.exception.ProcessingException;
 import io.github.ousatov.tools.memgraph.schema.Memgraph;
@@ -31,14 +26,14 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.stream.Stream;
+import org.jspecify.annotations.NonNull;
 import org.neo4j.driver.Driver;
 import org.neo4j.driver.Session;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Walks the source tree and dispatches files to {@link ParseService} and {@link GraphWriter}.
+ * Walks the source tree and dispatches files to a {@link LanguageAdapter} and {@link GraphWriter}.
  *
  * <p>Tracks parse and ingest failures independently and returns the total count so {@link
  * IngesterCli} can return a non-zero exit code when any file fails.
@@ -56,23 +51,35 @@ public final class IngestionOrchestrator {
   private final String project;
   private final int threads;
   private final Driver driver;
-  private final ParseService parseService;
+  private final LanguageAdapter languageAdapter;
   private boolean incremental;
 
   /**
-   * @param sourceRoot root directory to walk for {@code .java} files
-   * @param project project name used to scope all graph writes
-   * @param threads number of parallel worker threads (1 = sequential)
-   * @param driver shared Bolt driver — not closed by this orchestrator
+   * @param sourceRoot   root directory to walk for {@code .java} files
+   * @param project      project name used to scope all graph writes
+   * @param threads      number of parallel worker threads (1 = sequential)
+   * @param driver       shared Bolt driver — not closed by this orchestrator
    * @param parseService per-thread parser service
    */
-  public IngestionOrchestrator(
-      Path sourceRoot, String project, int threads, Driver driver, ParseService parseService) {
+  public IngestionOrchestrator(Path sourceRoot, String project, int threads, Driver driver,
+      ParseService parseService) {
+    this(sourceRoot, project, threads, driver, new JavaLanguageAdapter(parseService));
+  }
+
+  /**
+   * @param sourceRoot      root directory to walk
+   * @param project         project name used to scope all graph writes
+   * @param threads         number of parallel worker threads (1 = sequential)
+   * @param driver          shared Bolt driver — not closed by this orchestrator
+   * @param languageAdapter parser and graph writer adapter for the selected language
+   */
+  public IngestionOrchestrator(Path sourceRoot, String project, int threads, Driver driver,
+      LanguageAdapter languageAdapter) {
     this.sourceRoot = sourceRoot;
     this.project = project;
     this.threads = threads;
     this.driver = driver;
-    this.parseService = parseService;
+    this.languageAdapter = languageAdapter;
   }
 
   /**
@@ -85,9 +92,8 @@ public final class IngestionOrchestrator {
     log.info("Proceeding with ingestion, settings: {}", settings);
     this.incremental = settings.incremental();
     if (incremental && (settings.wipeAllData() || settings.wipeProjectCode())) {
-      log.info(
-          "--incremental is incompatible with --wipe-all / --wipe-project-code: wiping removes"
-              + " stored timestamps, so incremental mode will be disabled for this run.");
+      log.info("--incremental is incompatible with --wipe-all / --wipe-project-code: wiping removes"
+          + " stored timestamps, so incremental mode will be disabled for this run.");
       incremental = false;
     }
     try (Session bootstrap = driver.session()) {
@@ -114,13 +120,10 @@ public final class IngestionOrchestrator {
       log.info("Backfilled :Method owner metadata for '{}'", project);
     }
 
-    List<Path> files;
-    try (Stream<Path> walk = Files.walk(sourceRoot)) {
-      files = walk.filter(p -> p.toString().endsWith(".java")).toList();
-    } catch (IOException e) {
-      throw new ProcessingException("Cannot walk source root", e);
-    }
-    log.info("Found {} Java files. Ingesting with {} thread(s).", files.size(), threads);
+    List<Path> files = languageAdapter.discoverFiles(sourceRoot);
+    log.atInfo().setMessage("Found {} {} files. Ingesting with {} thread(s).")
+        .addArgument(files::size).addArgument(languageAdapter::displayName).addArgument(threads)
+        .log();
 
     Map<String, Long> mtimeCache = Map.of();
     if (incremental) {
@@ -178,8 +181,7 @@ public final class IngestionOrchestrator {
             continue;
           }
 
-          @SuppressWarnings("unchecked")
-          WatchEvent<Path> ev = (WatchEvent<Path>) event;
+          @SuppressWarnings("unchecked") WatchEvent<Path> ev = (WatchEvent<Path>) event;
           Path name = ev.context();
           Path child = dir.resolve(name);
 
@@ -187,7 +189,7 @@ public final class IngestionOrchestrator {
             registerRecursive(child, watcher, keys);
           }
 
-          if (child.toString().endsWith(".java")) {
+          if (languageAdapter.accepts(child)) {
             changedFiles.add(child);
           }
         }
@@ -196,8 +198,8 @@ public final class IngestionOrchestrator {
 
           // Debounce: wait a bit for more events (e.g. IDE multiple writes)
           TimeUnit.MILLISECONDS.sleep(500);
-          log.info(
-              "Watch event: detected changes in {} file(s). Re-ingesting...", changedFiles.size());
+          log.info("Watch event: detected changes in {} file(s). Re-ingesting...",
+              changedFiles.size());
           ingestChangedFiles(changedFiles);
         }
 
@@ -234,22 +236,16 @@ public final class IngestionOrchestrator {
 
   private void registerRecursive(Path start, WatchService watcher, Map<WatchKey, Path> keys)
       throws IOException {
-    Files.walkFileTree(
-        start,
-        new SimpleFileVisitor<>() {
-          @Override
-          public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs)
-              throws IOException {
-            WatchKey key =
-                dir.register(
-                    watcher,
-                    StandardWatchEventKinds.ENTRY_CREATE,
-                    StandardWatchEventKinds.ENTRY_DELETE,
-                    StandardWatchEventKinds.ENTRY_MODIFY);
-            keys.put(key, dir);
-            return FileVisitResult.CONTINUE;
-          }
-        });
+    Files.walkFileTree(start, new SimpleFileVisitor<>() {
+      @Override
+      public FileVisitResult preVisitDirectory(@NonNull Path dir, @NonNull BasicFileAttributes attrs)
+          throws IOException {
+        WatchKey key = dir.register(watcher, StandardWatchEventKinds.ENTRY_CREATE,
+            StandardWatchEventKinds.ENTRY_DELETE, StandardWatchEventKinds.ENTRY_MODIFY);
+        keys.put(key, dir);
+        return FileVisitResult.CONTINUE;
+      }
+    });
   }
 
   private int ingestSequential(List<Path> files, Map<String, Long> mtimeCache) {
@@ -273,8 +269,9 @@ public final class IngestionOrchestrator {
   }
 
   /**
-   * Returns {@code true} when incremental mode is active and the file's filesystem {@code
-   * lastModified} matches the value stored in {@code mtimeCache}, meaning no re-ingest is needed.
+   * Returns {@code true} when incremental mode is active and the file's filesystem
+   * {@code lastModified} matches the value stored in {@code mtimeCache}, meaning no re-ingest is
+   * needed.
    */
   private boolean isFileUnchanged(Path file, Map<String, Long> mtimeCache) {
     if (!incremental) {
@@ -323,24 +320,19 @@ public final class IngestionOrchestrator {
   private int ingestParallel(List<Path> files, Map<String, Long> mtimeCache)
       throws InterruptedException {
     CopyOnWriteArrayList<Session> sessions = new CopyOnWriteArrayList<>();
-    ThreadLocal<GraphWriter> threadWriter =
-        ThreadLocal.withInitial(
-            () -> {
-              Session s = driver.session();
-              sessions.add(s);
-              return new GraphWriter(s, project);
-            });
+    ThreadLocal<GraphWriter> threadWriter = ThreadLocal.withInitial(() -> {
+      Session s = driver.session();
+      sessions.add(s);
+      return new GraphWriter(s, project);
+    });
 
     AtomicInteger threadCounter = new AtomicInteger();
-    @SuppressWarnings("java:S2095")
-    ExecutorService pool =
-        Executors.newFixedThreadPool(
-            threads,
-            r -> {
-              Thread t = new Thread(r, "ingester-" + threadCounter.incrementAndGet());
-              t.setDaemon(true);
-              return t;
-            });
+    @SuppressWarnings("java:S2095") ExecutorService pool = Executors.newFixedThreadPool(threads,
+        r -> {
+          Thread t = new Thread(r, "ingester-" + threadCounter.incrementAndGet());
+          t.setDaemon(true);
+          return t;
+        });
 
     AtomicInteger done = new AtomicInteger();
     AtomicInteger failures = new AtomicInteger();
@@ -350,23 +342,22 @@ public final class IngestionOrchestrator {
     try {
       CountDownLatch latch = new CountDownLatch(total);
       for (Path file : files) {
-        pool.submit(
-            () -> {
-              try {
-                if (!ingestFileChecked(threadWriter.get(), file, mtimeCache)) {
-                  failures.incrementAndGet();
-                }
-              } catch (Exception e) {
-                log.warn("Thread failure on {}: {}", file, e.getMessage());
-                failures.incrementAndGet();
-              } finally {
-                int n = done.incrementAndGet();
-                if (n % step == 0 || n == total) {
-                  log.info("Progress: {}/{} files", n, total);
-                }
-                latch.countDown();
-              }
-            });
+        pool.submit(() -> {
+          try {
+            if (!ingestFileChecked(threadWriter.get(), file, mtimeCache)) {
+              failures.incrementAndGet();
+            }
+          } catch (Exception e) {
+            log.warn("Thread failure on {}: {}", file, e.getMessage());
+            failures.incrementAndGet();
+          } finally {
+            int n = done.incrementAndGet();
+            if (n % step == 0 || n == total) {
+              log.info("Progress: {}/{} files", n, total);
+            }
+            latch.countDown();
+          }
+        });
       }
       if (!latch.await(SHUTDOWN_TIMEOUT_MINUTES, TimeUnit.MINUTES)) {
         log.warn("Ingestion did not complete within {} minutes.", SHUTDOWN_TIMEOUT_MINUTES);
@@ -386,11 +377,11 @@ public final class IngestionOrchestrator {
   }
 
   /**
-   * Parses and ingests a single file. In incremental mode, skips files whose filesystem {@code
-   * lastModified} matches the value stored in {@code mtimeCache}.
+   * Parses and ingests a single file. In incremental mode, skips files whose filesystem
+   * {@code lastModified} matches the value stored in {@code mtimeCache}.
    *
    * @param mtimeCache pre-loaded map of path → stored lastModified (populated at run-start when
-   *     incremental is true, otherwise empty)
+   *                   incremental is true, otherwise empty)
    * @return true on success (or skip), false if parsing or graph write fails
    */
   private boolean ingestFileChecked(GraphWriter writer, Path file, Map<String, Long> mtimeCache) {
@@ -402,53 +393,16 @@ public final class IngestionOrchestrator {
   }
 
   /**
-   * Parses a single file, writes all structural nodes, and immediately creates {@code CALLS} edges
-   * inline. Callee nodes that do not yet exist are created as thin placeholder {@code :Method}
-   * nodes (signature + project only); they are upgraded when the callee file is processed, and any
-   * that remain unpopulated after full ingestion (external/JDK callees) are removed by {@link
-   * GraphWriter#deletePhantomMethods()}.
+   * Parses a single file through the selected language adapter and writes all structural nodes.
+   * Java call edges still use placeholder callee nodes that are later upgraded or cleaned up by
+   * {@link GraphWriter#deletePhantomMethods()}; JavaScript call edges are emitted only when the
+   * analyzer can identify an in-project callee signature.
    *
    * @return true on success, false if parsing or graph write fails
    */
   private boolean ingestFile(GraphWriter writer, Path file) {
-    var cuOpt = parseService.parse(file);
-    if (cuOpt.isEmpty()) {
-      return false;
-    }
-    CompilationUnit cu = cuOpt.get();
-    String pkg = cu.getPackageDeclaration().map(pd -> pd.getName().asString()).orElse("");
-    try {
-      log.debug("Ingesting {} (project={})", file, project);
-      writer.upsertFile(file);
-      writer.upsertPackage(pkg);
-      cu.getTypes()
-          .forEach(
-              typeDecl -> {
-                if (typeDecl instanceof ClassOrInterfaceDeclaration ci) {
-                  writer.upsertType(file, pkg, ci);
-                } else if (typeDecl instanceof EnumDeclaration en) {
-                  writer.upsertEnum(file, pkg, en);
-                } else if (typeDecl instanceof RecordDeclaration rec) {
-                  writer.upsertRecord(file, pkg, rec);
-                } else if (typeDecl instanceof AnnotationDeclaration ann) {
-                  writer.upsertAnnotation(file, pkg, ann);
-                }
-              });
-      cu.getTypes()
-          .forEach(
-              typeDecl -> {
-                if (typeDecl instanceof ClassOrInterfaceDeclaration ci) {
-                  writer.upsertTypeCallEdges(pkg, ci);
-                } else if (typeDecl instanceof EnumDeclaration en) {
-                  writer.upsertEnumCallEdges(pkg, en);
-                } else if (typeDecl instanceof RecordDeclaration rec) {
-                  writer.upsertRecordCallEdges(pkg, rec);
-                }
-              });
-      return true;
-    } catch (Exception e) {
-      log.warn("Failed to ingest {}: {}", file, e.getMessage());
-      return false;
-    }
+    log.atDebug().setMessage("Ingesting {} (project={}, language={})").addArgument(file)
+        .addArgument(project).addArgument(languageAdapter::displayName).log();
+    return languageAdapter.ingestFile(writer, file);
   }
 }

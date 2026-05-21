@@ -111,6 +111,7 @@ class CypherResourceTest {
 
     assertTrue(config.contains("io/github/ousatov/tools/memgraph/cypher/.*[.]cypher$"));
     assertTrue(config.contains("simplelogger[.]properties$"));
+    assertTrue(config.contains("io/github/ousatov/tools/memgraph/js/js-analyzer[.]cjs$"));
   }
 
   @Test

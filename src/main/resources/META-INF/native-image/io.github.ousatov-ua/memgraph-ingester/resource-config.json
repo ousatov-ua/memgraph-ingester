@@ -6,6 +6,9 @@
       },
       {
         "pattern": "simplelogger[.]properties$"
+      },
+      {
+        "pattern": "io/github/ousatov/tools/memgraph/js/js-analyzer[.]cjs$"
       }
     ]
   }

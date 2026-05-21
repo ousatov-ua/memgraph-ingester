@@ -9,7 +9,7 @@ Use this order for repository knowledge:
 
 1. **Memgraph** for structure, relationships, memory, and metadata.
 2. **Source files** for line-level detail only.
-3. **grep/glob** for strings, comments, and non-Java resources.
+3. **grep/glob** for strings, comments, templates, and resources not represented in the graph.
 4. **Other tools** only as a last resort.
 
 When Memgraph returns no relevant rows, fall back to text search and state why.
@@ -22,7 +22,7 @@ When Memgraph returns no relevant rows, fall back to text search and state why.
 - **Code changes:** before any code-change task, run Orientation queries for Rules, open Findings, Context, active Tasks, open Questions, and open Risks. Empty results are valid. Skip only if already run in this session.
 - **Multi-step work tracking:** for multi-step implementation, debugging, refactoring, documentation, dependency, test, or coverage work, create/update a `Task` as `doing` before edits, even if you expect to finish in the same response.
 - **Class/interface work:** before touching a class or interface, query its full hierarchy.
-- **Java symbol work:** for investigations involving symbols, fields, methods, callers, implementations, inheritance, annotations, or type usages, query Memgraph before source inspection, filesystem search, IDE/LSP, or runtime introspection.
+- **Symbol work:** for investigations involving symbols, fields, methods, callers, implementations, inheritance, decorators/annotations, imports, exports, or type usages, query Memgraph before source inspection, filesystem search, IDE/LSP, or runtime introspection. JavaScript/TypeScript CALLS edges are best-effort.
 - **Method body reads:** first query `startLine` and `endLine`, then read only that source range.
 - **Task close:** set any task you created or updated to `done`, `blocked`, or `cancelled` before final response and verify it. Also save durable findings/decisions when useful.
 - **Memory lifecycle changes:** immediately update Task/Risk/Question/Decision/ADR/Idea status in Memgraph before proceeding.
@@ -132,12 +132,12 @@ ORDER BY c.fqn, f.name;
 | `:Project`    | `name`                 | -                                                                                                                     |
 | `:Code`       | `project`              | `lastIngested`                                                                                                        |
 | `:Package`    | `(name, project)`      | -                                                                                                                     |
-| `:File`       | `(path, project)`      | `lastModified`                                                                                                        |
-| `:Class`      | `(fqn, project)`       | `name`, `isAbstract`, `isEnum`, `isRecord`, `isFinal`, `isExternal`, `visibility`                                     |
-| `:Interface`  | `(fqn, project)`       | `name`, `visibility`, `isFinal`, `isExternal`                                                                         |
-| `:Annotation` | `(fqn, project)`       | `name`, `visibility`, `isExternal`                                                                                    |
-| `:Method`     | `(signature, project)` | `name`, `ownerFqn`, `ownerDisplayName`, `returnType`, `visibility`, `isStatic`, `startLine`, `endLine`, `isSynthetic` |
-| `:Field`      | `(fqn, project)`       | `name`, `type`, `visibility`, `isStatic`                                                                              |
+| `:File`       | `(path, project)`      | `lastModified`, `language`                                                                                            |
+| `:Class`      | `(fqn, project)`       | `name`, `isAbstract`, `isEnum`, `isRecord`, `isFinal`, `isExternal`, `visibility`, `language`, `kind`, `modulePath`, `framework` |
+| `:Interface`  | `(fqn, project)`       | `name`, `visibility`, `isFinal`, `isExternal`, `language`, `kind`, `modulePath`, `framework`                          |
+| `:Annotation` | `(fqn, project)`       | `name`, `visibility`, `isExternal`, `language`, `kind`, `modulePath`, `framework`                                     |
+| `:Method`     | `(signature, project)` | `name`, `ownerFqn`, `ownerDisplayName`, `returnType`, `visibility`, `isStatic`, `startLine`, `endLine`, `isSynthetic`, `language`, `kind` |
+| `:Field`      | `(fqn, project)`       | `name`, `type`, `visibility`, `isStatic`, `language`, `kind`                                                          |
 
 ### Code Relationships
 
@@ -148,15 +148,21 @@ ORDER BY c.fqn, f.name;
 (:Class)-[:EXTENDS]->(:Class)
 (:Class)-[:IMPLEMENTS]->(:Interface)
 (:Interface)-[:EXTENDS]->(:Interface)
-(:Class|:Interface)-[:DECLARES]->(:Method|:Field)
+(:Class|:Interface|:Annotation)-[:DECLARES]->(:Method|:Field)
 (:Method)-[:CALLS]->(:Method)
 (:*)-[:ANNOTATED_WITH]->(:Annotation)
 ```
 
 ### Query Caveats
 
+- Code graph nodes may have optional `language` (`"java"` or `"javascript"`), `kind`, `modulePath`, and `framework` metadata. Older graphs may not have these properties.
 - `CALLS` has no `project`; filter both endpoints.
 - `CALLS` and `ANNOTATED_WITH` are best-effort; missing edges do not prove no relationship.
+- JavaScript/TypeScript modules are represented as synthetic `:Class` owner nodes with `language = "javascript"` and `kind = "module"`. Top-level functions and variables are declared by that module owner.
+- JavaScript/TypeScript classes reuse `:Class`; TypeScript interfaces and type aliases reuse `:Interface`; decorators reuse `:Annotation` plus `ANNOTATED_WITH`.
+- Angular decorators such as `Component`, `Directive`, `Injectable`, `NgModule`, and `Pipe` may set `framework = "angular"` on the decorated type.
+- JavaScript/TypeScript `CALLS` edges are syntax-only and intra-project best effort. Dynamic dispatch, dependency injection, framework templates, monkey-patching, and generated code can be missing.
+- JavaScript/TypeScript `packageName` values are synthetic path-derived namespaces with a `js.` prefix; they are not npm package names.
 - Fully ingested `Method` nodes store `ownerFqn` and `ownerDisplayName`; prefer those properties for relationship summaries instead of parsing `signature` or traversing `DECLARES`.
 - Placeholder callee `Method` nodes created during call-edge ingestion can lack owner metadata until the callee is ingested; phantom cleanup normally removes unresolved placeholders.
 - External nodes use `isExternal = true`. External interfaces implemented by project classes still have `IMPLEMENTS` edges, but are excluded by internal-interface filters.

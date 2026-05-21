@@ -61,6 +61,52 @@ class IngesterCliTest {
   }
 
   @Test
+  void rejectsUnsupportedLanguageBeforeOpeningDriver() throws IOException {
+    Path sourceDir = Files.createTempDirectory("cli-invalid-language-");
+    try {
+      int exitCode =
+          new CommandLine(new IngesterCli())
+              .execute(
+                  "-s",
+                  sourceDir.toString(),
+                  "-b",
+                  "bolt://127.0.0.1:1",
+                  "-P",
+                  "cli-invalid-language",
+                  "--language",
+                  "ruby");
+
+      assertEquals(1, exitCode);
+    } finally {
+      deleteDir(sourceDir);
+    }
+  }
+
+  @Test
+  void rejectsUnsupportedJsRuntimeModeBeforeOpeningDriver() throws IOException {
+    Path sourceDir = Files.createTempDirectory("cli-invalid-js-runtime-");
+    try {
+      int exitCode =
+          new CommandLine(new IngesterCli())
+              .execute(
+                  "-s",
+                  sourceDir.toString(),
+                  "-b",
+                  "bolt://127.0.0.1:1",
+                  "-P",
+                  "cli-invalid-js-runtime",
+                  "--language",
+                  "js",
+                  "--js-runtime-mode",
+                  "manual");
+
+      assertEquals(1, exitCode);
+    } finally {
+      deleteDir(sourceDir);
+    }
+  }
+
+  @Test
   void returnsZeroForSuccessfulIngestionWithClasspath(MemgraphInstance mg) throws IOException {
     Path sourceDir = Files.createTempDirectory("cli-success-");
     String project = "cli-success-" + UUID.randomUUID();
