@@ -129,9 +129,9 @@ Common memory-to-memory links:
   `:Annotation` and `ANNOTATED_WITH`. TypeScript enums reuse `:Class` with `isEnum = true` and
   `kind = "enum"`. Angular decorators can set `framework = "angular"`.
 - JavaScript/TypeScript class and interface heritage is represented with the shared `EXTENDS` and
-  `IMPLEMENTS` relationships. Relative imports and `tsconfig.json` path aliases that resolve under
-  the ingested source root can point relations at internal type FQNs; unresolved imports fall back
-  to external/simple FQNs.
+  `IMPLEMENTS` relationships. Relative imports and `tsconfig.json` path aliases, including aliases
+  inherited through extended configs, that resolve under the ingested source root can point
+  relations at internal type FQNs; unresolved imports fall back to external/simple FQNs.
 - JavaScript/TypeScript interface members and object-literal type members are emitted as
   `:Field`/`:Method` declarations. Bodyless abstract or optional class method signatures are
   emitted as `:Method` declarations so abstract APIs are visible.
@@ -141,9 +141,9 @@ Common memory-to-memory links:
   inventories and receiver-scoped `CALLS` resolution. They can also appear as `:Field` records
   because the source member is still a class field.
 - JavaScript/TypeScript class expressions assigned to variables are emitted as `:Class` nodes using
-  the variable name. Relative imports and `tsconfig.json` path aliases that resolve to local source
-  files can produce owner/name `CALLS` edges when the target owner has exactly one method with the
-  imported name.
+  the variable name. Relative imports and `tsconfig.json` path aliases, including aliases inherited
+  through extended configs, that resolve to local source files can produce owner/name `CALLS` edges
+  when the target owner has exactly one method with the imported name.
 - JavaScript/TypeScript exported callable aliases such as `export { foo as bar }`,
   `export { foo as bar } from "./mod"`, and `export default foo` are emitted as graph-visible
   declarations for the public export names so deferred owner/name call resolution can match imports

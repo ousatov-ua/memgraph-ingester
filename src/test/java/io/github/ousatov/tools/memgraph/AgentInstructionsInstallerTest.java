@@ -66,6 +66,28 @@ class AgentInstructionsInstallerTest {
   }
 
   @Test
+  void replacesManagedBlockWhenEarlierUserTextMentionsEndMarker() throws IOException {
+    Path target = tempDir.resolve("AGENTS.md");
+    AgentInstructionsInstaller.install(target, "old-project", true);
+    String managedBlock = Files.readString(target);
+    Files.writeString(
+        target,
+        """
+        notes mention <!-- memgraph-ingester:end --> literally
+
+        """
+            + managedBlock);
+
+    AgentInstructionsInstaller.install(target, "new-project", false);
+
+    String content = Files.readString(target);
+    assertTrue(content.contains("notes mention <!-- memgraph-ingester:end --> literally"));
+    assertTrue(content.contains("Repo is indexed in Memgraph as **`new-project`**"));
+    assertFalse(content.contains("old-project"));
+    assertEquals(1, countOccurrences(content, "<!-- memgraph-ingester:start -->"));
+  }
+
+  @Test
   void replacingManagedBlockIsIdempotent() throws IOException {
     Path target = tempDir.resolve("AGENTS.md");
     AgentInstructionsInstaller.install(target, "same-project", false);
@@ -107,10 +129,48 @@ class AgentInstructionsInstallerTest {
   }
 
   @Test
+  void replacesAllLegacyUnmarkedTemplateBlocks() throws IOException {
+    Path target = tempDir.resolve("AGENTS.md");
+    Files.writeString(
+        target,
+        "intro\n\n"
+            + legacyBlock("legacy-one")
+            + "\nmiddle\n\n"
+            + legacyBlock("legacy-two")
+            + "\noutro\n");
+
+    AgentInstructionsInstaller.install(target, "modern-project", false);
+
+    String content = Files.readString(target);
+    assertTrue(content.contains("intro"));
+    assertTrue(content.contains("middle"));
+    assertTrue(content.contains("outro"));
+    assertTrue(content.contains("Repo is indexed in Memgraph as **`modern-project`**"));
+    assertFalse(content.contains("legacy-one"));
+    assertFalse(content.contains("legacy-two"));
+    assertEquals(1, countOccurrences(content, "<!-- memgraph-ingester:start -->"));
+    assertEquals(1, countOccurrences(content, "Repo is indexed in Memgraph as"));
+  }
+
+  @Test
   void resolvesDefaultInstructionFilesByAgent() {
     assertEquals(Path.of("AGENTS.md"), AgentInstructionsInstaller.defaultInstructionFile("codex"));
     assertEquals(Path.of("CLAUDE.md"), AgentInstructionsInstaller.defaultInstructionFile("claude"));
     assertEquals(Path.of("AGENTS.md"), AgentInstructionsInstaller.defaultInstructionFile("github"));
+  }
+
+  private static String legacyBlock(String project) {
+    return """
+    ## Knowledge Graph
+
+    Repo is indexed in Memgraph as **`%s`**. Every query MUST include
+    `project: '%s'`.
+
+    legacy body
+
+    > Memory is not logs. Store only what improves future decisions.
+    """
+        .formatted(project, project);
   }
 
   private static int countOccurrences(String content, String needle) {

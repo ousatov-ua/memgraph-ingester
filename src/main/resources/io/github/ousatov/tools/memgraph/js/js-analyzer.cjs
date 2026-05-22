@@ -1327,13 +1327,22 @@ function loadTsconfigPathMappings(rootDir) {
   if (!configPath) {
     return [];
   }
-  const result = ts.readConfigFile(configPath, ts.sys.readFile);
-  if (result.error || !result.config || !result.config.compilerOptions) {
+  const readResult = ts.readConfigFile(configPath, ts.sys.readFile);
+  if (readResult.error || !readResult.config) {
     return [];
   }
-  const compilerOptions = result.config.compilerOptions;
+  const parsed = ts.parseJsonConfigFileContent(
+    readResult.config,
+    ts.sys,
+    path.dirname(configPath),
+    undefined,
+    configPath
+  );
+  const compilerOptions = parsed.options || {};
   const paths = compilerOptions.paths || {};
-  const baseUrl = path.resolve(path.dirname(configPath), compilerOptions.baseUrl || '.');
+  const baseUrl = path.resolve(
+    compilerOptions.pathsBasePath || compilerOptions.baseUrl || path.dirname(configPath)
+  );
   return Object.entries(paths).map(([pattern, targets]) => ({
     pattern,
     targets: Array.isArray(targets) ? targets : [],
@@ -1343,16 +1352,36 @@ function loadTsconfigPathMappings(rootDir) {
 
 function mappedImportBases(moduleSpecifier) {
   const result = [];
+  const matches = [];
   for (const mapping of tsconfigPathMappings) {
     const matched = matchPathPattern(mapping.pattern, moduleSpecifier);
     if (matched === null) {
       continue;
     }
-    for (const target of mapping.targets) {
-      result.push(path.resolve(mapping.baseUrl, target.replace('*', matched)));
+    matches.push({
+      mapping,
+      matched,
+      prefixLength: pathPatternPrefixLength(mapping.pattern)
+    });
+  }
+  if (matches.length === 0) {
+    return result;
+  }
+  const bestPrefixLength = Math.max(...matches.map(match => match.prefixLength));
+  for (const match of matches) {
+    if (match.prefixLength !== bestPrefixLength) {
+      continue;
+    }
+    for (const target of match.mapping.targets) {
+      result.push(path.resolve(match.mapping.baseUrl, target.replace('*', match.matched)));
     }
   }
   return result;
+}
+
+function pathPatternPrefixLength(pattern) {
+  const starIndex = pattern.indexOf('*');
+  return starIndex < 0 ? pattern.length : starIndex;
 }
 
 function matchPathPattern(pattern, moduleSpecifier) {

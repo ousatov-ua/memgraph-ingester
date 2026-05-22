@@ -326,6 +326,11 @@ public final class IngesterCli implements Callable<Integer> {
       Path underscoredDottedModule = tempDir.resolve("a_b.js");
       Path constructorCall = tempDir.resolve("constructor-call.js");
       Path uninitializedVariable = tempDir.resolve("uninitialized-variable.ts");
+      Path tsconfigBase = tempDir.resolve("tsconfig.base.json");
+      Path tsconfig = tempDir.resolve("tsconfig.json");
+      Path aliasConsumer = tempDir.resolve("alias-consumer.ts");
+      Path specificAliasTarget = tempDir.resolve("src/app/specific.ts");
+      Path broadAliasTarget = tempDir.resolve("src/shared/specific.ts");
       Files.writeString(
           defaultClass,
           """
@@ -370,6 +375,37 @@ public final class IngesterCli implements Callable<Integer> {
             return deferredValue;
           }
           """);
+      Files.writeString(
+          tsconfigBase,
+          """
+          {
+            "compilerOptions": {
+              "baseUrl": ".",
+              "paths": {
+                "@/*": ["src/shared/*"],
+                "@app/*": ["src/app/*"]
+              }
+            }
+          }
+          """);
+      Files.writeString(
+          tsconfig,
+          """
+          {
+            "extends": "./tsconfig.base.json"
+          }
+          """);
+      Files.createDirectories(specificAliasTarget.getParent());
+      Files.createDirectories(broadAliasTarget.getParent());
+      Files.writeString(specificAliasTarget, "export class Base {}\n");
+      Files.writeString(broadAliasTarget, "export class Base {}\n");
+      Files.writeString(
+          aliasConsumer,
+          """
+          import { Base } from '@app/specific';
+
+          export class Derived extends Base {}
+          """);
 
       JsAnalyzer analyzer =
           new JsAnalyzer(
@@ -388,6 +424,7 @@ public final class IngesterCli implements Callable<Integer> {
           analyzer.analyze(underscoredDottedModule),
           "dotted and underscored module FQNs");
       assertConstructorCall(analyzer.analyze(constructorCall));
+      assertTsconfigPathAlias(analyzer.analyze(aliasConsumer));
       analyzer.analyze(uninitializedVariable);
       log.info("JavaScript parser runtime check succeeded using cache {}", cacheRoot);
       return 0;
@@ -421,6 +458,20 @@ public final class IngesterCli implements Callable<Integer> {
                         && call.calleeSignature().endsWith(".Service.<init>(any)"));
     if (!constructorCallFound) {
       throw new ProcessingException("JavaScript constructor call was not parsed correctly");
+    }
+  }
+
+  private static void assertTsconfigPathAlias(JsAnalysis analysis) {
+    boolean specificAliasFound =
+        analysis.relations().stream()
+            .anyMatch(
+                relation ->
+                    "classExtends".equals(relation.kind())
+                        && relation.childFqn().endsWith(".alias$2d$consumer$2e$ts.Derived")
+                        && "js.src.app.specific$2e$ts.Base".equals(relation.targetFqn()));
+    if (!specificAliasFound) {
+      throw new ProcessingException(
+          "TypeScript extended tsconfig path alias was not resolved to the most specific target");
     }
   }
 

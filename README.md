@@ -348,8 +348,8 @@ Accepted source extensions:
 
 Only source files under `--source` are considered. Use the repository root as `--source` when you
 want root JavaScript config files or support scripts indexed alongside application source.
-`tsconfig*.json` files are read for TypeScript path aliases when present, but they are not indexed
-as code nodes.
+`tsconfig.json` and configs from its `extends` chain are read for TypeScript path aliases when
+present, but they are not indexed as code nodes.
 
 Skipped paths:
 
@@ -361,7 +361,8 @@ Captured JS/TS structure:
 - Classes and class expressions assigned to variables.
 - Interfaces and type aliases as graph interfaces.
 - Class/interface `EXTENDS` and class `IMPLEMENTS` relationships, including relative imports and
-  `tsconfig.json` path aliases that resolve under `--source`.
+  `tsconfig.json` path aliases, including those inherited from extended configs, that resolve under
+  `--source`.
 - Interface and object-literal type members as `:Field`/`:Method` declarations.
 - TypeScript enums as graph classes with `isEnum = true` and `kind = "enum"`, with enum members as
   `:Field` declarations using `kind = "enum-member"`.
@@ -374,8 +375,8 @@ Captured JS/TS structure:
 - Angular decorators with framework metadata when detected.
 - Syntax-based best-effort call edges, including top-level IIFEs/callbacks, local function
   constructors, and deferred resolution for resolvable relative imports.
-- Relative import and `tsconfig.json` path-alias resolution prefers TypeScript source files over
-  emitted JavaScript when both exist for the same local module path.
+- Relative import and `tsconfig.json` path-alias resolution, including extended configs, prefers
+  TypeScript source files over emitted JavaScript when both exist for the same local module path.
 
 Runtime modes:
 

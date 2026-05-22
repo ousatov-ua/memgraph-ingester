@@ -65,9 +65,9 @@ final class AgentInstructionsInstaller {
 
   private static String replaceManagedBlock(String existing, String block) {
     int start = existing.indexOf(START_MARKER);
-    int end = existing.indexOf(END_MARKER);
-    if (start >= 0 || end >= 0) {
-      if (start < 0 || end < start) {
+    if (start >= 0) {
+      int end = existing.indexOf(END_MARKER, start + START_MARKER.length());
+      if (end < 0) {
         throw new IllegalStateException("Found incomplete memgraph-ingester instruction markers");
       }
       int afterEnd = skipFollowingLineBreak(existing, end + END_MARKER.length());
@@ -76,13 +76,24 @@ final class AgentInstructionsInstaller {
 
     Matcher legacyMatcher = LEGACY_TEMPLATE_BLOCK.matcher(existing);
     if (legacyMatcher.find()) {
-      return legacyMatcher.replaceFirst(Matcher.quoteReplacement(block));
+      return replaceLegacyTemplateBlocks(legacyMatcher, block);
     }
 
     if (existing.isBlank()) {
       return block;
     }
     return existing.stripTrailing() + System.lineSeparator() + System.lineSeparator() + block;
+  }
+
+  private static String replaceLegacyTemplateBlocks(Matcher legacyMatcher, String block) {
+    StringBuffer updated = new StringBuffer();
+    boolean inserted = false;
+    do {
+      legacyMatcher.appendReplacement(updated, inserted ? "" : Matcher.quoteReplacement(block));
+      inserted = true;
+    } while (legacyMatcher.find());
+    legacyMatcher.appendTail(updated);
+    return updated.toString();
   }
 
   private static int skipFollowingLineBreak(String content, int offset) {
