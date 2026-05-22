@@ -133,15 +133,17 @@ Common memory-to-memory links:
 - JavaScript/TypeScript class expressions assigned to variables are emitted as `:Class` nodes using
   the variable name. Relative imports that resolve to local source files can produce owner/name
   `CALLS` edges when the target owner has exactly one method with the imported name.
-- JavaScript/TypeScript exported and re-exported callable aliases such as `export { foo as bar }`,
+- JavaScript/TypeScript exported callable aliases such as `export { foo as bar }`,
   `export { foo as bar } from "./mod"`, and `export default foo` are emitted as graph-visible
   declarations for the public export names so deferred owner/name call resolution can match imports
-  by exported name.
+  by exported name. Class re-export aliases are emitted as `:Class` nodes with constructor
+  declarations so `new X()` imports from barrel modules can resolve through the alias.
 - JavaScript/TypeScript namespace-qualified decorators preserve the namespace in the annotation FQN
   when the namespace import can be identified.
 - `CALLS` edges only connect methods within the same project. External library calls are dropped to avoid phantom nodes. JavaScript/TypeScript owner/name calls that cross file-order boundaries are first stored as `:PendingCall` records, then resolved after the ingestion batch when the target owner declares exactly one method with that name. Unresolved or ambiguous pending calls can remain until a later ingestion supplies a unique target; pending calls for a reingested JS/TS file are cleared before the file's current calls are stored.
-- JavaScript/TypeScript `CALLS` edges are syntax-only best effort. Dynamic dispatch, framework
-  templates, dependency injection, monkey-patching, and generated code can be missing.
+- JavaScript/TypeScript `CALLS` edges are syntax-only best effort. Top-level IIFEs/callbacks and
+  local function constructors are handled, but dynamic dispatch, framework templates, dependency
+  injection, monkey-patching, and generated code can be missing.
 - **External / phantom nodes.** When a class extends or implements an external type, the parent node is created with `isExternal = true`. Its `name` and `packageName` are inferred from the FQN. External annotations (those not defined in the ingested source tree) are also marked `isExternal = true`. Project-internal nodes always have `isExternal = false`. Use `WHERE NOT n.isExternal` to exclude external types from queries.
 - Memory relationships are conventional, not constrained by DDL. Agents should keep memory scoped with `project` and link memory to `:CodeRef`, not directly to code nodes.
 

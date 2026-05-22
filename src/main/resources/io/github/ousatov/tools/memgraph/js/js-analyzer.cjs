@@ -49,6 +49,7 @@ const namespaceImports = collectNamespaceImports(sourceFile);
 const topLevelFunctionsByName = new Map();
 const topLevelClassesByName = new Map();
 const emittedExportAliases = new Set();
+const exportModelsByModulePath = new Map();
 
 write({
   record: 'module',
@@ -64,7 +65,7 @@ sourceFile.statements.forEach(collectDeclaration);
 sourceFile.statements.forEach(collectExportBinding);
 sourceFile.statements.forEach(statement => {
   if (!isDeclarationWithOwnCallableScope(statement)) {
-    collectCalls(statement, moduleSignature, moduleFqn, false);
+    collectCalls(statement, moduleSignature, moduleFqn, true);
   }
 });
 for (const item of callables) {
@@ -273,7 +274,8 @@ function collectExportDeclarationAliases(node) {
 }
 
 function collectReExportAlias(moduleSpecifier, importedName, exportedName, element) {
-  const targetModuleFqn = localImportedModuleFqn(moduleSpecifier);
+  const targetModulePath = resolveLocalModulePath(moduleSpecifier);
+  const targetModuleFqn = targetModulePath ? moduleFqnForModulePath(targetModulePath) : '';
   if (!targetModuleFqn || !importedName || !exportedName) {
     return;
   }
@@ -282,6 +284,11 @@ function collectReExportAlias(moduleSpecifier, importedName, exportedName, eleme
     return;
   }
   emittedExportAliases.add(key);
+  const classModel = exportedClassModel(targetModulePath, importedName);
+  if (classModel) {
+    writeReExportClassAlias(exportedName, element, classModel);
+    return;
+  }
   const signature = buildSignature(moduleFqn, exportedName, []);
   const range = lineRange(element);
   write({
@@ -298,6 +305,195 @@ function collectReExportAlias(moduleSpecifier, importedName, exportedName, eleme
   });
   addScopedDeclaration(moduleFqn, exportedName, signature, false);
   writeCall(signature, { ownerFqn: targetModuleFqn, name: importedName });
+}
+
+function writeReExportClassAlias(exportedName, element, targetModel) {
+  const aliasFqn = `${moduleFqn}.${exportedName}`;
+  const range = lineRange(element);
+  write({
+    record: 'type',
+    kind: 'class',
+    fqn: aliasFqn,
+    name: exportedName,
+    framework: '',
+    hasConstructor: targetModel.constructors.length > 0,
+    startLine: range.start,
+    endLine: range.end
+  });
+  if (targetModel.constructors.length === 0) {
+    writeCall(`${aliasFqn}.<init>()`, { ownerFqn: targetModel.fqn, name: '<init>' });
+    return;
+  }
+  for (const constructor of targetModel.constructors) {
+    const signature = buildSignatureFromTypes(aliasFqn, '<init>', constructor.paramTypes);
+    write({
+      record: 'member',
+      ownerFqn: aliasFqn,
+      memberType: 'method',
+      kind: 'reexport-constructor',
+      key: signature,
+      name: '<init>',
+      dataType: 'any',
+      isStatic: false,
+      startLine: range.start,
+      endLine: range.end
+    });
+    addScopedDeclaration(aliasFqn, '<init>', signature, false);
+    writeCall(signature, { ownerFqn: targetModel.fqn, name: '<init>' });
+  }
+}
+
+function exportedClassModel(targetModulePath, exportedName, seen = new Set()) {
+  if (!targetModulePath || !exportedName || seen.has(targetModulePath)) {
+    return null;
+  }
+  return exportedClassModels(targetModulePath, seen).get(exportedName) || null;
+}
+
+function exportedClassModels(targetModulePath, seen = new Set()) {
+  if (exportModelsByModulePath.has(targetModulePath)) {
+    return exportModelsByModulePath.get(targetModulePath);
+  }
+  if (seen.has(targetModulePath)) {
+    return new Map();
+  }
+  seen.add(targetModulePath);
+  const exported = new Map();
+  const targetModuleFqn = moduleFqnForModulePath(targetModulePath);
+  let targetSourceFile;
+  try {
+    const targetFile = path.resolve(root, targetModulePath);
+    targetSourceFile = ts.createSourceFile(
+      targetFile,
+      fs.readFileSync(targetFile, 'utf8'),
+      ts.ScriptTarget.Latest,
+      true,
+      scriptKind(targetFile)
+    );
+  } catch (_) {
+    exportModelsByModulePath.set(targetModulePath, exported);
+    seen.delete(targetModulePath);
+    return exported;
+  }
+
+  const localClassShapes = new Map();
+  for (const statement of targetSourceFile.statements) {
+    if (ts.isClassDeclaration(statement) && statement.name) {
+      localClassShapes.set(statement.name.text, classShape(statement, targetSourceFile));
+    } else if (ts.isVariableStatement(statement)) {
+      collectLocalClassExpressionShapes(statement, targetSourceFile, localClassShapes);
+    }
+  }
+
+  for (const statement of targetSourceFile.statements) {
+    if (ts.isClassDeclaration(statement)) {
+      collectExportedClassDeclaration(statement, targetModuleFqn, targetSourceFile, exported);
+    } else if (ts.isVariableStatement(statement) && hasModifier(statement, ts.SyntaxKind.ExportKeyword)) {
+      collectExportedClassExpressionShapes(statement, targetModuleFqn, targetSourceFile, exported);
+    } else if (ts.isExportAssignment(statement)) {
+      collectExportedClassAssignment(statement, targetModuleFqn, targetSourceFile, localClassShapes, exported);
+    } else if (ts.isExportDeclaration(statement)) {
+      collectExportedClassAliases(statement, targetModulePath, targetModuleFqn, localClassShapes, exported, seen);
+    }
+  }
+
+  exportModelsByModulePath.set(targetModulePath, exported);
+  seen.delete(targetModulePath);
+  return exported;
+}
+
+function collectLocalClassExpressionShapes(statement, sf, target) {
+  for (const decl of statement.declarationList.declarations) {
+    if (ts.isIdentifier(decl.name) && ts.isClassExpression(decl.initializer)) {
+      target.set(decl.name.text, classShape(decl.initializer, sf));
+    }
+  }
+}
+
+function collectExportedClassDeclaration(statement, targetModuleFqn, sf, exported) {
+  if (isDefaultExport(statement)) {
+    exported.set('default', classModel(targetModuleFqn, 'default', classShape(statement, sf)));
+    return;
+  }
+  if (statement.name && hasModifier(statement, ts.SyntaxKind.ExportKeyword)) {
+    const name = statement.name.text;
+    exported.set(name, classModel(targetModuleFqn, name, classShape(statement, sf)));
+  }
+}
+
+function collectExportedClassExpressionShapes(statement, targetModuleFqn, sf, exported) {
+  for (const decl of statement.declarationList.declarations) {
+    if (ts.isIdentifier(decl.name) && ts.isClassExpression(decl.initializer)) {
+      const name = decl.name.text;
+      exported.set(name, classModel(targetModuleFqn, name, classShape(decl.initializer, sf)));
+    }
+  }
+}
+
+function collectExportedClassAssignment(statement, targetModuleFqn, sf, localClassShapes, exported) {
+  if (statement.isExportEquals) {
+    return;
+  }
+  const expression = unwrapExpression(statement.expression);
+  if (ts.isClassExpression(expression)) {
+    exported.set('default', classModel(targetModuleFqn, 'default', classShape(expression, sf)));
+  } else if (ts.isIdentifier(expression)) {
+    const shape = localClassShapes.get(expression.text);
+    if (shape) {
+      exported.set('default', classModel(targetModuleFqn, 'default', shape));
+    }
+  }
+}
+
+function collectExportedClassAliases(
+  statement,
+  targetModulePath,
+  targetModuleFqn,
+  localClassShapes,
+  exported,
+  seen
+) {
+  if (!statement.exportClause || !ts.isNamedExports(statement.exportClause)) {
+    return;
+  }
+  for (const element of statement.exportClause.elements) {
+    const localName = element.propertyName ? element.propertyName.text : element.name.text;
+    const exportedName = element.name.text;
+    if (statement.moduleSpecifier && ts.isStringLiteral(statement.moduleSpecifier)) {
+      const nestedPath = resolveLocalModulePath(
+        statement.moduleSpecifier.text,
+        path.dirname(targetModulePath)
+      );
+      const nestedModel = exportedClassModel(nestedPath, localName, seen);
+      if (nestedModel) {
+        exported.set(exportedName, classModel(targetModuleFqn, exportedName, nestedModel));
+      }
+      continue;
+    }
+    const shape = localClassShapes.get(localName);
+    if (shape) {
+      exported.set(exportedName, classModel(targetModuleFqn, exportedName, shape));
+    }
+  }
+}
+
+function classShape(node, sf) {
+  const constructors = [];
+  for (const member of node.members || []) {
+    if (ts.isConstructorDeclaration(member) && member.body) {
+      constructors.push({
+        paramTypes: Array.from(member.parameters || []).map(parameter => typeText(parameter.type, sf))
+      });
+    }
+  }
+  return { constructors };
+}
+
+function classModel(targetModuleFqn, exportedName, shape) {
+  return {
+    fqn: `${targetModuleFqn}.${exportedName}`,
+    constructors: shape.constructors
+  };
 }
 
 function collectExportAlias(localName, exportedName) {
@@ -470,6 +666,10 @@ function constructorCalleeFor(expr) {
   }
   const ownerFqn = classesByName.get(target.text);
   if (!ownerFqn) {
+    const constructorFunction = uniqueDeclaration(target.text);
+    if (constructorFunction) {
+      return constructorFunction;
+    }
     const imported = importedNames.get(target.text);
     return imported
       ? { ownerFqn: `${imported.moduleFqn}.${imported.importedName}`, name: '<init>' }
@@ -730,16 +930,20 @@ function isNamedModuleImport(statement) {
 }
 
 function buildSignature(ownerFqn, name, params) {
-  return `${ownerFqn}.${name}(${Array.from(params).map(p => typeText(p.type)).join(', ')})`;
+  return buildSignatureFromTypes(ownerFqn, name, Array.from(params).map(p => typeText(p.type)));
 }
 
-function typeText(typeNode) {
-  return typeNode ? typeNode.getText(sourceFile).replace(/\s+/g, ' ') : 'any';
+function buildSignatureFromTypes(ownerFqn, name, paramTypes) {
+  return `${ownerFqn}.${name}(${paramTypes.join(', ')})`;
 }
 
-function lineRange(node) {
-  const start = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
-  const end = sourceFile.getLineAndCharacterOfPosition(node.getEnd()).line + 1;
+function typeText(typeNode, sf = sourceFile) {
+  return typeNode ? typeNode.getText(sf).replace(/\s+/g, ' ') : 'any';
+}
+
+function lineRange(node, sf = sourceFile) {
+  const start = sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1;
+  const end = sf.getLineAndCharacterOfPosition(node.getEnd()).line + 1;
   return { start, end };
 }
 
@@ -853,16 +1057,16 @@ function encodeIdentityChar(char) {
   return /^[A-Za-z0-9]$/.test(char) ? char : `$${char.codePointAt(0).toString(16)}$`;
 }
 
-function localImportedModuleFqn(moduleSpecifier) {
+function localImportedModuleFqn(moduleSpecifier, fromDir = moduleDir) {
   if (!moduleSpecifier.startsWith('.')) {
     return '';
   }
-  const resolved = resolveLocalModulePath(moduleSpecifier);
+  const resolved = resolveLocalModulePath(moduleSpecifier, fromDir);
   return resolved ? moduleFqnForModulePath(resolved) : '';
 }
 
-function resolveLocalModulePath(moduleSpecifier) {
-  const importBase = path.resolve(root, moduleDir, moduleSpecifier);
+function resolveLocalModulePath(moduleSpecifier, fromDir = moduleDir) {
+  const importBase = path.resolve(root, fromDir, moduleSpecifier);
   const candidates = [];
   if (path.extname(importBase)) {
     for (const candidate of explicitSourceCandidates(importBase)) {
