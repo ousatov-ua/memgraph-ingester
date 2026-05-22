@@ -80,6 +80,7 @@ public final class JsAnalyzer {
     int startLine = 1;
     int endLine = 1;
     List<JsAnalysis.TypeDecl> types = new ArrayList<>();
+    List<JsAnalysis.RelationDecl> relations = new ArrayList<>();
     List<JsAnalysis.MemberDecl> members = new ArrayList<>();
     List<JsAnalysis.AnnotationDecl> annotations = new ArrayList<>();
     List<JsAnalysis.CallDecl> calls = new ArrayList<>();
@@ -103,8 +104,13 @@ public final class JsAnalyzer {
                     value(obj, "name"),
                     value(obj, "framework"),
                     booleanValue(obj, "hasConstructor"),
+                    booleanValue(obj, "isAbstract"),
                     intValue(obj, "startLine"),
                     intValue(obj, "endLine")));
+        case "relation" ->
+            relations.add(
+                new JsAnalysis.RelationDecl(
+                    value(obj, "kind"), value(obj, "childFqn"), value(obj, "targetFqn")));
         case "member" ->
             members.add(
                 new JsAnalysis.MemberDecl(
@@ -145,6 +151,7 @@ public final class JsAnalyzer {
         startLine,
         endLine,
         List.copyOf(types),
+        List.copyOf(relations),
         List.copyOf(members),
         List.copyOf(annotations),
         List.copyOf(calls));

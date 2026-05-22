@@ -569,7 +569,8 @@ class GraphWriterIT {
     writer.upsertFile(jsFile, SourceLanguage.JAVASCRIPT.graphName());
     writer.upsertPackage(pkg);
 
-    writer.upsertJavascriptClass(jsFile, pkg, fqn, "Service", "app/service.js", "", false, 1, 1);
+    writer.upsertJavascriptClass(
+        jsFile, pkg, fqn, "Service", "app/service.js", "", false, false, 1, 1);
 
     var row =
         session
@@ -591,7 +592,8 @@ class GraphWriterIT {
     writer.upsertFile(jsFile, SourceLanguage.JAVASCRIPT.graphName());
     writer.upsertPackage(pkg);
 
-    writer.upsertJavascriptClass(jsFile, pkg, fqn, "Service", "app/service.js", "", true, 1, 3);
+    writer.upsertJavascriptClass(
+        jsFile, pkg, fqn, "Service", "app/service.js", "", false, true, 1, 3);
     writer.upsertJavascriptMethod(
         fqn, fqn + ".<init>(any)", "<init>", "void", false, 2, 2, "constructor");
 
@@ -643,6 +645,98 @@ class GraphWriterIT {
   }
 
   @Test
+  void upsertJavascriptClassWritesAbstractMetadataAndTypeRelations() {
+    Path tsFile = Path.of("/tmp/test-gw/src/app/user.service.ts");
+    String pkg = "js.app";
+    String fqn = "js.app.user$2e$service$2e$ts.UserService";
+    writer.upsertFile(tsFile, SourceLanguage.JAVASCRIPT.graphName());
+    writer.upsertPackage(pkg);
+
+    writer.upsertJavascriptClass(
+        tsFile, pkg, fqn, "UserService", "app/user.service.ts", "angular", true, false, 1, 5);
+    writer.upsertJavascriptExtendsClass(fqn, "js.app.base$2e$service$2e$ts.BaseService");
+    writer.upsertJavascriptImplements(fqn, "@angular/core.OnInit");
+
+    var row =
+        session
+            .run(
+                "MATCH (c:Class {fqn: $fqn, project: $p}) "
+                    + "MATCH (c)-[:EXTENDS]->(parent:Class) "
+                    + "MATCH (c)-[:IMPLEMENTS]->(iface:Interface) "
+                    + "RETURN c.isAbstract AS isAbstract, c.framework AS framework, "
+                    + "parent.fqn AS parent, iface.fqn AS iface",
+                Map.of("fqn", fqn, "p", PROJECT))
+            .single();
+
+    assertTrue(row.get("isAbstract").asBoolean());
+    assertEquals("angular", row.get("framework").asString());
+    assertEquals("js.app.base$2e$service$2e$ts.BaseService", row.get("parent").asString());
+    assertEquals("@angular/core.OnInit", row.get("iface").asString());
+  }
+
+  @Test
+  void upsertJavascriptInterfaceWritesMembersAndExtendsRelation() {
+    Path tsFile = Path.of("/tmp/test-gw/src/app/repository.interface.ts");
+    String pkg = "js.app";
+    String fqn = "js.app.repository$2e$interface$2e$ts.Repository";
+    writer.upsertFile(tsFile, SourceLanguage.JAVASCRIPT.graphName());
+    writer.upsertPackage(pkg);
+
+    writer.upsertJavascriptInterface(
+        tsFile, pkg, fqn, "Repository", "interface", "app/repository.interface.ts", "");
+    writer.upsertJavascriptInterfaceExtends(fqn, "js.app.base$2e$interface$2e$ts.RepositoryBase");
+    writer.upsertJavascriptField(
+        fqn,
+        fqn + "#pendingItemsCount",
+        "pendingItemsCount",
+        "number",
+        false,
+        "interface-property");
+    writer.upsertJavascriptMethod(
+        fqn, fqn + ".save(Repository)", "save", "void", false, 3, 3, "interface-method");
+
+    var row =
+        session
+            .run(
+                "MATCH (i:Interface {fqn: $fqn, project: $p}) "
+                    + "MATCH (i)-[:EXTENDS]->(parent:Interface) "
+                    + "OPTIONAL MATCH (i)-[:DECLARES]->(f:Field) "
+                    + "OPTIONAL MATCH (i)-[:DECLARES]->(m:Method) "
+                    + "WITH parent.fqn AS parent, count(DISTINCT f) AS fields, "
+                    + "count(DISTINCT m) AS methods "
+                    + "RETURN parent, fields, methods",
+                Map.of("fqn", fqn, "p", PROJECT))
+            .single();
+
+    assertEquals("js.app.base$2e$interface$2e$ts.RepositoryBase", row.get("parent").asString());
+    assertEquals(1, row.get("fields").asLong());
+    assertEquals(1, row.get("methods").asLong());
+  }
+
+  @Test
+  void upsertJavascriptEnumWritesMemberFields() {
+    Path tsFile = Path.of("/tmp/test-gw/src/app/tabs.enum.ts");
+    String pkg = "js.app";
+    String fqn = "js.app.tabs$2e$enum$2e$ts.TabsEnum";
+    writer.upsertFile(tsFile, SourceLanguage.JAVASCRIPT.graphName());
+    writer.upsertPackage(pkg);
+
+    writer.upsertJavascriptEnum(tsFile, pkg, fqn, "TabsEnum", "app/tabs.enum.ts", 1, 4);
+    writer.upsertJavascriptField(fqn, fqn + "#VIEW", "VIEW", fqn, true, "enum-member");
+    writer.upsertJavascriptField(fqn, fqn + "#PENDING", "PENDING", fqn, true, "enum-member");
+
+    List<String> fieldNames =
+        session
+            .run(
+                "MATCH (:Class {fqn: $fqn, project: $p})-[:DECLARES]->(f:Field) "
+                    + "RETURN f.name AS name ORDER BY name",
+                Map.of("fqn", fqn, "p", PROJECT))
+            .list(row -> row.get("name").asString());
+
+    assertEquals(List.of("PENDING", "VIEW"), fieldNames);
+  }
+
+  @Test
   void deleteStaleJavascriptDefinitionsForFileRemovesLegacyModuleOwners() {
     Path tsFile = Path.of("/tmp/test-gw/src/app-dir/app.component.ts");
     String currentPkg = "js.app$2d$dir";
@@ -663,6 +757,7 @@ class GraphWriterIT {
         "AppComponent",
         "app-dir/app.component.ts",
         "angular",
+        false,
         false,
         1,
         3);
@@ -842,7 +937,7 @@ class GraphWriterIT {
                 Map.of("fqn", "com.example.Status", "p", PROJECT))
             .list(r -> r.get("n").asString());
 
-    assertEquals(List.of("label"), fieldNames);
+    assertEquals(List.of("ACTIVE", "INACTIVE", "label"), fieldNames);
   }
 
   @Test

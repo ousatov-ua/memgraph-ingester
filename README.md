@@ -346,8 +346,10 @@ Accepted source extensions:
 - `.mjs`
 - `.cjs`
 
-Only files under `--source` are considered. Use the repository root as `--source` when you want
-root config files or support scripts indexed alongside application source.
+Only source files under `--source` are considered. Use the repository root as `--source` when you
+want root JavaScript config files or support scripts indexed alongside application source.
+`tsconfig.json` and configs from its `extends` chain are read for TypeScript path aliases when
+present, but they are not indexed as code nodes.
 
 Skipped paths:
 
@@ -358,17 +360,23 @@ Captured JS/TS structure:
 - Files and synthetic module owners.
 - Classes and class expressions assigned to variables.
 - Interfaces and type aliases as graph interfaces.
-- TypeScript enums as graph classes with `isEnum = true` and `kind = "enum"`.
+- Class/interface `EXTENDS` and class `IMPLEMENTS` relationships, including relative imports and
+  `tsconfig.json` path aliases, including those inherited from extended configs, that resolve under
+  `--source`.
+- Interface and object-literal type members as `:Field`/`:Method` declarations.
+- TypeScript enums as graph classes with `isEnum = true` and `kind = "enum"`, with enum members as
+  `:Field` declarations using `kind = "enum-member"`.
 - Top-level functions and variables under the module owner.
 - Exported callable aliases and class re-export aliases as graph-visible declarations for their
   public export names.
-- Methods, constructors, function-valued class fields, fields, static flags, line ranges, and kinds.
+- Methods, constructors, function-valued class fields, fields, abstract class metadata, bodyless
+  abstract/optional method signatures, static flags, line ranges, and kinds.
 - Decorators as annotations, preserving namespace-qualified decorator FQNs when possible.
 - Angular decorators with framework metadata when detected.
 - Syntax-based best-effort call edges, including top-level IIFEs/callbacks, local function
   constructors, and deferred resolution for resolvable relative imports.
-- Relative import resolution prefers TypeScript source files over emitted JavaScript when both exist
-  for the same local module path.
+- Relative import and `tsconfig.json` path-alias resolution, including extended configs, prefers
+  TypeScript source files over emitted JavaScript when both exist for the same local module path.
 
 Runtime modes:
 
@@ -410,46 +418,49 @@ edge does not prove a call never happens.
 ## Agent Setup
 
 The graph is useful directly, but it becomes much more powerful when your agent is told to use it.
-This repository ships setup scripts that append project-scoped Memgraph instructions to the agent's
-local instruction file.
+The executable can write project-scoped Memgraph instructions to the agent's local instruction file.
+It replaces its own previously managed block when one already exists, so rerunning the command keeps
+`AGENTS.md`, `CLAUDE.md`, or another instruction file tidy.
 
-Run the script from the repo you just ingested, using the same `--project` value.
+Run the command from the repo you just ingested, using the same `--project` value.
 
-### Claude
-
-```bash
-curl -s https://raw.githubusercontent.com/ousatov-ua/memgraph-ingester/refs/heads/main/script/init-memgraph-claude.sh \
-  | bash -s -- my-project
-```
-
-Writes to `CLAUDE.md`.
-
-### Codex
+Code graph guidance is installed by default:
 
 ```bash
-curl -s https://raw.githubusercontent.com/ousatov-ua/memgraph-ingester/refs/heads/main/script/init-memgraph-codex.sh \
-  | bash -s -- my-project
+memgraph-ingester --init-instructions -P my-project
+memgraph-ingester -P my-project --instructions-agent codex
 ```
 
-Writes to `AGENTS.md`.
-
-### Gemini
+Add optional Memory workflow instructions when you want agents to create and maintain durable
+Memgraph Memories:
 
 ```bash
-curl -s https://raw.githubusercontent.com/ousatov-ua/memgraph-ingester/refs/heads/main/script/init-memgraph-gemini.sh \
-  | bash -s -- my-project
+memgraph-ingester --init-instructions -P my-project --with-memories
+memgraph-ingester -P my-project --instructions-agent codex --with-memories
 ```
 
-Writes to `AGENTS.md`.
-
-### GitHub Copilot
+Agent presets choose the default target file:
 
 ```bash
-curl -s https://raw.githubusercontent.com/ousatov-ua/memgraph-ingester/refs/heads/main/script/init-memgraph-github.sh \
-  | bash -s -- my-project
+memgraph-ingester --init-instructions -P my-project --instructions-agent codex
+memgraph-ingester --init-instructions -P my-project --instructions-agent claude
+memgraph-ingester --init-instructions -P my-project --instructions-agent gemini
+memgraph-ingester --init-instructions -P my-project --instructions-agent github
 ```
 
-Writes to `AGENTS.md`.
+When `--instructions-agent` is present, `--init-instructions` is optional.
+
+Use `--instructions-file` to target a specific file:
+
+```bash
+memgraph-ingester -P my-project --instructions-file .github/copilot-instructions.md
+```
+
+The legacy helper scripts now delegate to the executable and accept the same optional flags:
+
+```bash
+MEMGRAPH_INGESTER_BIN=./memgraph-ingester-macos-arm64 script/init-memgraph-codex.sh my-project --with-memories
+```
 
 Commit the updated instruction file so future agent sessions get the same graph guidance.
 
@@ -612,6 +623,10 @@ Options:
 | `--js-node-version` |  | no | `22.11.0` | Pinned Node.js version for managed JS/TS parsing. |
 | `--js-typescript-version` |  | no | `5.6.3` | Pinned TypeScript compiler package version. A leading `v` is accepted. |
 | `--check-js-runtime` |  | no | `false` | Run a local JS runtime smoke check without connecting to Memgraph. |
+| `--init-instructions` |  | no | `false` | Write or replace managed agent instructions and exit. Includes Code guidance by default. |
+| `--instructions-agent` |  | no | `codex` | Agent preset: `codex`, `claude`, `gemini`, `github`, or `copilot`. Implies `--init-instructions` when explicitly provided. |
+| `--instructions-file` |  | no | preset file | Instruction file to update. Overrides `--instructions-agent` and implies `--init-instructions`. |
+| `--with-memories` |  | no | `false` | Include optional Memory workflow instructions when initializing agents. |
 | `--help` |  | no |  | Print CLI help. |
 | `--version` |  | no |  | Print CLI version. |
 
@@ -783,12 +798,13 @@ RETURN labels(memory), memory.id, memory.title;
 ├── schema/
 │   └── SCHEMA.md                               # Full code + memory graph schema reference
 ├── script/
-│   ├── init-memgraph-claude.sh                 # Injects Memgraph instructions for Claude
-│   ├── init-memgraph-codex.sh                  # Injects Memgraph instructions for Codex
-│   ├── init-memgraph-gemini.sh                 # Injects Memgraph instructions for Gemini
-│   ├── init-memgraph-github.sh                 # Injects Memgraph instructions for GitHub Copilot
+│   ├── init-memgraph-claude.sh                 # Delegates Claude instruction setup to executable
+│   ├── init-memgraph-codex.sh                  # Delegates Codex instruction setup to executable
+│   ├── init-memgraph-gemini.sh                 # Delegates Gemini instruction setup to executable
+│   ├── init-memgraph-github.sh                 # Delegates GitHub instruction setup to executable
 │   └── mgq                                     # Token-light mgconsole query wrapper
 ├── src/main/java/io/github/ousatov/tools/memgraph/
+│   ├── AgentInstructionsInstaller.java         # Agent instruction install/replace support
 │   ├── IngesterCli.java                        # picocli CLI entry point
 │   ├── def/
 │   │   └── Const.java                          # Shared parameter, label, and Cypher resource names
@@ -833,7 +849,8 @@ RETURN labels(memory), memory.id, memory.title;
 │   ├── exe/                                    # Parser, writer, orchestrator, and memory ITs
 │   └── ...                                     # CLI, schema, resource, and exception tests
 ├── template/
-│   └── AI-memgraph-template.md                 # Shared agent-instruction template
+│   ├── AI-memgraph-code-template.md            # Default code graph agent instructions
+│   └── AI-memgraph-memory-template.md          # Optional Memory workflow agent instructions
 ├── LICENSE
 ├── pom.xml                                     # Maven build, release, and native-image configuration
 └── README.md                                   # User documentation

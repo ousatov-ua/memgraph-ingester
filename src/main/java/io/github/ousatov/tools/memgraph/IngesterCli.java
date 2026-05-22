@@ -28,7 +28,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
+import picocli.CommandLine.Model.CommandSpec;
 import picocli.CommandLine.Option;
+import picocli.CommandLine.Spec;
 
 /**
  * CLI entry point. Parses arguments and delegates to {@link IngestionOrchestrator}.
@@ -43,6 +45,8 @@ public final class IngesterCli implements Callable<Integer> {
 
   private static final Logger log = LoggerFactory.getLogger(IngesterCli.class);
   private static final String EXPORT_CONST_VALUE_1 = "export const value = 1;\n";
+
+  @Spec private CommandSpec commandSpec;
 
   @Option(
       names = {"-s", "--source"},
@@ -175,6 +179,37 @@ public final class IngesterCli implements Callable<Integer> {
   @SuppressWarnings("unused")
   private boolean checkJsRuntime;
 
+  @Option(
+      names = {"--init-instructions"},
+      description =
+          "Write or replace managed Memgraph agent instructions and exit. Code guidance is "
+              + "included by default; add --with-memories for Memory workflow guidance.")
+  @SuppressWarnings("unused")
+  private boolean initInstructions;
+
+  @Option(
+      names = {"--instructions-agent"},
+      defaultValue = "codex",
+      description =
+          "Agent preset for instruction installation: codex, claude, gemini, github, or copilot. "
+              + "Implies --init-instructions when explicitly provided. Defaults to codex.")
+  @SuppressWarnings("unused")
+  private String instructionsAgent;
+
+  @Option(
+      names = {"--instructions-file"},
+      description =
+          "Instruction file to update for instruction installation. Overrides --instructions-agent "
+              + "and implies --init-instructions.")
+  @SuppressWarnings("unused")
+  private Path instructionsFile;
+
+  @Option(
+      names = {"--with-memories"},
+      description = "Include optional Memory workflow instructions when initializing agents.")
+  @SuppressWarnings("unused")
+  private boolean withMemories;
+
   /** Entry point. */
   public static void main(String[] args) {
     int exit = new CommandLine(new IngesterCli()).execute(args);
@@ -183,6 +218,10 @@ public final class IngesterCli implements Callable<Integer> {
 
   @Override
   public Integer call() {
+    if (shouldInstallInstructions()) {
+      return installAgentInstructions();
+    }
+
     RuntimeMode selectedRuntimeMode;
     try {
       selectedRuntimeMode = RuntimeMode.parse(jsRuntimeMode);
@@ -240,6 +279,37 @@ public final class IngesterCli implements Callable<Integer> {
     return 0;
   }
 
+  private boolean shouldInstallInstructions() {
+    return initInstructions || instructionsFile != null || optionWasMatched("--instructions-agent");
+  }
+
+  private boolean optionWasMatched(String optionName) {
+    return commandSpec != null
+        && commandSpec.commandLine() != null
+        && commandSpec.commandLine().getParseResult() != null
+        && commandSpec.commandLine().getParseResult().hasMatchedOption(optionName);
+  }
+
+  private Integer installAgentInstructions() {
+    try {
+      Path target =
+          instructionsFile == null
+              ? AgentInstructionsInstaller.defaultInstructionFile(instructionsAgent)
+              : instructionsFile;
+      AgentInstructionsInstaller.InstallResult result =
+          AgentInstructionsInstaller.install(target, project, withMemories);
+      log.info(
+          "Updated Memgraph instructions in {} with project '{}' (memories: {}).",
+          result.target(),
+          project,
+          result.includeMemories());
+      return 0;
+    } catch (IllegalArgumentException | IllegalStateException | IOException e) {
+      log.error(e.getMessage());
+      return 1;
+    }
+  }
+
   private Integer runJsRuntimeCheck(RuntimeMode selectedRuntimeMode) {
     Path cacheRoot =
         jsRuntimeCache == null ? ManagedNodeRuntime.defaultCacheRoot() : jsRuntimeCache;
@@ -256,6 +326,11 @@ public final class IngesterCli implements Callable<Integer> {
       Path underscoredDottedModule = tempDir.resolve("a_b.js");
       Path constructorCall = tempDir.resolve("constructor-call.js");
       Path uninitializedVariable = tempDir.resolve("uninitialized-variable.ts");
+      Path tsconfigBase = tempDir.resolve("tsconfig.base.json");
+      Path tsconfig = tempDir.resolve("tsconfig.json");
+      Path aliasConsumer = tempDir.resolve("alias-consumer.ts");
+      Path specificAliasTarget = tempDir.resolve("src/app/specific.ts");
+      Path broadAliasTarget = tempDir.resolve("src/shared/specific.ts");
       Files.writeString(
           defaultClass,
           """
@@ -300,6 +375,37 @@ public final class IngesterCli implements Callable<Integer> {
             return deferredValue;
           }
           """);
+      Files.writeString(
+          tsconfigBase,
+          """
+          {
+            "compilerOptions": {
+              "baseUrl": ".",
+              "paths": {
+                "@/*": ["src/shared/*"],
+                "@app/*": ["src/app/*"]
+              }
+            }
+          }
+          """);
+      Files.writeString(
+          tsconfig,
+          """
+          {
+            "extends": "./tsconfig.base.json"
+          }
+          """);
+      Files.createDirectories(specificAliasTarget.getParent());
+      Files.createDirectories(broadAliasTarget.getParent());
+      Files.writeString(specificAliasTarget, "export class Base {}\n");
+      Files.writeString(broadAliasTarget, "export class Base {}\n");
+      Files.writeString(
+          aliasConsumer,
+          """
+          import { Base } from '@app/specific';
+
+          export class Derived extends Base {}
+          """);
 
       JsAnalyzer analyzer =
           new JsAnalyzer(
@@ -318,6 +424,7 @@ public final class IngesterCli implements Callable<Integer> {
           analyzer.analyze(underscoredDottedModule),
           "dotted and underscored module FQNs");
       assertConstructorCall(analyzer.analyze(constructorCall));
+      assertTsconfigPathAlias(analyzer.analyze(aliasConsumer));
       analyzer.analyze(uninitializedVariable);
       log.info("JavaScript parser runtime check succeeded using cache {}", cacheRoot);
       return 0;
@@ -351,6 +458,20 @@ public final class IngesterCli implements Callable<Integer> {
                         && call.calleeSignature().endsWith(".Service.<init>(any)"));
     if (!constructorCallFound) {
       throw new ProcessingException("JavaScript constructor call was not parsed correctly");
+    }
+  }
+
+  private static void assertTsconfigPathAlias(JsAnalysis analysis) {
+    boolean specificAliasFound =
+        analysis.relations().stream()
+            .anyMatch(
+                relation ->
+                    "classExtends".equals(relation.kind())
+                        && relation.childFqn().endsWith(".alias$2d$consumer$2e$ts.Derived")
+                        && "js.src.app.specific$2e$ts.Base".equals(relation.targetFqn()));
+    if (!specificAliasFound) {
+      throw new ProcessingException(
+          "TypeScript extended tsconfig path alias was not resolved to the most specific target");
     }
   }
 
