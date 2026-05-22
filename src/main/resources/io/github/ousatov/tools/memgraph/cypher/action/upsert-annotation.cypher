@@ -2,6 +2,10 @@ MERGE (a:Annotation {fqn: $fqn, project: $project})
   SET a.name = $name,
       a.packageName = $pkg,
       a.visibility = $visibility,
+      a.language = $language,
+      a.kind = $kind,
+      a.modulePath = $modulePath,
+      a.framework = $framework,
       a.isExternal = false
 WITH a
 MATCH (p:Package {name: $pkg, project: $project})

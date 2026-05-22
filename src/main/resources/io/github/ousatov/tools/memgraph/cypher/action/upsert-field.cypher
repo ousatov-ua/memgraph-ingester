@@ -2,7 +2,9 @@ MERGE (f:Field {fqn: $fqn, project: $project})
   SET f.name = $name,
       f.type = $type,
       f.isStatic = $isStatic,
-      f.visibility = $visibility
+      f.visibility = $visibility,
+      f.language = $language,
+      f.kind = $kind
 WITH f
 MATCH (owner)
 WHERE owner.fqn = $owner AND owner.project = $project

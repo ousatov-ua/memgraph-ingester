@@ -57,6 +57,7 @@ class CypherResourceTest {
     assertTrue(schema.contains("CREATE INDEX ON :Idea(status)"));
     assertTrue(schema.contains("CREATE INDEX ON :Context(updatedAt)"));
     assertTrue(schema.contains("CREATE INDEX ON :Method(ownerFqn)"));
+    assertTrue(schema.contains("CREATE INDEX ON :PendingCall(project)"));
     assertTrue(schema.contains("CREATE INDEX ON :Rule(severity)"));
     assertTrue(schema.contains("CREATE INDEX ON :Task(priority)"));
     assertTrue(schema.contains("CREATE INDEX ON :Finding(type)"));
@@ -79,6 +80,7 @@ class CypherResourceTest {
     assertTrue(cypher.contains("n:Annotation"));
     assertTrue(cypher.contains("n:Method"));
     assertTrue(cypher.contains("n:Field"));
+    assertTrue(cypher.contains("n:PendingCall"));
     assertFalse(cypher.contains("n:Memory"));
     assertFalse(cypher.contains("n:Decision"));
     assertFalse(cypher.contains("n:CodeRef"));
@@ -111,6 +113,7 @@ class CypherResourceTest {
 
     assertTrue(config.contains("io/github/ousatov/tools/memgraph/cypher/.*[.]cypher$"));
     assertTrue(config.contains("simplelogger[.]properties$"));
+    assertTrue(config.contains("io/github/ousatov/tools/memgraph/js/js-analyzer[.]cjs$"));
   }
 
   @Test

@@ -6,6 +6,10 @@ MERGE (t:Class {fqn: $fqn, project: $project})
       t.isEnum = $isEnum,
       t.isRecord = $isRecord,
       t.isFinal = $isFinal,
+      t.language = $language,
+      t.kind = $kind,
+      t.modulePath = $modulePath,
+      t.framework = $framework,
       t.isExternal = false
 WITH t
 MATCH (p:Package {name: $pkg, project: $project})

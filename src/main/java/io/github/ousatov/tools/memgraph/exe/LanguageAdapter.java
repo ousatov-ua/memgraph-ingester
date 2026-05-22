@@ -1,0 +1,58 @@
+package io.github.ousatov.tools.memgraph.exe;
+
+import io.github.ousatov.tools.memgraph.exception.ProcessingException;
+import java.io.IOException;
+import java.nio.file.FileVisitResult;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.SimpleFileVisitor;
+import java.nio.file.attribute.BasicFileAttributes;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
+
+/** Parses source files for one language and writes their structure through {@link GraphWriter}. */
+public interface LanguageAdapter {
+
+  SourceLanguage language();
+
+  boolean accepts(Path file);
+
+  boolean ingestFile(GraphWriter writer, Path file);
+
+  default boolean shouldVisitDirectory(Path directory) {
+    return true;
+  }
+
+  default List<Path> discoverFiles(Path sourceRoot) {
+    List<Path> files = new ArrayList<>();
+    try {
+      Files.walkFileTree(
+          sourceRoot,
+          new SimpleFileVisitor<>() {
+            @Override
+            public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) {
+              return shouldVisitDirectory(dir)
+                  ? FileVisitResult.CONTINUE
+                  : FileVisitResult.SKIP_SUBTREE;
+            }
+
+            @Override
+            public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
+              if (attrs.isRegularFile() && accepts(file)) {
+                files.add(file);
+              }
+              return FileVisitResult.CONTINUE;
+            }
+          });
+      files.sort(Comparator.naturalOrder());
+      return List.copyOf(files);
+    } catch (IOException e) {
+      throw new ProcessingException("Cannot walk source root", e);
+    }
+  }
+
+  default String displayName() {
+    return language().graphName();
+  }
+}

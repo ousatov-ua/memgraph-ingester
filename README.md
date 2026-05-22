@@ -1,4 +1,4 @@
-# Memgraph Ingester. Speed up your AI agent!
+# Memgraph Ingester
 
 [![Build](https://github.com/ousatov-ua/memgraph-ingester/actions/workflows/maven.yml/badge.svg)](https://github.com/ousatov-ua/memgraph-ingester/actions/workflows/maven.yml)
 [![Maven Central](https://img.shields.io/maven-central/v/io.github.ousatov-ua/memgraph-ingester)](https://central.sonatype.com/artifact/io.github.ousatov-ua/memgraph-ingester)
@@ -9,441 +9,456 @@
 
 ![memgraph-ingester-readme-banner-640x320.svg](image/memgraph-ingester-readme-banner-640x320.svg)
 
-Ingests the structural model of a Java codebase into [Memgraph](https://memgraph.com/) as a
-queryable **code + memory knowledge graph**, combining source structure with persistent engineering
-context (decisions, rules, findings, etc.).
+Memgraph Ingester indexes a Java or JavaScript/TypeScript codebase into
+[Memgraph](https://memgraph.com/) so AI agents can query a real code graph instead of repeatedly
+scanning raw files.
 
-Optionally paired with the
-[Memgraph MCP server](https://github.com/memgraph/ai-toolkit/tree/main/integrations/mcp-memgraph),
-this enables you AI agent to reason over both code and accumulated project
-knowledge via graph queries instead of raw text search — improving accuracy, reducing cost, and
-speeding up analysis.
+Use it when you want your agent to quickly answer questions such as:
 
-Having MCP configured is not required: `mgconsole` utility can be used to query the graph directly which also decreases tokens usage.
+- What classes, methods, files, and packages exist?
+- What extends or implements this type?
+- Who calls this method?
+- What durable project rules, decisions, findings, risks, and tasks should the agent remember?
 
-You can use the code in this repo as-is, or fork it and customize it to your needs.
-[Memgraph](https://memgraph.com/) is free too.
-Please submit any issues or pull requests.
+The normal path is simple:
 
-## What it does
+1. Run Memgraph.
+2. Download one ingester executable.
+3. Run one command for Java or one command for JS/TS.
+4. Optionally connect your AI agent through MCP or `mgconsole`.
 
-Memgraph Ingester creates two project-scoped graphs for a Java codebase:
+No source code is uploaded by the ingester. It reads local files, writes graph nodes to your
+Memgraph instance over Bolt, and exits.
 
-- A **Code graph** under `(:Project)-[:CONTAINS]->(:Code)`
-- A **Memory graph** under `(:Project)-[:HAS_MEMORY]->(:Memory)`
+## Safety First
 
-Every code and memory node is scoped by a `project` property, so multiple Java codebases can share
-the same Memgraph instance without collisions.
+The ingester is designed to be safe to try.
 
-The **Code graph** stores Java source structure in a queryable, persistent form. The ingester walks
-the source tree with [JavaParser](https://github.com/javaparser/javaparser) and symbol resolution,
-then writes packages, files, classes, interfaces, annotations, methods, fields, inheritance,
-and within-project call relationships.
+| Area | What happens |
+|---|---|
+| Project isolation | Every code and memory node is scoped by `--project`. Multiple repos can share one Memgraph instance. |
+| Normal re-ingestion | `--wipe-project-code` deletes only the code graph for that `--project`. Other projects stay untouched. |
+| Memory protection | Memory is not deleted unless you explicitly pass `--wipe-project-memories`. |
+| Full database wipe | `--wipe-all` deletes all Memgraph data. Use it only when you intentionally want an empty database. |
+| Schema setup | `--apply-schema` is safe to re-run. Existing constraints and indexes are skipped by Memgraph. |
+| Java parsing | Java source is parsed locally with JavaParser. Dependencies are optional and only improve symbol resolution. |
+| JS/TS parsing | The native executable can manage its own Node.js and TypeScript parser locally. You do not have to install Node.js. |
 
-The parser is configured for Java 25 syntax. It should handle most sources written for earlier Java
-versions too, but JavaParser is not a `javac` replacement and may still miss unsupported or
-edge-case constructs.
+For JS/TS, managed runtime mode is explicit and controlled:
 
-The **Memory graph** stores durable engineering context: decisions, ADRs, rules, findings, tasks,
-risks, questions, ideas, and domain notes. Memory items can refer to stable `:CodeRef` nodes, which
-are resolved back to the current code graph after ingestion. This lets agents query both
-**structure (code)** and **knowledge (memory)** without relying only on raw text search.
+- Default mode is `--js-runtime-mode managed`.
+- Managed mode downloads pinned Node.js `22.11.0` from `nodejs.org`.
+- It verifies Node.js with the official SHA-256 checksum before extracting.
+- It downloads pinned TypeScript `5.6.3` from the npm registry.
+- It verifies the TypeScript package with SHA-512 integrity metadata.
+- It caches both under `~/.cache/memgraph-ingester` by default.
+- It never installs Node.js globally.
+- It never runs `npm install` in your project.
+- It skips `node_modules` and TypeScript declaration files during source ingestion and watch
+  registration.
 
-See [`doc/MEMORY.md`](doc/MEMORY.md) for the Memory usage guide with prompt examples and Cypher
-recipes. See [`SCHEMA.md`](schema/SCHEMA.md) for the full graph model.
+If you do not want the ingester to download Node.js, use your own Node.js:
+
+```bash
+<ingester> \
+  --source . \
+  --bolt bolt://localhost:7687 \
+  --project my-js-project \
+  --language js \
+  --js-runtime-mode system \
+  --wipe-project-code \
+  --apply-schema
+```
+
+If you want no network access during JS/TS ingestion, warm the cache once and then use offline mode:
+
+```bash
+<ingester> --check-js-runtime
+
+<ingester> \
+  --source . \
+  --bolt bolt://localhost:7687 \
+  --project my-js-project \
+  --language js \
+  --js-runtime-mode offline \
+  --wipe-project-code
+```
 
 ## Requirements
 
-- Required: **Java 25 JRE** to run if you choose shaded JAR.
-- Required: Memgraph instance (or Docker)
-- Optional: **Java 25 SDK**, **Maven 3.9+** only if you want to build it from sources.
-- Optional: `mgconsole` - if you choose to not use MCP (* BTW, it produces lesst tokens comparing to MCP)
+For normal use:
 
-## Quick start
+- Memgraph, either local, Docker, or an existing Bolt endpoint.
+- One ingester download from the release page.
 
-- Run Memgraph
+Runtime requirements by artifact:
 
-```bash
-docker run -p 7687:7687 -p 7444:7444 --name memgraph memgraph/memgraph-mage:3.9.0
-```
+| Artifact | Java required? | Node.js required for JS/TS? |
+|---|---:|---:|
+| Native executable | No | No, managed mode handles it |
+| Shaded JAR | Java 25 JRE | No, managed mode handles it |
 
-- Ingest the project:
+Optional tools:
 
-Download one of `<executable_memgraph_ingester>` from the list:
+- `mgconsole`, if you want to query Memgraph directly without MCP (***produces much fewer tokens***)
+- Maven, only if you want a richer Java classpath or you want to build from source.
+- Java 25 SDK, only if you build from source.
 
-1. Java shaded JAR: [memgraph-ingester.jar](https://github.com/ousatov-ua/memgraph-ingester/releases/download/v8.1.4/memgraph-ingester.jar)
-2. Linux AMD64: [memgraph-ingester-linux-amd64.zip](https://github.com/ousatov-ua/memgraph-ingester/releases/download/v8.1.4/memgraph-ingester-linux-amd64.zip)
-3. Mac OS X ARM64: [memgraph-ingester-macos-arm64.zip](https://github.com/ousatov-ua/memgraph-ingester/releases/download/v8.1.4/memgraph-ingester-macos-arm64.zip)
-4. Windows AMD64: [memgraph-ingester-windows-amd64.zip](https://github.com/ousatov-ua/memgraph-ingester/releases/download/v8.1.4/memgraph-ingester-windows-amd64.zip)
+## Quick Start
 
-If you choose JAR distributive, the command is:
-
-```bash
-java -jar path/to/memgraph-ingester.jar
-```
-
-**Without** classpath libs (weaker resolving):
-
-**First run**
-
-```bash
-cd /path/to/your/java/project
-<executable_memgraph_ingester> \
-  --source path/to/src \
-  --bolt bolt://localhost:7687 \
-  --project my-project \
-  --wipe-project-code \
-  --wipe-project-memories \
-  --apply-schema
-```
-
-**Next runs** (you may want to check `--incremental` 
-and `--watch` arguments)
-
-```bash
-cd /path/to/your/java/project
-<executable_memgraph_ingester> \
-  --source path/to/src \
-  --bolt bolt://localhost:7687 \
-  --project my-project \
-  --wipe-project-code
-```
-
-**With** classpath libs (better resolving). Example for Maven projects:
-
-**First run**
-
-```bash
-cd /path/to/your/java/project
-CP=$(mvn -q dependency:build-classpath -DincludeScope=test -Dmdep.outputFile=/dev/stdout 2>/dev/null)
-<executable_memgraph_ingester> \
-  --source path/to/src \
-  --bolt bolt://localhost:7687 \
-  --project my-project \
-  --wipe-project-code \
-  --wipe-project-memories \
-  --apply-schema \
-  --classpath "$CP"
-```
-
-**Next runs** (you may want to check `--incremental` 
-and `--watch` arguments)
-
-```bash
-cd /path/to/your/java/project
-CP=$(mvn -q dependency:build-classpath -DincludeScope=test -Dmdep.outputFile=/dev/stdout 2>/dev/null)
-<executable_memgraph_ingester> \
-  --source path/to/src \
-  --bolt bolt://localhost:7687 \
-  --project my-project \
-  --wipe-project-code \
-  --classpath "$CP"
-```
-
-- Append knowledge for your agent
-
-```bash
-# GitHub Copilot
-curl -s https://raw.githubusercontent.com/ousatov-ua/memgraph-ingester/refs/heads/main/script/init-memgraph-github.sh \
-  | bash -s -- my-project
-# Claude
-curl -s https://raw.githubusercontent.com/ousatov-ua/memgraph-ingester/refs/heads/main/script/init-memgraph-claude.sh \
-  | bash -s -- my-project
-# Codex
-curl -s https://raw.githubusercontent.com/ousatov-ua/memgraph-ingester/refs/heads/main/script/init-memgraph-codex.sh \
-  | bash -s -- my-project
-# Gemini
-curl -s https://raw.githubusercontent.com/ousatov-ua/memgraph-ingester/refs/heads/main/script/init-memgraph-gemini.sh \
-  | bash -s -- my-project
-```
-
-- Enable MCP Memgraph for your AI agent ([below](#mcp-server-setup) you can find examples) **OR**
-  put `mgconsole` in the path
-
-## Build from sources or using in your project
-
-### Maven dependency (optional)
-
-```xml
-
-<dependency>
-  <groupId>io.github.ousatov-ua</groupId>
-  <artifactId>memgraph-ingester</artifactId>
-  <version><!-- see latest on Maven Central --></version>
-</dependency>
-```
-
-### Start Memgraph
-
-- With Docker Compose:
-
-```bash
-cd memgraph-platform
-docker-compose up -d
-```
-
-- Just Docker
+### 1. Start Memgraph
 
 ```bash
 docker run -p 7687:7687 -p 7444:7444 --name memgraph memgraph/memgraph-mage:3.9.0
 ```
 
-Bolt listens on `localhost:7687`.
+Memgraph Bolt listens on `bolt://localhost:7687`.
 
-### Build the ingester
+### 2. Download the Ingester
+
+Version in this repository: `8.1.4`.
+
+| Platform | Download |
+|---|---|
+| Java shaded JAR | [memgraph-ingester.jar](https://github.com/ousatov-ua/memgraph-ingester/releases/download/v8.1.4/memgraph-ingester.jar) |
+| Linux AMD64 | [memgraph-ingester-linux-amd64.zip](https://github.com/ousatov-ua/memgraph-ingester/releases/download/v8.1.4/memgraph-ingester-linux-amd64.zip) |
+| macOS ARM64 | [memgraph-ingester-macos-arm64.zip](https://github.com/ousatov-ua/memgraph-ingester/releases/download/v8.1.4/memgraph-ingester-macos-arm64.zip) |
+| Windows AMD64 | [memgraph-ingester-windows-amd64.zip](https://github.com/ousatov-ua/memgraph-ingester/releases/download/v8.1.4/memgraph-ingester-windows-amd64.zip) |
+
+For native downloads:
 
 ```bash
-git clone https://github.com/ousatov-ua/memgraph-ingester.git
-cd memgraph-ingester
-mvn clean package -Pshade -DskipTests
+unzip memgraph-ingester-macos-arm64.zip
+chmod +x memgraph-ingester-macos-arm64
+./memgraph-ingester-macos-arm64 --help
 ```
 
-Produces a shaded fat JAR at `target/memgraph-ingester.jar`.
-
-Or use published shaded fat JAR
-in [releases](https://github.com/ousatov-ua/memgraph-ingester/releases) page.
-
-### Apply the schema (one-time per Memgraph instance)
+For the JAR:
 
 ```bash
-cat src/main/resources/io/github/ousatov/tools/memgraph/cypher/create-schema.cypher | mgconsole --host localhost --port 7687
+java -jar /path/to/memgraph-ingester.jar --help
 ```
 
-Creates uniqueness constraints and lookup indexes for both the code graph and the memory graph. Safe
-to re-run — existing constraints are reported and skipped.
+In commands below, replace `<ingester>` with either the native executable path or
+`java -jar /path/to/memgraph-ingester.jar`.
 
-You can also use the CLI. This command will apply the schema to the `memgraph` database first, then
-ingest the project:
+### 3. Ingest Java
+
+Simple Java ingestion:
 
 ```bash
-<executable_memgraph_ingester> \
-  --source /path/to/your/java/project/src/main/java \
+cd /path/to/your/java/project
+
+<ingester> \
+  --source src/main/java \
   --bolt bolt://localhost:7687 \
-  --project my-project \
-  --apply-schema
-```
-
-Next command will also wipe **all** data in the `memgraph` database first, then will apply the
-schema and ingest the project:
-
-```bash
-<executable_memgraph_ingester> \
-  --source /path/to/your/java/project/src/main/java \
-  --bolt bolt://localhost:7687 \
-  --project my-project \
-  --wipe-all \
-  --apply-schema
-```
-
-### Ingest a project
-
-This will wipe the Code graph for this project first:
-
-```bash
-<executable_memgraph_ingester> \
-  --source /path/to/your/java/project/src/main/java \
-  --bolt bolt://localhost:7687 \
-  --project my-project \
-  --wipe-project-code
-```
-
-This will wipe the Code and Memory graph for this project first:
-
-```bash
-<executable_memgraph_ingester> \
-  --source /path/to/your/java/project/src/main/java \
-  --bolt bolt://localhost:7687 \
-  --project my-project \
+  --project my-java-project \
+  --language java \
   --wipe-project-code \
-  --wipe-project-memories
+  --apply-schema
 ```
 
-### Verify
+Better Java symbol resolution for Maven projects:
+
+```bash
+cd /path/to/your/java/project
+
+CP=$(mvn -q dependency:build-classpath -DincludeScope=test -Dmdep.outputFile=/dev/stdout 2>/dev/null)
+
+<ingester> \
+  --source src/main/java \
+  --bolt bolt://localhost:7687 \
+  --project my-java-project \
+  --language java \
+  --classpath "$CP" \
+  --wipe-project-code \
+  --apply-schema
+```
+
+What the classpath improves:
+
+- Fully qualified external types.
+- More complete `EXTENDS` and `IMPLEMENTS` edges.
+- More complete method signatures.
+- More complete best-effort `CALLS` edges.
+
+### 4. Ingest JavaScript or TypeScript
+
+Managed mode needs no user-installed Node.js:
+
+```bash
+cd /path/to/your/js/project
+
+<ingester> \
+  --source . \
+  --bolt bolt://localhost:7687 \
+  --project my-js-project \
+  --language js \
+  --wipe-project-code \
+  --apply-schema
+```
+
+Optional preflight check, without connecting to Memgraph:
+
+```bash
+<ingester> --check-js-runtime
+```
+
+This downloads and verifies the managed parser runtime if needed, then runs a local parser smoke
+test against temporary JS files.
+
+### 5. Verify the Graph
+
+With MCP, run the same Cypher through your agent. With `mgconsole`:
+
+```bash
+mgconsole --host localhost --port 7687 --output-format=csv
+```
+
+Then:
 
 ```cypher
-
 MATCH (p:Project)-[:CONTAINS]->(c:Code)
-RETURN p.name, c.sourceRoots, c.lastIngested;
+RETURN p.name, c.sourceRoots, c.lastIngested
+ORDER BY c.lastIngested DESC;
 ```
 
-You should see your project with a fresh `lastIngested` timestamp.
+You should see your project name and a fresh `lastIngested` timestamp.
 
-## CLI options
+## Common Commands
 
-| Option                    | Short | Required | Default | Description                                                                                                                                            |
-|---------------------------|-------|----------|---------|--------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `--source`                | `-s`  | yes      |         | Root directory to scan (e.g. `src/main/java`)                                                                                                          |
-| `--bolt`                  | `-b`  | yes      |         | Bolt URL, e.g. `bolt://localhost:7687`                                                                                                                 |
-| `--project`               | `-P`  | yes      |         | Logical project name. Namespaces all nodes.                                                                                                            |
-| `--user`                  | `-u`  | no       |         | Memgraph username (empty by default)                                                                                                                   |
-| `--pass`                  | `-p`  | no       |         | Memgraph password (empty by default)                                                                                                                   |
-| `--threads`               | `-t`  | no       | 1       | Parser threads (default `1`). Each thread gets its own Bolt session.                                                                                   |
-| `--wipe-project-code`     | no    | no       | false   | Delete this project's code graph before ingesting                                                                                                      |
-| `--wipe-project-memories` | no    | no       | false   | Delete this project's memory graph before ingesting                                                                                                    |
-| `--apply-schema`          | no    | no       | false   | Apply schema before ingesting                                                                                                                          |
-| `--wipe-all`              | no    | no       | false   | Wipe all data (schema will be dropped first)                                                                                                           |
-| `--incremental`           | no    | no       | false   | Skip files whose last-modified timestamp matches the stored value                                                                                      |
-| `--watch`                 | `-w`  | no       | false   | Watch for changes in the source directory and automatically re-ingest                                                                                  |
-| `--classpath`             | no    | no       |         | Additional classpath entries (JARs) for symbol resolution, separated by the platform path separator. Improves CALLS edge and type resolution coverage. |
-
-`--wipe-project-code` only affects code nodes matching the given `--project`; other codebases in the
-same Memgraph instance are untouched, and the `:Project` anchor remains.
-`--wipe-project-memories` only affects memory nodes matching the given `--project`; the code graph
-and
-the `:Project` anchor remain.
-
-### Parallel ingestion
-
-Large codebases ingest faster with multiple parser threads:
+### Re-ingest after code changes
 
 ```bash
-<executable_memgraph_ingester> \
-  --source /path/to/your/java/project/src/main/java \
+<ingester> \
+  --source src/main/java \
   --bolt bolt://localhost:7687 \
-  --project my-project \
-  --wipe-project-code \
-  --threads 8
+  --project my-java-project \
+  --wipe-project-code
 ```
 
-Each thread holds its own `JavaParser` and its own Bolt session. The `Driver` itself is shared.
+### Faster re-runs
 
-**Realistic speedup** — don't expect linear scaling. JavaParser work is CPU-bound and parallelizes
-well, but Memgraph Community serializes writes internally, so the write path bottlenecks quickly:
+Use `--incremental` to skip files whose filesystem `lastModified` timestamp matches the graph:
 
-| Threads | Typical speedup | Bottleneck                 |
-|---------|-----------------|----------------------------|
-| 1       | 1× (baseline)   | Sequential parse + write   |
-| 4       | ~2.5–3×         | Write serialization starts |
-| 8       | ~3–4×           | Diminishing returns        |
-| 16+     | ~3–4×           | Writes fully saturated     |
-
-4–8 threads is the sweet spot on most machines. Values higher than your CPU core count rarely help.
-
-**Determinism note**: with `--threads > 1`, file processing order is non-deterministic. MERGE is
-idempotent, so results are identical, but log order will vary between runs.
+```bash
+<ingester> \
+  --source src/main/java \
+  --bolt bolt://localhost:7687 \
+  --project my-java-project \
+  --incremental
+```
 
 ### Watch mode
 
-For active development, use `--watch` (or `-w`) to monitor the source directory for changes. The
-ingester will automatically re-ingest modified `.java` files, update call edges, and refresh code
-references whenever a change is detected:
+Use `--watch` to keep the graph fresh while editing:
 
 ```bash
-<executable_memgraph_ingester> \
-  --source /path/to/your/java/project/src/main/java \
+<ingester> \
+  --source src/main/java \
   --bolt bolt://localhost:7687 \
-  --project my-project \
+  --project my-java-project \
   --watch
 ```
 
-Watch mode uses Java's `WatchService` for efficient OS-level notifications and includes a small
-debounce delay to handle multiple rapid writes (e.g., from IDE saves). It recursively watches all
-subdirectories under the `--source` root.
+Watch mode recursively watches the source tree, debounces rapid saves, and re-ingests changed
+files.
 
-## Using with AI agents
+### Fresh project code and memory
 
-This repo ships scripts designed to
-be dropped into any project that's been
-ingested. It tells AI agents how to scope queries to the right project, how the schema is shaped,
-when to reach for the graph vs. filesystem search, and how to use Memories for durable decisions
-and follow-up context.
-
-### Per-repo setup
-
-#### CLAUDE
-
-Use the bundled [`init-memgraph-claude.sh`](script/init-memgraph-claude.sh) script, which fetches
-the template, substitutes the
-project name, and appends the result to the local `CLAUDE.md`
-
-Run it from inside the repo you just ingested:
+This is safe for the named project, but it deletes that project's memory:
 
 ```bash
-# Point at the script in your local checkout
-/path/to/memgraph-ingester/script/init-memgraph-claude.sh my-project
+<ingester> \
+  --source src/main/java \
+  --bolt bolt://localhost:7687 \
+  --project my-java-project \
+  --wipe-project-code \
+  --wipe-project-memories \
+  --apply-schema
 ```
 
-Or fetch-and-run straight from GitHub:
+### Multiple projects in one Memgraph instance
+
+```bash
+<ingester> -s ~/code/repo-a/src/main/java -b bolt://localhost:7687 -P repo-a --wipe-project-code
+<ingester> -s ~/code/repo-b/src/main/java -b bolt://localhost:7687 -P repo-b --wipe-project-code
+```
+
+List indexed projects:
+
+```cypher
+MATCH (p:Project)-[:CONTAINS]->(c:Code)
+RETURN p.name, c.sourceRoots, c.lastIngested
+ORDER BY c.lastIngested DESC;
+```
+
+## Java Guide
+
+The Java adapter reads `.java` files using JavaParser with Java 25 syntax support. It should handle
+most earlier Java versions as well.
+
+Captured Java structure:
+
+- Packages and files.
+- Classes, interfaces, annotations, enums, records, and nested classes.
+- Methods, constructors, fields, visibility, return types, static flags, line ranges, and synthetic flags.
+- `EXTENDS`, `IMPLEMENTS`, `DECLARES`, `DEFINES`, `CONTAINS`, `ANNOTATED_WITH`, and best-effort `CALLS`.
+
+Use `--classpath` whenever you can. Without dependency JARs, the ingester still works, but external
+types may fall back to simple names and some call edges may be missing.
+
+For Maven projects:
+
+```bash
+CP=$(mvn -q dependency:build-classpath -DincludeScope=test -Dmdep.outputFile=/dev/stdout 2>/dev/null)
+```
+
+Use `-DincludeScope=test` when you ingest tests or test fixtures. It includes JUnit, Testcontainers,
+mocking libraries, and other test-scoped dependencies.
+
+Generated code is indexed only if you ingest it:
+
+```bash
+<ingester> \
+  --source target/generated-sources/annotations \
+  --bolt bolt://localhost:7687 \
+  --project my-java-project
+```
+
+Do not pass `--wipe-project-code` on the generated-source pass unless you want to replace the
+previous graph with generated sources only.
+
+## JavaScript and TypeScript Guide
+
+Use `--language js`, `--language javascript`, `--language ts`, or `--language typescript`.
+
+Accepted source extensions:
+
+- `.js`
+- `.jsx`
+- `.ts`
+- `.tsx`
+- `.mts`
+- `.cts`
+- `.mjs`
+- `.cjs`
+
+Skipped paths:
+
+- Anything under `node_modules`.
+- TypeScript declaration files: `.d.ts`, `.d.mts`, `.d.cts`.
+
+Captured JS/TS structure:
+
+- Files and synthetic module owners.
+- Classes and class expressions assigned to variables.
+- Interfaces and type aliases as graph interfaces.
+- Top-level functions and variables under the module owner.
+- Exported callable aliases and class re-export aliases as graph-visible declarations for their
+  public export names.
+- Methods, constructors, function-valued class fields, fields, static flags, line ranges, and kinds.
+- Decorators as annotations, preserving namespace-qualified decorator FQNs when possible.
+- Angular decorators with framework metadata when detected.
+- Syntax-based best-effort call edges, including top-level IIFEs/callbacks, local function
+  constructors, and deferred resolution for resolvable relative imports.
+- Relative import resolution prefers TypeScript source files over emitted JavaScript when both exist
+  for the same local module path.
+
+Runtime modes:
+
+| Mode | Use when | Network |
+|---|---|---|
+| `managed` | You want the ingester to own the parser runtime. This is the default. | Downloads once if cache is missing. |
+| `system` | You want to use `node` from `PATH`. | No Node download. TypeScript may still be managed unless already cached. |
+| `offline` | You want no downloads and the cache is already warm. | No downloads. Fails if cache is missing. |
+
+Custom cache:
+
+```bash
+<ingester> \
+  --source . \
+  --bolt bolt://localhost:7687 \
+  --project my-js-project \
+  --language js \
+  --js-runtime-cache /path/to/cache \
+  --wipe-project-code
+```
+
+Custom pinned versions:
+
+```bash
+<ingester> \
+  --source . \
+  --bolt bolt://localhost:7687 \
+  --project my-js-project \
+  --language js \
+  --js-node-version 22.11.0 \
+  --js-typescript-version 5.6.3 \
+  --wipe-project-code
+```
+
+JS/TS caveat: JavaScript is dynamic. Dynamic dispatch, dependency injection, monkey-patching,
+framework templates, and generated code can produce missing call edges. A missing JS/TS `CALLS`
+edge does not prove a call never happens.
+
+## Agent Setup
+
+The graph is useful directly, but it becomes much more powerful when your agent is told to use it.
+This repository ships setup scripts that append project-scoped Memgraph instructions to the agent's
+local instruction file.
+
+Run the script from the repo you just ingested, using the same `--project` value.
+
+### Claude
 
 ```bash
 curl -s https://raw.githubusercontent.com/ousatov-ua/memgraph-ingester/refs/heads/main/script/init-memgraph-claude.sh \
   | bash -s -- my-project
 ```
 
-Commit the updated `CLAUDE.md`. Claude Code reads it on every session start.
+Writes to `CLAUDE.md`.
 
-#### CODEX
-
-Use the bundled [`init-memgraph-codex.sh`](script/init-memgraph-codex.sh) script, which fetches
-the template, substitutes the
-project name, and appends the result to the local `AGENTS.md`
-
-Run it from inside the repo you just ingested:
-
-```bash
-# Point at the script in your local checkout
-/path/to/memgraph-ingester/script/init-memgraph-codex.sh my-project
-```
-
-Or fetch-and-run straight from GitHub:
+### Codex
 
 ```bash
 curl -s https://raw.githubusercontent.com/ousatov-ua/memgraph-ingester/refs/heads/main/script/init-memgraph-codex.sh \
   | bash -s -- my-project
 ```
 
-Commit the updated `AGENTS.md`. Codex reads it on every session start.
+Writes to `AGENTS.md`.
 
-#### GEMINI
-
-Use the bundled [`init-memgraph-gemini.sh`](script/init-memgraph-gemini.sh) script, which fetches
-the template, substitutes the
-project name, and appends the result to the local `AGENTS.md`
-
-Run it from inside the repo you just ingested:
-
-```bash
-# Point at the script in your local checkout
-/path/to/memgraph-ingester/script/init-memgraph-gemini.sh my-project
-```
-
-Or fetch-and-run straight from GitHub:
+### Gemini
 
 ```bash
 curl -s https://raw.githubusercontent.com/ousatov-ua/memgraph-ingester/refs/heads/main/script/init-memgraph-gemini.sh \
   | bash -s -- my-project
 ```
 
-Commit the updated `AGENTS.md`. Gemini reads it on every session start.
+Writes to `AGENTS.md`.
 
-#### GITHUB COPILOT
-
-Use the bundled [`init-memgraph-github.sh`](script/init-memgraph-github.sh) script, which fetches
-the template, substitutes the
-project name, and appends the result to the local `AGENTS.md`
-
-Run it from inside the repo you just ingested:
-
-```bash
-# Point at the script in your local checkout
-/path/to/memgraph-ingester/script/init-memgraph-github.sh my-project
-```
-
-Or fetch-and-run straight from GitHub:
+### GitHub Copilot
 
 ```bash
 curl -s https://raw.githubusercontent.com/ousatov-ua/memgraph-ingester/refs/heads/main/script/init-memgraph-github.sh \
   | bash -s -- my-project
 ```
 
-Commit the updated `AGENTS.md`. GitHub Copilot reads it on every session start.
+Writes to `AGENTS.md`.
 
-### MCP server setup
+Commit the updated instruction file so future agent sessions get the same graph guidance.
 
-#### CLAUDE
+## MCP or mgconsole
 
-Claude Code needs the Memgraph MCP server to actually run queries. Minimal project-scoped config in
-`.claude.json` for the target project:
+MCP is optional. Agents can query Memgraph through MCP or via
+`mgconsole`.
+
+Use MCP when you want the agent to query the graph automatically.
+Use `mgconsole` when you want direct, token-light Cypher output.
+
+### Claude MCP
+
+Minimal `.claude.json`:
 
 ```json
 {
@@ -462,31 +477,28 @@ Claude Code needs the Memgraph MCP server to actually run queries. Minimal proje
 }
 ```
 
-Please set `MCP_READ_ONLY` to `"false"` if you want to have Memories captured
-
-Verify it's registered:
+Verify:
 
 ```bash
 claude mcp list
 ```
 
-#### CODEX
+### Codex MCP
 
-Codex needs the Memgraph MCP server to actually run queries. Minimal project-scoped config in
-`~/.codex/config.toml`:
+Minimal `~/.codex/config.toml`:
 
 ```toml
 [mcp_servers.memgraph]
-
 command = "uv"
 args = [
-    "run",
-    "--with",
-    "mcp-memgraph",
-    "--python",
-    "3.13",
-    "mcp-memgraph"
+  "run",
+  "--with",
+  "mcp-memgraph",
+  "--python",
+  "3.13",
+  "mcp-memgraph"
 ]
+
 [mcp_servers.memgraph.env]
 MCP_TRANSPORT = "stdio"
 MEMGRAPH_URL = "bolt://localhost:7687"
@@ -499,20 +511,15 @@ MCP_READ_ONLY = "false"
 approval_mode = "approve"
 ```
 
-The Codex example is read-only. To let an agent create or update Memory nodes, use a writable MCP
-connection, for example, by setting `MCP_READ_ONLY = "false"` and keeping `run_query` approval
-enabled.
-
-Verify it's registered:
+Verify:
 
 ```bash
 codex mcp list
 ```
 
-#### GEMINI
+### Gemini MCP
 
-Codex needs the Memgraph MCP server to actually run queries. Minimal project-scoped config in
-`~/.gemini/settings.json`:
+Minimal `~/.gemini/settings.json`:
 
 ```json
 {
@@ -533,21 +540,15 @@ Codex needs the Memgraph MCP server to actually run queries. Minimal project-sco
 }
 ```
 
-The example is read-only. To let an agent create or update Memory nodes, use a writable MCP
-connection, for example, by setting `MCP_READ_ONLY = "false"` and keeping `run_query` approval
-enabled.
-
-Verify it's registered:
+Verify:
 
 ```bash
 gemini mcp list
 ```
 
-#### GITHUB COPILOT
+### GitHub Copilot MCP
 
-GitHub Copilot needs the Memgraph MCP server to actually run queries. Minimal project-scoped config
-in
-`~/.copilot/mcp-config.json`:
+Minimal `~/.copilot/mcp-config.json`:
 
 ```json
 {
@@ -570,192 +571,205 @@ in
 }
 ```
 
-### Improved type resolution with `--classpath`
+Set `MCP_READ_ONLY` to `"true"` if you only want the agent to read. Keep it `"false"` when you want
+the agent to create or update Memory nodes.
 
-By default, the ingester resolves types against the JDK and the project source tree. To improve
-`CALLS` edge coverage, `EXTENDS`/`IMPLEMENTS` FQN resolution, and field/return type resolution for
-external library types, pass dependency JARs via `--classpath`:
+## CLI Reference
 
-```bash
-# Use Maven to collect the classpath (compile + test scopes)
-CP=$(mvn -q dependency:build-classpath -DincludeScope=test -Dmdep.outputFile=/dev/stdout 2>/dev/null)
-<executable_memgraph_ingester> \
-  --source /path/to/your/java/project/src/main/java \
-  --bolt bolt://localhost:7687 \
-  --project my-project \
-  --wipe-project-code \
-  --classpath "$CP"
-```
+Exit codes:
 
-> **Tip:** Use `-DincludeScope=test` to include test-scoped dependencies (JUnit, Testcontainers,
-> etc.) — this ensures parameter types from those libraries resolve to FQNs in method signatures
-> and field types. Without the matching JARs, external types fall back to simple names
-> (e.g., `Session` instead of `org.neo4j.driver.Session`).
+| Code | Meaning |
+|---:|---|
+| `0` | Success |
+| `1` | Invalid arguments or runtime setup failure |
+| `2` | One or more files failed to parse or ingest |
 
-This lets JavaParser resolve method calls whose parameters use types from Neo4j Driver, Spring,
-JUnit 5, picocli, etc. — dramatically increasing the number of `CALLS` edges in the graph.
+Options:
 
-## Re-ingesting after code changes
+| Option | Short | Required | Default | Description |
+|---|---|---:|---|---|
+| `--source` | `-s` | yes |  | Root directory to scan. |
+| `--bolt` | `-b` | yes |  | Memgraph Bolt URL, for example `bolt://localhost:7687`. |
+| `--project` | `-P` | yes |  | Logical project name. Namespaces all graph nodes. |
+| `--user` | `-u` | no | empty | Memgraph username. |
+| `--pass` | `-p` | no | empty | Memgraph password. |
+| `--threads` | `-t` | no | `1` | Parser threads. Each thread gets its own Bolt session. |
+| `--wipe-project-code` |  | no | `false` | Delete this project's code graph before ingesting. |
+| `--wipe-project-memories` |  | no | `false` | Delete this project's memory graph before ingesting. |
+| `--apply-schema` |  | no | `false` | Apply Memgraph constraints and indexes before ingesting. |
+| `--wipe-all` |  | no | `false` | Delete all data from Memgraph. |
+| `--incremental` |  | no | `false` | Skip files whose last-modified timestamp matches the graph. |
+| `--watch` | `-w` | no | `false` | Watch the source directory and re-ingest changes. |
+| `--classpath` |  | no | empty | Platform-separated JAR paths for Java symbol resolution. |
+| `--language` |  | no | `java` | `java`, `js`, `javascript`, `ts`, or `typescript`. |
+| `--js-runtime-mode` |  | no | `managed` | `managed`, `system`, or `offline`. |
+| `--js-runtime-cache` |  | no | `~/.cache/memgraph-ingester` | Cache directory for managed Node.js and TypeScript downloads. |
+| `--js-node-version` |  | no | `22.11.0` | Pinned Node.js version for managed JS/TS parsing. |
+| `--js-typescript-version` |  | no | `5.6.3` | Pinned TypeScript compiler package version. A leading `v` is accepted. |
+| `--check-js-runtime` |  | no | `false` | Run a local JS runtime smoke check without connecting to Memgraph. |
+| `--help` |  | no |  | Print CLI help. |
+| `--version` |  | no |  | Print CLI version. |
 
-The graph goes stale as code changes. Re-run the ingester with `--wipe-project-code` to refresh:
+Parallel ingestion:
 
-```bash
-<executable_memgraph_ingester> \
-  --source /path/to/your/java/project/src/main/java \
-  --bolt bolt://localhost:7687 \
-  --project my-project \
-  --wipe-project-code
-```
+| Threads | Typical speedup | Bottleneck |
+|---:|---|---|
+| `1` | 1x | Sequential parse and write |
+| `4` | about 2.5x to 3x | Write serialization starts |
+| `8` | about 3x to 4x | Diminishing returns |
+| `16+` | about 3x to 4x | Writes saturated |
 
-For faster re-runs, use `--incremental` to skip files that haven't changed since the last ingestion
-(compared by filesystem `lastModified` timestamp):
+Use 4 to 8 threads for large projects on most machines. Values higher than your CPU core count
+rarely help.
 
-```bash
-<executable_memgraph_ingester> \
-  --source /path/to/your/java/project/src/main/java \
-  --bolt bolt://localhost:7687 \
-  --project my-project \
-  --incremental
-```
+## Graph Model
 
-Check freshness anytime:
+Memgraph Ingester creates two project-scoped graph roots:
+
+- Code graph: `(:Project)-[:CONTAINS]->(:Code)`
+- Memory graph: `(:Project)-[:HAS_MEMORY]->(:Memory)`
+
+Every code and memory node uses the same `project` namespace.
+
+### Code Nodes
+
+| Label | Identity | Key properties |
+|---|---|---|
+| `:Project` | `name` | Project anchor. |
+| `:Code` | `project` | `sourceRoots`, `lastIngested`. |
+| `:Package` | `(name, project)` | Package name. |
+| `:File` | `(path, project)` | `lastModified`, `language`. |
+| `:Class` | `(fqn, project)` | `name`, `packageName`, type flags, `language`, `kind`, `modulePath`, `framework`. |
+| `:Interface` | `(fqn, project)` | `name`, `packageName`, `language`, `kind`, `modulePath`, `framework`. |
+| `:Annotation` | `(fqn, project)` | `name`, `packageName`, `language`, `kind`, `modulePath`, `framework`. |
+| `:Method` | `(signature, project)` | `name`, `returnType`, `visibility`, `isStatic`, `startLine`, `endLine`, `ownerFqn`, `ownerDisplayName`, `language`, `kind`. |
+| `:Field` | `(fqn, project)` | `name`, `type`, `visibility`, `isStatic`, `language`, `kind`. |
+| `:PendingCall` | `(project, callerSignature, calleeOwnerFqn, calleeName)` | Temporary owner/name call record resolved after ingestion. |
+
+### Code Relationships
+
+| Relationship | Meaning |
+|---|---|
+| `(:Project)-[:CONTAINS]->(:Code)` | Code graph anchor. |
+| `(:Code)-[:CONTAINS]->(:Package \| :File)` | Top-level code membership. |
+| `(:Package)-[:CONTAINS]->(:Class \| :Interface \| :Annotation)` | Package contents. |
+| `(:File)-[:DEFINES]->(:Class \| :Interface \| :Annotation)` | Source location. |
+| `(:Class)-[:EXTENDS]->(:Class)` | Class inheritance. |
+| `(:Class)-[:IMPLEMENTS]->(:Interface)` | Interface implementation. |
+| `(:Interface)-[:EXTENDS]->(:Interface)` | Interface inheritance. |
+| `(:Class \| :Interface \| :Annotation)-[:DECLARES]->(:Method \| :Field)` | Type members. |
+| `(:Method)-[:CALLS]->(:Method)` | Best-effort call graph. |
+| `(:Method)-[:PENDING_CALL]->(:PendingCall)` | Deferred owner/name call awaiting unique target resolution. |
+| `(:*)-[:ANNOTATED_WITH]->(:Annotation)` | Annotation or decorator usage. |
+
+### Memory Nodes
+
+Memory nodes are manually authored by agents or clients. They survive code re-ingestion when you do
+not pass `--wipe-project-memories`.
+
+Only the properties listed here should be used.
+
+| Label | Identity | Allowed properties |
+|---|---|---|
+| `:Memory` | `project` | `project` |
+| `:Decision` | `(id, project)` | `id`, `project`, `title`, `topic`, `status`, `rationale`, `consequences`, `createdAt`, `updatedAt` |
+| `:ADR` | `(id, project)` | `id`, `project`, `number`, `title`, `status`, `context`, `decision`, `consequences`, `createdAt`, `updatedAt` |
+| `:Rule` | `(id, project)` | `id`, `project`, `title`, `topic`, `severity`, `description`, `createdAt`, `updatedAt` |
+| `:Context` | `(id, project)` | `id`, `project`, `title`, `topic`, `content`, `source`, `createdAt`, `updatedAt` |
+| `:Finding` | `(id, project)` | `id`, `project`, `title`, `topic`, `type`, `status`, `summary`, `evidence`, `createdAt`, `updatedAt` |
+| `:Task` | `(id, project)` | `id`, `project`, `title`, `status`, `priority`, `description`, `createdAt`, `updatedAt` |
+| `:Risk` | `(id, project)` | `id`, `project`, `title`, `topic`, `severity`, `status`, `mitigation`, `createdAt`, `updatedAt` |
+| `:Question` | `(id, project)` | `id`, `project`, `title`, `status`, `answer`, `createdAt`, `updatedAt` |
+| `:Idea` | `(id, project)` | `id`, `project`, `title`, `topic`, `status`, `notes`, `createdAt`, `updatedAt` |
+| `:CodeRef` | `(project, targetType, key)` | `project`, `targetType`, `key` |
+
+Controlled values:
+
+| Node | Property | Values |
+|---|---|---|
+| `:Decision` | `status` | `proposed`, `accepted`, `rejected`, `superseded` |
+| `:ADR` | `status` | `draft`, `accepted`, `rejected`, `superseded` |
+| `:Rule` | `severity` | `hard`, `soft`, `recommendation` |
+| `:Finding` | `type` | `bug`, `perf`, `constraint`, `security` |
+| `:Finding` | `status` | `open`, `resolved`, `obsolete` |
+| `:Task` | `status` | `todo`, `doing`, `done`, `blocked`, `cancelled` |
+| `:Task` | `priority` | `0` critical, `1` high, `2` medium, `3` low, `4` none |
+| `:Risk` | `severity` | `low`, `medium`, `high`, `critical` |
+| `:Risk` | `status` | `open`, `mitigated`, `accepted`, `obsolete` |
+| `:Question` | `status` | `open`, `answered`, `obsolete` |
+| `:Idea` | `status` | `proposed`, `accepted`, `rejected`, `obsolete` |
+
+### Memory Relationships
+
+| Relationship | Meaning |
+|---|---|
+| `(:Project)-[:HAS_MEMORY]->(:Memory)` | Memory graph anchor. |
+| `(:Memory)-[:HAS_DECISION \| :HAS_ADR \| :HAS_RULE \| :HAS_CONTEXT]->(:*)` | Memory item ownership. |
+| `(:Memory)-[:HAS_FINDING \| :HAS_TASK \| :HAS_RISK \| :HAS_QUESTION]->(:*)` | Memory item ownership. |
+| `(:Memory)-[:HAS_IDEA]->(:Idea)` | Memory item ownership. |
+| `(:Decision \| :ADR \| :Rule \| :Context \| :Finding \| :Task \| :Risk \| :Idea)-[:REFERS_TO]->(:CodeRef)` | Stable memory-to-code reference. |
+| `(:CodeRef)-[:RESOLVES_TO]->(:Code \| :Package \| :File \| :Class \| :Interface \| :Annotation \| :Method \| :Field)` | Current code node resolved after ingestion. |
+
+See [`doc/MEMORY.md`](doc/MEMORY.md) for Memory examples and Cypher recipes.
+See [`schema/SCHEMA.md`](schema/SCHEMA.md) for the full graph model.
+
+## Useful Queries
+
+All classes in a project:
 
 ```cypher
-
-MATCH (:Project {name: 'my-project'})-[:CONTAINS]->(c:Code)
-RETURN c.sourceRoots, c.lastIngested;
+MATCH (:Project {name: 'my-project'})-[:CONTAINS]->(:Code)-[:CONTAINS]->(:File)-[:DEFINES]->(c:Class)
+WHERE c.isExternal = false
+RETURN c.fqn
+ORDER BY c.fqn;
 ```
 
-## Multiple projects in one Memgraph instance
-
-Run the ingester once per codebase with different `--project` values. Each gets its own
-`:Project -> :Code` anchor chain; code nodes are composite-keyed by `(key, project)`, so nothing
-collides.
-
-```bash
-<executable_memgraph_ingester> -s ~/code/repo-a/src/main/java -b bolt://localhost:7687 -P repo-a --wipe-project-code
-<executable_memgraph_ingester> -s ~/code/repo-b/src/main/java -b bolt://localhost:7687 -P repo-b --wipe-project-code
-```
-
-List everything that's indexed:
+Who calls a method:
 
 ```cypher
-
-MATCH (p:Project)-[:CONTAINS]->(c:Code)
-RETURN p.name, c.sourceRoots, c.lastIngested
-  ORDER BY c.lastIngested DESC;
+MATCH (caller:Method {project: 'my-project'})-[:CALLS]->(m:Method {project: 'my-project'})
+WHERE m.signature CONTAINS 'Widget.save('
+RETURN caller.signature
+ORDER BY caller.signature;
 ```
 
-## What gets captured
+Accepted decisions:
 
-| Node label    | Identity               |
-|---------------|------------------------|
-| `:Project`    | `name`                 |
-| `:Code`       | `project`              |
-| `:Package`    | `(name, project)`      |
-| `:File`       | `(path, project)`      |
-| `:Class`      | `(fqn, project)`       |
-| `:Interface`  | `(fqn, project)`       |
-| `:Annotation` | `(fqn, project)`       |
-| `:Method`     | `(signature, project)` |
-| `:Field`      | `(fqn, project)`       |
+```cypher
+MATCH (:Memory {project: 'my-project'})-[:HAS_DECISION]->(d:Decision {status: 'accepted'})
+RETURN d.id, d.title, d.rationale
+ORDER BY d.updatedAt DESC;
+```
 
-| Relationship                                                    | Meaning                   |
-|-----------------------------------------------------------------|---------------------------|
-| `(:Project)-[:CONTAINS]->(:Code)`                               | Code graph anchor         |
-| `(:Code)-[:CONTAINS]->(:Package \| :File)`                      | Top-level code membership |
-| `(:Package)-[:CONTAINS]->(:Class \| :Interface \| :Annotation)` | Package contents          |
-| `(:File)-[:DEFINES]->(:Class \| :Interface \| :Annotation)`     | Source location           |
-| `(:Class)-[:EXTENDS]->(:Class)`                                 | Class inheritance         |
-| `(:Class)-[:IMPLEMENTS]->(:Interface)`                          | Interface implementation  |
-| `(:Interface)-[:EXTENDS]->(:Interface)`                         | Interface inheritance     |
-| `(:Class \| :Interface)-[:DECLARES]->(:Method \| :Field)`       | Type members              |
-| `(:Method)-[:CALLS]->(:Method)`                                 | Call graph (best-effort)  |
-| `(:*)-[:ANNOTATED_WITH]->(:Annotation)`                         | Annotation usage          |
+Memory linked to a file:
 
-Memory nodes are manually authored by agents or clients and share the same project namespace.
-**Only the properties listed below are allowed — no extra properties may be added to any Memory node.**
-
-| Label       | Key props                      | All allowed properties                                                                          |
-|-------------|--------------------------------|-------------------------------------------------------------------------------------------------|
-| `:Memory`   | `project`                      | `project`                                                                                       |
-| `:Decision` | `id`, `project`                | `id`, `project`, `title`, `topic`, `status`, `rationale`, `consequences`, `createdAt`, `updatedAt` |
-| `:ADR`      | `id`, `project`                | `id`, `project`, `number`, `title`, `status`, `context`, `decision`, `consequences`, `createdAt`, `updatedAt` |
-| `:Rule`     | `id`, `project`                | `id`, `project`, `title`, `topic`, `severity`, `description`, `createdAt`, `updatedAt`          |
-| `:Context`  | `id`, `project`                | `id`, `project`, `title`, `topic`, `content`, `source`, `createdAt`, `updatedAt`                |
-| `:Finding`  | `id`, `project`                | `id`, `project`, `title`, `topic`, `type`, `summary`, `evidence`, `createdAt`, `updatedAt`      |
-| `:Task`     | `id`, `project`                | `id`, `project`, `title`, `status`, `priority`, `description`, `createdAt`, `updatedAt`         |
-| `:Risk`     | `id`, `project`                | `id`, `project`, `title`, `topic`, `severity`, `status`, `mitigation`, `createdAt`, `updatedAt` |
-| `:Question` | `id`, `project`                | `id`, `project`, `title`, `status`, `answer`, `createdAt`, `updatedAt`                          |
-| `:Idea`     | `id`, `project`                | `id`, `project`, `title`, `topic`, `status`, `notes`, `createdAt`, `updatedAt`                  |
-| `:CodeRef`  | `project`, `targetType`, `key` | `project`, `targetType`, `key`                                                                  |
-
-**Controlled values:**
-- Decision `status`: `proposed` | `accepted` | `rejected` | `superseded`
-- ADR `status`: `draft` | `accepted` | `rejected` | `superseded`
-- Rule `severity`: `hard` | `soft` | `recommendation`
-- Finding `type`: `bug` | `perf` | `constraint` | `security`
-- Task `status`: `todo` | `doing` | `done` | `blocked` | `cancelled`
-- Risk `severity`: `low` | `medium` | `high` | `critical`
-- Risk `status`: `open` | `mitigated` | `accepted` | `obsolete`
-- Question `status`: `open` | `answered` | `obsolete`
-
-| Relationship                                                                                                          | Meaning                                    |
-|-----------------------------------------------------------------------------------------------------------------------|--------------------------------------------|
-| `(:Project)-[:HAS_MEMORY]->(:Memory)`                                                                                 | Memory graph anchor                        |
-| `(:Memory)-[:HAS_DECISION \| :HAS_ADR \| :HAS_RULE \| :HAS_CONTEXT]->(:*)`                                            | Memory item ownership                      |
-| `(:Memory)-[:HAS_FINDING \| :HAS_TASK \| :HAS_RISK \| :HAS_QUESTION]->(:*)`                                           | Memory item ownership                      |
-| `(:Memory)-[:HAS_IDEA]->(:Idea)`                                                                                      | Memory item ownership                      |
-| `(:Decision \| :ADR \| :Rule \| :Context \| :Finding \| :Task \| :Risk \| :Idea)-[:REFERS_TO]->(:CodeRef)`            | Memory-to-code reference                   |
-| `(:CodeRef)-[:RESOLVES_TO]->(:Code \| :Package \| :File \| :Class \| :Interface \| :Annotation \| :Method \| :Field)` | Current code node resolved after ingestion |
-
-`CodeRef.targetType` is one of `Code`, `Package`, `File`, `Class`, `Interface`, `Annotation`,
-`Method`, or `Field`. `CodeRef.key` uses the matching code identity: project name for `Code`,
-package name for `Package`, path for `File`, FQN for types/annotations/fields, and signature for
-`Method`. The ingester refreshes `RESOLVES_TO` edges after each run, so memory can survive code
-graph wipes and re-ingestion.
+```cypher
+MATCH (file:File {path: 'src/main/java/com/example/Widget.java', project: 'my-project'})
+MATCH (memory {project: 'my-project'})-[:REFERS_TO]->(:CodeRef)-[:RESOLVES_TO]->(file)
+RETURN labels(memory), memory.id, memory.title;
+```
 
 ## Caveats
 
-- **`CALLS` is best-effort.** JavaParser can't always resolve callees (complex generics, lambdas).
-  Use `--classpath` with your project's dependency JARs to significantly improve resolution of
-  external library types. Transitive call queries may still miss edges — a missing edge does not
-  prove the call doesn't happen.
-- **`EXTENDS`/`IMPLEMENTS` resolution.** When the symbol solver cannot resolve a parent class or
-  interface, the ingester infers the FQN from import statements and falls back to the source-level
-  name. This means all inheritance edges are captured, but unresolvable external types may appear
-  with a simple name (e.g. `BeforeAllCallback`) rather than a full FQN. Use `--classpath` to
-  provide dependency JARs for full FQN resolution.
-- **External types get tagged with your project.** When a class extends or implements something from
-  outside your source tree (e.g. `RuntimeException`, Spring interfaces), the ingester creates a
-  `:Class` or `:Interface` node for it and scopes it to your project. These phantom nodes are marked
-  with `isExternal = true` and have their `name` and `packageName` inferred from the FQN. Use
-  `WHERE NOT n.isExternal` to filter them out. Project-internal nodes always have
-  `isExternal = false`.
-- **Same-class CALLS fallback.** When full signature resolution fails for an unscoped (same-class)
-  method call, the ingester falls back to name-based matching: it creates a `CALLS` edge if exactly
-  one method with that name exists in the owning type. This avoids false positives from overloading
-  while recovering many intra-class call edges that would otherwise be lost. The same fallback
-  applies to same-class method references (`Type::method`).
-- **Generated code is only indexed if you ingest it.** Annotation processors, Lombok-generated
-  members, and similar won't appear in the graph unless their generated source directory is passed
-  to the ingester too:
+- JavaParser is not `javac`. It handles many projects well, but edge-case Java syntax and complex
+  symbol resolution can still fail.
+- Java `CALLS` edges are best-effort. Missing edges do not prove a call never happens.
+- Use `--classpath` for better Java FQN and call-edge coverage.
+- External Java parent types and annotations can appear as project-scoped nodes with
+  `isExternal = true`.
+- JS/TS `CALLS` edges are syntax-based and best-effort. Owner/name calls that cannot be
+  resolved in-file are stored as `:PendingCall` records and retried after the batch. Pending calls
+  for a reingested JS/TS file are cleared before the file's current calls are stored.
+- Generated code is indexed only when its generated source directory is passed to `--source`.
+- With `--threads > 1`, log order is non-deterministic. Graph writes are idempotent.
 
-```shell
-<executable_memgraph_ingester> \
-  --source target/generated-sources/annotations \
-  --bolt bolt://localhost:7687 \
-  --project work
-  # no --wipe-project-code here!!!!
-```
+## Project Layout
 
-## Project layout
-
-```
+```text
 .
 ├── .github/workflows/
-│   ├── maven.yml                               # Maven CI
-│   └── native-binaries.yml                     # Native binary release builds
+│   ├── maven.yml                               # Maven build/test workflow
+│   └── native-binaries.yml                     # GraalVM native binaries + JS runtime smoke tests
 ├── doc/
 │   └── MEMORY.md                               # Memory graph usage guide and recipes
 ├── image/                                      # README banners and social preview assets
@@ -767,35 +781,115 @@ graph wipes and re-ingestion.
 │   ├── init-memgraph-claude.sh                 # Injects Memgraph instructions for Claude
 │   ├── init-memgraph-codex.sh                  # Injects Memgraph instructions for Codex
 │   ├── init-memgraph-gemini.sh                 # Injects Memgraph instructions for Gemini
-│   ├── init-memgraph-github.sh                 # Injects Memgraph instructions for Copilot
+│   ├── init-memgraph-github.sh                 # Injects Memgraph instructions for GitHub Copilot
 │   └── mgq                                     # Token-light mgconsole query wrapper
 ├── src/main/java/io/github/ousatov/tools/memgraph/
 │   ├── IngesterCli.java                        # picocli CLI entry point
-│   ├── def/                                    # Shared constants and Cypher resource names
-│   ├── exception/                              # Domain exceptions
-│   ├── exe/                                    # Parsing, orchestration, and Memgraph writers
-│   ├── schema/                                 # Schema loader and wipe helpers
-│   └── vo/                                     # Immutable value objects
+│   ├── def/
+│   │   └── Const.java                          # Shared parameter, label, and Cypher resource names
+│   ├── exception/
+│   │   └── ProcessingException.java            # Domain-level processing failure
+│   ├── exe/
+│   │   ├── LanguageAdapter.java                # Source-language adapter contract
+│   │   ├── JavaLanguageAdapter.java            # JavaParser-backed Java ingestion adapter
+│   │   ├── JsLanguageAdapter.java              # Node/TypeScript-backed JS/TS ingestion adapter
+│   │   ├── JsAnalyzer.java                     # Java wrapper around the bundled JS analyzer
+│   │   ├── JsAnalysis.java                     # Neutral JS analyzer records
+│   │   ├── ManagedNodeRuntime.java             # Downloaded/cached Node.js runtime management
+│   │   ├── ManagedTypescriptPackage.java       # Downloaded/cached TypeScript compiler management
+│   │   ├── ParseService.java                   # JavaParser setup and parsing
+│   │   ├── IngestionOrchestrator.java          # Ingestion, wipe, incremental, and watch workflow
+│   │   ├── GraphWriter.java                    # Memgraph node/relationship writes
+│   │   ├── CypherExecutor.java                 # Cypher execution and retry handling
+│   │   ├── CallEdgeWriter.java                 # Java call-edge extraction/writes
+│   │   ├── JavaTypeNames.java                  # Java type-name helpers
+│   │   ├── SourceLanguage.java                 # Supported source-language values
+│   │   └── RuntimeMode.java                    # JS runtime mode values
+│   ├── schema/
+│   │   └── Memgraph.java                       # Schema loader and global wipe helpers
+│   └── vo/
+│       ├── Method.java                         # Method graph payload
+│       └── Settings.java                       # Ingestion settings payload
 ├── src/main/resources/
-│   ├── META-INF/native-image/                  # GraalVM native-image configuration
+│   ├── META-INF/native-image/
+│   │   └── io.github.ousatov-ua/memgraph-ingester/
+│   │       ├── reflect-config.json             # GraalVM reflection metadata
+│   │       └── resource-config.json            # GraalVM bundled resource patterns
 │   ├── io/github/ousatov/tools/memgraph/cypher/
-│   │   ├── action/                             # Per-operation Cypher templates
+│   │   ├── action/                             # Per-operation Cypher resources
 │   │   ├── create-schema.cypher                # Constraints and indexes
 │   │   ├── drop-schema.cypher                  # Schema teardown
 │   │   └── wipe-all-data.cypher                # Full data wipe
+│   ├── io/github/ousatov/tools/memgraph/js/
+│   │   └── js-analyzer.cjs                     # Bundled TypeScript compiler-based JS/TS analyzer
 │   └── simplelogger.properties                 # Runtime logging defaults
 ├── src/test/java/io/github/ousatov/tools/memgraph/
 │   ├── extension/                              # Testcontainers Memgraph JUnit extension
-│   └── ...                                     # Unit and integration tests
+│   ├── exe/                                    # Parser, writer, orchestrator, and memory ITs
+│   └── ...                                     # CLI, schema, resource, and exception tests
 ├── template/
 │   └── AI-memgraph-template.md                 # Shared agent-instruction template
-├── pom.xml                                     # Maven build and release configuration
-└── README.md
+├── LICENSE
+├── pom.xml                                     # Maven build, release, and native-image configuration
+└── README.md                                   # User documentation
 ```
 
 ## License
 
-MIT — see [`LICENSE`](LICENSE).
+MIT. See [`LICENSE`](LICENSE).
 
 ## Acknowledgements
-- [Evgeniy Voronyuk](https://github.com/brunneng) — testing support
+
+- [Evgeniy Voronyuk](https://github.com/brunneng) - testing support
+
+## For Enthusiasts: Build It Yourself
+
+You do not need this section to use the tool. Use the release downloads unless you want to hack on
+the project.
+
+### Build the shaded JAR
+
+Requirements:
+
+- Java 25 SDK.
+- Maven 3.9+.
+
+```bash
+git clone https://github.com/ousatov-ua/memgraph-ingester.git
+cd memgraph-ingester
+mvn clean package -Pshade -DskipTests
+```
+
+Output:
+
+```text
+target/memgraph-ingester.jar
+```
+
+Run it:
+
+```bash
+java -jar target/memgraph-ingester.jar --help
+```
+
+### Build a native executable
+
+Native builds use GraalVM Native Image and build for the OS where Maven runs.
+
+```bash
+mvn clean package -Pnative-macos -DskipTests
+mvn clean package -Pnative-linux -DskipTests
+mvn clean package -Pnative-windows -DskipTests
+```
+
+Use the profile that matches your operating system.
+
+### Use as a Maven dependency
+
+```xml
+<dependency>
+  <groupId>io.github.ousatov-ua</groupId>
+  <artifactId>memgraph-ingester</artifactId>
+  <version>8.1.4</version>
+</dependency>
+```

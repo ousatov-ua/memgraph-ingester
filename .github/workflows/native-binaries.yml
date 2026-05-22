@@ -58,6 +58,9 @@ jobs:
         run: |
           mvn --batch-mode --no-transfer-progress -P${{ matrix.profile }} -DskipTests package
           test -x '${{ matrix.artifact_path }}'
+          '${{ matrix.artifact_path }}' --help
+          '${{ matrix.artifact_path }}' --check-js-runtime --js-runtime-cache '${{ runner.temp }}/memgraph-ingester-js-cache'
+          '${{ matrix.artifact_path }}' --check-js-runtime --js-runtime-mode offline --js-runtime-cache '${{ runner.temp }}/memgraph-ingester-js-cache'
 
       - name: Build Windows binary
         if: matrix.id == 'windows-amd64'
@@ -74,6 +77,9 @@ jobs:
             echo target\memgraph-ingester-windows-amd64.exe was not produced.
             exit /b 1
           )
+          target\memgraph-ingester-windows-amd64.exe --help
+          target\memgraph-ingester-windows-amd64.exe --check-js-runtime --js-runtime-cache "%RUNNER_TEMP%\memgraph-ingester-js-cache"
+          target\memgraph-ingester-windows-amd64.exe --check-js-runtime --js-runtime-mode offline --js-runtime-cache "%RUNNER_TEMP%\memgraph-ingester-js-cache"
 
       - name: Upload binary
         uses: actions/upload-artifact@v4

@@ -7,6 +7,8 @@ MERGE (m:Method {signature: $sig, project: $project})
       m.endLine = $end,
       m.ownerFqn = $owner,
       m.ownerDisplayName = $ownerDisplayName,
+      m.language = $language,
+      m.kind = $kind,
       m.isSynthetic = $isSynthetic
 WITH m
 MATCH (owner)

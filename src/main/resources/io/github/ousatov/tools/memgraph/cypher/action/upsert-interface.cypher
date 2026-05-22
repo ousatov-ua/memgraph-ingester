@@ -4,6 +4,10 @@ MERGE (t:Interface {fqn: $fqn, project: $project})
       t.isAbstract = $isAbstract,
       t.visibility = $visibility,
       t.isFinal = $isFinal,
+      t.language = $language,
+      t.kind = $kind,
+      t.modulePath = $modulePath,
+      t.framework = $framework,
       t.isExternal = false
 WITH t
 MATCH (p:Package {name: $pkg, project: $project})

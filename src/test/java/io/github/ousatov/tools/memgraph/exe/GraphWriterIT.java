@@ -562,6 +562,63 @@ class GraphWriterIT {
   }
 
   @Test
+  void upsertJavascriptClassSynthesizesConstructorOnlyWhenMissing() {
+    Path jsFile = Path.of("/tmp/test-gw/src/app/service.js");
+    String pkg = "js.app";
+    String fqn = "js.app.service.Service";
+    writer.upsertFile(jsFile, SourceLanguage.JAVASCRIPT.graphName());
+    writer.upsertPackage(pkg);
+
+    writer.upsertJavascriptClass(jsFile, pkg, fqn, "Service", "app/service.js", "", false, 1, 1);
+
+    var row =
+        session
+            .run(
+                "MATCH (:Class {fqn: $fqn, project: $p})-[:DECLARES]->(m:Method {name:"
+                    + " '<init>'}) RETURN count(m) AS n, m.isSynthetic AS syn",
+                Map.of("fqn", fqn, "p", PROJECT))
+            .single();
+
+    assertEquals(1, row.get("n").asLong(), "Implicit JS constructor must be synthesized");
+    assertTrue(row.get("syn").asBoolean(), "Synthesized JS constructor must be isSynthetic=true");
+  }
+
+  @Test
+  void upsertJavascriptClassDoesNotSynthesizeNoArgConstructorWhenDeclared() {
+    Path jsFile = Path.of("/tmp/test-gw/src/app/service.js");
+    String pkg = "js.app";
+    String fqn = "js.app.service.Service";
+    writer.upsertFile(jsFile, SourceLanguage.JAVASCRIPT.graphName());
+    writer.upsertPackage(pkg);
+
+    writer.upsertJavascriptClass(jsFile, pkg, fqn, "Service", "app/service.js", "", true, 1, 3);
+    writer.upsertJavascriptMethod(
+        fqn, fqn + ".<init>(any)", "<init>", "void", false, 2, 2, "constructor");
+
+    long noArgCtorCount =
+        session
+            .run(
+                "MATCH (:Class {fqn: $fqn, project: $p})-[:DECLARES]->(m:Method {signature:"
+                    + " $sig}) RETURN count(m) AS n",
+                Map.of("fqn", fqn, "p", PROJECT, "sig", fqn + ".<init>()"))
+            .single()
+            .get("n")
+            .asLong();
+    long declaredCtorCount =
+        session
+            .run(
+                "MATCH (:Class {fqn: $fqn, project: $p})-[:DECLARES]->(m:Method {signature:"
+                    + " $sig}) RETURN count(m) AS n",
+                Map.of("fqn", fqn, "p", PROJECT, "sig", fqn + ".<init>(any)"))
+            .single()
+            .get("n")
+            .asLong();
+
+    assertEquals(0, noArgCtorCount, "Declared JS constructors must not create a fake no-arg ctor");
+    assertEquals(1, declaredCtorCount, "The declared JS constructor must still be ingested");
+  }
+
+  @Test
   void implicitDefaultConstructorCallsEdgePreservedAfterPhantomCleanup() throws IOException {
     Path tempDir = Files.createTempDirectory("implicit-ctor-test");
     Path serviceFile = tempDir.resolve("com/example/Service.java");
@@ -1126,6 +1183,91 @@ class GraphWriterIT {
             .asLong();
 
     assertEquals(1, callCount);
+  }
+
+  @Test
+  void pendingCallByNameResolvesAfterCalleeArrives() {
+    writer.upsertFile(TEST_FILE);
+    writer.upsertPackage(PKG);
+    ClassOrInterfaceDeclaration caller =
+        parseDecl("package com.example; public class Caller { public void run() {} }");
+    ClassOrInterfaceDeclaration helper =
+        parseDecl("package com.example; public class Helper { public static void assist() {} }");
+
+    writer.upsertType(TEST_FILE, PKG, caller);
+    writer.upsertPendingCallByName("com.example.Caller.run()", "com.example.Helper", "assist");
+
+    long pendingBefore =
+        session
+            .run("MATCH (p:PendingCall {project: $p}) RETURN count(p) AS n", Map.of("p", PROJECT))
+            .single()
+            .get("n")
+            .asLong();
+    long callsBefore =
+        session
+            .run(
+                "MATCH (:Method {name: 'run', project: $p})"
+                    + "-[:CALLS]->(:Method {name: 'assist', project: $p})"
+                    + " RETURN count(*) AS n",
+                Map.of("p", PROJECT))
+            .single()
+            .get("n")
+            .asLong();
+
+    writer.upsertType(TEST_FILE, PKG, helper);
+    writer.resolvePendingCalls();
+
+    long pendingAfter =
+        session
+            .run("MATCH (p:PendingCall {project: $p}) RETURN count(p) AS n", Map.of("p", PROJECT))
+            .single()
+            .get("n")
+            .asLong();
+    long callsAfter =
+        session
+            .run(
+                "MATCH (:Method {name: 'run', project: $p})"
+                    + "-[:CALLS]->(:Method {name: 'assist', project: $p})"
+                    + " RETURN count(*) AS n",
+                Map.of("p", PROJECT))
+            .single()
+            .get("n")
+            .asLong();
+
+    assertEquals(1, pendingBefore);
+    assertEquals(0, callsBefore);
+    assertEquals(0, pendingAfter);
+    assertEquals(1, callsAfter);
+  }
+
+  @Test
+  void pendingCallsForFileDeletedBeforeReingest() {
+    writer.upsertFile(TEST_FILE);
+    writer.upsertPackage(PKG);
+    ClassOrInterfaceDeclaration caller =
+        parseDecl("package com.example; public class Caller { public void run() {} }");
+
+    writer.upsertType(TEST_FILE, PKG, caller);
+    writer.upsertPendingCallByName("com.example.Caller.run()", "com.example.Helper", "assist");
+
+    long pendingBefore =
+        session
+            .run("MATCH (p:PendingCall {project: $p}) RETURN count(p) AS n", Map.of("p", PROJECT))
+            .single()
+            .get("n")
+            .asLong();
+
+    writer.deletePendingCallsForFile(TEST_FILE);
+
+    long pendingAfter =
+        session
+            .run("MATCH (p:PendingCall {project: $p}) RETURN count(p) AS n", Map.of("p", PROJECT))
+            .single()
+            .get("n")
+            .asLong();
+
+    assertEquals(1, pendingBefore);
+    assertEquals(0, pendingAfter);
   }
 
   @Test

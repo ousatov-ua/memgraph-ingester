@@ -9,5 +9,6 @@ WHERE n.project = $project
     OR n:Annotation
     OR n:Method
     OR n:Field
+    OR n:PendingCall
   )
 DETACH DELETE n

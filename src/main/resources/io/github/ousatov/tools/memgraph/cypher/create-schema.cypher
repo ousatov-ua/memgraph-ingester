@@ -9,6 +9,7 @@ CREATE CONSTRAINT ON (a:Annotation) ASSERT a.fqn, a.project         IS UNIQUE;
 CREATE CONSTRAINT ON (m:Method)     ASSERT m.signature, m.project   IS UNIQUE;
 CREATE CONSTRAINT ON (f:Field)      ASSERT f.fqn, f.project         IS UNIQUE;
 CREATE CONSTRAINT ON (file:File)    ASSERT file.path, file.project  IS UNIQUE;
+CREATE CONSTRAINT ON (pc:PendingCall) ASSERT pc.project, pc.callerSignature, pc.calleeOwnerFqn, pc.calleeName IS UNIQUE;
 CREATE INDEX ON :Project(name);
 CREATE INDEX ON :Code(project);
 CREATE INDEX ON :Class(project);
@@ -23,6 +24,8 @@ CREATE INDEX ON :Method(ownerFqn);
 CREATE INDEX ON :Field(project);
 CREATE INDEX ON :Field(name);
 CREATE INDEX ON :Class(packageName);
+CREATE INDEX ON :PendingCall(project);
+CREATE INDEX ON :PendingCall(calleeOwnerFqn);
 
 CREATE CONSTRAINT ON (m:Memory)    ASSERT m.project IS UNIQUE;
 
