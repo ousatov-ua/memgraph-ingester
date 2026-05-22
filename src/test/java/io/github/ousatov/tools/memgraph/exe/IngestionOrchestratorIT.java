@@ -244,6 +244,10 @@ class IngestionOrchestratorIT {
                 assertTrue(
                     classExists(currentProject, "Watched"), "Watch mode must ingest changed files");
               });
+      await()
+          .atMost(Duration.ofSeconds(10))
+          .pollInterval(Duration.ofMillis(50))
+          .until(() -> worker.getState() == Thread.State.WAITING);
     } finally {
       worker.interrupt();
       worker.join(TimeUnit.SECONDS.toMillis(5));

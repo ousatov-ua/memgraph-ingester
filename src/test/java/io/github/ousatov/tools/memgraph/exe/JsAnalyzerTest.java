@@ -381,6 +381,39 @@ class JsAnalyzerTest {
   }
 
   @Test
+  void topLevelRouteConstUsesSyntheticModuleOwner() throws IOException {
+    JsAnalysis analysis =
+        analyzeSource(
+            "app.module.ts",
+            """
+            import { NgModule } from '@angular/core';
+            import { RouterModule, Routes } from '@angular/router';
+
+            const appRoutes: Routes = [];
+
+            @NgModule({
+              imports: [RouterModule.forRoot(appRoutes)],
+            })
+            export class AppModule {}
+            """);
+
+    assertEquals("js.app$2e$module$2e$ts", analysis.moduleFqn());
+    assertTrue(
+        analysis.members().stream()
+            .anyMatch(
+                member ->
+                    "js.app$2e$module$2e$ts".equals(member.ownerFqn())
+                        && "field".equals(member.memberType())
+                        && "appRoutes".equals(member.name())));
+    assertTrue(
+        analysis.types().stream()
+            .anyMatch(
+                type ->
+                    "class".equals(type.kind())
+                        && "js.app$2e$module$2e$ts.AppModule".equals(type.fqn())));
+  }
+
+  @Test
   void ignoresExternalTypedThisPropertyReceivers() throws IOException {
     JsAnalysis analysis =
         analyzeSource(

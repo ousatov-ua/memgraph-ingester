@@ -1469,6 +1469,43 @@ class GraphWriterIT {
   }
 
   @Test
+  void unresolvedUnscopedCallFallsBackToInheritedOwnerMethod() {
+    writer.upsertFile(TEST_FILE);
+    writer.upsertPackage(PKG);
+    ClassOrInterfaceDeclaration base =
+        parseDecl(
+            "package com.example;"
+                + " public class BaseService {"
+                + "   public void refreshRepository() {}"
+                + " }");
+    ClassOrInterfaceDeclaration service =
+        parseDecl(
+            "package com.example;"
+                + " public class RepositoryService extends com.example.BaseService {"
+                + "   public void load() { refreshRepository(); }"
+                + " }");
+
+    writer.upsertType(TEST_FILE, PKG, base);
+    writer.upsertType(TEST_FILE, PKG, service);
+    writer.upsertTypeCallEdges(PKG, service);
+
+    long callCount =
+        session
+            .run(
+                "MATCH (caller:Method {project: $p})-[:CALLS]->(callee:Method {project: $p})"
+                    + " WHERE caller.name = 'load'"
+                    + " AND callee.name = 'refreshRepository'"
+                    + " AND callee.ownerFqn = 'com.example.BaseService'"
+                    + " RETURN count(*) AS n",
+                Map.of("p", PROJECT))
+            .single()
+            .get("n")
+            .asLong();
+
+    assertEquals(1, callCount);
+  }
+
+  @Test
   void pendingCallByNameResolvesAfterCalleeArrives() {
     writer.upsertFile(TEST_FILE);
     writer.upsertPackage(PKG);
@@ -1521,6 +1558,55 @@ class GraphWriterIT {
     assertEquals(0, callsBefore);
     assertEquals(0, pendingAfter);
     assertEquals(1, callsAfter);
+  }
+
+  @Test
+  void pendingCallByNameResolvesThroughInheritedOwnerMethod() {
+    writer.upsertFile(TEST_FILE);
+    writer.upsertPackage(PKG);
+    ClassOrInterfaceDeclaration caller =
+        parseDecl("package com.example; public class Caller { public void run() {} }");
+    ClassOrInterfaceDeclaration service =
+        parseDecl(
+            "package com.example;"
+                + " public class RepositoryService extends com.example.BaseService {}");
+    ClassOrInterfaceDeclaration base =
+        parseDecl(
+            "package com.example;"
+                + " public class BaseService {"
+                + "   public void refreshRepository() {}"
+                + " }");
+
+    writer.upsertType(TEST_FILE, PKG, caller);
+    writer.upsertType(TEST_FILE, PKG, service);
+    writer.upsertPendingCallByName(
+        "com.example.Caller.run()", "com.example.RepositoryService", "refreshRepository");
+
+    long pendingBefore =
+        session
+            .run("MATCH (p:PendingCall {project: $p}) RETURN count(p) AS n", Map.of("p", PROJECT))
+            .single()
+            .get("n")
+            .asLong();
+
+    writer.upsertType(TEST_FILE, PKG, base);
+    writer.resolvePendingCalls();
+
+    var row =
+        session
+            .run(
+                "MATCH (pending:PendingCall {project: $p}) WITH count(pending) AS pendingAfter"
+                    + " OPTIONAL MATCH (:Method {name: 'run', project: $p})-[:CALLS]->"
+                    + "(callee:Method {name: 'refreshRepository', project: $p}) RETURN"
+                    + " pendingAfter, count(callee) AS callsAfter, collect(callee.ownerFqn) AS"
+                    + " owners",
+                Map.of("p", PROJECT))
+            .single();
+
+    assertEquals(1, pendingBefore);
+    assertEquals(0, row.get("pendingAfter").asLong());
+    assertEquals(1, row.get("callsAfter").asLong());
+    assertEquals(List.of("com.example.BaseService"), row.get("owners").asList());
   }
 
   @Test
