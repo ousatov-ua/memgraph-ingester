@@ -781,7 +781,8 @@ RETURN labels(memory), memory.id, memory.title;
 - External Java parent types and annotations can appear as project-scoped nodes with
   `isExternal = true`.
 - JS/TS `CALLS` edges are syntax-based and best-effort. Owner/name calls that cannot be
-  resolved in-file are stored as `:PendingCall` records and retried after the batch. Pending calls
+  resolved in-file are stored as `:PendingCall` records and retried after the batch. Direct owner
+  methods are preferred, then the nearest superclass with exactly one matching method. Pending calls
   for a reingested JS/TS file are cleared before the file's current calls are stored.
 - Raw JS/TS `:Class` queries include synthetic module owners and TypeScript enums. Filter
   `language = "javascript"` and `kind = "class"` when you only want JavaScript/TypeScript classes.

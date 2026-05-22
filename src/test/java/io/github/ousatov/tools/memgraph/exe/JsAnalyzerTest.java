@@ -398,6 +398,53 @@ class JsAnalyzerTest {
   }
 
   @Test
+  void assertedVariableClassExpressionsUseVariableName() throws IOException {
+    JsAnalysis analysis =
+        analyzeSource(
+            "asserted-alias.ts",
+            """
+            const Alias = (class Named {
+              static make() {}
+            }) as any;
+            Alias.make();
+            """);
+
+    assertTrue(
+        analysis.types().stream()
+            .anyMatch(
+                type ->
+                    "Alias".equals(type.name())
+                        && "js.asserted$2d$alias$2e$ts.Alias".equals(type.fqn())));
+    assertTrue(analysis.types().stream().noneMatch(type -> "Named".equals(type.name())));
+    assertTrue(
+        analysis.calls().stream()
+            .anyMatch(
+                call -> "js.asserted$2d$alias$2e$ts.Alias.make()".equals(call.calleeSignature())));
+  }
+
+  @Test
+  void namedVariableClassExpressionsPreserveClassLocalSelfBinding() throws IOException {
+    JsAnalysis analysis =
+        analyzeSource(
+            "named-class-self.ts",
+            """
+            const Alias = class Named {
+              static build() {
+                return new Named();
+              }
+            };
+            """);
+
+    assertTrue(
+        analysis.calls().stream()
+            .anyMatch(
+                call ->
+                    "js.named$2d$class$2d$self$2e$ts.Alias.build()".equals(call.callerSignature())
+                        && "js.named$2d$class$2d$self$2e$ts.Alias.<init>()"
+                            .equals(call.calleeSignature())));
+  }
+
+  @Test
   void resolvesCallsThroughTypedThisPropertyReceivers() throws IOException {
     Files.writeString(
         tempDir.resolve("repository.service.ts"),

@@ -67,6 +67,7 @@ const declarationsByName = new Map();
 const declarationsByOwnerAndName = new Map();
 const staticDeclarationsByOwnerAndName = new Map();
 const instancePropertyTypesByOwnerAndName = new Map();
+const classSelfNamesByOwnerFqn = new Map();
 const classesByName = new Map();
 const callables = [];
 const imports = collectImports(sourceFile);
@@ -868,7 +869,7 @@ function collectCalls(
   if (ts.isCallExpression(node)) {
     writeCall(callerSignature, calleeFor(node.expression, callerOwnerFqn));
   } else if (ts.isNewExpression(node)) {
-    writeCall(callerSignature, constructorCalleeFor(node.expression));
+    writeCall(callerSignature, constructorCalleeFor(node.expression, callerOwnerFqn));
   }
   ts.forEachChild(
     node,
@@ -925,7 +926,7 @@ function writeCall(callerSignature, callee) {
   });
 }
 
-function constructorCalleeFor(expr) {
+function constructorCalleeFor(expr, callerOwnerFqn) {
   const target = unwrapExpression(expr);
   const namespaceOwner = namespaceQualifiedOwner(target);
   if (namespaceOwner) {
@@ -934,7 +935,7 @@ function constructorCalleeFor(expr) {
   if (!ts.isIdentifier(target)) {
     return null;
   }
-  const ownerFqn = classesByName.get(target.text);
+  const ownerFqn = classSelfTypeFqn(callerOwnerFqn, target.text) || classesByName.get(target.text);
   if (!ownerFqn) {
     const constructorFunction = uniqueDeclaration(target.text);
     if (constructorFunction) {
@@ -995,13 +996,15 @@ function receiverOwner(expr, callerOwnerFqn) {
     if (imported) {
       return { ownerFqn: `${imported.moduleFqn}.${imported.importedName}`, byName: true };
     }
-    const ownerFqn = classesByName.get(receiver.text);
+    const ownerFqn =
+      classSelfTypeFqn(callerOwnerFqn, receiver.text) || classesByName.get(receiver.text);
     return ownerFqn ? { ownerFqn, staticOnly: true } : null;
   }
   if (ts.isNewExpression(receiver)) {
     const target = unwrapExpression(receiver.expression);
     if (ts.isIdentifier(target)) {
-      const ownerFqn = classesByName.get(target.text);
+      const ownerFqn =
+        classSelfTypeFqn(callerOwnerFqn, target.text) || classesByName.get(target.text);
       if (ownerFqn) {
         return { ownerFqn, staticOnly: false };
       }
@@ -1319,8 +1322,16 @@ function classExpressionInitializer(initializer) {
   if (!initializer) {
     return null;
   }
-  const expression = unwrapExpression(initializer);
+  const expression = unwrapClassInitializerExpression(initializer);
   return ts.isClassExpression(expression) ? expression : null;
+}
+
+function unwrapClassInitializerExpression(expression) {
+  let current = expression;
+  while (isClassInitializerWrapper(current)) {
+    current = current.expression;
+  }
+  return current;
 }
 
 function shouldCollectNamedClassExpression(node) {
@@ -1333,7 +1344,11 @@ function shouldCollectNamedClassExpression(node) {
 function isVariableClassExpressionInitializer(node) {
   let current = node;
   let parent = current.parent;
-  while (parent && ts.isParenthesizedExpression(parent)) {
+  while (
+    parent &&
+    isClassInitializerWrapper(parent) &&
+    parent.expression === current
+  ) {
     current = parent;
     parent = current.parent;
   }
@@ -1348,7 +1363,11 @@ function isVariableClassExpressionInitializer(node) {
 function isExportAssignmentClassExpression(node) {
   let current = node;
   let parent = current.parent;
-  while (parent && ts.isParenthesizedExpression(parent)) {
+  while (
+    parent &&
+    isClassInitializerWrapper(parent) &&
+    parent.expression === current
+  ) {
     current = parent;
     parent = current.parent;
   }
@@ -1359,10 +1378,21 @@ function isExportAssignmentClassExpression(node) {
   );
 }
 
+function isClassInitializerWrapper(node) {
+  return ts.isParenthesizedExpression(node) ||
+    ts.isAsExpression(node) ||
+    ts.isTypeAssertionExpression(node) ||
+    ts.isNonNullExpression(node) ||
+    (ts.isSatisfiesExpression && ts.isSatisfiesExpression(node));
+}
+
 function registerTypeNode(node, name, topLevel, options = {}) {
   const fqn = topLevel ? `${moduleFqn}.${name}` : localTypeFqnFor(node, name);
   typeFqnByNode.set(node, fqn);
   typeNameByNode.set(node, name);
+  if (ts.isClassExpression(node) && node.name) {
+    registerClassSelfType(node, node.name.text, fqn);
+  }
   if (options.registerScoped !== false) {
     registerScopedLocalType(node, name, fqn);
   }
@@ -1374,6 +1404,15 @@ function registerTypeNode(node, name, topLevel, options = {}) {
 
 function registerScopedLocalType(node, name, fqn) {
   const scope = lexicalTypeScope(node);
+  registerLocalType(scope, name, fqn);
+}
+
+function registerClassSelfType(node, name, fqn) {
+  registerLocalType(node, name, fqn);
+  classSelfNamesByOwnerFqn.set(`${fqn}\u0000${name}`, fqn);
+}
+
+function registerLocalType(scope, name, fqn) {
   if (!localTypeScopesByNode.has(scope)) {
     localTypeScopesByNode.set(scope, new Map());
   }
@@ -1438,12 +1477,18 @@ function parentTypeScope(scope) {
 
 function isTypeScope(node) {
   return node === sourceFile ||
+    ts.isClassDeclaration(node) ||
+    ts.isClassExpression(node) ||
     ts.isBlock(node) ||
     ts.isModuleBlock(node) ||
     node.kind === ts.SyntaxKind.CaseBlock ||
     ts.isForStatement(node) ||
     ts.isForInStatement(node) ||
     ts.isForOfStatement(node);
+}
+
+function classSelfTypeFqn(ownerFqn, name) {
+  return classSelfNamesByOwnerFqn.get(`${ownerFqn}\u0000${name}`) || '';
 }
 
 function emittedClassExpression(node) {

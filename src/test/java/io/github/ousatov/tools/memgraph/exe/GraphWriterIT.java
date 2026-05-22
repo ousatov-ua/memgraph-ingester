@@ -1506,6 +1506,47 @@ class GraphWriterIT {
   }
 
   @Test
+  void unresolvedUnscopedCallFallsBackToNearestInheritedOwnerMethod() {
+    writer.upsertFile(TEST_FILE);
+    writer.upsertPackage(PKG);
+    ClassOrInterfaceDeclaration base =
+        parseDecl(
+            "package com.example;"
+                + " public class BaseService {"
+                + "   public void refreshRepository() {}"
+                + " }");
+    ClassOrInterfaceDeclaration middle =
+        parseDecl(
+            "package com.example;"
+                + " public class MiddleService extends com.example.BaseService {"
+                + "   public void refreshRepository() {}"
+                + " }");
+    ClassOrInterfaceDeclaration service =
+        parseDecl(
+            "package com.example;"
+                + " public class RepositoryService extends com.example.MiddleService {"
+                + "   public void load() { refreshRepository(); }"
+                + " }");
+
+    writer.upsertType(TEST_FILE, PKG, base);
+    writer.upsertType(TEST_FILE, PKG, middle);
+    writer.upsertType(TEST_FILE, PKG, service);
+    writer.upsertTypeCallEdges(PKG, service);
+
+    var row =
+        session
+            .run(
+                "MATCH (caller:Method {name: 'load', project: $p})-[:CALLS]->"
+                    + "(callee:Method {name: 'refreshRepository', project: $p})"
+                    + " RETURN count(callee) AS n, collect(callee.ownerFqn) AS owners",
+                Map.of("p", PROJECT))
+            .single();
+
+    assertEquals(1, row.get("n").asLong());
+    assertEquals(List.of("com.example.MiddleService"), row.get("owners").asList());
+  }
+
+  @Test
   void pendingCallByNameResolvesAfterCalleeArrives() {
     writer.upsertFile(TEST_FILE);
     writer.upsertPackage(PKG);
@@ -1607,6 +1648,53 @@ class GraphWriterIT {
     assertEquals(0, row.get("pendingAfter").asLong());
     assertEquals(1, row.get("callsAfter").asLong());
     assertEquals(List.of("com.example.BaseService"), row.get("owners").asList());
+  }
+
+  @Test
+  void pendingCallByNameResolvesThroughNearestInheritedOwnerMethod() {
+    writer.upsertFile(TEST_FILE);
+    writer.upsertPackage(PKG);
+    ClassOrInterfaceDeclaration caller =
+        parseDecl("package com.example; public class Caller { public void run() {} }");
+    ClassOrInterfaceDeclaration service =
+        parseDecl(
+            "package com.example;"
+                + " public class RepositoryService extends com.example.MiddleService {}");
+    ClassOrInterfaceDeclaration middle =
+        parseDecl(
+            "package com.example;"
+                + " public class MiddleService extends com.example.BaseService {"
+                + "   public void refreshRepository() {}"
+                + " }");
+    ClassOrInterfaceDeclaration base =
+        parseDecl(
+            "package com.example;"
+                + " public class BaseService {"
+                + "   public void refreshRepository() {}"
+                + " }");
+
+    writer.upsertType(TEST_FILE, PKG, caller);
+    writer.upsertType(TEST_FILE, PKG, service);
+    writer.upsertType(TEST_FILE, PKG, middle);
+    writer.upsertType(TEST_FILE, PKG, base);
+    writer.upsertPendingCallByName(
+        "com.example.Caller.run()", "com.example.RepositoryService", "refreshRepository");
+    writer.resolvePendingCalls();
+
+    var row =
+        session
+            .run(
+                "MATCH (pending:PendingCall {project: $p}) WITH count(pending) AS pendingAfter"
+                    + " OPTIONAL MATCH (:Method {name: 'run', project: $p})-[:CALLS]->"
+                    + "(callee:Method {name: 'refreshRepository', project: $p}) RETURN"
+                    + " pendingAfter, count(callee) AS callsAfter, collect(callee.ownerFqn) AS"
+                    + " owners",
+                Map.of("p", PROJECT))
+            .single();
+
+    assertEquals(0, row.get("pendingAfter").asLong());
+    assertEquals(1, row.get("callsAfter").asLong());
+    assertEquals(List.of("com.example.MiddleService"), row.get("owners").asList());
   }
 
   @Test
