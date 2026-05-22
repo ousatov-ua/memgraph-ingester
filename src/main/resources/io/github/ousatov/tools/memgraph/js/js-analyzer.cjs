@@ -67,6 +67,7 @@ const callableByNode = new WeakMap();
 const declarationsByName = new Map();
 const declarationsByOwnerAndName = new Map();
 const staticDeclarationsByOwnerAndName = new Map();
+const instancePropertyTypesByOwnerAndName = new Map();
 const classesByName = new Map();
 const callables = [];
 const imports = collectImports(sourceFile);
@@ -248,6 +249,7 @@ function collectClass(node, name, aliases = [], options = {}) {
   });
   writeDecorators(node, 'fqn', fqn);
   writeHeritageRelations(node, fqn, 'class');
+  registerInstancePropertyTypes(fqn, node);
   for (const member of node.members) {
     if (ts.isConstructorDeclaration(member)) {
       if (member.body) {
@@ -969,6 +971,12 @@ function receiverOwner(expr, callerOwnerFqn) {
   if (namespaceOwner) {
     return { ownerFqn: namespaceOwner, byName: true };
   }
+  if (ts.isPropertyAccessExpression(receiver)) {
+    const ownerFqn = instancePropertyReceiverOwner(receiver, callerOwnerFqn);
+    if (ownerFqn) {
+      return { ownerFqn, byName: true };
+    }
+  }
   if (receiver.kind === ts.SyntaxKind.ThisKeyword) {
     return callerOwnerFqn === moduleFqn ? null : { ownerFqn: callerOwnerFqn, staticOnly: false };
   }
@@ -996,6 +1004,13 @@ function receiverOwner(expr, callerOwnerFqn) {
     }
   }
   return null;
+}
+
+function instancePropertyReceiverOwner(receiver, callerOwnerFqn) {
+  if (callerOwnerFqn === moduleFqn || unwrapExpression(receiver.expression).kind !== ts.SyntaxKind.ThisKeyword) {
+    return '';
+  }
+  return instancePropertyTypesByOwnerAndName.get(`${callerOwnerFqn}\u0000${receiver.name.text}`) || '';
 }
 
 function namespaceQualifiedOwner(expr) {
@@ -1183,6 +1198,77 @@ function collectNamespaceImports(sf) {
     }
   }
   return result;
+}
+
+function registerInstancePropertyTypes(ownerFqn, node) {
+  for (const member of node.members || []) {
+    if (
+      ts.isPropertyDeclaration(member) &&
+      !hasStatic(member) &&
+      member.name &&
+      ts.isIdentifier(member.name)
+    ) {
+      registerInstancePropertyType(ownerFqn, member.name.text, member.type, member);
+    } else if (ts.isConstructorDeclaration(member)) {
+      for (const parameter of member.parameters || []) {
+        if (isConstructorParameterProperty(parameter) && ts.isIdentifier(parameter.name)) {
+          registerInstancePropertyType(ownerFqn, parameter.name.text, parameter.type, parameter);
+        }
+      }
+    }
+  }
+}
+
+function registerInstancePropertyType(ownerFqn, name, typeNode, contextNode) {
+  const targetFqn = typeNodeReferenceFqn(typeNode, contextNode);
+  if (isInternalTypeFqn(targetFqn)) {
+    instancePropertyTypesByOwnerAndName.set(`${ownerFqn}\u0000${name}`, targetFqn);
+  }
+}
+
+function isConstructorParameterProperty(parameter) {
+  return hasModifier(parameter, ts.SyntaxKind.PrivateKeyword) ||
+    hasModifier(parameter, ts.SyntaxKind.PublicKeyword) ||
+    hasModifier(parameter, ts.SyntaxKind.ProtectedKeyword) ||
+    hasModifier(parameter, ts.SyntaxKind.ReadonlyKeyword);
+}
+
+function typeNodeReferenceFqn(typeNode, contextNode) {
+  if (!typeNode || !ts.isTypeReferenceNode(typeNode)) {
+    return '';
+  }
+  return typeNameReferenceFqn(typeNode.typeName, contextNode);
+}
+
+function typeNameReferenceFqn(typeName, contextNode) {
+  const parts = typeNameParts(typeName);
+  if (parts.length === 0) {
+    return '';
+  }
+  if (parts.length === 1) {
+    const name = parts[0];
+    return localTypeFqn(name, contextNode) || imports.get(name) || classesByName.get(name) || '';
+  }
+  const namespaceOwner = namespaceImports.get(parts[0]) || importedNamespaces.get(parts[0]);
+  if (namespaceOwner) {
+    return [namespaceOwner, ...parts.slice(1)].join('.');
+  }
+  const importedTopLevel = imports.get(parts[0]);
+  return importedTopLevel ? [importedTopLevel, ...parts.slice(1)].join('.') : '';
+}
+
+function typeNameParts(typeName) {
+  if (ts.isIdentifier(typeName)) {
+    return [typeName.text];
+  }
+  if (ts.isQualifiedName(typeName)) {
+    return [...typeNameParts(typeName.left), typeName.right.text];
+  }
+  return [];
+}
+
+function isInternalTypeFqn(fqn) {
+  return fqn.startsWith('js.');
 }
 
 function collectLocalTypeMetadata(node) {

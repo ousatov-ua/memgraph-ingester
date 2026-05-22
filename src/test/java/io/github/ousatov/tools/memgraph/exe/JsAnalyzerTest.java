@@ -346,6 +346,66 @@ class JsAnalyzerTest {
   }
 
   @Test
+  void resolvesCallsThroughTypedThisPropertyReceivers() throws IOException {
+    Files.writeString(
+        tempDir.resolve("repository.service.ts"),
+        """
+        export class RepositoryService {
+          getRepos() {}
+        }
+        """);
+    JsAnalysis analysis =
+        analyzeSource(
+            "repository.component.ts",
+            """
+            import { RepositoryService } from './repository.service';
+
+            class RepositoryComponent {
+              constructor(private repositoryService: RepositoryService) {}
+
+              load() {
+                return this.repositoryService.getRepos();
+              }
+            }
+            """);
+
+    assertTrue(
+        analysis.calls().stream()
+            .anyMatch(
+                call ->
+                    "js.repository$2e$component$2e$ts.RepositoryComponent.load()"
+                            .equals(call.callerSignature())
+                        && "js.repository$2e$service$2e$ts.RepositoryService"
+                            .equals(call.calleeOwnerFqn())
+                        && "getRepos".equals(call.calleeName())));
+  }
+
+  @Test
+  void ignoresExternalTypedThisPropertyReceivers() throws IOException {
+    JsAnalysis analysis =
+        analyzeSource(
+            "external-receiver.ts",
+            """
+            import { Router } from '@angular/router';
+
+            class NavigationComponent {
+              constructor(private router: Router) {}
+
+              go() {
+                return this.router.navigate(['/home']);
+              }
+            }
+            """);
+
+    assertTrue(
+        analysis.calls().stream()
+            .noneMatch(
+                call ->
+                    "@angular/router.Router".equals(call.calleeOwnerFqn())
+                        && "navigate".equals(call.calleeName())));
+  }
+
+  @Test
   void reExportedClassAliasesResolveAfterHelperSplit() throws IOException {
     Files.writeString(
         tempDir.resolve("source.ts"),

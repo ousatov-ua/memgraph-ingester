@@ -374,7 +374,8 @@ Captured JS/TS structure:
 - Decorators as annotations, preserving namespace-qualified decorator FQNs when possible.
 - Angular decorators with framework metadata when detected.
 - Syntax-based best-effort call edges, including top-level IIFEs/callbacks, local function
-  constructors, and deferred resolution for resolvable relative imports.
+  constructors, typed `this.<property>` receivers for local classes, and deferred resolution for
+  resolvable relative imports.
 - Relative import and `tsconfig.json` path-alias resolution, including extended configs, prefers
   TypeScript source files over emitted JavaScript when both exist for the same local module path.
 
