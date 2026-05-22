@@ -346,6 +346,58 @@ class JsAnalyzerTest {
   }
 
   @Test
+  void namedClassExpressionsDoNotHideTopLevelClasses() throws IOException {
+    JsAnalysis analysis =
+        analyzeSource(
+            "class-expression-scope.ts",
+            """
+            class Helper {}
+            decorate(class Helper {});
+            class Consumer extends Helper {}
+            """);
+
+    String topLevelHelperFqn = "js.class$2d$expression$2d$scope$2e$ts.Helper";
+    String consumerFqn = "js.class$2d$expression$2d$scope$2e$ts.Consumer";
+
+    assertTrue(
+        analysis.types().stream()
+            .anyMatch(type -> "Helper".equals(type.name()) && type.fqn().contains(".$local$")));
+    assertTrue(
+        analysis.relations().stream()
+            .anyMatch(
+                relation ->
+                    "classExtends".equals(relation.kind())
+                        && consumerFqn.equals(relation.childFqn())
+                        && topLevelHelperFqn.equals(relation.targetFqn())));
+  }
+
+  @Test
+  void parenthesizedVariableClassExpressionsUseVariableName() throws IOException {
+    JsAnalysis analysis =
+        analyzeSource(
+            "parenthesized-alias.ts",
+            """
+            const Alias = (class Named {
+              static make() {}
+            });
+            Alias.make();
+            """);
+
+    assertTrue(
+        analysis.types().stream()
+            .anyMatch(
+                type ->
+                    "Alias".equals(type.name())
+                        && "js.parenthesized$2d$alias$2e$ts.Alias".equals(type.fqn())));
+    assertTrue(analysis.types().stream().noneMatch(type -> "Named".equals(type.name())));
+    assertTrue(
+        analysis.calls().stream()
+            .anyMatch(
+                call ->
+                    "js.parenthesized$2d$alias$2e$ts.Alias.make()".equals(call.calleeSignature())));
+  }
+
+  @Test
   void resolvesCallsThroughTypedThisPropertyReceivers() throws IOException {
     Files.writeString(
         tempDir.resolve("repository.service.ts"),

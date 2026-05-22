@@ -128,6 +128,9 @@ Common memory-to-memory links:
   by the module owner. TypeScript interfaces and type aliases reuse `:Interface`; decorators reuse
   `:Annotation` and `ANNOTATED_WITH`. TypeScript enums reuse `:Class` with `isEnum = true` and
   `kind = "enum"`. Angular decorators can set `framework = "angular"`.
+- JavaScript/TypeScript file discovery is bounded by the configured `--source` root. Use the
+  repository root as `--source` when root-level config or support files should be code nodes.
+  `node_modules` is still skipped.
 - JavaScript/TypeScript class and interface heritage is represented with the shared `EXTENDS` and
   `IMPLEMENTS` relationships. Relative imports and `tsconfig.json` path aliases, including aliases
   inherited through extended configs, that resolve under the ingested source root can point
@@ -140,10 +143,11 @@ Common memory-to-memory links:
 - JavaScript/TypeScript function-valued class fields are emitted as `:Method` records for callable
   inventories and receiver-scoped `CALLS` resolution. They can also appear as `:Field` records
   because the source member is still a class field.
-- JavaScript/TypeScript class expressions assigned to variables are emitted as `:Class` nodes using
-  the variable name. Relative imports and `tsconfig.json` path aliases, including aliases inherited
-  through extended configs, that resolve to local source files can produce owner/name `CALLS` edges
-  when the target owner has exactly one method with the imported name.
+- JavaScript/TypeScript named class expressions and class expressions assigned to variables are
+  emitted as `:Class` nodes. Variable-assigned class expressions use the variable name. Relative
+  imports and `tsconfig.json` path aliases, including aliases inherited through extended configs,
+  that resolve to local source files can produce owner/name `CALLS` edges when the target owner has
+  exactly one method with the imported name.
 - JavaScript/TypeScript exported callable aliases such as `export { foo as bar }`,
   `export { foo as bar } from "./mod"`, and `export default foo` are emitted as graph-visible
   declarations for the public export names so deferred owner/name call resolution can match imports

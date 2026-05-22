@@ -49,7 +49,6 @@ const {
   classFieldKind,
   hasStatic,
   isFunctionInitializer,
-  isClassExpressionInitializer,
   unwrapExpression,
   expressionNameParts,
   isDeclarationWithOwnCallableScope,
@@ -185,17 +184,19 @@ function visitNestedTypeDeclaration(
   } else if (
     ts.isVariableDeclaration(node) &&
     !isTopLevelVariableDeclaration(node) &&
-    ts.isIdentifier(node.name) &&
-    isClassExpressionInitializer(node.initializer)
+    ts.isIdentifier(node.name)
   ) {
-    collectClass(node.initializer, node.name.text, [], {
-      initializerCallerOwnerFqn: callerOwnerFqn,
-      initializerCallerSignature: callerSignature,
-      skipStaticInitializerCalls: !collectStaticInitializerCalls,
-      skipClassNameLookup: true,
-      skipMemberUnscopedLookup: true,
-      skipExportModel: true
-    });
+    const classExpression = classExpressionInitializer(node.initializer);
+    if (classExpression) {
+      collectClass(classExpression, node.name.text, [], {
+        initializerCallerOwnerFqn: callerOwnerFqn,
+        initializerCallerSignature: callerSignature,
+        skipStaticInitializerCalls: !collectStaticInitializerCalls,
+        skipClassNameLookup: true,
+        skipMemberUnscopedLookup: true,
+        skipExportModel: true
+      });
+    }
   } else if (shouldCollectNamedClassExpression(node)) {
     collectClass(node, node.name.text, [], {
       initializerCallerOwnerFqn: callerOwnerFqn,
@@ -375,10 +376,13 @@ function collectVariables(node, ownerFqn) {
     const name = decl.name.text;
     if (isFunctionInitializer(decl.initializer)) {
       collectFunction(ownerFqn, name, decl.initializer, 'function');
-    } else if (isClassExpressionInitializer(decl.initializer)) {
-      collectClass(decl.initializer, name);
     } else {
-      writeField(ownerFqn, name, typeText(decl.type), 'variable', decl, false);
+      const classExpression = classExpressionInitializer(decl.initializer);
+      if (classExpression) {
+        collectClass(classExpression, name);
+      } else {
+        writeField(ownerFqn, name, typeText(decl.type), 'variable', decl, false);
+      }
     }
   }
 }
@@ -550,8 +554,9 @@ function exportedClassModels(targetModulePath, seen = new Set()) {
 
 function collectLocalClassExpressionShapes(statement, sf, target) {
   for (const decl of statement.declarationList.declarations) {
-    if (ts.isIdentifier(decl.name) && isClassExpressionInitializer(decl.initializer)) {
-      target.set(decl.name.text, classShape(decl.initializer, sf));
+    const classExpression = classExpressionInitializer(decl.initializer);
+    if (ts.isIdentifier(decl.name) && classExpression) {
+      target.set(decl.name.text, classShape(classExpression, sf));
     }
   }
 }
@@ -569,9 +574,10 @@ function collectExportedClassDeclaration(statement, targetModuleFqn, sf, exporte
 
 function collectExportedClassExpressionShapes(statement, targetModuleFqn, sf, exported) {
   for (const decl of statement.declarationList.declarations) {
-    if (ts.isIdentifier(decl.name) && isClassExpressionInitializer(decl.initializer)) {
+    const classExpression = classExpressionInitializer(decl.initializer);
+    if (ts.isIdentifier(decl.name) && classExpression) {
       const name = decl.name.text;
-      exported.set(name, classModel(targetModuleFqn, name, classShape(decl.initializer, sf)));
+      exported.set(name, classModel(targetModuleFqn, name, classShape(classExpression, sf)));
     }
   }
 }
@@ -1293,18 +1299,28 @@ function collectLocalTypeMetadata(node) {
     registerTypeNode(node, node.name.text, isTopLevelDeclaration(node));
   } else if (
     ts.isVariableDeclaration(node) &&
-    ts.isIdentifier(node.name) &&
-    isClassExpressionInitializer(node.initializer)
+    ts.isIdentifier(node.name)
   ) {
-    const topLevel = isTopLevelVariableDeclaration(node);
-    const fqn = registerTypeNode(node.initializer, node.name.text, topLevel);
-    if (topLevel) {
-      registerUniqueName(classesByName, node.name.text, fqn);
+    const classExpression = classExpressionInitializer(node.initializer);
+    if (classExpression) {
+      const topLevel = isTopLevelVariableDeclaration(node);
+      const fqn = registerTypeNode(classExpression, node.name.text, topLevel);
+      if (topLevel) {
+        registerUniqueName(classesByName, node.name.text, fqn);
+      }
     }
   } else if (shouldCollectNamedClassExpression(node)) {
-    registerTypeNode(node, node.name.text, false);
+    registerTypeNode(node, node.name.text, false, { registerScoped: false });
   }
   ts.forEachChild(node, collectLocalTypeMetadata);
+}
+
+function classExpressionInitializer(initializer) {
+  if (!initializer) {
+    return null;
+  }
+  const expression = unwrapExpression(initializer);
+  return ts.isClassExpression(expression) ? expression : null;
 }
 
 function shouldCollectNamedClassExpression(node) {
@@ -1315,11 +1331,16 @@ function shouldCollectNamedClassExpression(node) {
 }
 
 function isVariableClassExpressionInitializer(node) {
-  const parent = node.parent;
+  let current = node;
+  let parent = current.parent;
+  while (parent && ts.isParenthesizedExpression(parent)) {
+    current = parent;
+    parent = current.parent;
+  }
   return Boolean(
     parent &&
       ts.isVariableDeclaration(parent) &&
-      parent.initializer === node &&
+      parent.initializer === current &&
       ts.isIdentifier(parent.name)
   );
 }
@@ -1338,11 +1359,13 @@ function isExportAssignmentClassExpression(node) {
   );
 }
 
-function registerTypeNode(node, name, topLevel) {
+function registerTypeNode(node, name, topLevel, options = {}) {
   const fqn = topLevel ? `${moduleFqn}.${name}` : localTypeFqnFor(node, name);
   typeFqnByNode.set(node, fqn);
   typeNameByNode.set(node, name);
-  registerScopedLocalType(node, name, fqn);
+  if (options.registerScoped !== false) {
+    registerScopedLocalType(node, name, fqn);
+  }
   if (topLevel) {
     registerUniqueName(localTypeFqnsByName, name, fqn);
   }
