@@ -38,6 +38,8 @@ const ANGULAR_DECORATORS = new Set(['Component', 'Directive', 'Injectable', 'NgM
 const SOURCE_EXTENSIONS = ['.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '.mjs', '.cjs'];
 const DECLARATION_EXTENSIONS = ['.d.ts', '.d.mts', '.d.cts'];
 const tsconfigPathMappings = loadTsconfigPathMappings(root);
+const typeFqnByNode = new WeakMap();
+const typeNameByNode = new WeakMap();
 const declarationsByName = new Map();
 const declarationsByOwnerAndName = new Map();
 const staticDeclarationsByOwnerAndName = new Map();
@@ -47,7 +49,8 @@ const imports = collectImports(sourceFile);
 const importedNames = collectImportedNames(sourceFile);
 const importedNamespaces = collectImportedNamespaces(sourceFile);
 const namespaceImports = collectNamespaceImports(sourceFile);
-const localTypeNames = collectLocalTypeNames(sourceFile);
+const localTypeFqnsByName = new Map();
+collectLocalTypeMetadata(sourceFile);
 const topLevelFunctionsByName = new Map();
 const topLevelClassesByName = new Map();
 const emittedExportAliases = new Set();
@@ -64,6 +67,7 @@ write({
 });
 
 sourceFile.statements.forEach(collectDeclaration);
+sourceFile.statements.forEach(collectNestedTypeDeclarations);
 sourceFile.statements.forEach(collectExportBinding);
 sourceFile.statements.forEach(statement => {
   if (!isDeclarationWithOwnCallableScope(statement)) {
@@ -105,12 +109,47 @@ function collectDeclaration(node) {
   }
 }
 
+function collectNestedTypeDeclarations(node) {
+  ts.forEachChild(node, visitNestedTypeDeclaration);
+}
+
+function visitNestedTypeDeclaration(node) {
+  if (ts.isClassDeclaration(node)) {
+    if (!isTopLevelDeclaration(node)) {
+      const name = declarationName(node);
+      if (name) {
+        collectClass(node, name, declarationAliases(node, name), { skipExportModel: true });
+      }
+    }
+  } else if (ts.isInterfaceDeclaration(node)) {
+    if (!isTopLevelDeclaration(node)) {
+      collectInterface(node, 'interface');
+    }
+  } else if (ts.isTypeAliasDeclaration(node)) {
+    if (!isTopLevelDeclaration(node)) {
+      collectTypeAlias(node);
+    }
+  } else if (ts.isEnumDeclaration(node)) {
+    if (!isTopLevelDeclaration(node)) {
+      collectEnum(node);
+    }
+  } else if (
+    ts.isVariableDeclaration(node) &&
+    !isTopLevelVariableDeclaration(node) &&
+    ts.isIdentifier(node.name) &&
+    isClassExpressionInitializer(node.initializer)
+  ) {
+    collectClass(node.initializer, node.name.text, [], { skipExportModel: true });
+  }
+  ts.forEachChild(node, visitNestedTypeDeclaration);
+}
+
 function collectClass(node, name, aliases = [], options = {}) {
-  const fqn = `${moduleFqn}.${name}`;
+  const fqn = typeFqnFor(node, name);
   if (!options.skipClassNameLookup) {
-    classesByName.set(name, fqn);
+    registerUniqueName(classesByName, name, fqn);
     for (const alias of aliases) {
-      classesByName.set(alias, fqn);
+      registerUniqueName(classesByName, alias, fqn);
     }
   }
   if (!options.skipExportModel) {
@@ -193,7 +232,7 @@ function collectClass(node, name, aliases = [], options = {}) {
 
 function collectInterface(node, kind) {
   const name = node.name.text;
-  const fqn = `${moduleFqn}.${name}`;
+  const fqn = typeFqnFor(node, name);
   write({
     record: 'type',
     kind,
@@ -211,13 +250,13 @@ function collectInterface(node, kind) {
 function collectTypeAlias(node) {
   collectInterface(node, 'type');
   if (ts.isTypeLiteralNode(node.type)) {
-    writeTypeMembers(`${moduleFqn}.${node.name.text}`, node.type.members);
+    writeTypeMembers(typeFqnFor(node, node.name.text), node.type.members);
   }
 }
 
 function collectEnum(node) {
   const name = node.name.text;
-  const fqn = `${moduleFqn}.${name}`;
+  const fqn = typeFqnFor(node, name);
   write({
     record: 'type',
     kind: 'enum',
@@ -245,7 +284,6 @@ function collectVariables(node, ownerFqn) {
     if (isFunctionInitializer(decl.initializer)) {
       collectFunction(ownerFqn, name, decl.initializer, 'function');
     } else if (isClassExpressionInitializer(decl.initializer)) {
-      localTypeNames.add(name);
       collectClass(decl.initializer, name);
     } else {
       writeField(ownerFqn, name, typeText(decl.type), 'variable', decl, false);
@@ -716,6 +754,9 @@ function collectCalls(
   if (!node) {
     return;
   }
+  if (parent && (ts.isClassDeclaration(node) || ts.isClassExpression(node))) {
+    return;
+  }
   if (
     ts.isFunctionLike(node) &&
     parent &&
@@ -1051,32 +1092,84 @@ function collectNamespaceImports(sf) {
   return result;
 }
 
-function collectLocalTypeNames(sf) {
-  const result = new Set();
-  for (const statement of sf.statements) {
-    if (
-      ts.isClassDeclaration(statement) ||
-      ts.isInterfaceDeclaration(statement) ||
-      ts.isEnumDeclaration(statement)
-    ) {
-      const graphName = declarationName(statement);
-      if (graphName) {
-        result.add(graphName);
-      }
-      if (statement.name) {
-        result.add(statement.name.text);
-      }
-    } else if (ts.isTypeAliasDeclaration(statement)) {
-      result.add(statement.name.text);
-    } else if (ts.isVariableStatement(statement)) {
-      for (const decl of statement.declarationList.declarations) {
-        if (ts.isIdentifier(decl.name) && isClassExpressionInitializer(decl.initializer)) {
-          result.add(decl.name.text);
-        }
+function collectLocalTypeMetadata(node) {
+  if (ts.isClassDeclaration(node)) {
+    const graphName = declarationName(node);
+    if (graphName) {
+      const fqn = registerTypeNode(node, graphName, isTopLevelDeclaration(node));
+      registerUniqueName(classesByName, graphName, fqn);
+      for (const alias of declarationAliases(node, graphName)) {
+        registerUniqueName(localTypeFqnsByName, alias, fqn);
+        registerUniqueName(classesByName, alias, fqn);
       }
     }
+  } else if (
+    ts.isInterfaceDeclaration(node) ||
+    ts.isTypeAliasDeclaration(node) ||
+    ts.isEnumDeclaration(node)
+  ) {
+    registerTypeNode(node, node.name.text, isTopLevelDeclaration(node));
+  } else if (
+    ts.isVariableDeclaration(node) &&
+    ts.isIdentifier(node.name) &&
+    isClassExpressionInitializer(node.initializer)
+  ) {
+    const fqn = registerTypeNode(
+      node.initializer,
+      node.name.text,
+      isTopLevelVariableDeclaration(node)
+    );
+    registerUniqueName(classesByName, node.name.text, fqn);
   }
-  return result;
+  ts.forEachChild(node, collectLocalTypeMetadata);
+}
+
+function registerTypeNode(node, name, topLevel) {
+  const fqn = topLevel ? `${moduleFqn}.${name}` : localTypeFqnFor(node, name);
+  typeFqnByNode.set(node, fqn);
+  typeNameByNode.set(node, name);
+  registerUniqueName(localTypeFqnsByName, name, fqn);
+  return fqn;
+}
+
+function registerUniqueName(target, name, fqn) {
+  if (!name || !fqn) {
+    return;
+  }
+  if (!target.has(name)) {
+    target.set(name, fqn);
+    return;
+  }
+  if (target.get(name) !== fqn) {
+    target.set(name, '');
+  }
+}
+
+function typeFqnFor(node, name) {
+  return typeNameByNode.get(node) === name && typeFqnByNode.get(node)
+    ? typeFqnByNode.get(node)
+    : `${moduleFqn}.${name}`;
+}
+
+function localTypeFqnFor(node, name) {
+  const start = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
+  return `${moduleFqn}.$local$${start.line + 1}$${start.character + 1}.${name}`;
+}
+
+function isTopLevelDeclaration(node) {
+  return node.parent === sourceFile;
+}
+
+function isTopLevelVariableDeclaration(node) {
+  const declarationList = node.parent;
+  const statement = declarationList ? declarationList.parent : null;
+  return Boolean(
+    declarationList &&
+      ts.isVariableDeclarationList(declarationList) &&
+      statement &&
+      ts.isVariableStatement(statement) &&
+      statement.parent === sourceFile
+  );
 }
 
 function isNamedModuleImport(statement) {
@@ -1210,11 +1303,12 @@ function typeReferenceFqn(expression) {
   if (importedTopLevel) {
     return [importedTopLevel, ...parts.slice(1)].join('.');
   }
-  return localTypeNames.has(parts[0]) ? `${moduleFqn}.${parts.join('.')}` : parts.join('.');
+  const localFqn = localTypeFqn(parts[0]);
+  return localFqn ? [localFqn, ...parts.slice(1)].join('.') : parts.join('.');
 }
 
 function localTypeFqn(name) {
-  return localTypeNames.has(name) ? `${moduleFqn}.${name}` : '';
+  return localTypeFqnsByName.get(name) || '';
 }
 
 function isDeclarationWithOwnCallableScope(node) {
