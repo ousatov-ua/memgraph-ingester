@@ -318,6 +318,74 @@ class JsAnalyzerTest {
             .anyMatch(call -> "js.anonymous$2e$ts.init()".equals(call.calleeSignature())));
   }
 
+  @Test
+  void reExportedClassAliasesResolveAfterHelperSplit() throws IOException {
+    Files.writeString(
+        tempDir.resolve("source.ts"),
+        """
+        export class Source {
+          constructor(id: string) {}
+        }
+        """);
+    JsAnalysis analysis =
+        analyzeSource(
+            "barrel.ts",
+            """
+            export { Source } from './source';
+            """);
+
+    assertTrue(
+        analysis.types().stream()
+            .anyMatch(
+                type ->
+                    "class".equals(type.kind())
+                        && "Source".equals(type.name())
+                        && "js.barrel$2e$ts.Source".equals(type.fqn())));
+    assertTrue(
+        analysis.calls().stream()
+            .anyMatch(
+                call ->
+                    "js.barrel$2e$ts.Source.<init>(string)".equals(call.callerSignature())
+                        && "js.source$2e$ts.Source".equals(call.calleeOwnerFqn())
+                        && "<init>".equals(call.calleeName())));
+  }
+
+  @Test
+  void localFunctionExpressionsEmitNestedTypesWithoutOuterStaticInitializerCalls()
+      throws IOException {
+    JsAnalysis analysis =
+        analyzeSource(
+            "local-function-expression.ts",
+            """
+            function init() {
+              return 1;
+            }
+            function outer() {
+              const local = () => {
+                class Local {
+                  static value = init();
+                }
+              };
+            }
+            """);
+
+    assertTrue(
+        analysis.types().stream()
+            .anyMatch(
+                type ->
+                    "class".equals(type.kind())
+                        && "Local".equals(type.name())
+                        && type.fqn().contains(".$local$")));
+    assertTrue(
+        analysis.calls().stream()
+            .noneMatch(
+                call ->
+                    "js.local$2d$function$2d$expression$2e$ts.outer()"
+                            .equals(call.callerSignature())
+                        && "js.local$2d$function$2d$expression$2e$ts.init()"
+                            .equals(call.calleeSignature())));
+  }
+
   private JsAnalysis analyzeSource(String fileName, String source) throws IOException {
     Path sourceFile = tempDir.resolve(fileName);
     Files.writeString(sourceFile, source);

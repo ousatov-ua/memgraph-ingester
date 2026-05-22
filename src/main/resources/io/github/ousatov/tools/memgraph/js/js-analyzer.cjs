@@ -2,6 +2,7 @@
 'use strict';
 
 const fs = require('fs');
+const path = require('path');
 const ts = require('typescript');
 const { createAstHelpers } = require('./js-analyzer-ast.cjs');
 const { createPathContext, scriptKind } = require('./js-analyzer-paths.cjs');
@@ -133,21 +134,27 @@ function collectDeclaration(node) {
 }
 
 function collectNestedTypeDeclarations(node) {
-  visitNestedTypeDeclaration(node, moduleSignature, moduleFqn, null, null);
+  visitNestedTypeDeclaration(node, moduleSignature, moduleFqn, null, null, true);
 }
 
-function visitNestedTypeDeclaration(node, callerSignature, callerOwnerFqn, parent, grandparent) {
+function visitNestedTypeDeclaration(
+  node,
+  callerSignature,
+  callerOwnerFqn,
+  parent,
+  grandparent,
+  collectStaticInitializerCalls
+) {
   const callable = callableByNode.get(node);
-  if (
+  const unevaluatedFunctionScope =
     parent &&
     ts.isFunctionLike(node) &&
     !callable &&
-    !shouldTraverseNestedFunction(node, true, parent, grandparent)
-  ) {
-    return;
-  }
+    !shouldTraverseNestedFunction(node, true, parent, grandparent);
   const nextCallerSignature = callable ? callable.signature : callerSignature;
   const nextCallerOwnerFqn = callable ? callable.ownerFqn : callerOwnerFqn;
+  const nextCollectStaticInitializerCalls =
+    collectStaticInitializerCalls && !unevaluatedFunctionScope;
   if (ts.isClassDeclaration(node)) {
     if (!isTopLevelDeclaration(node)) {
       const name = declarationName(node);
@@ -155,6 +162,7 @@ function visitNestedTypeDeclaration(node, callerSignature, callerOwnerFqn, paren
         collectClass(node, name, declarationAliases(node, name), {
           initializerCallerOwnerFqn: callerOwnerFqn,
           initializerCallerSignature: callerSignature,
+          skipStaticInitializerCalls: !collectStaticInitializerCalls,
           skipClassNameLookup: true,
           skipMemberUnscopedLookup: true,
           skipExportModel: true
@@ -182,13 +190,21 @@ function visitNestedTypeDeclaration(node, callerSignature, callerOwnerFqn, paren
     collectClass(node.initializer, node.name.text, [], {
       initializerCallerOwnerFqn: callerOwnerFqn,
       initializerCallerSignature: callerSignature,
+      skipStaticInitializerCalls: !collectStaticInitializerCalls,
       skipClassNameLookup: true,
       skipMemberUnscopedLookup: true,
       skipExportModel: true
     });
   }
   ts.forEachChild(node, child =>
-    visitNestedTypeDeclaration(child, nextCallerSignature, nextCallerOwnerFqn, node, parent)
+    visitNestedTypeDeclaration(
+      child,
+      nextCallerSignature,
+      nextCallerOwnerFqn,
+      node,
+      parent,
+      nextCollectStaticInitializerCalls
+    )
   );
 }
 
@@ -270,7 +286,7 @@ function collectClass(node, name, aliases = [], options = {}) {
         const fieldFqn = `${fqn}#${nameText}`;
         writeDecorators(member, 'fqn', fieldFqn);
       }
-    } else if (ts.isClassStaticBlockDeclaration(member)) {
+    } else if (ts.isClassStaticBlockDeclaration(member) && !options.skipStaticInitializerCalls) {
       collectCalls(
         member.body,
         options.initializerCallerSignature || moduleSignature,
@@ -280,6 +296,9 @@ function collectClass(node, name, aliases = [], options = {}) {
     }
   }
   for (const fieldInitializer of fieldInitializers) {
+    if (fieldInitializer.isStatic && options.skipStaticInitializerCalls) {
+      continue;
+    }
     const signatures = fieldInitializer.isStatic
       ? [options.initializerCallerSignature || moduleSignature]
       : constructorSignaturesFor(fqn);
