@@ -112,11 +112,19 @@ function collectDeclaration(node) {
 }
 
 function collectNestedTypeDeclarations(node) {
-  visitNestedTypeDeclaration(node, moduleSignature, moduleFqn);
+  visitNestedTypeDeclaration(node, moduleSignature, moduleFqn, null, null);
 }
 
-function visitNestedTypeDeclaration(node, callerSignature, callerOwnerFqn) {
+function visitNestedTypeDeclaration(node, callerSignature, callerOwnerFqn, parent, grandparent) {
   const callable = callableByNode.get(node);
+  if (
+    parent &&
+    ts.isFunctionLike(node) &&
+    !callable &&
+    !shouldTraverseNestedFunction(node, true, parent, grandparent)
+  ) {
+    return;
+  }
   const nextCallerSignature = callable ? callable.signature : callerSignature;
   const nextCallerOwnerFqn = callable ? callable.ownerFqn : callerOwnerFqn;
   if (ts.isClassDeclaration(node)) {
@@ -159,7 +167,7 @@ function visitNestedTypeDeclaration(node, callerSignature, callerOwnerFqn) {
     });
   }
   ts.forEachChild(node, child =>
-    visitNestedTypeDeclaration(child, nextCallerSignature, nextCallerOwnerFqn)
+    visitNestedTypeDeclaration(child, nextCallerSignature, nextCallerOwnerFqn, node, parent)
   );
 }
 
@@ -1239,8 +1247,7 @@ function isTypeScope(node) {
   return node === sourceFile ||
     ts.isBlock(node) ||
     ts.isModuleBlock(node) ||
-    ts.isCaseClause(node) ||
-    ts.isDefaultClause(node);
+    node.kind === ts.SyntaxKind.CaseBlock;
 }
 
 function isNamedModuleImport(statement) {

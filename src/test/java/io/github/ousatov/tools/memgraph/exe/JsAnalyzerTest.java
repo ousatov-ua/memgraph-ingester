@@ -164,6 +164,73 @@ class JsAnalyzerTest {
   }
 
   @Test
+  void nestedFunctionDeclarationsDoNotAttributeStaticInitializersToOuterFunction()
+      throws IOException {
+    JsAnalysis analysis =
+        analyzeSource(
+            "nested-function-static-init.ts",
+            """
+            function init() {
+              return 1;
+            }
+            function outer() {
+              function inner() {
+                class Local {
+                  static value = init();
+                }
+              }
+            }
+            """);
+
+    assertTrue(
+        analysis.calls().stream()
+            .noneMatch(
+                call ->
+                    "js.nested$2d$function$2d$static$2d$init$2e$ts.outer()"
+                            .equals(call.callerSignature())
+                        && "js.nested$2d$function$2d$static$2d$init$2e$ts.init()"
+                            .equals(call.calleeSignature())));
+  }
+
+  @Test
+  void switchCaseTypeDeclarationsShareSwitchScope() throws IOException {
+    JsAnalysis analysis =
+        analyzeSource(
+            "switch-scope.ts",
+            """
+            switch (kind) {
+              case 1:
+                class Base {}
+                break;
+              case 2:
+                class Child extends Base {}
+                break;
+            }
+            """);
+
+    String baseFqn =
+        analysis.types().stream()
+            .filter(type -> "Base".equals(type.name()))
+            .findFirst()
+            .orElseThrow()
+            .fqn();
+    String childFqn =
+        analysis.types().stream()
+            .filter(type -> "Child".equals(type.name()))
+            .findFirst()
+            .orElseThrow()
+            .fqn();
+
+    assertTrue(
+        analysis.relations().stream()
+            .anyMatch(
+                relation ->
+                    "classExtends".equals(relation.kind())
+                        && childFqn.equals(relation.childFqn())
+                        && baseFqn.equals(relation.targetFqn())));
+  }
+
+  @Test
   void analyzesCallsInsideAnonymousClassExpressions() throws IOException {
     JsAnalysis analysis =
         analyzeSource(
