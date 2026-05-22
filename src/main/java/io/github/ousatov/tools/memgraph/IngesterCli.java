@@ -175,6 +175,36 @@ public final class IngesterCli implements Callable<Integer> {
   @SuppressWarnings("unused")
   private boolean checkJsRuntime;
 
+  @Option(
+      names = {"--init-instructions"},
+      description =
+          "Write or replace managed Memgraph agent instructions and exit. Code guidance is "
+              + "included by default; add --with-memories for Memory workflow guidance.")
+  @SuppressWarnings("unused")
+  private boolean initInstructions;
+
+  @Option(
+      names = {"--instructions-agent"},
+      defaultValue = "codex",
+      description =
+          "Agent preset for --init-instructions: codex, claude, gemini, github, or copilot. "
+              + "Defaults to codex.")
+  @SuppressWarnings("unused")
+  private String instructionsAgent;
+
+  @Option(
+      names = {"--instructions-file"},
+      description =
+          "Instruction file to update for --init-instructions. Overrides --instructions-agent.")
+  @SuppressWarnings("unused")
+  private Path instructionsFile;
+
+  @Option(
+      names = {"--with-memories"},
+      description = "Include optional Memory workflow instructions when initializing agents.")
+  @SuppressWarnings("unused")
+  private boolean withMemories;
+
   /** Entry point. */
   public static void main(String[] args) {
     int exit = new CommandLine(new IngesterCli()).execute(args);
@@ -183,6 +213,10 @@ public final class IngesterCli implements Callable<Integer> {
 
   @Override
   public Integer call() {
+    if (initInstructions) {
+      return installAgentInstructions();
+    }
+
     RuntimeMode selectedRuntimeMode;
     try {
       selectedRuntimeMode = RuntimeMode.parse(jsRuntimeMode);
@@ -238,6 +272,26 @@ public final class IngesterCli implements Callable<Integer> {
     }
     log.info("Ingestion complete for project '{}'.", project);
     return 0;
+  }
+
+  private Integer installAgentInstructions() {
+    try {
+      Path target =
+          instructionsFile == null
+              ? AgentInstructionsInstaller.defaultInstructionFile(instructionsAgent)
+              : instructionsFile;
+      AgentInstructionsInstaller.InstallResult result =
+          AgentInstructionsInstaller.install(target, project, withMemories);
+      log.info(
+          "Updated Memgraph instructions in {} with project '{}' (memories: {}).",
+          result.target(),
+          project,
+          result.includeMemories());
+      return 0;
+    } catch (IllegalArgumentException | IllegalStateException | IOException e) {
+      log.error(e.getMessage());
+      return 1;
+    }
   }
 
   private Integer runJsRuntimeCheck(RuntimeMode selectedRuntimeMode) {

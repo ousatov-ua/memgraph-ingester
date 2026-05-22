@@ -9,6 +9,9 @@
       },
       {
         "pattern": "io/github/ousatov/tools/memgraph/js/js-analyzer[.]cjs$"
+      },
+      {
+        "pattern": "AI-memgraph-(code|memory)-template[.]md$"
       }
     ]
   }
