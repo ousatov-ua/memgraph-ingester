@@ -231,6 +231,75 @@ class JsAnalyzerTest {
   }
 
   @Test
+  void exportedDefaultFunctionExpressionsEmitNestedClassDeclarations() throws IOException {
+    JsAnalysis analysis =
+        analyzeSource(
+            "export-default-nested.ts",
+            """
+            function init() {
+              return 1;
+            }
+            export default (() => {
+              class Local {
+                static value = init();
+              }
+            });
+            """);
+
+    JsAnalysis.TypeDecl localClass =
+        analysis.types().stream()
+            .filter(type -> "Local".equals(type.name()))
+            .findFirst()
+            .orElseThrow();
+
+    assertTrue(localClass.fqn().contains(".$local$"));
+    assertTrue(
+        analysis.calls().stream()
+            .anyMatch(
+                call ->
+                    "js.export$2d$default$2d$nested$2e$ts.default()".equals(call.callerSignature())
+                        && "js.export$2d$default$2d$nested$2e$ts.init()"
+                            .equals(call.calleeSignature())));
+  }
+
+  @Test
+  void loopHeaderClassExpressionsDoNotLeakIntoOuterTypeScope() throws IOException {
+    JsAnalysis analysis =
+        analyzeSource(
+            "loop-scope.ts",
+            """
+            function build() {
+              let C = class {};
+              for (let C = class {}; false;) {
+              }
+              class D extends C {}
+            }
+            """);
+
+    String outerClassFqn =
+        analysis.types().stream()
+            .filter(type -> "C".equals(type.name()))
+            .filter(type -> type.startLine() == 2)
+            .findFirst()
+            .orElseThrow()
+            .fqn();
+    String childFqn =
+        analysis.types().stream()
+            .filter(type -> "D".equals(type.name()))
+            .findFirst()
+            .orElseThrow()
+            .fqn();
+
+    assertTrue(
+        analysis.relations().stream()
+            .anyMatch(
+                relation ->
+                    "classExtends".equals(relation.kind())
+                        && childFqn.equals(relation.childFqn())
+                        && outerClassFqn.equals(relation.targetFqn())));
+  }
+
+  @Test
   void analyzesCallsInsideAnonymousClassExpressions() throws IOException {
     JsAnalysis analysis =
         analyzeSource(

@@ -69,8 +69,8 @@ write({
 });
 
 sourceFile.statements.forEach(collectDeclaration);
-sourceFile.statements.forEach(collectNestedTypeDeclarations);
 sourceFile.statements.forEach(collectExportBinding);
+sourceFile.statements.forEach(collectNestedTypeDeclarations);
 sourceFile.statements.forEach(statement => {
   if (!isDeclarationWithOwnCallableScope(statement)) {
     collectCalls(statement, moduleSignature, moduleFqn, true);
@@ -626,7 +626,9 @@ function collectFunction(ownerFqn, name, node, kind, options = {}) {
     return;
   }
   const signature = buildSignature(ownerFqn, name, node.parameters || []);
-  callableByNode.set(node, { signature, ownerFqn });
+  if (!callableByNode.has(node)) {
+    callableByNode.set(node, { signature, ownerFqn });
+  }
   const range = lineRange(options.rangeNode || node);
   const isStatic = options.isStatic ?? hasStatic(node);
   write({
@@ -1247,7 +1249,10 @@ function isTypeScope(node) {
   return node === sourceFile ||
     ts.isBlock(node) ||
     ts.isModuleBlock(node) ||
-    node.kind === ts.SyntaxKind.CaseBlock;
+    node.kind === ts.SyntaxKind.CaseBlock ||
+    ts.isForStatement(node) ||
+    ts.isForInStatement(node) ||
+    ts.isForOfStatement(node);
 }
 
 function isNamedModuleImport(statement) {
