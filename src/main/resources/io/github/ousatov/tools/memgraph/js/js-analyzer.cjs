@@ -218,7 +218,7 @@ function collectVariables(node, ownerFqn) {
     const name = decl.name.text;
     if (isFunctionInitializer(decl.initializer)) {
       collectFunction(ownerFqn, name, decl.initializer, 'function');
-    } else if (ts.isClassExpression(decl.initializer)) {
+    } else if (isClassExpressionInitializer(decl.initializer)) {
       collectClass(decl.initializer, name);
     } else {
       write({
@@ -404,7 +404,7 @@ function exportedClassModels(targetModulePath, seen = new Set()) {
 
 function collectLocalClassExpressionShapes(statement, sf, target) {
   for (const decl of statement.declarationList.declarations) {
-    if (ts.isIdentifier(decl.name) && ts.isClassExpression(decl.initializer)) {
+    if (ts.isIdentifier(decl.name) && isClassExpressionInitializer(decl.initializer)) {
       target.set(decl.name.text, classShape(decl.initializer, sf));
     }
   }
@@ -423,7 +423,7 @@ function collectExportedClassDeclaration(statement, targetModuleFqn, sf, exporte
 
 function collectExportedClassExpressionShapes(statement, targetModuleFqn, sf, exported) {
   for (const decl of statement.declarationList.declarations) {
-    if (ts.isIdentifier(decl.name) && ts.isClassExpression(decl.initializer)) {
+    if (ts.isIdentifier(decl.name) && isClassExpressionInitializer(decl.initializer)) {
       const name = decl.name.text;
       exported.set(name, classModel(targetModuleFqn, name, classShape(decl.initializer, sf)));
     }
@@ -977,6 +977,10 @@ function hasStatic(node) {
 function isFunctionInitializer(initializer) {
   return Boolean(initializer) &&
     (ts.isArrowFunction(initializer) || ts.isFunctionExpression(initializer));
+}
+
+function isClassExpressionInitializer(initializer) {
+  return Boolean(initializer) && ts.isClassExpression(initializer);
 }
 
 function unwrapExpression(expression) {
