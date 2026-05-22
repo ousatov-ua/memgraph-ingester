@@ -10,6 +10,9 @@ import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import picocli.CommandLine;
@@ -57,6 +60,58 @@ class IngesterCliInstructionsTest {
   }
 
   @Test
+  void withMemoriesAppliesDefaultInstructions() throws Exception {
+    CliProcessResult result =
+        runCliIn(tempDir, "-P", "cli-default-memory-project", "--with-memories");
+
+    String content = Files.readString(tempDir.resolve("AGENTS.md"));
+    assertEquals(0, result.exitCode(), result.output());
+    assertTrue(content.contains("Repo is indexed in Memgraph as **`cli-default-memory-project`**"));
+    assertTrue(content.contains("## Memories"));
+  }
+
+  @Test
+  void instructionsFileContinuesToIngestionValidationWhenSourceIsProvided() throws IOException {
+    Path target = tempDir.resolve("AGENTS.md");
+    Path source = Files.createDirectories(tempDir.resolve("src"));
+
+    int exitCode =
+        new CommandLine(new IngesterCli())
+            .execute(
+                "-P",
+                "cli-continue-project",
+                "--instructions-file",
+                target.toString(),
+                "-s",
+                source.toString());
+
+    String content = Files.readString(target);
+    assertEquals(1, exitCode);
+    assertTrue(content.contains("Repo is indexed in Memgraph as **`cli-continue-project`**"));
+  }
+
+  @Test
+  void withMemoriesContinuesToJsIngestionValidationWhenSourceIsProvided() throws Exception {
+    Path source = Files.createDirectories(tempDir.resolve("src"));
+
+    CliProcessResult result =
+        runCliIn(
+            tempDir,
+            "-P",
+            "cli-js-memory-project",
+            "--with-memories",
+            "--language",
+            "js",
+            "--source",
+            source.toString());
+
+    String content = Files.readString(tempDir.resolve("AGENTS.md"));
+    assertEquals(1, result.exitCode(), result.output());
+    assertTrue(content.contains("Repo is indexed in Memgraph as **`cli-js-memory-project`**"));
+    assertTrue(content.contains("## Memories"));
+  }
+
+  @Test
   void instructionsAgentImpliesInitInstructions() {
     ByteArrayOutputStream stderr = new ByteArrayOutputStream();
     PrintStream originalErr = System.err;
@@ -97,5 +152,46 @@ class IngesterCliInstructionsTest {
     assertEquals(0, exitCode);
     assertTrue(content.contains("## Memories"));
     assertTrue(content.contains("MATCH (m:Memory {project: 'cli-memory-project'})"));
+  }
+
+  private static CliProcessResult runCliIn(Path workingDirectory, String... args)
+      throws IOException, InterruptedException {
+    List<String> command = new ArrayList<>();
+    command.add(Path.of(System.getProperty("java.home"), "bin", "java").toString());
+    command.add("-cp");
+    command.add(System.getProperty("java.class.path"));
+    command.add(IngesterCli.class.getName());
+    command.addAll(List.of(args));
+    Process process =
+        new ProcessBuilder(command)
+            .directory(workingDirectory.toFile())
+            .redirectErrorStream(true)
+            .start();
+    boolean finished = process.waitFor(10, TimeUnit.SECONDS);
+    if (!finished) {
+      process.destroyForcibly();
+      process.waitFor(5, TimeUnit.SECONDS);
+    }
+    String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+    assertTrue(finished, () -> "CLI process did not exit. Output:\n" + output);
+    return new CliProcessResult(process.exitValue(), output);
+  }
+
+  private static final class CliProcessResult {
+    private final int exitCode;
+    private final String output;
+
+    private CliProcessResult(int exitCode, String output) {
+      this.exitCode = exitCode;
+      this.output = output;
+    }
+
+    private int exitCode() {
+      return exitCode;
+    }
+
+    private String output() {
+      return output;
+    }
   }
 }
