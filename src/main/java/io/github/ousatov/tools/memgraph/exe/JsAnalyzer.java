@@ -26,8 +26,10 @@ import org.slf4j.LoggerFactory;
 public final class JsAnalyzer {
 
   private static final Logger log = LoggerFactory.getLogger(JsAnalyzer.class);
-  private static final String HELPER_RESOURCE =
-      "/io/github/ousatov/tools/memgraph/js/js-analyzer.cjs";
+  private static final String HELPER_RESOURCE_DIR = "/io/github/ousatov/tools/memgraph/js/";
+  private static final String HELPER_SCRIPT_NAME = "js-analyzer.cjs";
+  private static final List<String> HELPER_RESOURCE_NAMES =
+      List.of(HELPER_SCRIPT_NAME, "js-analyzer-ast.cjs", "js-analyzer-paths.cjs");
   private static final Duration PROCESS_TIMEOUT = Duration.ofMinutes(2);
 
   private final Path sourceRoot;
@@ -176,14 +178,21 @@ public final class JsAnalyzer {
   }
 
   private static Path extractHelperScript() {
-    try (InputStream in = JsAnalyzer.class.getResourceAsStream(HELPER_RESOURCE)) {
-      if (in == null) {
-        throw new ProcessingException(HELPER_RESOURCE + " is missing from jar");
+    try {
+      Path helperDir = Files.createTempDirectory("memgraph-ingester-js-analyzer-");
+      helperDir.toFile().deleteOnExit();
+      for (String resourceName : HELPER_RESOURCE_NAMES) {
+        String resourcePath = HELPER_RESOURCE_DIR + resourceName;
+        try (InputStream in = JsAnalyzer.class.getResourceAsStream(resourcePath)) {
+          if (in == null) {
+            throw new ProcessingException(resourcePath + " is missing from jar");
+          }
+          Path helper = helperDir.resolve(resourceName);
+          Files.write(helper, in.readAllBytes());
+          helper.toFile().deleteOnExit();
+        }
       }
-      Path script = Files.createTempFile("memgraph-ingester-js-analyzer-", ".cjs");
-      Files.write(script, in.readAllBytes());
-      script.toFile().deleteOnExit();
-      return script;
+      return helperDir.resolve(HELPER_SCRIPT_NAME);
     } catch (IOException e) {
       throw new ProcessingException("Could not extract JavaScript analyzer helper", e);
     }

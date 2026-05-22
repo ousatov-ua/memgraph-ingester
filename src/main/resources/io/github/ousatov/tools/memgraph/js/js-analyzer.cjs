@@ -2,8 +2,9 @@
 'use strict';
 
 const fs = require('fs');
-const path = require('path');
 const ts = require('typescript');
+const { createAstHelpers } = require('./js-analyzer-ast.cjs');
+const { createPathContext, scriptKind } = require('./js-analyzer-paths.cjs');
 
 const args = process.argv.slice(2);
 const file = argValue('--file');
@@ -23,21 +24,41 @@ const sourceFile = ts.createSourceFile(
   scriptKind(file)
 );
 
-const modulePath = path.relative(root, file).replace(/\\/g, '/');
-const moduleDir = path.dirname(modulePath);
-const dirParts = moduleDir === '.'
-  ? []
-  : moduleDir.split('/').map(pathIdentityPart).filter(Boolean);
-const moduleBaseName = path.basename(modulePath).replace(/\.[^.]+$/, '');
-const moduleName = sanitizePart(moduleBaseName);
-const moduleFqnName = pathIdentityPart(path.basename(modulePath));
-const packageName = ['js', ...dirParts].join('.');
-const moduleFqn = `${packageName}.${moduleFqnName}`;
+const pathContext = createPathContext(root, file);
+const {
+  modulePath,
+  moduleName,
+  packageName,
+  moduleFqn,
+  localImportedModuleFqn,
+  resolveLocalModulePath,
+  moduleFqnForModulePath
+} = pathContext;
+const {
+  isNamedModuleImport,
+  buildSignature,
+  buildSignatureFromTypes,
+  typeText,
+  lineRange,
+  memberNameText,
+  indexSignatureName,
+  methodKind,
+  shouldEmitBodylessMethod,
+  classMethodSignatureKind,
+  classFieldKind,
+  hasStatic,
+  isFunctionInitializer,
+  isClassExpressionInitializer,
+  unwrapExpression,
+  expressionNameParts,
+  isDeclarationWithOwnCallableScope,
+  declarationName,
+  declarationAliases,
+  isDefaultExport,
+  hasModifier
+} = createAstHelpers(ts, sourceFile);
 const moduleSignature = `${moduleFqn}.<init>()`;
 const ANGULAR_DECORATORS = new Set(['Component', 'Directive', 'Injectable', 'NgModule', 'Pipe']);
-const SOURCE_EXTENSIONS = ['.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '.mjs', '.cjs'];
-const DECLARATION_EXTENSIONS = ['.d.ts', '.d.mts', '.d.cts'];
-const tsconfigPathMappings = loadTsconfigPathMappings(root);
 const typeFqnByNode = new WeakMap();
 const typeNameByNode = new WeakMap();
 const localTypeScopesByNode = new WeakMap();
@@ -1255,122 +1276,8 @@ function isTypeScope(node) {
     ts.isForOfStatement(node);
 }
 
-function isNamedModuleImport(statement) {
-  return ts.isImportDeclaration(statement) &&
-    Boolean(statement.importClause) &&
-    ts.isStringLiteral(statement.moduleSpecifier);
-}
-
-function buildSignature(ownerFqn, name, params) {
-  return buildSignatureFromTypes(ownerFqn, name, Array.from(params).map(p => typeText(p.type)));
-}
-
-function buildSignatureFromTypes(ownerFqn, name, paramTypes) {
-  return `${ownerFqn}.${name}(${paramTypes.join(', ')})`;
-}
-
-function typeText(typeNode, sf = sourceFile) {
-  return typeNode ? typeNode.getText(sf).replace(/\s+/g, ' ') : 'any';
-}
-
-function lineRange(node, sf = sourceFile) {
-  const start = sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1;
-  const end = sf.getLineAndCharacterOfPosition(node.getEnd()).line + 1;
-  return { start, end };
-}
-
-function memberNameText(name) {
-  if (!name) {
-    return '';
-  }
-  if (ts.isIdentifier(name) || ts.isPrivateIdentifier(name)) {
-    return name.text;
-  }
-  if (ts.isStringLiteral(name) || ts.isNumericLiteral(name)) {
-    return name.text;
-  }
-  return name.getText(sourceFile);
-}
-
-function indexSignatureName(node) {
-  const parameters = Array.from(node.parameters || []).map(parameter => parameter.getText(sourceFile));
-  return `[${parameters.join(', ')}]`;
-}
-
-function methodKind(node) {
-  if (ts.isGetAccessor(node)) {
-    return 'getter';
-  }
-  if (ts.isSetAccessor(node)) {
-    return 'setter';
-  }
-  return 'method';
-}
-
-function shouldEmitBodylessMethod(node) {
-  return hasModifier(node, ts.SyntaxKind.AbstractKeyword) || Boolean(node.questionToken);
-}
-
-function classMethodSignatureKind(node) {
-  const parts = [];
-  if (hasModifier(node, ts.SyntaxKind.AbstractKeyword)) {
-    parts.push('abstract');
-  }
-  if (node.questionToken) {
-    parts.push('optional');
-  }
-  parts.push(methodKind(node));
-  parts.push('signature');
-  return parts.join('-');
-}
-
-function classFieldKind(node) {
-  const parts = [];
-  if (hasModifier(node, ts.SyntaxKind.AbstractKeyword)) {
-    parts.push('abstract');
-  }
-  if (node.questionToken) {
-    parts.push('optional');
-  }
-  parts.push('property');
-  return parts.join('-');
-}
-
-function hasStatic(node) {
-  return hasModifier(node, ts.SyntaxKind.StaticKeyword);
-}
-
-function isFunctionInitializer(initializer) {
-  return Boolean(initializer) &&
-    (ts.isArrowFunction(initializer) || ts.isFunctionExpression(initializer));
-}
-
-function isClassExpressionInitializer(initializer) {
-  return Boolean(initializer) && ts.isClassExpression(initializer);
-}
-
 function emittedClassExpression(node) {
   return ts.isClassExpression(node) && typeFqnByNode.has(node);
-}
-
-function unwrapExpression(expression) {
-  let current = expression;
-  while (ts.isParenthesizedExpression(current)) {
-    current = current.expression;
-  }
-  return current;
-}
-
-function expressionNameParts(expression) {
-  const current = unwrapExpression(expression);
-  if (ts.isIdentifier(current)) {
-    return [current.text];
-  }
-  if (ts.isPropertyAccessExpression(current)) {
-    const prefix = expressionNameParts(current.expression);
-    return prefix.length ? [...prefix, current.name.text] : [];
-  }
-  return [];
 }
 
 function typeReferenceFqn(expression, contextNode = null) {
@@ -1406,217 +1313,6 @@ function localTypeFqn(name, contextNode = null) {
     }
   }
   return localTypeFqnsByName.get(name) || '';
-}
-
-function isDeclarationWithOwnCallableScope(node) {
-  return ts.isFunctionDeclaration(node) || ts.isClassDeclaration(node);
-}
-
-function declarationName(node) {
-  if (isDefaultExport(node)) {
-    return 'default';
-  }
-  return node.name ? node.name.text : '';
-}
-
-function declarationAliases(node, exportedName) {
-  return isDefaultExport(node) && node.name && node.name.text !== exportedName ? [node.name.text] : [];
-}
-
-function isDefaultExport(node) {
-  return hasModifier(node, ts.SyntaxKind.DefaultKeyword) &&
-    hasModifier(node, ts.SyntaxKind.ExportKeyword);
-}
-
-function hasModifier(node, kind) {
-  const modifiers = typeof ts.canHaveModifiers === 'function' && ts.canHaveModifiers(node)
-    ? ts.getModifiers(node) || []
-    : node.modifiers || [];
-  return Array.from(modifiers).some(modifier => modifier.kind === kind);
-}
-
-function scriptKind(name) {
-  const lower = name.toLowerCase();
-  if (lower.endsWith('.tsx')) {
-    return ts.ScriptKind.TSX;
-  }
-  if (lower.endsWith('.jsx')) {
-    return ts.ScriptKind.JSX;
-  }
-  if (lower.endsWith('.ts') || lower.endsWith('.mts') || lower.endsWith('.cts')) {
-    return ts.ScriptKind.TS;
-  }
-  return ts.ScriptKind.JS;
-}
-
-function sanitizePart(part) {
-  const value = part.replace(/[^A-Za-z0-9_$]/g, '_').replace(/^([0-9])/, '_$1');
-  return value || 'module';
-}
-
-function pathIdentityPart(part) {
-  const encoded = Array.from(part).map(encodeIdentityChar).join('');
-  if (!encoded) {
-    return 'module';
-  }
-  return /^[A-Za-z_$]/.test(encoded) ? encoded : `_${encoded}`;
-}
-
-function encodeIdentityChar(char) {
-  return /^[A-Za-z0-9]$/.test(char) ? char : `$${char.codePointAt(0).toString(16)}$`;
-}
-
-function localImportedModuleFqn(moduleSpecifier, fromDir = moduleDir) {
-  const resolved = resolveLocalModulePath(moduleSpecifier, fromDir);
-  return resolved ? moduleFqnForModulePath(resolved) : '';
-}
-
-function resolveLocalModulePath(moduleSpecifier, fromDir = moduleDir) {
-  const importBases = moduleSpecifier.startsWith('.')
-    ? [path.resolve(root, fromDir, moduleSpecifier)]
-    : mappedImportBases(moduleSpecifier);
-  const candidates = [];
-  for (const importBase of importBases) {
-    if (hasKnownSourceExtension(importBase)) {
-      for (const candidate of explicitSourceCandidates(importBase)) {
-        pushCandidate(candidates, candidate);
-      }
-      pushCandidate(candidates, importBase);
-    } else {
-      for (const extension of SOURCE_EXTENSIONS) {
-        pushCandidate(candidates, importBase + extension);
-      }
-      for (const extension of SOURCE_EXTENSIONS) {
-        pushCandidate(candidates, path.join(importBase, 'index' + extension));
-      }
-    }
-  }
-  for (const candidate of candidates) {
-    const relative = path.relative(root, candidate).replace(/\\/g, '/');
-    if (relative.startsWith('..') || path.isAbsolute(relative)) {
-      continue;
-    }
-    if (DECLARATION_EXTENSIONS.some(extension => relative.endsWith(extension))) {
-      continue;
-    }
-    if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
-      return relative;
-    }
-  }
-  return '';
-}
-
-function hasKnownSourceExtension(filePath) {
-  const lower = filePath.toLowerCase();
-  return SOURCE_EXTENSIONS.concat(DECLARATION_EXTENSIONS).some(extension =>
-    lower.endsWith(extension)
-  );
-}
-
-function loadTsconfigPathMappings(rootDir) {
-  const configPath = ts.findConfigFile(rootDir, ts.sys.fileExists, 'tsconfig.json');
-  if (!configPath) {
-    return [];
-  }
-  const readResult = ts.readConfigFile(configPath, ts.sys.readFile);
-  if (readResult.error || !readResult.config) {
-    return [];
-  }
-  const parsed = ts.parseJsonConfigFileContent(
-    readResult.config,
-    ts.sys,
-    path.dirname(configPath),
-    undefined,
-    configPath
-  );
-  const compilerOptions = parsed.options || {};
-  const paths = compilerOptions.paths || {};
-  const baseUrl = path.resolve(
-    compilerOptions.pathsBasePath || compilerOptions.baseUrl || path.dirname(configPath)
-  );
-  return Object.entries(paths).map(([pattern, targets]) => ({
-    pattern,
-    targets: Array.isArray(targets) ? targets : [],
-    baseUrl
-  }));
-}
-
-function mappedImportBases(moduleSpecifier) {
-  const result = [];
-  const matches = [];
-  for (const mapping of tsconfigPathMappings) {
-    const matched = matchPathPattern(mapping.pattern, moduleSpecifier);
-    if (matched === null) {
-      continue;
-    }
-    matches.push({
-      mapping,
-      matched,
-      prefixLength: pathPatternPrefixLength(mapping.pattern)
-    });
-  }
-  if (matches.length === 0) {
-    return result;
-  }
-  const bestPrefixLength = Math.max(...matches.map(match => match.prefixLength));
-  for (const match of matches) {
-    if (match.prefixLength !== bestPrefixLength) {
-      continue;
-    }
-    for (const target of match.mapping.targets) {
-      result.push(path.resolve(match.mapping.baseUrl, target.replace('*', match.matched)));
-    }
-  }
-  return result;
-}
-
-function pathPatternPrefixLength(pattern) {
-  const starIndex = pattern.indexOf('*');
-  return starIndex < 0 ? pattern.length : starIndex;
-}
-
-function matchPathPattern(pattern, moduleSpecifier) {
-  const starIndex = pattern.indexOf('*');
-  if (starIndex < 0) {
-    return pattern === moduleSpecifier ? '' : null;
-  }
-  const prefix = pattern.slice(0, starIndex);
-  const suffix = pattern.slice(starIndex + 1);
-  if (!moduleSpecifier.startsWith(prefix) || !moduleSpecifier.endsWith(suffix)) {
-    return null;
-  }
-  return moduleSpecifier.slice(prefix.length, moduleSpecifier.length - suffix.length);
-}
-
-function explicitSourceCandidates(importBase) {
-  const extension = path.extname(importBase).toLowerCase();
-  const stem = importBase.slice(0, -extension.length);
-  switch (extension) {
-    case '.js':
-      return [stem + '.ts', stem + '.tsx'];
-    case '.jsx':
-      return [stem + '.tsx'];
-    case '.mjs':
-      return [stem + '.mts'];
-    case '.cjs':
-      return [stem + '.cts'];
-    default:
-      return [];
-  }
-}
-
-function pushCandidate(candidates, candidate) {
-  if (!candidates.includes(candidate)) {
-    candidates.push(candidate);
-  }
-}
-
-function moduleFqnForModulePath(targetModulePath) {
-  const targetDir = path.dirname(targetModulePath);
-  const targetDirParts = targetDir === '.'
-    ? []
-    : targetDir.split('/').map(pathIdentityPart).filter(Boolean);
-  return `${['js', ...targetDirParts].join('.')}.${pathIdentityPart(path.basename(targetModulePath))}`;
 }
 
 function argValue(name) {
