@@ -16,6 +16,7 @@ public record JsAnalysis(
     int startLine,
     int endLine,
     List<TypeDecl> types,
+    List<RelationDecl> relations,
     List<MemberDecl> members,
     List<AnnotationDecl> annotations,
     List<CallDecl> calls) {
@@ -26,8 +27,11 @@ public record JsAnalysis(
       String name,
       String framework,
       boolean hasConstructor,
+      boolean isAbstract,
       int startLine,
       int endLine) {}
+
+  public record RelationDecl(String kind, String childFqn, String targetFqn) {}
 
   @SuppressWarnings("java:S107")
   public record MemberDecl(

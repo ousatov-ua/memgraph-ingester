@@ -37,6 +37,7 @@ const moduleSignature = `${moduleFqn}.<init>()`;
 const ANGULAR_DECORATORS = new Set(['Component', 'Directive', 'Injectable', 'NgModule', 'Pipe']);
 const SOURCE_EXTENSIONS = ['.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '.mjs', '.cjs'];
 const DECLARATION_EXTENSIONS = ['.d.ts', '.d.mts', '.d.cts'];
+const tsconfigPathMappings = loadTsconfigPathMappings(root);
 const declarationsByName = new Map();
 const declarationsByOwnerAndName = new Map();
 const staticDeclarationsByOwnerAndName = new Map();
@@ -46,6 +47,7 @@ const imports = collectImports(sourceFile);
 const importedNames = collectImportedNames(sourceFile);
 const importedNamespaces = collectImportedNamespaces(sourceFile);
 const namespaceImports = collectNamespaceImports(sourceFile);
+const localTypeNames = collectLocalTypeNames(sourceFile);
 const topLevelFunctionsByName = new Map();
 const topLevelClassesByName = new Map();
 const emittedExportAliases = new Set();
@@ -88,7 +90,7 @@ function collectDeclaration(node) {
   } else if (ts.isInterfaceDeclaration(node)) {
     collectInterface(node, 'interface');
   } else if (ts.isTypeAliasDeclaration(node)) {
-    collectInterface(node, 'type');
+    collectTypeAlias(node);
   } else if (ts.isEnumDeclaration(node)) {
     collectEnum(node);
   } else if (ts.isFunctionDeclaration(node)) {
@@ -128,13 +130,17 @@ function collectClass(node, name, aliases = [], options = {}) {
     name,
     framework,
     hasConstructor: node.members.some(member => ts.isConstructorDeclaration(member)),
+    isAbstract: hasModifier(node, ts.SyntaxKind.AbstractKeyword),
     startLine: range.start,
     endLine: range.end
   });
   writeDecorators(node, 'fqn', fqn);
+  writeHeritageRelations(node, fqn, 'class');
   for (const member of node.members) {
     if (ts.isConstructorDeclaration(member)) {
-      collectFunction(fqn, '<init>', member, 'constructor');
+      if (member.body) {
+        collectFunction(fqn, '<init>', member, 'constructor');
+      }
     } else if (
       ts.isMethodDeclaration(member) ||
       ts.isGetAccessor(member) ||
@@ -143,6 +149,11 @@ function collectClass(node, name, aliases = [], options = {}) {
       const memberName = memberNameText(member.name);
       if (memberName && member.body) {
         collectFunction(fqn, memberName, member, methodKind(member));
+      } else if (memberName && shouldEmitBodylessMethod(member)) {
+        writeFunctionSignature(fqn, memberName, member, classMethodSignatureKind(member), {
+          isStatic: hasStatic(member),
+          skipUnscopedLookup: true
+        });
       }
     } else if (ts.isPropertyDeclaration(member)) {
       const nameText = memberNameText(member.name);
@@ -156,19 +167,15 @@ function collectClass(node, name, aliases = [], options = {}) {
         } else if (member.initializer) {
           fieldInitializers.push({ initializer: member.initializer, isStatic: hasStatic(member) });
         }
+        writeField(
+          fqn,
+          nameText,
+          typeText(member.type),
+          classFieldKind(member),
+          member,
+          hasStatic(member)
+        );
         const fieldFqn = `${fqn}#${nameText}`;
-        write({
-          record: 'member',
-          ownerFqn: fqn,
-          memberType: 'field',
-          kind: 'property',
-          key: fieldFqn,
-          name: nameText,
-          dataType: typeText(member.type),
-          isStatic: hasStatic(member),
-          startLine: lineRange(member).start,
-          endLine: lineRange(member).end
-        });
         writeDecorators(member, 'fqn', fieldFqn);
       }
     } else if (ts.isClassStaticBlockDeclaration(member)) {
@@ -186,28 +193,47 @@ function collectClass(node, name, aliases = [], options = {}) {
 
 function collectInterface(node, kind) {
   const name = node.name.text;
+  const fqn = `${moduleFqn}.${name}`;
   write({
     record: 'type',
     kind,
-    fqn: `${moduleFqn}.${name}`,
+    fqn,
     name,
     framework: '',
+    isAbstract: false,
     startLine: lineRange(node).start,
     endLine: lineRange(node).end
   });
+  writeHeritageRelations(node, fqn, 'interface');
+  writeTypeMembers(fqn, node.members);
+}
+
+function collectTypeAlias(node) {
+  collectInterface(node, 'type');
+  if (ts.isTypeLiteralNode(node.type)) {
+    writeTypeMembers(`${moduleFqn}.${node.name.text}`, node.type.members);
+  }
 }
 
 function collectEnum(node) {
   const name = node.name.text;
+  const fqn = `${moduleFqn}.${name}`;
   write({
     record: 'type',
     kind: 'enum',
-    fqn: `${moduleFqn}.${name}`,
+    fqn,
     name,
     framework: '',
+    isAbstract: false,
     startLine: lineRange(node).start,
     endLine: lineRange(node).end
   });
+  for (const member of node.members) {
+    const nameText = memberNameText(member.name);
+    if (nameText) {
+      writeField(fqn, nameText, fqn, 'enum-member', member, true);
+    }
+  }
 }
 
 function collectVariables(node, ownerFqn) {
@@ -219,20 +245,10 @@ function collectVariables(node, ownerFqn) {
     if (isFunctionInitializer(decl.initializer)) {
       collectFunction(ownerFqn, name, decl.initializer, 'function');
     } else if (isClassExpressionInitializer(decl.initializer)) {
+      localTypeNames.add(name);
       collectClass(decl.initializer, name);
     } else {
-      write({
-        record: 'member',
-        ownerFqn,
-        memberType: 'field',
-        kind: 'variable',
-        key: `${ownerFqn}#${name}`,
-        name,
-        dataType: typeText(decl.type),
-        isStatic: false,
-        startLine: lineRange(decl).start,
-        endLine: lineRange(decl).end
-      });
+      writeField(ownerFqn, name, typeText(decl.type), 'variable', decl, false);
     }
   }
 }
@@ -575,6 +591,118 @@ function collectFunction(ownerFqn, name, node, kind, options = {}) {
     body: node.body,
     parameters: Array.from(node.parameters || [])
   });
+}
+
+function writeFunctionSignature(ownerFqn, name, node, kind, options = {}) {
+  const signature = buildSignature(ownerFqn, name, node.parameters || []);
+  const range = lineRange(options.rangeNode || node);
+  const isStatic = options.isStatic ?? hasStatic(node);
+  write({
+    record: 'member',
+    ownerFqn,
+    memberType: 'method',
+    kind,
+    key: signature,
+    name,
+    dataType: name === '<init>' ? 'void' : typeText(node.type),
+    isStatic,
+    startLine: range.start,
+    endLine: range.end
+  });
+  if (!options.skipUnscopedLookup) {
+    addDeclaration(name, signature);
+  }
+  addScopedDeclaration(ownerFqn, name, signature, isStatic);
+}
+
+function writeField(ownerFqn, name, dataType, kind, node, isStatic) {
+  const range = lineRange(node);
+  write({
+    record: 'member',
+    ownerFqn,
+    memberType: 'field',
+    kind,
+    key: `${ownerFqn}#${name}`,
+    name,
+    dataType,
+    isStatic,
+    startLine: range.start,
+    endLine: range.end
+  });
+}
+
+function writeTypeMembers(ownerFqn, members) {
+  for (const member of members || []) {
+    if (ts.isPropertySignature(member)) {
+      const name = memberNameText(member.name);
+      if (name) {
+        writeField(
+          ownerFqn,
+          name,
+          typeText(member.type),
+          member.questionToken ? 'optional-interface-property' : 'interface-property',
+          member,
+          false
+        );
+      }
+    } else if (ts.isMethodSignature(member)) {
+      const name = memberNameText(member.name);
+      if (name) {
+        writeFunctionSignature(
+          ownerFqn,
+          name,
+          member,
+          member.questionToken ? 'optional-interface-method' : 'interface-method',
+          { skipUnscopedLookup: true }
+        );
+      }
+    } else if (ts.isIndexSignatureDeclaration(member)) {
+      writeField(
+        ownerFqn,
+        indexSignatureName(member),
+        typeText(member.type),
+        'index-signature',
+        member,
+        false
+      );
+    } else if (ts.isCallSignatureDeclaration(member)) {
+      writeFunctionSignature(ownerFqn, '<call>', member, 'call-signature', {
+        skipUnscopedLookup: true
+      });
+    } else if (ts.isConstructSignatureDeclaration(member)) {
+      writeFunctionSignature(ownerFqn, '<init>', member, 'construct-signature', {
+        skipUnscopedLookup: true
+      });
+    }
+  }
+}
+
+function writeHeritageRelations(node, childFqn, ownerKind) {
+  for (const clause of node.heritageClauses || []) {
+    const relationKind = relationKindFor(ownerKind, clause.token);
+    if (!relationKind) {
+      continue;
+    }
+    for (const typeNode of clause.types || []) {
+      const targetFqn = typeReferenceFqn(typeNode.expression);
+      if (targetFqn) {
+        write({ record: 'relation', kind: relationKind, childFqn, targetFqn });
+      }
+    }
+  }
+}
+
+function relationKindFor(ownerKind, token) {
+  if (ownerKind === 'class' && token === ts.SyntaxKind.ExtendsKeyword) {
+    return 'classExtends';
+  }
+  if (ownerKind === 'class' && token === ts.SyntaxKind.ImplementsKeyword) {
+    return 'implements';
+  }
+  if (ownerKind === 'interface' && token === ts.SyntaxKind.ExtendsKeyword) {
+    return 'interfaceExtends';
+  }
+  return '';
 }
 
 function collectCalls(
@@ -923,6 +1051,34 @@ function collectNamespaceImports(sf) {
   return result;
 }
 
+function collectLocalTypeNames(sf) {
+  const result = new Set();
+  for (const statement of sf.statements) {
+    if (
+      ts.isClassDeclaration(statement) ||
+      ts.isInterfaceDeclaration(statement) ||
+      ts.isEnumDeclaration(statement)
+    ) {
+      const graphName = declarationName(statement);
+      if (graphName) {
+        result.add(graphName);
+      }
+      if (statement.name) {
+        result.add(statement.name.text);
+      }
+    } else if (ts.isTypeAliasDeclaration(statement)) {
+      result.add(statement.name.text);
+    } else if (ts.isVariableStatement(statement)) {
+      for (const decl of statement.declarationList.declarations) {
+        if (ts.isIdentifier(decl.name) && isClassExpressionInitializer(decl.initializer)) {
+          result.add(decl.name.text);
+        }
+      }
+    }
+  }
+  return result;
+}
+
 function isNamedModuleImport(statement) {
   return ts.isImportDeclaration(statement) &&
     Boolean(statement.importClause) &&
@@ -960,6 +1116,11 @@ function memberNameText(name) {
   return name.getText(sourceFile);
 }
 
+function indexSignatureName(node) {
+  const parameters = Array.from(node.parameters || []).map(parameter => parameter.getText(sourceFile));
+  return `[${parameters.join(', ')}]`;
+}
+
 function methodKind(node) {
   if (ts.isGetAccessor(node)) {
     return 'getter';
@@ -968,6 +1129,35 @@ function methodKind(node) {
     return 'setter';
   }
   return 'method';
+}
+
+function shouldEmitBodylessMethod(node) {
+  return hasModifier(node, ts.SyntaxKind.AbstractKeyword) || Boolean(node.questionToken);
+}
+
+function classMethodSignatureKind(node) {
+  const parts = [];
+  if (hasModifier(node, ts.SyntaxKind.AbstractKeyword)) {
+    parts.push('abstract');
+  }
+  if (node.questionToken) {
+    parts.push('optional');
+  }
+  parts.push(methodKind(node));
+  parts.push('signature');
+  return parts.join('-');
+}
+
+function classFieldKind(node) {
+  const parts = [];
+  if (hasModifier(node, ts.SyntaxKind.AbstractKeyword)) {
+    parts.push('abstract');
+  }
+  if (node.questionToken) {
+    parts.push('optional');
+  }
+  parts.push('property');
+  return parts.join('-');
 }
 
 function hasStatic(node) {
@@ -1001,6 +1191,30 @@ function expressionNameParts(expression) {
     return prefix.length ? [...prefix, current.name.text] : [];
   }
   return [];
+}
+
+function typeReferenceFqn(expression) {
+  const parts = expressionNameParts(expression);
+  if (parts.length === 0) {
+    return '';
+  }
+  if (parts.length === 1) {
+    const name = parts[0];
+    return imports.get(name) || classesByName.get(name) || localTypeFqn(name) || name;
+  }
+  const namespaceOwner = namespaceImports.get(parts[0]) || importedNamespaces.get(parts[0]);
+  if (namespaceOwner) {
+    return [namespaceOwner, ...parts.slice(1)].join('.');
+  }
+  const importedTopLevel = imports.get(parts[0]);
+  if (importedTopLevel) {
+    return [importedTopLevel, ...parts.slice(1)].join('.');
+  }
+  return localTypeNames.has(parts[0]) ? `${moduleFqn}.${parts.join('.')}` : parts.join('.');
+}
+
+function localTypeFqn(name) {
+  return localTypeNames.has(name) ? `${moduleFqn}.${name}` : '';
 }
 
 function isDeclarationWithOwnCallableScope(node) {
@@ -1062,27 +1276,28 @@ function encodeIdentityChar(char) {
 }
 
 function localImportedModuleFqn(moduleSpecifier, fromDir = moduleDir) {
-  if (!moduleSpecifier.startsWith('.')) {
-    return '';
-  }
   const resolved = resolveLocalModulePath(moduleSpecifier, fromDir);
   return resolved ? moduleFqnForModulePath(resolved) : '';
 }
 
 function resolveLocalModulePath(moduleSpecifier, fromDir = moduleDir) {
-  const importBase = path.resolve(root, fromDir, moduleSpecifier);
+  const importBases = moduleSpecifier.startsWith('.')
+    ? [path.resolve(root, fromDir, moduleSpecifier)]
+    : mappedImportBases(moduleSpecifier);
   const candidates = [];
-  if (path.extname(importBase)) {
-    for (const candidate of explicitSourceCandidates(importBase)) {
-      pushCandidate(candidates, candidate);
-    }
-    pushCandidate(candidates, importBase);
-  } else {
-    for (const extension of SOURCE_EXTENSIONS) {
-      pushCandidate(candidates, importBase + extension);
-    }
-    for (const extension of SOURCE_EXTENSIONS) {
-      pushCandidate(candidates, path.join(importBase, 'index' + extension));
+  for (const importBase of importBases) {
+    if (hasKnownSourceExtension(importBase)) {
+      for (const candidate of explicitSourceCandidates(importBase)) {
+        pushCandidate(candidates, candidate);
+      }
+      pushCandidate(candidates, importBase);
+    } else {
+      for (const extension of SOURCE_EXTENSIONS) {
+        pushCandidate(candidates, importBase + extension);
+      }
+      for (const extension of SOURCE_EXTENSIONS) {
+        pushCandidate(candidates, path.join(importBase, 'index' + extension));
+      }
     }
   }
   for (const candidate of candidates) {
@@ -1098,6 +1313,59 @@ function resolveLocalModulePath(moduleSpecifier, fromDir = moduleDir) {
     }
   }
   return '';
+}
+
+function hasKnownSourceExtension(filePath) {
+  const lower = filePath.toLowerCase();
+  return SOURCE_EXTENSIONS.concat(DECLARATION_EXTENSIONS).some(extension =>
+    lower.endsWith(extension)
+  );
+}
+
+function loadTsconfigPathMappings(rootDir) {
+  const configPath = ts.findConfigFile(rootDir, ts.sys.fileExists, 'tsconfig.json');
+  if (!configPath) {
+    return [];
+  }
+  const result = ts.readConfigFile(configPath, ts.sys.readFile);
+  if (result.error || !result.config || !result.config.compilerOptions) {
+    return [];
+  }
+  const compilerOptions = result.config.compilerOptions;
+  const paths = compilerOptions.paths || {};
+  const baseUrl = path.resolve(path.dirname(configPath), compilerOptions.baseUrl || '.');
+  return Object.entries(paths).map(([pattern, targets]) => ({
+    pattern,
+    targets: Array.isArray(targets) ? targets : [],
+    baseUrl
+  }));
+}
+
+function mappedImportBases(moduleSpecifier) {
+  const result = [];
+  for (const mapping of tsconfigPathMappings) {
+    const matched = matchPathPattern(mapping.pattern, moduleSpecifier);
+    if (matched === null) {
+      continue;
+    }
+    for (const target of mapping.targets) {
+      result.push(path.resolve(mapping.baseUrl, target.replace('*', matched)));
+    }
+  }
+  return result;
+}
+
+function matchPathPattern(pattern, moduleSpecifier) {
+  const starIndex = pattern.indexOf('*');
+  if (starIndex < 0) {
+    return pattern === moduleSpecifier ? '' : null;
+  }
+  const prefix = pattern.slice(0, starIndex);
+  const suffix = pattern.slice(starIndex + 1);
+  if (!moduleSpecifier.startsWith(prefix) || !moduleSpecifier.endsWith(suffix)) {
+    return null;
+  }
+  return moduleSpecifier.slice(prefix.length, moduleSpecifier.length - suffix.length);
 }
 
 function explicitSourceCandidates(importBase) {

@@ -346,8 +346,10 @@ Accepted source extensions:
 - `.mjs`
 - `.cjs`
 
-Only files under `--source` are considered. Use the repository root as `--source` when you want
-root config files or support scripts indexed alongside application source.
+Only source files under `--source` are considered. Use the repository root as `--source` when you
+want root JavaScript config files or support scripts indexed alongside application source.
+`tsconfig*.json` files are read for TypeScript path aliases when present, but they are not indexed
+as code nodes.
 
 Skipped paths:
 
@@ -358,17 +360,22 @@ Captured JS/TS structure:
 - Files and synthetic module owners.
 - Classes and class expressions assigned to variables.
 - Interfaces and type aliases as graph interfaces.
-- TypeScript enums as graph classes with `isEnum = true` and `kind = "enum"`.
+- Class/interface `EXTENDS` and class `IMPLEMENTS` relationships, including relative imports and
+  `tsconfig.json` path aliases that resolve under `--source`.
+- Interface and object-literal type members as `:Field`/`:Method` declarations.
+- TypeScript enums as graph classes with `isEnum = true` and `kind = "enum"`, with enum members as
+  `:Field` declarations using `kind = "enum-member"`.
 - Top-level functions and variables under the module owner.
 - Exported callable aliases and class re-export aliases as graph-visible declarations for their
   public export names.
-- Methods, constructors, function-valued class fields, fields, static flags, line ranges, and kinds.
+- Methods, constructors, function-valued class fields, fields, abstract class metadata, bodyless
+  abstract/optional method signatures, static flags, line ranges, and kinds.
 - Decorators as annotations, preserving namespace-qualified decorator FQNs when possible.
 - Angular decorators with framework metadata when detected.
 - Syntax-based best-effort call edges, including top-level IIFEs/callbacks, local function
   constructors, and deferred resolution for resolvable relative imports.
-- Relative import resolution prefers TypeScript source files over emitted JavaScript when both exist
-  for the same local module path.
+- Relative import and `tsconfig.json` path-alias resolution prefers TypeScript source files over
+  emitted JavaScript when both exist for the same local module path.
 
 Runtime modes:
 

@@ -64,6 +64,7 @@ public final class JsLanguageAdapter implements LanguageAdapter {
           .forEach(
               type ->
                   upsertType(writer, file, analysis.packageName(), analysis.modulePath(), type));
+      analysis.relations().forEach(relation -> upsertRelation(writer, relation));
       analysis.members().forEach(member -> upsertMember(writer, member));
       analysis.annotations().forEach(annotation -> upsertAnnotation(writer, annotation));
       analysis.calls().forEach(call -> upsertCall(writer, call));
@@ -88,6 +89,7 @@ public final class JsLanguageAdapter implements LanguageAdapter {
           type.name(),
           modulePath,
           type.framework(),
+          type.isAbstract(),
           type.hasConstructor(),
           type.startLine(),
           type.endLine());
@@ -97,6 +99,18 @@ public final class JsLanguageAdapter implements LanguageAdapter {
     } else {
       writer.upsertJavascriptInterface(
           file, packageName, type.fqn(), type.name(), type.kind(), modulePath, type.framework());
+    }
+  }
+
+  private static void upsertRelation(GraphWriter writer, JsAnalysis.RelationDecl relation) {
+    switch (relation.kind()) {
+      case "classExtends" ->
+          writer.upsertJavascriptExtendsClass(relation.childFqn(), relation.targetFqn());
+      case "interfaceExtends" ->
+          writer.upsertJavascriptInterfaceExtends(relation.childFqn(), relation.targetFqn());
+      case "implements" ->
+          writer.upsertJavascriptImplements(relation.childFqn(), relation.targetFqn());
+      default -> log.debug("Ignoring unknown JavaScript relation kind: {}", relation.kind());
     }
   }
 

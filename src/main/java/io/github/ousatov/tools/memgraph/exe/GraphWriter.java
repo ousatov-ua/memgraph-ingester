@@ -3,6 +3,7 @@ package io.github.ousatov.tools.memgraph.exe;
 import com.github.javaparser.ast.body.AnnotationDeclaration;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.ConstructorDeclaration;
+import com.github.javaparser.ast.body.EnumConstantDeclaration;
 import com.github.javaparser.ast.body.EnumDeclaration;
 import com.github.javaparser.ast.body.FieldDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
@@ -279,11 +280,22 @@ public final class GraphWriter {
       String name,
       String modulePath,
       String framework,
+      boolean isAbstract,
       boolean hasDeclaredConstructor,
       int startLine,
       int endLine) {
     upsertJavascriptTypeClass(
-        file, pkg, fqn, name, modulePath, framework, false, "class", startLine, endLine);
+        file,
+        pkg,
+        fqn,
+        name,
+        modulePath,
+        framework,
+        false,
+        isAbstract,
+        "class",
+        startLine,
+        endLine);
     if (!hasDeclaredConstructor) {
       upsertMethodNode(
           new Method(
@@ -311,7 +323,7 @@ public final class GraphWriter {
       int startLine,
       int endLine) {
     upsertJavascriptTypeClass(
-        file, pkg, fqn, name, modulePath, "", true, "enum", startLine, endLine);
+        file, pkg, fqn, name, modulePath, "", true, false, "enum", startLine, endLine);
   }
 
   @SuppressWarnings("java:S107")
@@ -323,6 +335,7 @@ public final class GraphWriter {
       String modulePath,
       String framework,
       boolean isEnum,
+      boolean isAbstract,
       String kind,
       int startLine,
       int endLine) {
@@ -331,7 +344,7 @@ public final class GraphWriter {
         pkg,
         fqn,
         name,
-        false,
+        isAbstract,
         "",
         isEnum,
         false,
@@ -340,6 +353,39 @@ public final class GraphWriter {
         kind,
         modulePath,
         framework);
+  }
+
+  /** Writes a JavaScript/TypeScript class {@code EXTENDS} relation. */
+  public void upsertJavascriptExtendsClass(String childFqn, String parentFqn) {
+    upsertTypeRelation(
+        Cypher.CYPHER_UPSERT_EXTENDS_CLASS,
+        childFqn,
+        parentFqn,
+        Params.PARENT,
+        Params.PARENT_NAME,
+        Params.PARENT_PKG);
+  }
+
+  /** Writes a JavaScript/TypeScript interface {@code EXTENDS} relation. */
+  public void upsertJavascriptInterfaceExtends(String childFqn, String parentFqn) {
+    upsertTypeRelation(
+        Cypher.CYPHER_UPSERT_INTERFACE_EXTENDS,
+        childFqn,
+        parentFqn,
+        Params.PARENT,
+        Params.PARENT_NAME,
+        Params.PARENT_PKG);
+  }
+
+  /** Writes a JavaScript/TypeScript class {@code IMPLEMENTS} relation. */
+  public void upsertJavascriptImplements(String childFqn, String interfaceFqn) {
+    upsertTypeRelation(
+        Cypher.CYPHER_UPSERT_IMPLEMENTS,
+        childFqn,
+        interfaceFqn,
+        Params.IFACE,
+        Params.IFACE_NAME,
+        Params.IFACE_PKG);
   }
 
   /** Upserts a TypeScript interface or type alias using the compatible {@code :Interface} label. */
@@ -584,7 +630,7 @@ public final class GraphWriter {
 
   /**
    * Upserts an enum declaration as a {@code :Class} with {@code isEnum = true}, including its
-   * fields, methods, constructors, implemented interfaces, and nested types.
+   * constants, fields, methods, constructors, implemented interfaces, and nested types.
    */
   public void upsertEnum(Path file, String pkg, EnumDeclaration decl) {
     String fqn = JavaTypeNames.buildFqn(pkg, decl.getNameAsString());
@@ -600,6 +646,7 @@ public final class GraphWriter {
         true);
     upsertAnnotationsByFqn(fqn, decl);
     upsertImplementedTypes(fqn, decl);
+    decl.getEntries().forEach(entry -> upsertEnumConstant(fqn, entry));
     decl.getFields().forEach(f -> upsertField(fqn, f));
     decl.getMethods().forEach(m -> upsertMethod(fqn, m));
     decl.getConstructors().forEach(c -> upsertConstructor(fqn, c));
@@ -797,6 +844,29 @@ public final class GraphWriter {
   private void upsertTypeRelation(
       String query,
       String childFqn,
+      String targetFqn,
+      String targetParam,
+      String targetNameParam,
+      String targetPkgParam) {
+    if (targetFqn == null || targetFqn.isBlank()) {
+      return;
+    }
+    cypher.run(
+        query,
+        Map.of(
+            Params.CHILD,
+            childFqn,
+            targetParam,
+            targetFqn,
+            targetNameParam,
+            JavaTypeNames.nameFromFqn(targetFqn),
+            targetPkgParam,
+            JavaTypeNames.packageFromFqn(targetFqn)));
+  }
+
+  private void upsertTypeRelation(
+      String query,
+      String childFqn,
       ClassOrInterfaceType target,
       String targetParam,
       String targetNameParam,
@@ -871,6 +941,28 @@ public final class GraphWriter {
                       ownerFqn));
               upsertAnnotationsByFqn(fqn, field);
             });
+  }
+
+  private void upsertEnumConstant(String ownerFqn, EnumConstantDeclaration entry) {
+    cypher.run(
+        Cypher.CYPHER_UPSERT_FIELD,
+        Map.of(
+            Params.FQN,
+            ownerFqn + "#" + entry.getNameAsString(),
+            Params.NAME,
+            entry.getNameAsString(),
+            Params.TYPE,
+            ownerFqn,
+            Params.IS_STATIC,
+            true,
+            Params.VISIBILITY,
+            "public",
+            Params.LANGUAGE,
+            JAVA_LANGUAGE,
+            Params.KIND,
+            "enum-member",
+            Params.OWNER,
+            ownerFqn));
   }
 
   private void upsertMethod(String ownerFqn, MethodDeclaration method) {
