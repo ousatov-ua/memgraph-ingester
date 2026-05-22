@@ -1,3 +1,6 @@
+MATCH (owner)
+WHERE owner.fqn = $owner AND owner.project = $project
+  AND (owner:Class OR owner:Interface OR owner:Annotation)
 MERGE (m:Method {signature: $sig, project: $project})
   SET m.name = $name,
       m.returnType = $ret,
@@ -10,8 +13,4 @@ MERGE (m:Method {signature: $sig, project: $project})
       m.language = $language,
       m.kind = $kind,
       m.isSynthetic = $isSynthetic
-WITH m
-MATCH (owner)
-WHERE owner.fqn = $owner AND owner.project = $project
-  AND (owner:Class OR owner:Interface OR owner:Annotation)
 MERGE (owner)-[:DECLARES]->(m)

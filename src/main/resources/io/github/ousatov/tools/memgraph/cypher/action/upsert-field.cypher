@@ -1,3 +1,6 @@
+MATCH (owner)
+WHERE owner.fqn = $owner AND owner.project = $project
+  AND (owner:Class OR owner:Interface OR owner:Annotation)
 MERGE (f:Field {fqn: $fqn, project: $project})
   SET f.name = $name,
       f.type = $type,
@@ -5,8 +8,4 @@ MERGE (f:Field {fqn: $fqn, project: $project})
       f.visibility = $visibility,
       f.language = $language,
       f.kind = $kind
-WITH f
-MATCH (owner)
-WHERE owner.fqn = $owner AND owner.project = $project
-  AND (owner:Class OR owner:Interface OR owner:Annotation)
 MERGE (owner)-[:DECLARES]->(f)
