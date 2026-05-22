@@ -110,6 +110,12 @@ public final class Const {
         action("upsert-pending-call-by-name.cypher");
 
     /**
+     * Deletes deferred owner/name calls for methods declared by a source file before re-ingestion.
+     */
+    public static final String CYPHER_DELETE_PENDING_CALLS_FOR_FILE =
+        action("delete-pending-calls-for-file.cypher");
+
+    /**
      * Resolves pending owner/name calls once all candidate owners and methods have been ingested.
      * Only creates the edge when exactly one method has that name (no overloading ambiguity).
      */

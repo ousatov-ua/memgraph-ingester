@@ -33,11 +33,15 @@ public final class JsLanguageAdapter implements LanguageAdapter {
   public boolean accepts(Path file) {
     String path = file.toString().replace('\\', '/');
     String lower = path.toLowerCase(Locale.ROOT);
-    if (lower.contains("/node_modules/")
-        || DECLARATION_EXTENSIONS.stream().anyMatch(lower::endsWith)) {
+    if (isInNodeModules(file) || DECLARATION_EXTENSIONS.stream().anyMatch(lower::endsWith)) {
       return false;
     }
     return EXTENSIONS.stream().anyMatch(lower::endsWith);
+  }
+
+  @Override
+  public boolean shouldVisitDirectory(Path directory) {
+    return !isInNodeModules(directory);
   }
 
   @Override
@@ -45,6 +49,7 @@ public final class JsLanguageAdapter implements LanguageAdapter {
     try {
       JsAnalysis analysis = analyzer.analyze(file);
       writer.upsertFile(file, language().graphName());
+      writer.deletePendingCallsForFile(file);
       writer.upsertPackage(analysis.packageName());
       writer.upsertJavascriptModule(
           file,
@@ -131,5 +136,14 @@ public final class JsLanguageAdapter implements LanguageAdapter {
     }
     writer.upsertPendingCallByName(
         call.callerSignature(), call.calleeOwnerFqn(), call.calleeName());
+  }
+
+  private static boolean isInNodeModules(Path path) {
+    for (Path part : path) {
+      if ("node_modules".equals(part.toString())) {
+        return true;
+      }
+    }
+    return false;
   }
 }

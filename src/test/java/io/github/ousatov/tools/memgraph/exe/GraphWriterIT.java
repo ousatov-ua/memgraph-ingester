@@ -1241,6 +1241,36 @@ class GraphWriterIT {
   }
 
   @Test
+  void pendingCallsForFileDeletedBeforeReingest() {
+    writer.upsertFile(TEST_FILE);
+    writer.upsertPackage(PKG);
+    ClassOrInterfaceDeclaration caller =
+        parseDecl("package com.example; public class Caller { public void run() {} }");
+
+    writer.upsertType(TEST_FILE, PKG, caller);
+    writer.upsertPendingCallByName("com.example.Caller.run()", "com.example.Helper", "assist");
+
+    long pendingBefore =
+        session
+            .run("MATCH (p:PendingCall {project: $p}) RETURN count(p) AS n", Map.of("p", PROJECT))
+            .single()
+            .get("n")
+            .asLong();
+
+    writer.deletePendingCallsForFile(TEST_FILE);
+
+    long pendingAfter =
+        session
+            .run("MATCH (p:PendingCall {project: $p}) RETURN count(p) AS n", Map.of("p", PROJECT))
+            .single()
+            .get("n")
+            .asLong();
+
+    assertEquals(1, pendingBefore);
+    assertEquals(0, pendingAfter);
+  }
+
+  @Test
   void unresolvedScopedCallFallsBackByImportedType() {
     writer.upsertFile(TEST_FILE);
     writer.upsertPackage(PKG);

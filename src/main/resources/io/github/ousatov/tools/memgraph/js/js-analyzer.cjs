@@ -35,7 +35,7 @@ const packageName = ['js', ...dirParts].join('.');
 const moduleFqn = `${packageName}.${moduleFqnName}`;
 const moduleSignature = `${moduleFqn}.<init>()`;
 const ANGULAR_DECORATORS = new Set(['Component', 'Directive', 'Injectable', 'NgModule', 'Pipe']);
-const SOURCE_EXTENSIONS = ['.js', '.jsx', '.ts', '.tsx', '.mts', '.cts', '.mjs', '.cjs'];
+const SOURCE_EXTENSIONS = ['.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '.mjs', '.cjs'];
 const DECLARATION_EXTENSIONS = ['.d.ts', '.d.mts', '.d.cts'];
 const declarationsByName = new Map();
 const declarationsByOwnerAndName = new Map();
@@ -780,10 +780,10 @@ function resolveLocalModulePath(moduleSpecifier) {
   const importBase = path.resolve(root, moduleDir, moduleSpecifier);
   const candidates = [];
   if (path.extname(importBase)) {
-    pushCandidate(candidates, importBase);
     for (const candidate of explicitSourceCandidates(importBase)) {
       pushCandidate(candidates, candidate);
     }
+    pushCandidate(candidates, importBase);
   } else {
     for (const extension of SOURCE_EXTENSIONS) {
       pushCandidate(candidates, importBase + extension);

@@ -123,6 +123,11 @@ public final class GraphWriter {
     cypher.run(Cypher.CYPHER_RESOLVE_PENDING_CALLS, Map.of());
   }
 
+  /** Removes stale deferred owner/name call records for methods declared by one source file. */
+  public void deletePendingCallsForFile(Path file) {
+    cypher.run(Cypher.CYPHER_DELETE_PENDING_CALLS_FOR_FILE, Map.of(Params.PATH, file.toString()));
+  }
+
   /** Refreshes {@code :CodeRef} resolution edges to the current project-scoped code graph. */
   public void resolveCodeRefs() {
     List.of(
