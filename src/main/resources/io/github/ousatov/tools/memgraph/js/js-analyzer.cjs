@@ -40,6 +40,8 @@ const DECLARATION_EXTENSIONS = ['.d.ts', '.d.mts', '.d.cts'];
 const tsconfigPathMappings = loadTsconfigPathMappings(root);
 const typeFqnByNode = new WeakMap();
 const typeNameByNode = new WeakMap();
+const localTypeScopesByNode = new WeakMap();
+const callableByNode = new WeakMap();
 const declarationsByName = new Map();
 const declarationsByOwnerAndName = new Map();
 const staticDeclarationsByOwnerAndName = new Map();
@@ -110,16 +112,22 @@ function collectDeclaration(node) {
 }
 
 function collectNestedTypeDeclarations(node) {
-  ts.forEachChild(node, visitNestedTypeDeclaration);
+  visitNestedTypeDeclaration(node, moduleSignature, moduleFqn);
 }
 
-function visitNestedTypeDeclaration(node) {
+function visitNestedTypeDeclaration(node, callerSignature, callerOwnerFqn) {
+  const callable = callableByNode.get(node);
+  const nextCallerSignature = callable ? callable.signature : callerSignature;
+  const nextCallerOwnerFqn = callable ? callable.ownerFqn : callerOwnerFqn;
   if (ts.isClassDeclaration(node)) {
     if (!isTopLevelDeclaration(node)) {
       const name = declarationName(node);
       if (name) {
         collectClass(node, name, declarationAliases(node, name), {
+          initializerCallerOwnerFqn: callerOwnerFqn,
+          initializerCallerSignature: callerSignature,
           skipClassNameLookup: true,
+          skipMemberUnscopedLookup: true,
           skipExportModel: true
         });
       }
@@ -143,11 +151,16 @@ function visitNestedTypeDeclaration(node) {
     isClassExpressionInitializer(node.initializer)
   ) {
     collectClass(node.initializer, node.name.text, [], {
+      initializerCallerOwnerFqn: callerOwnerFqn,
+      initializerCallerSignature: callerSignature,
       skipClassNameLookup: true,
+      skipMemberUnscopedLookup: true,
       skipExportModel: true
     });
   }
-  ts.forEachChild(node, visitNestedTypeDeclaration);
+  ts.forEachChild(node, child =>
+    visitNestedTypeDeclaration(child, nextCallerSignature, nextCallerOwnerFqn)
+  );
 }
 
 function collectClass(node, name, aliases = [], options = {}) {
@@ -184,7 +197,9 @@ function collectClass(node, name, aliases = [], options = {}) {
   for (const member of node.members) {
     if (ts.isConstructorDeclaration(member)) {
       if (member.body) {
-        collectFunction(fqn, '<init>', member, 'constructor');
+        collectFunction(fqn, '<init>', member, 'constructor', {
+          skipUnscopedLookup: options.skipMemberUnscopedLookup
+        });
       }
     } else if (
       ts.isMethodDeclaration(member) ||
@@ -193,7 +208,9 @@ function collectClass(node, name, aliases = [], options = {}) {
     ) {
       const memberName = memberNameText(member.name);
       if (memberName && member.body) {
-        collectFunction(fqn, memberName, member, methodKind(member));
+        collectFunction(fqn, memberName, member, methodKind(member), {
+          skipUnscopedLookup: options.skipMemberUnscopedLookup
+        });
       } else if (memberName && shouldEmitBodylessMethod(member)) {
         writeFunctionSignature(fqn, memberName, member, classMethodSignatureKind(member), {
           isStatic: hasStatic(member),
@@ -207,7 +224,8 @@ function collectClass(node, name, aliases = [], options = {}) {
           collectFunction(fqn, nameText, member.initializer, 'property-function', {
             decoratorNode: member,
             isStatic: hasStatic(member),
-            rangeNode: member
+            rangeNode: member,
+            skipUnscopedLookup: options.skipMemberUnscopedLookup
           });
         } else if (member.initializer) {
           fieldInitializers.push({ initializer: member.initializer, isStatic: hasStatic(member) });
@@ -224,12 +242,21 @@ function collectClass(node, name, aliases = [], options = {}) {
         writeDecorators(member, 'fqn', fieldFqn);
       }
     } else if (ts.isClassStaticBlockDeclaration(member)) {
-      collectCalls(member.body, moduleSignature, moduleFqn, true);
+      collectCalls(
+        member.body,
+        options.initializerCallerSignature || moduleSignature,
+        options.initializerCallerOwnerFqn || moduleFqn,
+        true
+      );
     }
   }
   for (const fieldInitializer of fieldInitializers) {
-    const signatures = fieldInitializer.isStatic ? [moduleSignature] : constructorSignaturesFor(fqn);
-    const ownerFqn = fieldInitializer.isStatic ? moduleFqn : fqn;
+    const signatures = fieldInitializer.isStatic
+      ? [options.initializerCallerSignature || moduleSignature]
+      : constructorSignaturesFor(fqn);
+    const ownerFqn = fieldInitializer.isStatic
+      ? (options.initializerCallerOwnerFqn || moduleFqn)
+      : fqn;
     for (const signature of signatures) {
       collectCalls(fieldInitializer.initializer, signature, ownerFqn, false);
     }
@@ -591,6 +618,7 @@ function collectFunction(ownerFqn, name, node, kind, options = {}) {
     return;
   }
   const signature = buildSignature(ownerFqn, name, node.parameters || []);
+  callableByNode.set(node, { signature, ownerFqn });
   const range = lineRange(options.rangeNode || node);
   const isStatic = options.isStatic ?? hasStatic(node);
   write({
@@ -728,7 +756,7 @@ function writeHeritageRelations(node, childFqn, ownerKind) {
       continue;
     }
     for (const typeNode of clause.types || []) {
-      const targetFqn = typeReferenceFqn(typeNode.expression);
+      const targetFqn = typeReferenceFqn(typeNode.expression, node);
       if (targetFqn) {
         write({ record: 'relation', kind: relationKind, childFqn, targetFqn });
       }
@@ -1136,10 +1164,19 @@ function registerTypeNode(node, name, topLevel) {
   const fqn = topLevel ? `${moduleFqn}.${name}` : localTypeFqnFor(node, name);
   typeFqnByNode.set(node, fqn);
   typeNameByNode.set(node, name);
+  registerScopedLocalType(node, name, fqn);
   if (topLevel) {
     registerUniqueName(localTypeFqnsByName, name, fqn);
   }
   return fqn;
+}
+
+function registerScopedLocalType(node, name, fqn) {
+  const scope = lexicalTypeScope(node);
+  if (!localTypeScopesByNode.has(scope)) {
+    localTypeScopesByNode.set(scope, new Map());
+  }
+  registerUniqueName(localTypeScopesByNode.get(scope), name, fqn);
 }
 
 function registerUniqueName(target, name, fqn) {
@@ -1180,6 +1217,30 @@ function isTopLevelVariableDeclaration(node) {
       ts.isVariableStatement(statement) &&
       statement.parent === sourceFile
   );
+}
+
+function lexicalTypeScope(node) {
+  let current = node.parent;
+  while (current && !isTypeScope(current)) {
+    current = current.parent;
+  }
+  return current || sourceFile;
+}
+
+function parentTypeScope(scope) {
+  let current = scope.parent;
+  while (current && !isTypeScope(current)) {
+    current = current.parent;
+  }
+  return current || null;
+}
+
+function isTypeScope(node) {
+  return node === sourceFile ||
+    ts.isBlock(node) ||
+    ts.isModuleBlock(node) ||
+    ts.isCaseClause(node) ||
+    ts.isDefaultClause(node);
 }
 
 function isNamedModuleImport(statement) {
@@ -1300,14 +1361,14 @@ function expressionNameParts(expression) {
   return [];
 }
 
-function typeReferenceFqn(expression) {
+function typeReferenceFqn(expression, contextNode = null) {
   const parts = expressionNameParts(expression);
   if (parts.length === 0) {
     return '';
   }
   if (parts.length === 1) {
     const name = parts[0];
-    return imports.get(name) || classesByName.get(name) || localTypeFqn(name) || name;
+    return localTypeFqn(name, contextNode) || imports.get(name) || classesByName.get(name) || name;
   }
   const namespaceOwner = namespaceImports.get(parts[0]) || importedNamespaces.get(parts[0]);
   if (namespaceOwner) {
@@ -1317,11 +1378,21 @@ function typeReferenceFqn(expression) {
   if (importedTopLevel) {
     return [importedTopLevel, ...parts.slice(1)].join('.');
   }
-  const localFqn = localTypeFqn(parts[0]);
+  const localFqn = localTypeFqn(parts[0], contextNode);
   return localFqn ? [localFqn, ...parts.slice(1)].join('.') : parts.join('.');
 }
 
-function localTypeFqn(name) {
+function localTypeFqn(name, contextNode = null) {
+  if (contextNode) {
+    let scope = lexicalTypeScope(contextNode);
+    while (scope) {
+      const scopedTypes = localTypeScopesByNode.get(scope);
+      if (scopedTypes && scopedTypes.has(name)) {
+        return scopedTypes.get(name) || '';
+      }
+      scope = parentTypeScope(scope);
+    }
+  }
   return localTypeFqnsByName.get(name) || '';
 }
 

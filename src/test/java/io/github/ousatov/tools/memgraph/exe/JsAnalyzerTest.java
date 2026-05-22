@@ -83,6 +83,87 @@ class JsAnalyzerTest {
   }
 
   @Test
+  void nestedTypesResolveReferencesInTheirLocalScope() throws IOException {
+    JsAnalysis analysis =
+        analyzeSource(
+            "nested-heritage.ts",
+            """
+            function build() {
+              class Base {}
+              class Child extends Base {}
+            }
+            """);
+
+    String baseFqn =
+        analysis.types().stream()
+            .filter(type -> "Base".equals(type.name()))
+            .findFirst()
+            .orElseThrow()
+            .fqn();
+    String childFqn =
+        analysis.types().stream()
+            .filter(type -> "Child".equals(type.name()))
+            .findFirst()
+            .orElseThrow()
+            .fqn();
+    assertTrue(baseFqn.contains(".$local$"));
+    assertTrue(
+        analysis.relations().stream()
+            .anyMatch(
+                relation ->
+                    "classExtends".equals(relation.kind())
+                        && childFqn.equals(relation.childFqn())
+                        && baseFqn.equals(relation.targetFqn())));
+  }
+
+  @Test
+  void nestedClassMembersDoNotResolveBareCallsOutsideTheClass() throws IOException {
+    JsAnalysis analysis =
+        analyzeSource(
+            "member-scope.ts",
+            """
+            describe('scope', () => {
+              class Local {
+                ping() {}
+              }
+            });
+            ping();
+            """);
+
+    assertTrue(
+        analysis.calls().stream()
+            .noneMatch(call -> call.calleeSignature().endsWith(".Local.ping()")));
+  }
+
+  @Test
+  void nestedClassStaticInitializersUseContainingFunctionCaller() throws IOException {
+    JsAnalysis analysis =
+        analyzeSource(
+            "static-init.ts",
+            """
+            function init() {
+              return 1;
+            }
+            function build() {
+              class Local {
+                static {
+                  init();
+                }
+                static value = init();
+              }
+            }
+            """);
+
+    long functionScopedCalls =
+        analysis.calls().stream()
+            .filter(call -> "js.static$2d$init$2e$ts.build()".equals(call.callerSignature()))
+            .filter(call -> "js.static$2d$init$2e$ts.init()".equals(call.calleeSignature()))
+            .count();
+
+    assertEquals(2, functionScopedCalls);
+  }
+
+  @Test
   void analyzesCallsInsideAnonymousClassExpressions() throws IOException {
     JsAnalysis analysis =
         analyzeSource(
