@@ -128,6 +128,23 @@ public final class GraphWriter {
     cypher.run(Cypher.CYPHER_DELETE_PENDING_CALLS_FOR_FILE, Map.of(Params.PATH, file.toString()));
   }
 
+  /**
+   * Removes JS/TS definitions for {@code file} that were written under an older module FQN scheme.
+   */
+  public void deleteStaleJavascriptDefinitionsForFile(Path file, String currentModuleFqn) {
+    Map<String, Object> params =
+        Map.of(
+            Params.PATH,
+            file.toString(),
+            Params.FQN,
+            currentModuleFqn,
+            Params.MODULE_PREFIX,
+            currentModuleFqn + ".");
+    cypher.run(Cypher.CYPHER_DELETE_STALE_JAVASCRIPT_MEMBERS_FOR_FILE, params);
+    cypher.run(Cypher.CYPHER_DELETE_STALE_JAVASCRIPT_OWNERS_FOR_FILE, params);
+    cypher.run(Cypher.CYPHER_DELETE_EMPTY_JAVASCRIPT_PACKAGES, Map.of());
+  }
+
   /** Refreshes {@code :CodeRef} resolution edges to the current project-scoped code graph. */
   public void resolveCodeRefs() {
     List.of(
@@ -265,20 +282,8 @@ public final class GraphWriter {
       boolean hasDeclaredConstructor,
       int startLine,
       int endLine) {
-    upsertClassNode(
-        file,
-        pkg,
-        fqn,
-        name,
-        false,
-        "",
-        false,
-        false,
-        false,
-        JAVASCRIPT_LANGUAGE,
-        "class",
-        modulePath,
-        framework);
+    upsertJavascriptTypeClass(
+        file, pkg, fqn, name, modulePath, framework, false, "class", startLine, endLine);
     if (!hasDeclaredConstructor) {
       upsertMethodNode(
           new Method(
@@ -294,6 +299,47 @@ public final class GraphWriter {
               JAVASCRIPT_LANGUAGE,
               "constructor"));
     }
+  }
+
+  /** Upserts a TypeScript enum using the existing {@code :Class} label and enum metadata. */
+  public void upsertJavascriptEnum(
+      Path file,
+      String pkg,
+      String fqn,
+      String name,
+      String modulePath,
+      int startLine,
+      int endLine) {
+    upsertJavascriptTypeClass(
+        file, pkg, fqn, name, modulePath, "", true, "enum", startLine, endLine);
+  }
+
+  @SuppressWarnings("java:S107")
+  private void upsertJavascriptTypeClass(
+      Path file,
+      String pkg,
+      String fqn,
+      String name,
+      String modulePath,
+      String framework,
+      boolean isEnum,
+      String kind,
+      int startLine,
+      int endLine) {
+    upsertClassNode(
+        file,
+        pkg,
+        fqn,
+        name,
+        false,
+        "",
+        isEnum,
+        false,
+        false,
+        JAVASCRIPT_LANGUAGE,
+        kind,
+        modulePath,
+        framework);
   }
 
   /** Upserts a TypeScript interface or type alias using the compatible {@code :Interface} label. */
@@ -361,16 +407,43 @@ public final class GraphWriter {
 
   /** Adds an annotation/decorator edge for a type or field identified by FQN. */
   public void upsertAnnotationReferenceByFqn(String ownerFqn, String annotationFqn, String name) {
+    upsertAnnotationReferenceByFqn(ownerFqn, annotationFqn, name, JAVA_LANGUAGE, Params.ANNOTATION);
+  }
+
+  /** Adds an annotation/decorator edge for a type or field identified by FQN. */
+  public void upsertAnnotationReferenceByFqn(
+      String ownerFqn, String annotationFqn, String name, String language, String kind) {
     cypher.run(
         Cypher.CYPHER_UPSERT_ANNOTATED_WITH_BY_FQN,
-        Map.of(Params.OWNER, ownerFqn, Params.ANNOT_FQN, annotationFqn, Params.ANNOT_NAME, name));
+        Map.of(
+            Params.OWNER,
+            ownerFqn,
+            Params.ANNOT_FQN,
+            annotationFqn,
+            Params.ANNOT_NAME,
+            name,
+            Params.LANGUAGE,
+            language,
+            Params.KIND,
+            kind));
   }
 
   /** Adds an annotation/decorator edge for a method identified by signature. */
-  public void upsertAnnotationReferenceBySig(String signature, String annotationFqn, String name) {
+  public void upsertAnnotationReferenceBySig(
+      String signature, String annotationFqn, String name, String language, String kind) {
     cypher.run(
         Cypher.CYPHER_UPSERT_ANNOTATED_WITH_BY_SIG,
-        Map.of(Params.SIG, signature, Params.ANNOT_FQN, annotationFqn, Params.ANNOT_NAME, name));
+        Map.of(
+            Params.SIG,
+            signature,
+            Params.ANNOT_FQN,
+            annotationFqn,
+            Params.ANNOT_NAME,
+            name,
+            Params.LANGUAGE,
+            language,
+            Params.KIND,
+            kind));
   }
 
   /** Upserts a resolved in-project call edge. */
@@ -378,19 +451,6 @@ public final class GraphWriter {
     cypher.run(
         Cypher.CYPHER_UPSERT_CALL,
         Map.of(Params.CALLER, callerSignature, Params.CALLEE, calleeSignature));
-  }
-
-  /** Upserts a call edge when the callee owner is known but its full signature is not. */
-  public void upsertCallByName(String callerSignature, String ownerFqn, String calleeName) {
-    cypher.run(
-        Cypher.CYPHER_UPSERT_CALL_BY_NAME,
-        Map.of(
-            Params.CALLER,
-            callerSignature,
-            Params.OWNER_FQN,
-            ownerFqn,
-            Params.CALLEE_NAME,
-            calleeName));
   }
 
   /** Stores a deferred owner/name call for post-ingestion resolution. */
@@ -597,7 +657,7 @@ public final class GraphWriter {
             Params.LANGUAGE,
             JAVA_LANGUAGE,
             Params.KIND,
-            "annotation",
+            Params.ANNOTATION,
             Params.MODULE_PATH,
             "",
             Params.FRAMEWORK,
@@ -978,7 +1038,11 @@ public final class GraphWriter {
                       Params.ANNOT_FQN,
                       annotFqn,
                       Params.ANNOT_NAME,
-                      JavaTypeNames.nameFromFqn(annotFqn)));
+                      JavaTypeNames.nameFromFqn(annotFqn),
+                      Params.LANGUAGE,
+                      JAVA_LANGUAGE,
+                      Params.KIND,
+                      Params.ANNOTATION));
             });
   }
 }

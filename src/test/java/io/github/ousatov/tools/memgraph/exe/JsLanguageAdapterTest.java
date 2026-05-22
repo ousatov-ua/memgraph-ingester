@@ -30,9 +30,9 @@ class JsLanguageAdapterTest {
   }
 
   @Test
-  void rejectsTypeScriptDeclarationFiles() {
+  void acceptsTypeScriptDeclarationFiles() {
     for (String extension : List.of(".d.ts", ".d.mts", ".d.cts")) {
-      assertFalse(adapter.accepts(Path.of("src/index" + extension)));
+      assertTrue(adapter.accepts(Path.of("src/index" + extension)));
     }
   }
 

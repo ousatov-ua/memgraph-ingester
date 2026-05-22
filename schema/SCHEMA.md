@@ -126,7 +126,8 @@ Common memory-to-memory links:
 - JavaScript/TypeScript modules are represented as synthetic `:Class` nodes with
   `language = "javascript"` and `kind = "module"`. Top-level functions and variables are declared
   by the module owner. TypeScript interfaces and type aliases reuse `:Interface`; decorators reuse
-  `:Annotation` and `ANNOTATED_WITH`. Angular decorators can set `framework = "angular"`.
+  `:Annotation` and `ANNOTATED_WITH`. TypeScript enums reuse `:Class` with `isEnum = true` and
+  `kind = "enum"`. Angular decorators can set `framework = "angular"`.
 - JavaScript/TypeScript function-valued class fields are emitted as `:Method` records for callable
   inventories and receiver-scoped `CALLS` resolution. They can also appear as `:Field` records
   because the source member is still a class field.
