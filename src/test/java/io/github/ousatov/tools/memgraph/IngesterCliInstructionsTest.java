@@ -112,6 +112,25 @@ class IngesterCliInstructionsTest {
   }
 
   @Test
+  void withMemoriesContinuesToIngestionValidationWhenAuthIsProvided() throws Exception {
+    CliProcessResult result =
+        runCliIn(
+            tempDir,
+            "-P",
+            "cli-auth-memory-project",
+            "--with-memories",
+            "-u",
+            "neo4j",
+            "-p",
+            "secret");
+
+    String content = Files.readString(tempDir.resolve("AGENTS.md"));
+    assertEquals(1, result.exitCode(), result.output());
+    assertTrue(content.contains("Repo is indexed in Memgraph as **`cli-auth-memory-project`**"));
+    assertTrue(content.contains("## Memories"));
+  }
+
+  @Test
   void instructionsAgentImpliesInitInstructions() {
     ByteArrayOutputStream stderr = new ByteArrayOutputStream();
     PrintStream originalErr = System.err;

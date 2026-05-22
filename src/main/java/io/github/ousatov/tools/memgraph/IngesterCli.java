@@ -304,6 +304,10 @@ public final class IngesterCli implements Callable<Integer> {
         || incremental
         || optionWasMatched("--threads")
         || optionWasMatched("-t")
+        || optionWasMatched("--user")
+        || optionWasMatched("-u")
+        || optionWasMatched("--pass")
+        || optionWasMatched("-p")
         || optionWasMatched("--classpath")
         || optionWasMatched("--language")
         || optionWasMatched("--js-runtime-mode")
