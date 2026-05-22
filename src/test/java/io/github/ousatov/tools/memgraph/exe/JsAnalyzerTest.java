@@ -22,19 +22,10 @@ class JsAnalyzerTest {
   private static final String LOCAL_CLASS_NAME = "TestImplementationBaseRequest";
   private static final String BASE_CLASS_FQN = "js.base$2e$ts.BaseTranslationRequestService";
 
-  @TempDir private Path tempDir;
+  @TempDir private static Path tempDir;
 
   @Test
   void analyzesNestedLocalClassDeclarations() throws IOException {
-    assumeTrue(systemNodeAvailable(), "JavaScript analyzer helper test requires system node");
-    Path runtimeCache = tempDir.resolve("runtime");
-    ManagedTypescriptPackage typescriptPackage = managedTypescriptPackageOrSkip(runtimeCache);
-    JsAnalyzer analyzer =
-        new JsAnalyzer(
-            tempDir,
-            new ManagedNodeRuntime(
-                runtimeCache, ManagedNodeRuntime.DEFAULT_NODE_VERSION, RuntimeMode.SYSTEM),
-            typescriptPackage);
     Path baseFile = tempDir.resolve("base.ts");
     Path specFile = tempDir.resolve("base.spec.ts");
     Files.writeString(baseFile, "export class BaseTranslationRequestService {}\n");
@@ -47,7 +38,7 @@ class JsAnalyzerTest {
         });
         """);
 
-    JsAnalysis analysis = analyzer.analyze(specFile);
+    JsAnalysis analysis = analyzer().analyze(specFile);
 
     JsAnalysis.TypeDecl localClass =
         analysis.types().stream()
@@ -64,6 +55,67 @@ class JsAnalyzerTest {
                     "classExtends".equals(relation.kind())
                         && localClass.fqn().equals(relation.childFqn())
                         && BASE_CLASS_FQN.equals(relation.targetFqn())));
+  }
+
+  @Test
+  void nestedLocalClassNamesDoNotHideTopLevelClasses() throws IOException {
+    JsAnalysis analysis =
+        analyzeSource(
+            "collision.ts",
+            """
+            class Local {
+              static make() {}
+            }
+            describe('scope', () => {
+              class Local {
+                static make() {}
+              }
+            });
+            Local.make();
+            """);
+
+    assertTrue(
+        analysis.calls().stream()
+            .anyMatch(call -> "js.collision$2e$ts.Local.make()".equals(call.calleeSignature())));
+    assertTrue(
+        analysis.types().stream()
+            .anyMatch(type -> "Local".equals(type.name()) && type.fqn().contains(".$local$")));
+  }
+
+  @Test
+  void analyzesCallsInsideAnonymousClassExpressions() throws IOException {
+    JsAnalysis analysis =
+        analyzeSource(
+            "anonymous.ts",
+            """
+            function init() {
+              return 1;
+            }
+            consume(class {
+              static value = init();
+            });
+            """);
+
+    assertTrue(
+        analysis.calls().stream()
+            .anyMatch(call -> "js.anonymous$2e$ts.init()".equals(call.calleeSignature())));
+  }
+
+  private JsAnalysis analyzeSource(String fileName, String source) throws IOException {
+    Path sourceFile = tempDir.resolve(fileName);
+    Files.writeString(sourceFile, source);
+    return analyzer().analyze(sourceFile);
+  }
+
+  private JsAnalyzer analyzer() {
+    assumeTrue(systemNodeAvailable(), "JavaScript analyzer helper test requires system node");
+    Path runtimeCache = tempDir.resolve("runtime");
+    ManagedTypescriptPackage typescriptPackage = managedTypescriptPackageOrSkip(runtimeCache);
+    return new JsAnalyzer(
+        tempDir,
+        new ManagedNodeRuntime(
+            runtimeCache, ManagedNodeRuntime.DEFAULT_NODE_VERSION, RuntimeMode.SYSTEM),
+        typescriptPackage);
   }
 
   private static ManagedTypescriptPackage managedTypescriptPackageOrSkip(Path runtimeCache) {

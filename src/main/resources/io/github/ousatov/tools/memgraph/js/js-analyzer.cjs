@@ -118,7 +118,10 @@ function visitNestedTypeDeclaration(node) {
     if (!isTopLevelDeclaration(node)) {
       const name = declarationName(node);
       if (name) {
-        collectClass(node, name, declarationAliases(node, name), { skipExportModel: true });
+        collectClass(node, name, declarationAliases(node, name), {
+          skipClassNameLookup: true,
+          skipExportModel: true
+        });
       }
     }
   } else if (ts.isInterfaceDeclaration(node)) {
@@ -139,7 +142,10 @@ function visitNestedTypeDeclaration(node) {
     ts.isIdentifier(node.name) &&
     isClassExpressionInitializer(node.initializer)
   ) {
-    collectClass(node.initializer, node.name.text, [], { skipExportModel: true });
+    collectClass(node.initializer, node.name.text, [], {
+      skipClassNameLookup: true,
+      skipExportModel: true
+    });
   }
   ts.forEachChild(node, visitNestedTypeDeclaration);
 }
@@ -754,7 +760,7 @@ function collectCalls(
   if (!node) {
     return;
   }
-  if (parent && (ts.isClassDeclaration(node) || ts.isClassExpression(node))) {
+  if (parent && (ts.isClassDeclaration(node) || emittedClassExpression(node))) {
     return;
   }
   if (
@@ -1096,11 +1102,14 @@ function collectLocalTypeMetadata(node) {
   if (ts.isClassDeclaration(node)) {
     const graphName = declarationName(node);
     if (graphName) {
-      const fqn = registerTypeNode(node, graphName, isTopLevelDeclaration(node));
-      registerUniqueName(classesByName, graphName, fqn);
-      for (const alias of declarationAliases(node, graphName)) {
-        registerUniqueName(localTypeFqnsByName, alias, fqn);
-        registerUniqueName(classesByName, alias, fqn);
+      const topLevel = isTopLevelDeclaration(node);
+      const fqn = registerTypeNode(node, graphName, topLevel);
+      if (topLevel) {
+        registerUniqueName(classesByName, graphName, fqn);
+        for (const alias of declarationAliases(node, graphName)) {
+          registerUniqueName(localTypeFqnsByName, alias, fqn);
+          registerUniqueName(classesByName, alias, fqn);
+        }
       }
     }
   } else if (
@@ -1114,12 +1123,11 @@ function collectLocalTypeMetadata(node) {
     ts.isIdentifier(node.name) &&
     isClassExpressionInitializer(node.initializer)
   ) {
-    const fqn = registerTypeNode(
-      node.initializer,
-      node.name.text,
-      isTopLevelVariableDeclaration(node)
-    );
-    registerUniqueName(classesByName, node.name.text, fqn);
+    const topLevel = isTopLevelVariableDeclaration(node);
+    const fqn = registerTypeNode(node.initializer, node.name.text, topLevel);
+    if (topLevel) {
+      registerUniqueName(classesByName, node.name.text, fqn);
+    }
   }
   ts.forEachChild(node, collectLocalTypeMetadata);
 }
@@ -1128,7 +1136,9 @@ function registerTypeNode(node, name, topLevel) {
   const fqn = topLevel ? `${moduleFqn}.${name}` : localTypeFqnFor(node, name);
   typeFqnByNode.set(node, fqn);
   typeNameByNode.set(node, name);
-  registerUniqueName(localTypeFqnsByName, name, fqn);
+  if (topLevel) {
+    registerUniqueName(localTypeFqnsByName, name, fqn);
+  }
   return fqn;
 }
 
@@ -1264,6 +1274,10 @@ function isFunctionInitializer(initializer) {
 
 function isClassExpressionInitializer(initializer) {
   return Boolean(initializer) && ts.isClassExpression(initializer);
+}
+
+function emittedClassExpression(node) {
+  return ts.isClassExpression(node) && typeFqnByNode.has(node);
 }
 
 function unwrapExpression(expression) {
