@@ -605,7 +605,7 @@ Options:
 | `--js-runtime-mode` |  | no | `managed` | `managed`, `system`, or `offline`. |
 | `--js-runtime-cache` |  | no | `~/.cache/memgraph-ingester` | Cache directory for managed Node.js and TypeScript downloads. |
 | `--js-node-version` |  | no | `22.11.0` | Pinned Node.js version for managed JS/TS parsing. |
-| `--js-typescript-version` |  | no | `5.6.3` | Pinned TypeScript compiler package version. |
+| `--js-typescript-version` |  | no | `5.6.3` | Pinned TypeScript compiler package version. A leading `v` is accepted. |
 | `--check-js-runtime` |  | no | `false` | Run a local JS runtime smoke check without connecting to Memgraph. |
 | `--help` |  | no |  | Print CLI help. |
 | `--version` |  | no |  | Print CLI version. |

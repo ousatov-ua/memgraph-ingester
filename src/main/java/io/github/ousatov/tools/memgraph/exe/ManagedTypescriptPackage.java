@@ -51,8 +51,7 @@ public final class ManagedTypescriptPackage {
 
   public ManagedTypescriptPackage(Path cacheRoot, String version, RuntimeMode runtimeMode) {
     this.cacheRoot = Objects.requireNonNull(cacheRoot, "cacheRoot");
-    this.version =
-        version == null || version.isBlank() ? DEFAULT_TYPESCRIPT_VERSION : version.trim();
+    this.version = normalizeVersion(version);
     this.runtimeMode = Objects.requireNonNull(runtimeMode, "runtimeMode");
     this.http = HttpClient.newBuilder().connectTimeout(HTTP_TIMEOUT).build();
   }
@@ -117,6 +116,12 @@ public final class ManagedTypescriptPackage {
 
   private static Path lockKey(Path typescriptDir) {
     return typescriptDir.toAbsolutePath().normalize();
+  }
+
+  private static String normalizeVersion(String version) {
+    String normalized =
+        version == null || version.isBlank() ? DEFAULT_TYPESCRIPT_VERSION : version.trim();
+    return normalized.startsWith("v") ? normalized.substring(1) : normalized;
   }
 
   private void install(Path typescriptDir) throws IOException {

@@ -40,6 +40,27 @@ class ManagedTypescriptPackageTest {
   }
 
   @Test
+  void offlinePackageAcceptsLeadingVVersion() throws IOException {
+    Path nodeModules =
+        tempDir
+            .resolve("node_modules")
+            .resolve("typescript-" + ManagedTypescriptPackage.DEFAULT_TYPESCRIPT_VERSION);
+    Path typescriptDir = nodeModules.resolve("typescript");
+    Path compiler = typescriptDir.resolve("lib/typescript.js");
+    Files.createDirectories(compiler.getParent());
+    Files.writeString(compiler, "");
+
+    ManagedTypescriptPackage typescriptPackage =
+        new ManagedTypescriptPackage(
+            tempDir,
+            "v" + ManagedTypescriptPackage.DEFAULT_TYPESCRIPT_VERSION,
+            RuntimeMode.OFFLINE);
+
+    assertEquals(nodeModules, typescriptPackage.nodeModulesDir());
+    assertTrue(Files.isRegularFile(typescriptDir.resolve(".install-complete")));
+  }
+
+  @Test
   void offlinePackageRejectsMissingCompiler() {
     ManagedTypescriptPackage typescriptPackage =
         new ManagedTypescriptPackage(
