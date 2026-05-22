@@ -358,7 +358,7 @@ Skipped paths:
 Captured JS/TS structure:
 
 - Files and synthetic module owners.
-- Classes and class expressions assigned to variables.
+- Classes, named class expressions, and class expressions assigned to variables.
 - Interfaces and type aliases as graph interfaces.
 - Class/interface `EXTENDS` and class `IMPLEMENTS` relationships, including relative imports and
   `tsconfig.json` path aliases, including those inherited from extended configs, that resolve under
@@ -411,9 +411,11 @@ Custom pinned versions:
   --wipe-project-code
 ```
 
-JS/TS caveat: JavaScript is dynamic. Dynamic dispatch, dependency injection, monkey-patching,
-framework templates, and generated code can produce missing call edges. A missing JS/TS `CALLS`
-edge does not prove a call never happens.
+JS/TS caveat: JavaScript is dynamic. `CALLS` is not a complete raw AST call inventory; it records
+known source call relationships when the helper can associate the site and target with graph
+methods. Dynamic dispatch, dependency injection, monkey-patching, framework templates, and
+generated code can produce missing call edges. A missing JS/TS `CALLS` edge does not prove a call
+never happens.
 
 ## Agent Setup
 
@@ -780,6 +782,8 @@ RETURN labels(memory), memory.id, memory.title;
 - JS/TS `CALLS` edges are syntax-based and best-effort. Owner/name calls that cannot be
   resolved in-file are stored as `:PendingCall` records and retried after the batch. Pending calls
   for a reingested JS/TS file are cleared before the file's current calls are stored.
+- Raw JS/TS `:Class` queries include synthetic module owners and TypeScript enums. Filter
+  `language = "javascript"` and `kind = "class"` when you only want JavaScript/TypeScript classes.
 - Generated code is indexed only when its generated source directory is passed to `--source`.
 - With `--threads > 1`, log order is non-deterministic. Graph writes are idempotent.
 

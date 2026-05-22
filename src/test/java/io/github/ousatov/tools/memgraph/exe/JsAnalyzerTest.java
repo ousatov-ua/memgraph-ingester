@@ -319,6 +319,33 @@ class JsAnalyzerTest {
   }
 
   @Test
+  void analyzesNamedClassExpressionsInCallArguments() throws IOException {
+    JsAnalysis analysis =
+        analyzeSource(
+            "pipe.mock.ts",
+            """
+            import { Pipe } from '@angular/core';
+
+            export function pipeMock(options: Pipe): Pipe {
+              const metadata: Pipe = {
+                name: options.name,
+              };
+
+              return Pipe(metadata)(class PipeMock {});
+            }
+            """);
+
+    JsAnalysis.TypeDecl pipeMock =
+        analysis.types().stream()
+            .filter(type -> "PipeMock".equals(type.name()))
+            .findFirst()
+            .orElseThrow();
+
+    assertEquals("class", pipeMock.kind());
+    assertTrue(pipeMock.fqn().contains(".$local$"));
+  }
+
+  @Test
   void reExportedClassAliasesResolveAfterHelperSplit() throws IOException {
     Files.writeString(
         tempDir.resolve("source.ts"),

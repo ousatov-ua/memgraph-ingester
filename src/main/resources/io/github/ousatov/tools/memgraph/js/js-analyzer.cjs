@@ -195,6 +195,15 @@ function visitNestedTypeDeclaration(
       skipMemberUnscopedLookup: true,
       skipExportModel: true
     });
+  } else if (shouldCollectNamedClassExpression(node)) {
+    collectClass(node, node.name.text, [], {
+      initializerCallerOwnerFqn: callerOwnerFqn,
+      initializerCallerSignature: callerSignature,
+      skipStaticInitializerCalls: !collectStaticInitializerCalls,
+      skipClassNameLookup: true,
+      skipMemberUnscopedLookup: true,
+      skipExportModel: true
+    });
   }
   ts.forEachChild(node, child =>
     visitNestedTypeDeclaration(
@@ -1206,8 +1215,41 @@ function collectLocalTypeMetadata(node) {
     if (topLevel) {
       registerUniqueName(classesByName, node.name.text, fqn);
     }
+  } else if (shouldCollectNamedClassExpression(node)) {
+    registerTypeNode(node, node.name.text, false);
   }
   ts.forEachChild(node, collectLocalTypeMetadata);
+}
+
+function shouldCollectNamedClassExpression(node) {
+  return ts.isClassExpression(node) &&
+    Boolean(node.name) &&
+    !isVariableClassExpressionInitializer(node) &&
+    !isExportAssignmentClassExpression(node);
+}
+
+function isVariableClassExpressionInitializer(node) {
+  const parent = node.parent;
+  return Boolean(
+    parent &&
+      ts.isVariableDeclaration(parent) &&
+      parent.initializer === node &&
+      ts.isIdentifier(parent.name)
+  );
+}
+
+function isExportAssignmentClassExpression(node) {
+  let current = node;
+  let parent = current.parent;
+  while (parent && ts.isParenthesizedExpression(parent)) {
+    current = parent;
+    parent = current.parent;
+  }
+  return Boolean(
+    parent &&
+      ts.isExportAssignment(parent) &&
+      unwrapExpression(parent.expression) === unwrapExpression(current)
+  );
 }
 
 function registerTypeNode(node, name, topLevel) {
