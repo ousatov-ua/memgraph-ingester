@@ -619,6 +619,100 @@ class GraphWriterIT {
   }
 
   @Test
+  void upsertJavascriptEnumCreatesEnumClassWithoutConstructor() {
+    Path tsFile = Path.of("/tmp/test-gw/src/app/status.ts");
+    String pkg = "js.app";
+    String fqn = "js.app.status$2e$ts.Status";
+    writer.upsertFile(tsFile, SourceLanguage.JAVASCRIPT.graphName());
+    writer.upsertPackage(pkg);
+
+    writer.upsertJavascriptEnum(tsFile, pkg, fqn, "Status", "app/status.ts", 1, 1);
+
+    var row =
+        session
+            .run(
+                "MATCH (c:Class {fqn: $fqn, project: $p}) "
+                    + "OPTIONAL MATCH (c)-[:DECLARES]->(m:Method {name: '<init>'}) "
+                    + "RETURN c.isEnum AS isEnum, c.kind AS kind, count(m) AS ctors",
+                Map.of("fqn", fqn, "p", PROJECT))
+            .single();
+
+    assertTrue(row.get("isEnum").asBoolean());
+    assertEquals("enum", row.get("kind").asString());
+    assertEquals(0, row.get("ctors").asLong());
+  }
+
+  @Test
+  void deleteStaleJavascriptDefinitionsForFileRemovesLegacyModuleOwners() {
+    Path tsFile = Path.of("/tmp/test-gw/src/app-dir/app.component.ts");
+    String currentPkg = "js.app$2d$dir";
+    String currentFqn = "js.app$2d$dir.app$2e$component$2e$ts";
+    String legacyPkg = "js.app_dir";
+    String legacyFqn = "js.app_dir.app_component";
+    writer.upsertFile(tsFile, SourceLanguage.JAVASCRIPT.graphName());
+    writer.upsertPackage(currentPkg);
+    writer.upsertPackage(legacyPkg);
+    writer.upsertJavascriptModule(
+        tsFile, currentPkg, currentFqn, "app_component", "app-dir/app.component.ts", 1, 3);
+    writer.upsertJavascriptModule(
+        tsFile, legacyPkg, legacyFqn, "app_component", "app-dir/app.component.ts", 1, 3);
+    writer.upsertJavascriptClass(
+        tsFile,
+        legacyPkg,
+        legacyFqn + ".AppComponent",
+        "AppComponent",
+        "app-dir/app.component.ts",
+        "angular",
+        false,
+        1,
+        3);
+    writer.upsertJavascriptField(
+        legacyFqn + ".AppComponent",
+        legacyFqn + ".AppComponent#title",
+        "title",
+        "string",
+        false,
+        "property");
+    writer.upsertJavascriptMethod(
+        legacyFqn + ".AppComponent",
+        legacyFqn + ".AppComponent.render()",
+        "render",
+        "void",
+        false,
+        2,
+        2,
+        "method");
+
+    writer.deleteStaleJavascriptDefinitionsForFile(tsFile, currentFqn);
+
+    var row =
+        session
+            .run(
+                "MATCH (current:Class {fqn: $currentFqn, project: $p}) "
+                    + "WITH count(current) AS currentModules "
+                    + "OPTIONAL MATCH (legacyPkg:Package {name: $legacyPkg, project: $p}) "
+                    + "RETURN currentModules, count(legacyPkg) AS legacyPackages",
+                Map.of("currentFqn", currentFqn, "legacyPkg", legacyPkg, "p", PROJECT))
+            .single();
+    long legacyNodes =
+        session
+            .run(
+                "MATCH (n {project: $p}) "
+                    + "WHERE ((n:Class OR n:Interface OR n:Field) "
+                    + "AND n.fqn STARTS WITH $legacyFqn) "
+                    + "OR (n:Method AND n.signature STARTS WITH $legacyFqn) "
+                    + "RETURN count(n) AS n",
+                Map.of("legacyFqn", legacyFqn, "p", PROJECT))
+            .single()
+            .get("n")
+            .asLong();
+
+    assertEquals(1, row.get("currentModules").asLong());
+    assertEquals(0, row.get("legacyPackages").asLong());
+    assertEquals(0, legacyNodes);
+  }
+
+  @Test
   void implicitDefaultConstructorCallsEdgePreservedAfterPhantomCleanup() throws IOException {
     Path tempDir = Files.createTempDirectory("implicit-ctor-test");
     Path serviceFile = tempDir.resolve("com/example/Service.java");

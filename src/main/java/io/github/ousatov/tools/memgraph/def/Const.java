@@ -116,6 +116,21 @@ public final class Const {
         action("delete-pending-calls-for-file.cypher");
 
     /**
+     * Deletes stale JavaScript/TypeScript method and field declarations whose owners were
+     * previously written for the same file under an obsolete module FQN.
+     */
+    public static final String CYPHER_DELETE_STALE_JAVASCRIPT_MEMBERS_FOR_FILE =
+        action("delete-stale-javascript-members-for-file.cypher");
+
+    /** Deletes stale JavaScript/TypeScript owners left behind by older module FQN schemes. */
+    public static final String CYPHER_DELETE_STALE_JAVASCRIPT_OWNERS_FOR_FILE =
+        action("delete-stale-javascript-owners-for-file.cypher");
+
+    /** Deletes empty JavaScript/TypeScript package nodes left after stale owner cleanup. */
+    public static final String CYPHER_DELETE_EMPTY_JAVASCRIPT_PACKAGES =
+        action("delete-empty-javascript-packages.cypher");
+
+    /**
      * Resolves pending owner/name calls once all candidate owners and methods have been ingested.
      * Only creates the edge when exactly one method has that name (no overloading ambiguity).
      */
@@ -198,9 +213,11 @@ public final class Const {
     public static final String LANGUAGE = "language";
     public static final String KIND = "kind";
     public static final String MODULE_PATH = "modulePath";
+    public static final String MODULE_PREFIX = "modulePrefix";
     public static final String FRAMEWORK = "framework";
     public static final String END_LINE = "endLine";
     public static final String START_LINE = "startLine";
+    public static final String ANNOTATION = "annotation";
 
     private Params() {
 

@@ -201,7 +201,7 @@ function collectEnum(node) {
   const name = node.name.text;
   write({
     record: 'type',
-    kind: 'class',
+    kind: 'enum',
     fqn: `${moduleFqn}.${name}`,
     name,
     framework: '',

@@ -16,7 +16,6 @@ public final class JsLanguageAdapter implements LanguageAdapter {
   private static final Logger log = LoggerFactory.getLogger(JsLanguageAdapter.class);
   private static final Set<String> EXTENSIONS =
       Set.of(".js", ".jsx", ".ts", ".tsx", ".mts", ".cts", ".mjs", ".cjs");
-  private static final Set<String> DECLARATION_EXTENSIONS = Set.of(".d.ts", ".d.mts", ".d.cts");
 
   private final JsAnalyzer analyzer;
 
@@ -33,7 +32,7 @@ public final class JsLanguageAdapter implements LanguageAdapter {
   public boolean accepts(Path file) {
     String path = file.toString().replace('\\', '/');
     String lower = path.toLowerCase(Locale.ROOT);
-    if (isInNodeModules(file) || DECLARATION_EXTENSIONS.stream().anyMatch(lower::endsWith)) {
+    if (isInNodeModules(file)) {
       return false;
     }
     return EXTENSIONS.stream().anyMatch(lower::endsWith);
@@ -50,6 +49,7 @@ public final class JsLanguageAdapter implements LanguageAdapter {
       JsAnalysis analysis = analyzer.analyze(file);
       writer.upsertFile(file, language().graphName());
       writer.deletePendingCallsForFile(file);
+      writer.deleteStaleJavascriptDefinitionsForFile(file, analysis.moduleFqn());
       writer.upsertPackage(analysis.packageName());
       writer.upsertJavascriptModule(
           file,
@@ -91,6 +91,9 @@ public final class JsLanguageAdapter implements LanguageAdapter {
           type.hasConstructor(),
           type.startLine(),
           type.endLine());
+    } else if ("enum".equals(type.kind())) {
+      writer.upsertJavascriptEnum(
+          file, packageName, type.fqn(), type.name(), modulePath, type.startLine(), type.endLine());
     } else {
       writer.upsertJavascriptInterface(
           file, packageName, type.fqn(), type.name(), type.kind(), modulePath, type.framework());
@@ -122,10 +125,18 @@ public final class JsLanguageAdapter implements LanguageAdapter {
   private static void upsertAnnotation(GraphWriter writer, JsAnalysis.AnnotationDecl annotation) {
     if ("sig".equals(annotation.ownerKind())) {
       writer.upsertAnnotationReferenceBySig(
-          annotation.ownerKey(), annotation.fqn(), annotation.name());
+          annotation.ownerKey(),
+          annotation.fqn(),
+          annotation.name(),
+          SourceLanguage.JAVASCRIPT.graphName(),
+          "decorator");
     } else {
       writer.upsertAnnotationReferenceByFqn(
-          annotation.ownerKey(), annotation.fqn(), annotation.name());
+          annotation.ownerKey(),
+          annotation.fqn(),
+          annotation.name(),
+          SourceLanguage.JAVASCRIPT.graphName(),
+          "decorator");
     }
   }
 

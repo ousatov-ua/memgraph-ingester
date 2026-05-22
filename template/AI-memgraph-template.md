@@ -161,7 +161,7 @@ ORDER BY c.fqn, f.name;
 - `CALLS` has no `project`; filter both endpoints.
 - `CALLS` and `ANNOTATED_WITH` are best-effort; missing edges do not prove no relationship.
 - JavaScript/TypeScript modules are represented as synthetic `:Class` owner nodes with `language = "javascript"` and `kind = "module"`. Top-level functions and variables are declared by that module owner.
-- JavaScript/TypeScript classes reuse `:Class`; TypeScript interfaces and type aliases reuse `:Interface`; decorators reuse `:Annotation` plus `ANNOTATED_WITH`.
+- JavaScript/TypeScript classes reuse `:Class`; TypeScript enums reuse `:Class` with `isEnum = true` and `kind = "enum"`; TypeScript interfaces and type aliases reuse `:Interface`; decorators reuse `:Annotation` plus `ANNOTATED_WITH`.
 - Angular decorators such as `Component`, `Directive`, `Injectable`, `NgModule`, and `Pipe` may set `framework = "angular"` on the decorated type.
 - JavaScript/TypeScript function-valued class fields are emitted as callable `:Method` records and can also appear as `:Field` records.
 - JavaScript/TypeScript class expressions assigned to variables are emitted as `:Class` nodes using the variable name. Relative imports that resolve to local source files can produce owner/name `CALLS` edges when the target owner has exactly one method with the imported name.
