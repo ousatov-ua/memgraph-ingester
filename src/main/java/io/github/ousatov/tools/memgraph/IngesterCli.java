@@ -255,6 +255,7 @@ public final class IngesterCli implements Callable<Integer> {
       Path dottedModule = tempDir.resolve("a.b.js");
       Path underscoredDottedModule = tempDir.resolve("a_b.js");
       Path constructorCall = tempDir.resolve("constructor-call.js");
+      Path uninitializedVariable = tempDir.resolve("uninitialized-variable.ts");
       Files.writeString(
           defaultClass,
           """
@@ -290,6 +291,15 @@ public final class IngesterCli implements Callable<Integer> {
             return new Service(1);
           }
           """);
+      Files.writeString(
+          uninitializedVariable,
+          """
+          let deferredValue: string;
+
+          export function value() {
+            return deferredValue;
+          }
+          """);
 
       JsAnalyzer analyzer =
           new JsAnalyzer(
@@ -308,6 +318,7 @@ public final class IngesterCli implements Callable<Integer> {
           analyzer.analyze(underscoredDottedModule),
           "dotted and underscored module FQNs");
       assertConstructorCall(analyzer.analyze(constructorCall));
+      analyzer.analyze(uninitializedVariable);
       log.info("JavaScript parser runtime check succeeded using cache {}", cacheRoot);
       return 0;
     } catch (IOException | RuntimeException e) {
