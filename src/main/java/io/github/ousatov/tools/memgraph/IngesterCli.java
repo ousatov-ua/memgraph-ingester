@@ -182,8 +182,8 @@ public final class IngesterCli implements Callable<Integer> {
   @Option(
       names = {"--init-instructions"},
       description =
-          "Write or replace managed Memgraph agent instructions and exit. Code guidance is "
-              + "included by default; add --with-memories for Memory workflow guidance.")
+          "Write or replace managed Memgraph agent instructions. Code guidance is included by "
+              + "default; add --with-memories for Memory workflow guidance.")
   @SuppressWarnings("unused")
   private boolean initInstructions;
 
@@ -206,7 +206,10 @@ public final class IngesterCli implements Callable<Integer> {
 
   @Option(
       names = {"--with-memories"},
-      description = "Include optional Memory workflow instructions when initializing agents.")
+      description =
+          "Apply managed agent instructions with optional Memory workflow guidance. Uses the "
+              + "default instructions agent unless --instructions-agent or --instructions-file is "
+              + "provided.")
   @SuppressWarnings("unused")
   private boolean withMemories;
 
@@ -219,7 +222,10 @@ public final class IngesterCli implements Callable<Integer> {
   @Override
   public Integer call() {
     if (shouldInstallInstructions()) {
-      return installAgentInstructions();
+      Integer instructionsExitCode = installAgentInstructions();
+      if (instructionsExitCode != 0 || !isFollowOnCliActionRequested()) {
+        return instructionsExitCode;
+      }
     }
 
     RuntimeMode selectedRuntimeMode;
@@ -280,7 +286,34 @@ public final class IngesterCli implements Callable<Integer> {
   }
 
   private boolean shouldInstallInstructions() {
-    return initInstructions || instructionsFile != null || optionWasMatched("--instructions-agent");
+    return initInstructions
+        || withMemories
+        || instructionsFile != null
+        || optionWasMatched("--instructions-agent");
+  }
+
+  private boolean isFollowOnCliActionRequested() {
+    return checkJsRuntime
+        || sourceRoot != null
+        || boltUrl != null
+        || watch
+        || applySchema
+        || wipeAllData
+        || wipeProjectCode
+        || wipeProjectMemories
+        || incremental
+        || optionWasMatched("--threads")
+        || optionWasMatched("-t")
+        || optionWasMatched("--user")
+        || optionWasMatched("-u")
+        || optionWasMatched("--pass")
+        || optionWasMatched("-p")
+        || optionWasMatched("--classpath")
+        || optionWasMatched("--language")
+        || optionWasMatched("--js-runtime-mode")
+        || optionWasMatched("--js-runtime-cache")
+        || optionWasMatched("--js-node-version")
+        || optionWasMatched("--js-typescript-version");
   }
 
   private boolean optionWasMatched(String optionName) {
