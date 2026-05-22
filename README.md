@@ -420,6 +420,7 @@ Code graph guidance is installed by default:
 
 ```bash
 memgraph-ingester --init-instructions -P my-project
+memgraph-ingester -P my-project --instructions-agent codex
 ```
 
 Add optional Memory workflow instructions when you want agents to create and maintain durable
@@ -427,6 +428,7 @@ Memgraph Memories:
 
 ```bash
 memgraph-ingester --init-instructions -P my-project --with-memories
+memgraph-ingester -P my-project --instructions-agent codex --with-memories
 ```
 
 Agent presets choose the default target file:
@@ -438,10 +440,12 @@ memgraph-ingester --init-instructions -P my-project --instructions-agent gemini
 memgraph-ingester --init-instructions -P my-project --instructions-agent github
 ```
 
+When `--instructions-agent` is present, `--init-instructions` is optional.
+
 Use `--instructions-file` to target a specific file:
 
 ```bash
-memgraph-ingester --init-instructions -P my-project --instructions-file .github/copilot-instructions.md
+memgraph-ingester -P my-project --instructions-file .github/copilot-instructions.md
 ```
 
 The legacy helper scripts now delegate to the executable and accept the same optional flags:
@@ -612,8 +616,8 @@ Options:
 | `--js-typescript-version` |  | no | `5.6.3` | Pinned TypeScript compiler package version. A leading `v` is accepted. |
 | `--check-js-runtime` |  | no | `false` | Run a local JS runtime smoke check without connecting to Memgraph. |
 | `--init-instructions` |  | no | `false` | Write or replace managed agent instructions and exit. Includes Code guidance by default. |
-| `--instructions-agent` |  | no | `codex` | Agent preset for `--init-instructions`: `codex`, `claude`, `gemini`, `github`, or `copilot`. |
-| `--instructions-file` |  | no | preset file | Instruction file to update for `--init-instructions`. Overrides `--instructions-agent`. |
+| `--instructions-agent` |  | no | `codex` | Agent preset: `codex`, `claude`, `gemini`, `github`, or `copilot`. Implies `--init-instructions` when explicitly provided. |
+| `--instructions-file` |  | no | preset file | Instruction file to update. Overrides `--instructions-agent` and implies `--init-instructions`. |
 | `--with-memories` |  | no | `false` | Include optional Memory workflow instructions when initializing agents. |
 | `--help` |  | no |  | Print CLI help. |
 | `--version` |  | no |  | Print CLI version. |

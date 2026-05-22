@@ -70,7 +70,7 @@ final class AgentInstructionsInstaller {
       if (start < 0 || end < start) {
         throw new IllegalStateException("Found incomplete memgraph-ingester instruction markers");
       }
-      int afterEnd = end + END_MARKER.length();
+      int afterEnd = skipFollowingLineBreak(existing, end + END_MARKER.length());
       return existing.substring(0, start) + block + existing.substring(afterEnd);
     }
 
@@ -83,6 +83,16 @@ final class AgentInstructionsInstaller {
       return block;
     }
     return existing.stripTrailing() + System.lineSeparator() + System.lineSeparator() + block;
+  }
+
+  private static int skipFollowingLineBreak(String content, int offset) {
+    if (content.startsWith("\r\n", offset)) {
+      return offset + 2;
+    }
+    if (content.startsWith("\n", offset) || content.startsWith("\r", offset)) {
+      return offset + 1;
+    }
+    return offset;
   }
 
   private static String renderInstructions(String project, boolean includeMemories)

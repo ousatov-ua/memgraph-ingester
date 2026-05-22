@@ -28,7 +28,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
+import picocli.CommandLine.Model.CommandSpec;
 import picocli.CommandLine.Option;
+import picocli.CommandLine.Spec;
 
 /**
  * CLI entry point. Parses arguments and delegates to {@link IngestionOrchestrator}.
@@ -43,6 +45,8 @@ public final class IngesterCli implements Callable<Integer> {
 
   private static final Logger log = LoggerFactory.getLogger(IngesterCli.class);
   private static final String EXPORT_CONST_VALUE_1 = "export const value = 1;\n";
+
+  @Spec private CommandSpec commandSpec;
 
   @Option(
       names = {"-s", "--source"},
@@ -187,15 +191,16 @@ public final class IngesterCli implements Callable<Integer> {
       names = {"--instructions-agent"},
       defaultValue = "codex",
       description =
-          "Agent preset for --init-instructions: codex, claude, gemini, github, or copilot. "
-              + "Defaults to codex.")
+          "Agent preset for instruction installation: codex, claude, gemini, github, or copilot. "
+              + "Implies --init-instructions when explicitly provided. Defaults to codex.")
   @SuppressWarnings("unused")
   private String instructionsAgent;
 
   @Option(
       names = {"--instructions-file"},
       description =
-          "Instruction file to update for --init-instructions. Overrides --instructions-agent.")
+          "Instruction file to update for instruction installation. Overrides --instructions-agent "
+              + "and implies --init-instructions.")
   @SuppressWarnings("unused")
   private Path instructionsFile;
 
@@ -213,7 +218,7 @@ public final class IngesterCli implements Callable<Integer> {
 
   @Override
   public Integer call() {
-    if (initInstructions) {
+    if (shouldInstallInstructions()) {
       return installAgentInstructions();
     }
 
@@ -272,6 +277,17 @@ public final class IngesterCli implements Callable<Integer> {
     }
     log.info("Ingestion complete for project '{}'.", project);
     return 0;
+  }
+
+  private boolean shouldInstallInstructions() {
+    return initInstructions || instructionsFile != null || optionWasMatched("--instructions-agent");
+  }
+
+  private boolean optionWasMatched(String optionName) {
+    return commandSpec != null
+        && commandSpec.commandLine() != null
+        && commandSpec.commandLine().getParseResult() != null
+        && commandSpec.commandLine().getParseResult().hasMatchedOption(optionName);
   }
 
   private Integer installAgentInstructions() {

@@ -66,6 +66,17 @@ class AgentInstructionsInstallerTest {
   }
 
   @Test
+  void replacingManagedBlockIsIdempotent() throws IOException {
+    Path target = tempDir.resolve("AGENTS.md");
+    AgentInstructionsInstaller.install(target, "same-project", false);
+    String firstInstall = Files.readString(target);
+
+    AgentInstructionsInstaller.install(target, "same-project", false);
+
+    assertEquals(firstInstall, Files.readString(target));
+  }
+
+  @Test
   void replacesLegacyUnmarkedTemplateBlock() throws IOException {
     Path target = tempDir.resolve("AGENTS.md");
     Files.writeString(
