@@ -71,7 +71,7 @@ class MemgraphMigrationIT {
                   + " CREATE (javaFile:File {project: $project,"
                   + " path: $javaFile, language: 'java'})"
                   + " CREATE (jsFile:File {project: $project,"
-                  + " path: $jsFile, language: 'javascript'})"
+                  + " path: $jsFile, language: 'js'})"
                   + " CREATE (javaPkg:Package {project: $project, name: 'com.example'})"
                   + " CREATE (javaJsNamedPkg:Package {project: $project, name: 'js.tools'})"
                   + " CREATE (jsPkg:Package {project: $project, name: 'js.app'})"
@@ -80,7 +80,7 @@ class MemgraphMigrationIT {
                   + " isExternal: false, language: 'java'})"
                   + " CREATE (jsClass:Class {project: $project,"
                   + " fqn: 'js.app.Widget', name: 'Widget',"
-                  + " isExternal: false, language: 'javascript'})"
+                  + " isExternal: false, language: 'js'})"
                   + " CREATE (legacy)-[:CONTAINS]->(javaFile)"
                   + " CREATE (legacy)-[:CONTAINS]->(jsFile)"
                   + " CREATE (legacy)-[:CONTAINS]->(javaPkg)"
@@ -98,10 +98,10 @@ class MemgraphMigrationIT {
       Memgraph.applySchema(session);
 
       assertEquals(1, count(session, languageFileQuery("Java", "java"), "path", JAVA_FILE));
-      assertEquals(1, count(session, languageFileQuery("Js", "javascript"), "path", JS_FILE));
+      assertEquals(1, count(session, languageFileQuery("Js", "js"), "path", JS_FILE));
       assertEquals(1, count(session, languagePackageQuery("Java", "java"), "name", "com.example"));
       assertEquals(1, count(session, languagePackageQuery("Java", "java"), "name", "js.tools"));
-      assertEquals(1, count(session, languagePackageQuery("Js", "javascript"), "name", "js.app"));
+      assertEquals(1, count(session, languagePackageQuery("Js", "js"), "name", "js.app"));
       assertTrue(Memgraph.hasLanguageScopedCodeSchema(session));
       assertEquals(
           0,

@@ -91,9 +91,7 @@ All memory item labels are unique by `(id, project)`. Most memory items also use
 `Method`, or `Field`. `CodeRef.key` uses the target identity: reference language key for `Code`
 (`java` or `js`), language-prefixed package name for `Package` (`java:<package>` or
 `js:<package>`), path for `File`, FQN for `Class`/`Interface`/`Annotation`/`Field`, and
-signature for `Method`. Legacy project-key `Code` refs and unprefixed `Package` refs resolve to
-all matching language-scoped nodes. The ingester deletes and recreates `RESOLVES_TO` edges after
-each run.
+signature for `Method`. The ingester deletes and recreates `RESOLVES_TO` edges after each run.
 
 Common memory-to-memory links:
 
@@ -129,10 +127,10 @@ Common memory-to-memory links:
   `(project, targetType, key)`.
 - Nested/inner classes use `$` as separator in FQN (e.g. `com.example.Outer$Inner`).
 - `language`, `kind`, `modulePath`, and `framework` are optional compatibility metadata. Current
-  emitted language values are `java` and `javascript`; older ingestions may not have these
+  emitted language values are `java` and `js`; older ingestions may not have these
   properties. Language grouping nodes use display names `Java` and `Js`.
 - JavaScript/TypeScript modules are represented as synthetic `:Class` nodes with
-  `language = "javascript"` and `kind = "module"`. Top-level functions and variables are declared
+  `language = "js"` and `kind = "module"`. Top-level functions and variables are declared
   by the module owner. TypeScript interfaces and type aliases reuse `:Interface`; decorators reuse
   `:Annotation` and `ANNOTATED_WITH`. TypeScript enums reuse `:Class` with `isEnum = true` and
   `kind = "enum"`. Angular decorators can set `framework = "angular"`.

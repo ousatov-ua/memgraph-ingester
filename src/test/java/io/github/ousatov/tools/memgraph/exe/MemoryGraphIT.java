@@ -149,17 +149,6 @@ class MemoryGraphIT {
                 + " MERGE (d)-[:REFERS_TO]->(ref)",
             Map.of("p", PROJECT))
         .consume();
-    session
-        .run(
-            "MATCH (m:Memory {project: $p})"
-                + " MERGE (d:Decision {id: 'DEC-test-refers-to-legacy-code', project: $p})"
-                + " SET d.title = 'Document legacy code root', d.status = 'accepted'"
-                + " MERGE (ref:CodeRef {project: $p, targetType: 'Code', key: $p})"
-                + " MERGE (m)-[:HAS_DECISION]->(d)"
-                + " MERGE (d)-[:REFERS_TO]->(ref)",
-            Map.of("p", PROJECT))
-        .consume();
-
     writer.resolveCodeRefs();
 
     long javaCount =
@@ -176,19 +165,8 @@ class MemoryGraphIT {
         session
             .run(
                 "MATCH (:CodeRef {project: $p, targetType: 'Code', key: 'js'})"
-                    + "-[:RESOLVES_TO]->(:Code {project: $p, language: 'javascript'})"
+                    + "-[:RESOLVES_TO]->(:Code {project: $p, language: 'js'})"
                     + " RETURN count(*) AS n",
-                Map.of("p", PROJECT))
-            .single()
-            .get("n")
-            .asLong();
-    long legacyCount =
-        session
-            .run(
-                "MATCH (:CodeRef {project: $p, targetType: 'Code', key: $p})"
-                    + "-[:RESOLVES_TO]->(c:Code {project: $p})"
-                    + " WHERE c.language IN ['java', 'javascript']"
-                    + " RETURN count(DISTINCT c.language) AS n",
                 Map.of("p", PROJECT))
             .single()
             .get("n")
@@ -196,7 +174,6 @@ class MemoryGraphIT {
 
     assertEquals(1, javaCount);
     assertEquals(1, jsCount);
-    assertEquals(2, legacyCount);
   }
 
   @Test
@@ -215,18 +192,6 @@ class MemoryGraphIT {
                 + " MERGE (d)-[:REFERS_TO]->(ref)",
             Map.of("p", PROJECT))
         .consume();
-    session
-        .run(
-            "MATCH (m:Memory {project: $p})"
-                + " MERGE (d:Decision {id: 'DEC-test-refers-to-legacy-package', project: $p})"
-                + " SET d.title = 'Document legacy package', d.status = 'accepted'"
-                + " MERGE (ref:CodeRef {project: $p,"
-                + " targetType: 'Package', key: 'shared'})"
-                + " MERGE (m)-[:HAS_DECISION]->(d)"
-                + " MERGE (d)-[:REFERS_TO]->(ref)",
-            Map.of("p", PROJECT))
-        .consume();
-
     writer.resolveCodeRefs();
 
     long count =
@@ -235,27 +200,44 @@ class MemoryGraphIT {
                 "MATCH (:CodeRef {project: $p,"
                     + " targetType: 'Package', key: 'js:shared'})"
                     + "-[:RESOLVES_TO]->(:Package {project: $p,"
-                    + " name: 'shared', language: 'javascript'})"
+                    + " name: 'shared', language: 'js'})"
                     + " RETURN count(*) AS n",
-                Map.of("p", PROJECT))
-            .single()
-            .get("n")
-            .asLong();
-    long legacyCount =
-        session
-            .run(
-                "MATCH (:CodeRef {project: $p,"
-                    + " targetType: 'Package', key: 'shared'})"
-                    + "-[:RESOLVES_TO]->(pkg:Package {project: $p, name: 'shared'})"
-                    + " WHERE pkg.language IN ['java', 'javascript']"
-                    + " RETURN count(DISTINCT pkg.language) AS n",
                 Map.of("p", PROJECT))
             .single()
             .get("n")
             .asLong();
 
     assertEquals(1, count);
-    assertEquals(2, legacyCount);
+  }
+
+  @Test
+  void resolveCodeRefsClearsUnsupportedCodeAndPackageEdges() {
+    session
+        .run(
+            "CREATE (code:Code {project: $p, language: 'python'})"
+                + " CREATE (pkg:Package {project: $p, name: 'shared', language: 'python'})"
+                + " CREATE (codeRef:CodeRef {project: $p, targetType: 'Code', key: 'python'})"
+                + " CREATE (pkgRef:CodeRef {project: $p,"
+                + " targetType: 'Package', key: 'python:shared'})"
+                + " CREATE (codeRef)-[:RESOLVES_TO]->(code)"
+                + " CREATE (pkgRef)-[:RESOLVES_TO]->(pkg)",
+            Map.of("p", PROJECT))
+        .consume();
+
+    writer.resolveCodeRefs();
+
+    long count =
+        session
+            .run(
+                "MATCH (ref:CodeRef {project: $p})-[rel:RESOLVES_TO]->()"
+                    + " WHERE ref.key IN ['python', 'python:shared']"
+                    + " RETURN count(rel) AS n",
+                Map.of("p", PROJECT))
+            .single()
+            .get("n")
+            .asLong();
+
+    assertEquals(0, count);
   }
 
   @Test

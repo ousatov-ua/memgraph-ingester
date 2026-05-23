@@ -240,7 +240,7 @@ class IngestionOrchestratorIT {
       long jsFiles =
           s.run(
                   "MATCH (:Project {name: $p})-[:CONTAINS]->(:Language {name: 'Js'})"
-                      + "-[:CONTAINS]->(:Code {language: 'javascript'})-[:CONTAINS]->"
+                      + "-[:CONTAINS]->(:Code {language: 'js'})-[:CONTAINS]->"
                       + "(:File {path: $path, project: $p}) RETURN count(*) AS n",
                   Map.of("p", currentProject, "path", tsFile.toString()))
               .single()
@@ -287,7 +287,7 @@ class IngestionOrchestratorIT {
       long jsFiles =
           s.run(
                   "MATCH (:Project {name: $p})-[:CONTAINS]->(:Language {name: 'Js'})"
-                      + "-[:CONTAINS]->(:Code {language: 'javascript'})-[:CONTAINS]->"
+                      + "-[:CONTAINS]->(:Code {language: 'js'})-[:CONTAINS]->"
                       + "(:File {path: $path, project: $p}) RETURN count(*) AS n",
                   Map.of("p", currentProject, "path", tsFile.toString()))
               .single()

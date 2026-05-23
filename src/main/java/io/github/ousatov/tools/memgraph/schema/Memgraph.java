@@ -39,8 +39,12 @@ public final class Memgraph {
     return cypher("create-schema.cypher");
   }
 
-  private static String migrateSchemaQuery() {
-    return cypher("migrate-schema.cypher");
+  private static List<String> migrateSchemaQueries() {
+    return List.of(
+        cypher("migrate-schema-legacy-constraints.cypher"),
+        cypher("Js/migrate-schema.cypher"),
+        cypher("Java/migrate-schema.cypher"),
+        cypher("migrate-schema-cleanup.cypher"));
   }
 
   private static String cypher(String file) {
@@ -126,7 +130,7 @@ public final class Memgraph {
    * @param session session to use
    */
   public static void applySchema(Session session) {
-    applyTo(migrateSchemaQuery(), session, true);
+    migrateSchemaQueries().forEach(query -> applyTo(query, session, true));
     applyTo(createSchemaQuery(), session);
   }
 

@@ -44,19 +44,29 @@ public final class Const {
     public static final String CYPHER_WIPE_PROJECT_CODE_BATCH =
         action("wipe-project-code-batch.cypher");
 
+    /** Batch-fetches Java {@code lastModified} values for files already present in the graph. */
+    public static final String CYPHER_GET_JAVA_FILES_LAST_MODIFIED =
+        action("Java/get-files-last-modified.cypher");
+
     /**
-     * Batch-fetches {@code lastModified} for a list of file paths in one query. Returns one row per
-     * file found in the graph; files absent from the graph are not included.
+     * Batch-fetches JS/TS {@code lastModified} values for files whose module owner is already
+     * present in the graph.
      */
-    public static final String CYPHER_GET_FILES_LAST_MODIFIED =
-        action("get-files-last-modified.cypher");
+    public static final String CYPHER_GET_JAVASCRIPT_FILES_LAST_MODIFIED =
+        action("Js/get-files-last-modified.cypher");
 
     public static final String CYPHER_WIPE_PROJECT_MEMORIES =
         action("wipe-project-memories.cypher");
-    public static final String CYPHER_RESOLVE_CODE_REFS_CODE =
-        action("resolve-code-refs-code.cypher");
-    public static final String CYPHER_RESOLVE_CODE_REFS_PACKAGE =
-        action("resolve-code-refs-package.cypher");
+    public static final String CYPHER_CLEAR_CODE_PACKAGE_CODE_REF_RESOLUTIONS =
+        action("clear-code-package-code-ref-resolutions.cypher");
+    public static final String CYPHER_RESOLVE_JAVA_CODE_REFS_CODE =
+        action("Java/resolve-code-refs-code.cypher");
+    public static final String CYPHER_RESOLVE_JAVA_CODE_REFS_PACKAGE =
+        action("Java/resolve-code-refs-package.cypher");
+    public static final String CYPHER_RESOLVE_JAVASCRIPT_CODE_REFS_CODE =
+        action("Js/resolve-code-refs-code.cypher");
+    public static final String CYPHER_RESOLVE_JAVASCRIPT_CODE_REFS_PACKAGE =
+        action("Js/resolve-code-refs-package.cypher");
     public static final String CYPHER_RESOLVE_CODE_REFS_FILE =
         action("resolve-code-refs-file.cypher");
     public static final String CYPHER_RESOLVE_CODE_REFS_CLASS =

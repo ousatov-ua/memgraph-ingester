@@ -9,7 +9,7 @@ import java.util.List;
  */
 public enum SourceLanguage {
   JAVA("java", "Java"),
-  JAVASCRIPT("javascript", "Js");
+  JAVASCRIPT("js", "Js");
 
   private final String graphName;
   private final String nodeName;
