@@ -7,6 +7,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import org.neo4j.driver.Result;
 import org.neo4j.driver.Session;
 import org.neo4j.driver.Value;
@@ -147,15 +148,19 @@ public final class Memgraph {
       }
       String label = record.get("label").asString("");
       List<String> properties = record.get("properties").asList(Value::asString);
-      if ("Language".equals(label) && properties.equals(List.of("project", "name"))) {
+      if ("Language".equals(label) && hasSameProperties(properties, "project", "name")) {
         languageConstraint = true;
-      } else if ("Code".equals(label) && properties.equals(List.of("project", "language"))) {
+      } else if ("Code".equals(label) && hasSameProperties(properties, "project", "language")) {
         codeConstraint = true;
       } else if ("Package".equals(label)
-          && properties.equals(List.of("project", "name", "language"))) {
+          && hasSameProperties(properties, "project", "name", "language")) {
         packageConstraint = true;
       }
     }
     return languageConstraint && codeConstraint && packageConstraint;
+  }
+
+  static boolean hasSameProperties(List<String> actual, String... expected) {
+    return actual.size() == expected.length && Set.copyOf(actual).equals(Set.of(expected));
   }
 }

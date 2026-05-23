@@ -58,8 +58,6 @@ WITH pkg,
        WHEN pkg.language = 'javascript' THEN 'javascript'
        WHEN pkg.language = 'java' THEN 'java'
        WHEN jsDeclarations > 0 THEN 'javascript'
-       WHEN pkg.name = 'js' THEN 'javascript'
-       WHEN pkg.name STARTS WITH 'js.' THEN 'javascript'
        ELSE 'java'
      END AS graphName
 WITH pkg,

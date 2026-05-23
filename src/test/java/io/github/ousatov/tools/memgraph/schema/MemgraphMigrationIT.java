@@ -1,6 +1,7 @@
 package io.github.ousatov.tools.memgraph.schema;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.ousatov.tools.memgraph.extension.MemgraphExtension;
 import io.github.ousatov.tools.memgraph.extension.MemgraphInstance;
@@ -72,6 +73,7 @@ class MemgraphMigrationIT {
                   + " CREATE (jsFile:File {project: $project,"
                   + " path: $jsFile, language: 'javascript'})"
                   + " CREATE (javaPkg:Package {project: $project, name: 'com.example'})"
+                  + " CREATE (javaJsNamedPkg:Package {project: $project, name: 'js.tools'})"
                   + " CREATE (jsPkg:Package {project: $project, name: 'js.app'})"
                   + " CREATE (javaClass:Class {project: $project,"
                   + " fqn: 'com.example.Widget', name: 'Widget',"
@@ -82,6 +84,7 @@ class MemgraphMigrationIT {
                   + " CREATE (legacy)-[:CONTAINS]->(javaFile)"
                   + " CREATE (legacy)-[:CONTAINS]->(jsFile)"
                   + " CREATE (legacy)-[:CONTAINS]->(javaPkg)"
+                  + " CREATE (legacy)-[:CONTAINS]->(javaJsNamedPkg)"
                   + " CREATE (legacy)-[:CONTAINS]->(jsPkg)"
                   + " CREATE (javaPkg)-[:CONTAINS]->(javaClass)"
                   + " CREATE (jsPkg)-[:CONTAINS]->(jsClass)",
@@ -97,7 +100,9 @@ class MemgraphMigrationIT {
       assertEquals(1, count(session, languageFileQuery("Java", "java"), "path", JAVA_FILE));
       assertEquals(1, count(session, languageFileQuery("Js", "javascript"), "path", JS_FILE));
       assertEquals(1, count(session, languagePackageQuery("Java", "java"), "name", "com.example"));
+      assertEquals(1, count(session, languagePackageQuery("Java", "java"), "name", "js.tools"));
       assertEquals(1, count(session, languagePackageQuery("Js", "javascript"), "name", "js.app"));
+      assertTrue(Memgraph.hasLanguageScopedCodeSchema(session));
       assertEquals(
           0,
           count(
