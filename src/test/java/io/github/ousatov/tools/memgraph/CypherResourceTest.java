@@ -112,6 +112,7 @@ class CypherResourceTest {
             "/META-INF/native-image/io.github.ousatov-ua/memgraph-ingester/resource-config.json");
 
     assertTrue(config.contains("io/github/ousatov/tools/memgraph/cypher/.*[.]cypher$"));
+    assertTrue(config.contains("io/github/ousatov/tools/memgraph/cypher/metrics/.*[.]cypher$"));
     assertTrue(config.contains("simplelogger[.]properties$"));
     assertTrue(config.contains("io/github/ousatov/tools/memgraph/js/js-(.*)[.]cjs$"));
     assertTrue(config.contains("AI-memgraph-(code|memory)-template[.]md$"));

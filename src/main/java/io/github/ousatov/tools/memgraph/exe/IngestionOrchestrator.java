@@ -161,6 +161,7 @@ public final class IngestionOrchestrator {
       log.info("Removed phantom external Method nodes for '{}'", project);
       postWriter.resolveCodeRefs();
       log.info("Refreshed :CodeRef resolution edges for '{}'", project);
+      printMetrics(session);
     }
 
     if (settings.watch()) {
@@ -243,6 +244,15 @@ public final class IngestionOrchestrator {
         writer.resolveCodeRefs();
         log.info("Watch re-ingestion complete.");
       }
+    }
+  }
+
+  @SuppressWarnings("java:S106")
+  private void printMetrics(Session session) {
+    try {
+      System.out.print(IngestionMetricsCollector.collect(session, project).toMarkdownTable());
+    } catch (RuntimeException e) {
+      log.warn("Could not print ingestion metrics for '{}': {}", project, e.getMessage());
     }
   }
 
