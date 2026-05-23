@@ -16,13 +16,13 @@ WITH pending, caller, directCandidates, classCandidates,
 OPTIONAL MATCH (interfaceOwner:Interface {fqn: pending.calleeOwnerFqn, project: $project})-[:EXTENDS*1..]->(:Interface {project: $project})-[:DECLARES]->(interfaceCallee:Method {name: pending.calleeName, project: $project})
 WITH pending, caller, directCandidates, classCandidates, classInterfaceCandidates,
      collect(DISTINCT interfaceCallee) AS interfaceCandidates
+WITH pending, caller, directCandidates, classCandidates,
+     classInterfaceCandidates + interfaceCandidates AS inheritedInterfaceCandidates
 WITH pending, caller,
-     CASE WHEN size(directCandidates) > 0
-          THEN directCandidates
-          ELSE CASE WHEN size(classCandidates) > 0
-                    THEN classCandidates
-                    ELSE classInterfaceCandidates + interfaceCandidates
-               END
+     CASE
+       WHEN size(directCandidates) > 0 THEN directCandidates
+       WHEN size(classCandidates) > 0 THEN classCandidates
+       ELSE inheritedInterfaceCandidates
      END AS candidates
 WHERE size(candidates) = 1
 WITH pending, caller, candidates[0] AS callee

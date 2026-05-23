@@ -6,6 +6,7 @@ const ts = require('typescript');
 
 const SOURCE_EXTENSIONS = ['.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '.mjs', '.cjs'];
 const DECLARATION_EXTENSIONS = ['.d.ts', '.d.mts', '.d.cts'];
+const KNOWN_SOURCE_EXTENSIONS = SOURCE_EXTENSIONS.concat(DECLARATION_EXTENSIONS);
 
 function createPathContext(root, file) {
   const modulePath = path.relative(root, file).replace(/\\/g, '/');
@@ -37,12 +38,12 @@ function createPathContext(root, file) {
         }
         pushCandidate(candidates, importBase);
       } else {
-        for (const extension of SOURCE_EXTENSIONS) {
-          pushCandidate(candidates, importBase + extension);
-        }
-        for (const extension of SOURCE_EXTENSIONS) {
-          pushCandidate(candidates, path.join(importBase, 'index' + extension));
-        }
+        appendCandidatesWithExtensions(candidates, importBase, SOURCE_EXTENSIONS);
+        appendCandidatesWithExtensions(
+          candidates,
+          path.join(importBase, 'index'),
+          SOURCE_EXTENSIONS
+        );
       }
     }
     for (const candidate of candidates) {
@@ -105,9 +106,7 @@ function encodeIdentityChar(char) {
 
 function hasKnownSourceExtension(filePath) {
   const lower = filePath.toLowerCase();
-  return SOURCE_EXTENSIONS.concat(DECLARATION_EXTENSIONS).some(extension =>
-    lower.endsWith(extension)
-  );
+  return KNOWN_SOURCE_EXTENSIONS.some(extension => lower.endsWith(extension));
 }
 
 function loadTsconfigPathMappings(rootDir) {
@@ -205,6 +204,12 @@ function explicitSourceCandidates(importBase) {
 function pushCandidate(candidates, candidate) {
   if (!candidates.includes(candidate)) {
     candidates.push(candidate);
+  }
+}
+
+function appendCandidatesWithExtensions(candidates, basePath, extensions) {
+  for (const extension of extensions) {
+    pushCandidate(candidates, basePath + extension);
   }
 }
 
