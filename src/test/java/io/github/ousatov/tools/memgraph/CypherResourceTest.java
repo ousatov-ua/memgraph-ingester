@@ -34,6 +34,7 @@ class CypherResourceTest {
   void createSchemaContainsMemoryConstraints() {
     String schema = resource("create-schema.cypher");
 
+    assertTrue(schema.contains("CREATE CONSTRAINT ON (l:Language)"));
     assertTrue(schema.contains("CREATE CONSTRAINT ON (m:Memory)"));
     assertTrue(schema.contains("CREATE CONSTRAINT ON (d:Decision)"));
     assertTrue(schema.contains("CREATE CONSTRAINT ON (i:Idea)"));
@@ -52,6 +53,8 @@ class CypherResourceTest {
     String schema = resource("create-schema.cypher");
 
     assertTrue(schema.contains("CREATE INDEX ON :Memory(project)"));
+    assertTrue(schema.contains("CREATE INDEX ON :Language(project)"));
+    assertTrue(schema.contains("CREATE INDEX ON :Code(language)"));
     assertTrue(schema.contains("CREATE INDEX ON :Decision(status)"));
     assertTrue(schema.contains("CREATE INDEX ON :Decision(topic)"));
     assertTrue(schema.contains("CREATE INDEX ON :Idea(status)"));
@@ -73,6 +76,7 @@ class CypherResourceTest {
     String cypher = Const.Cypher.CYPHER_WIPE_PROJECT_CODE;
 
     assertTrue(cypher.contains("n:Code"));
+    assertTrue(cypher.contains("n:Language"));
     assertTrue(cypher.contains("n:Package"));
     assertTrue(cypher.contains("n:File"));
     assertTrue(cypher.contains("n:Class"));
@@ -102,6 +106,7 @@ class CypherResourceTest {
     assertTrue(cypher.contains("n:ADR"));
     assertTrue(cypher.contains("n:CodeRef"));
     assertFalse(cypher.matches("(?s).*\\bn:Code(?!Ref)\\b.*"));
+    assertFalse(cypher.contains("n:Language"));
     assertFalse(cypher.contains("n:Class"));
   }
 

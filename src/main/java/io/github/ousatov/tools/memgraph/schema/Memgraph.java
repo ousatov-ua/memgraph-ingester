@@ -7,7 +7,10 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
+import org.neo4j.driver.Result;
 import org.neo4j.driver.Session;
+import org.neo4j.driver.Value;
 
 /**
  * Memgraph
@@ -34,6 +37,10 @@ public final class Memgraph {
 
   private static String createSchemaQuery() {
     return cypher("create-schema.cypher");
+  }
+
+  private static String migrateSchemaQuery() {
+    return cypher("migrate-schema.cypher");
   }
 
   private static String cypher(String file) {
@@ -119,6 +126,41 @@ public final class Memgraph {
    * @param session session to use
    */
   public static void applySchema(Session session) {
+    applyTo(migrateSchemaQuery(), session, true);
     applyTo(createSchemaQuery(), session);
+  }
+
+  /**
+   * Returns whether the active schema has language-scoped code and package uniqueness.
+   *
+   * @param session session to use
+   * @return true when the language-aware schema constraints are present
+   */
+  public static boolean hasLanguageScopedCodeSchema(Session session) {
+    boolean languageConstraint = false;
+    boolean codeConstraint = false;
+    boolean packageConstraint = false;
+    Result result = session.run("SHOW CONSTRAINT INFO");
+    while (result.hasNext()) {
+      var record = result.next();
+      if (!"unique".equals(record.get("constraint type").asString(""))) {
+        continue;
+      }
+      String label = record.get("label").asString("");
+      List<String> properties = record.get("properties").asList(Value::asString);
+      if ("Language".equals(label) && hasSameProperties(properties, "project", "name")) {
+        languageConstraint = true;
+      } else if ("Code".equals(label) && hasSameProperties(properties, "project", "language")) {
+        codeConstraint = true;
+      } else if ("Package".equals(label)
+          && hasSameProperties(properties, "project", "name", "language")) {
+        packageConstraint = true;
+      }
+    }
+    return languageConstraint && codeConstraint && packageConstraint;
+  }
+
+  static boolean hasSameProperties(List<String> actual, String... expected) {
+    return actual.size() == expected.length && Set.copyOf(actual).equals(Set.of(expected));
   }
 }

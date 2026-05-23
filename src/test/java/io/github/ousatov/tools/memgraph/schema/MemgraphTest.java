@@ -72,4 +72,12 @@ class MemgraphTest {
     assertTrue(statements.contains("CREATE INDEX ON :Method(ownerFqn)"));
     assertTrue(statements.contains("CREATE CONSTRAINT ON (m:Method) ASSERT m.signature IS UNIQUE"));
   }
+
+  @Test
+  void constraintPropertyMatchingIgnoresOrder() {
+    assertTrue(
+        Memgraph.hasSameProperties(
+            List.of("project", "name", "language"), "name", "project", "language"));
+    assertFalse(Memgraph.hasSameProperties(List.of("project", "name"), "project", "language"));
+  }
 }

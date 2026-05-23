@@ -39,8 +39,8 @@ public final class JavaLanguageAdapter implements LanguageAdapter {
     CompilationUnit cu = cuOpt.get();
     String pkg = cu.getPackageDeclaration().map(pd -> pd.getName().asString()).orElse("");
     try {
-      writer.upsertFile(file, language().graphName());
-      writer.upsertPackage(pkg);
+      writer.upsertFile(file, language());
+      writer.upsertPackage(pkg, language());
       cu.getTypes()
           .forEach(
               typeDecl -> {

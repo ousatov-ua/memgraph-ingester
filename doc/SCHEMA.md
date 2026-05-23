@@ -7,9 +7,9 @@ describes the model.
 ## Anchor nodes
 
 `(:Project)` is the project anchor. Its identity is the `name` property. Code-specific graph data
-hangs below `(:Project)-[:CONTAINS]->(:Code)`. `:Code` and every code node carry a `project`
-property matching the project name, so clients can filter either via anchor traversal or direct
-property matches.
+hangs below `(:Project)-[:CONTAINS]->(:Language)-[:CONTAINS]->(:Code)`. Language nodes are named
+`Java` or `Js`; `:Code` and every code node carry a `project` property matching the project name,
+so clients can filter either via anchor traversal or direct property matches.
 
 Memory data hangs below `(:Project)-[:HAS_MEMORY]->(:Memory)`. `:Memory` and every memory item
 carry the same `project` property. Code nodes are produced by the ingester; memory nodes are
@@ -20,8 +20,9 @@ intended for durable agent/client-authored decisions, context, and follow-up wor
 | Label | Key | Other properties |
 |---|---|---|
 | `:Project` | `name` | — |
-| `:Code` | `project` | `sourceRoots` (string array), `lastIngested` |
-| `:Package` | `name`, `project` | — |
+| `:Language` | `project`, `name` | `graphName` |
+| `:Code` | `project`, `language` | `languageName`, `sourceRoots` (string array), `lastIngested` |
+| `:Package` | `name`, `project`, `language` | — |
 | `:File` | `path`, `project` | `lastModified` (epoch millis), `language` |
 | `:Class` | `fqn`, `project` | `name`, `packageName`, `isAbstract`, `visibility`, `isEnum`, `isRecord`, `isFinal`, `isExternal`, `language`, `kind`, `modulePath`, `framework` |
 | `:Interface` | `fqn`, `project` | `name`, `packageName`, `visibility`, `isFinal`, `isExternal`, `language`, `kind`, `modulePath`, `framework` |
@@ -52,7 +53,8 @@ All memory item labels are unique by `(id, project)`. Most memory items also use
 ## Code relationships
 
 ```
-(Project)   -[:CONTAINS]->      (Code)
+(Project)   -[:CONTAINS]->      (Language)
+(Language)  -[:CONTAINS]->      (Code)
 (Code)      -[:CONTAINS]->      (Package)
 (Code)      -[:CONTAINS]->      (File)
 (Package)   -[:CONTAINS]->      (Class | Interface | Annotation)
@@ -86,9 +88,12 @@ All memory item labels are unique by `(id, project)`. Most memory items also use
 ```
 
 `CodeRef.targetType` is one of `Code`, `Package`, `File`, `Class`, `Interface`, `Annotation`,
-`Method`, or `Field`. `CodeRef.key` uses the target identity: project name for `Code`, package name
-for `Package`, path for `File`, FQN for `Class`/`Interface`/`Annotation`/`Field`, and signature for
-`Method`. The ingester deletes and recreates `RESOLVES_TO` edges after each run.
+`Method`, or `Field`. `CodeRef.key` uses the target identity: reference language key for `Code`
+(`java` or `js`), language-prefixed package name for `Package` (`java:<package>` or
+`js:<package>`), path for `File`, FQN for `Class`/`Interface`/`Annotation`/`Field`, and
+signature for `Method`. Legacy project-key `Code` refs and unprefixed `Package` refs resolve to
+all matching language-scoped nodes. The ingester deletes and recreates `RESOLVES_TO` edges after
+each run.
 
 Common memory-to-memory links:
 
@@ -118,11 +123,14 @@ Common memory-to-memory links:
 ## Notes on constraints
 
 - No existence constraints are enforced. Earlier versions used them, but they caused failures when ingesting partial graphs or when external types were referenced without a `project`. The composite uniqueness constraints are sufficient — the ingester always sets `project`.
-- `:Project`, `:Code`, and `:Memory` each use a single-property uniqueness constraint. Code and memory item nodes use composite `(key, project)` uniqueness. `:CodeRef` is unique by `(project, targetType, key)`.
+- `:Project` and `:Memory` use a single-property uniqueness constraint. `:Language` and `:Code`
+  are unique per project language. Code and memory item nodes use composite `(key, project)`
+  uniqueness unless the table above lists language as part of the key. `:CodeRef` is unique by
+  `(project, targetType, key)`.
 - Nested/inner classes use `$` as separator in FQN (e.g. `com.example.Outer$Inner`).
 - `language`, `kind`, `modulePath`, and `framework` are optional compatibility metadata. Current
   emitted language values are `java` and `javascript`; older ingestions may not have these
-  properties.
+  properties. Language grouping nodes use display names `Java` and `Js`.
 - JavaScript/TypeScript modules are represented as synthetic `:Class` nodes with
   `language = "javascript"` and `kind = "module"`. Top-level functions and variables are declared
   by the module owner. TypeScript interfaces and type aliases reuse `:Interface`; decorators reuse
@@ -176,12 +184,14 @@ Common memory-to-memory links:
 
 List all projects:
 ```cypher
-MATCH (p:Project)-[:CONTAINS]->(c:Code) RETURN p.name, c.sourceRoots, c.lastIngested;
+MATCH (p:Project)-[:CONTAINS]->(l:Language)-[:CONTAINS]->(c:Code)
+RETURN p.name, l.name, c.sourceRoots, c.lastIngested;
 ```
 
 All classes in a project:
 ```cypher
-MATCH (:Project {name: 'olus-dev'})-[:CONTAINS]->(:Code)-[:CONTAINS]->(:File)-[:DEFINES]->(c:Class)
+MATCH (:Project {name: 'olus-dev'})-[:CONTAINS]->(:Language {name: 'Java'})
+      -[:CONTAINS]->(:Code)-[:CONTAINS]->(:File)-[:DEFINES]->(c:Class)
 RETURN c.fqn;
 ```
 

@@ -1,28 +1,33 @@
 package io.github.ousatov.tools.memgraph.exe;
 
-/** Source language selected for one ingestion run. */
+import java.util.List;
+
+/**
+ * Supported source language group in the code graph.
+ *
+ * @author Oleksii Usatov
+ */
 public enum SourceLanguage {
-  JAVA("java"),
-  JAVASCRIPT("javascript");
+  JAVA("java", "Java"),
+  JAVASCRIPT("javascript", "Js");
 
   private final String graphName;
+  private final String nodeName;
 
-  SourceLanguage(String graphName) {
+  SourceLanguage(String graphName, String nodeName) {
     this.graphName = graphName;
+    this.nodeName = nodeName;
   }
 
   public String graphName() {
     return graphName;
   }
 
-  public static SourceLanguage parse(String value) {
-    if (value == null || value.isBlank()) {
-      return JAVA;
-    }
-    return switch (value.trim().toLowerCase()) {
-      case "java" -> JAVA;
-      case "js", "javascript", "ts", "typescript" -> JAVASCRIPT;
-      default -> throw new IllegalArgumentException("Unsupported language: " + value);
-    };
+  public String nodeName() {
+    return nodeName;
+  }
+
+  public static List<SourceLanguage> supported() {
+    return List.of(values());
   }
 }

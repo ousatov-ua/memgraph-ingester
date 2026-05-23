@@ -47,10 +47,10 @@ public final class JsLanguageAdapter implements LanguageAdapter {
   public boolean ingestFile(GraphWriter writer, Path file) {
     try {
       JsAnalysis analysis = analyzer.analyze(file);
-      writer.upsertFile(file, language().graphName());
+      writer.upsertFile(file, language());
       writer.deletePendingCallsForFile(file);
       writer.deleteStaleJavascriptDefinitionsForFile(file, analysis.moduleFqn());
-      writer.upsertPackage(analysis.packageName());
+      writer.upsertPackage(analysis.packageName(), language());
       writer.upsertJavascriptModule(
           file,
           analysis.packageName(),

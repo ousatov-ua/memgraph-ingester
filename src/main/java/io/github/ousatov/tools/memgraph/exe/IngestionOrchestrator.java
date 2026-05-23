@@ -15,10 +15,14 @@ import java.nio.file.WatchEvent;
 import java.nio.file.WatchKey;
 import java.nio.file.WatchService;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
@@ -33,7 +37,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Walks the source tree and dispatches files to a {@link LanguageAdapter} and {@link GraphWriter}.
+ * Walks the source tree and dispatches files to matching {@link LanguageAdapter} instances and
+ * {@link GraphWriter}.
  *
  * <p>Tracks parse and ingest failures independently and returns the total count so {@link
  * IngesterCli} can return a non-zero exit code when any file fails.
@@ -51,7 +56,7 @@ public final class IngestionOrchestrator {
   private final String project;
   private final int threads;
   private final Driver driver;
-  private final LanguageAdapter languageAdapter;
+  private final List<LanguageAdapter> languageAdapters;
   private boolean incremental;
 
   /**
@@ -63,7 +68,7 @@ public final class IngestionOrchestrator {
    */
   public IngestionOrchestrator(
       Path sourceRoot, String project, int threads, Driver driver, ParseService parseService) {
-    this(sourceRoot, project, threads, driver, new JavaLanguageAdapter(parseService));
+    this(sourceRoot, project, threads, driver, List.of(new JavaLanguageAdapter(parseService)));
   }
 
   /**
@@ -71,7 +76,7 @@ public final class IngestionOrchestrator {
    * @param project project name used to scope all graph writes
    * @param threads number of parallel worker threads (1 = sequential)
    * @param driver shared Bolt driver — not closed by this orchestrator
-   * @param languageAdapter parser and graph writer adapter for the selected language
+   * @param languageAdapter parser and graph writer adapter for one language
    */
   public IngestionOrchestrator(
       Path sourceRoot,
@@ -79,11 +84,30 @@ public final class IngestionOrchestrator {
       int threads,
       Driver driver,
       LanguageAdapter languageAdapter) {
+    this(sourceRoot, project, threads, driver, List.of(languageAdapter));
+  }
+
+  /**
+   * @param sourceRoot root directory to walk
+   * @param project project name used to scope all graph writes
+   * @param threads number of parallel worker threads (1 = sequential)
+   * @param driver shared Bolt driver — not closed by this orchestrator
+   * @param languageAdapters parser and graph writer adapters to select from by file extension
+   */
+  public IngestionOrchestrator(
+      Path sourceRoot,
+      String project,
+      int threads,
+      Driver driver,
+      List<LanguageAdapter> languageAdapters) {
+    if (languageAdapters.isEmpty()) {
+      throw new IllegalArgumentException("At least one language adapter is required");
+    }
     this.sourceRoot = sourceRoot;
     this.project = project;
     this.threads = threads;
     this.driver = driver;
-    this.languageAdapter = languageAdapter;
+    this.languageAdapters = List.copyOf(languageAdapters);
   }
 
   /**
@@ -110,6 +134,9 @@ public final class IngestionOrchestrator {
       if (settings.applySchema()) {
         Memgraph.applySchema(bootstrap);
         log.info("Applying schema to Memgraph");
+      } else if (!Memgraph.hasLanguageScopedCodeSchema(bootstrap)) {
+        Memgraph.applySchema(bootstrap);
+        log.info("Applied language-scoped schema migration to Memgraph");
       }
       if (settings.wipeProjectCode()) {
         log.info("Wiping existing code graph for project '{}'...", project);
@@ -119,24 +146,28 @@ public final class IngestionOrchestrator {
         log.info("Wiping existing memory graph for project '{}'...", project);
         bootstrapWriter.wipeMemories();
       }
-      bootstrapWriter.upsertProject(sourceRoot);
-      log.info("Upserted :Project -> :Code and :Project -> :Memory anchors for '{}'", project);
+      bootstrapWriter.upsertProject(sourceRoot, languages());
+      log.info(
+          "Upserted :Project -> :Language -> :Code and :Project -> :Memory anchors for '{}'",
+          project);
       bootstrapWriter.backfillMethodOwnerMetadata();
       log.info("Backfilled :Method owner metadata for '{}'", project);
     }
 
-    List<Path> files = languageAdapter.discoverFiles(sourceRoot);
+    List<SourceFile> files = discoverSourceFiles();
     log.atInfo()
-        .setMessage("Found {} {} files. Ingesting with {} thread(s).")
+        .setMessage(
+            "Found {} supported source files across {} adapter(s). Ingesting with {} thread(s).")
         .addArgument(files::size)
-        .addArgument(languageAdapter::displayName)
+        .addArgument(languageAdapters::size)
         .addArgument(threads)
         .log();
 
     Map<String, Long> mtimeCache = Map.of();
     if (incremental) {
       try (Session session = driver.session()) {
-        mtimeCache = new GraphWriter(session, project).getAllFileLastModified(files);
+        List<Path> paths = files.stream().map(SourceFile::path).toList();
+        mtimeCache = new GraphWriter(session, project).getAllFileLastModified(paths);
         log.info("Pre-loaded {} stored file timestamps for incremental mode.", mtimeCache.size());
       }
     }
@@ -196,7 +227,7 @@ public final class IngestionOrchestrator {
             registerRecursive(child, watcher, keys);
           }
 
-          if (languageAdapter.accepts(child)) {
+          if (adapterFor(child).isPresent()) {
             changedFiles.add(child);
           }
         }
@@ -229,7 +260,10 @@ public final class IngestionOrchestrator {
       GraphWriter writer = new GraphWriter(session, project);
       boolean anySuccess = false;
       for (Path file : files) {
-        if (Files.exists(file) && ingestFile(writer, file)) {
+        Optional<LanguageAdapter> adapter = adapterFor(file);
+        if (Files.exists(file)
+            && adapter.isPresent()
+            && ingestFile(writer, new SourceFile(file, adapter.get()))) {
           anySuccess = true;
         }
       }
@@ -267,7 +301,7 @@ public final class IngestionOrchestrator {
           @Override
           public FileVisitResult preVisitDirectory(
               @NonNull Path dir, @NonNull BasicFileAttributes attrs) throws IOException {
-            if (isNodeModulesDirectory(dir)) {
+            if (!shouldVisitDirectory(dir)) {
               return FileVisitResult.SKIP_SUBTREE;
             }
             WatchKey key =
@@ -287,14 +321,41 @@ public final class IngestionOrchestrator {
     return fileName != null && "node_modules".equals(fileName.toString());
   }
 
-  private int ingestSequential(List<Path> files, Map<String, Long> mtimeCache) {
+  private boolean shouldVisitDirectory(Path dir) {
+    return !isNodeModulesDirectory(dir)
+        && languageAdapters.stream().anyMatch(adapter -> adapter.shouldVisitDirectory(dir));
+  }
+
+  private List<SourceFile> discoverSourceFiles() {
+    Map<Path, SourceFile> byPath = new LinkedHashMap<>();
+    List<SourceFile> discovered = new ArrayList<>();
+    for (LanguageAdapter adapter : languageAdapters) {
+      adapter
+          .discoverFiles(sourceRoot)
+          .forEach(file -> discovered.add(new SourceFile(file, adapter)));
+    }
+    discovered.stream()
+        .sorted(Comparator.comparing(SourceFile::path))
+        .forEach(sourceFile -> byPath.putIfAbsent(sourceFile.path(), sourceFile));
+    return List.copyOf(byPath.values());
+  }
+
+  private List<SourceLanguage> languages() {
+    return languageAdapters.stream().map(LanguageAdapter::language).distinct().toList();
+  }
+
+  private Optional<LanguageAdapter> adapterFor(Path file) {
+    return languageAdapters.stream().filter(adapter -> adapter.accepts(file)).findFirst();
+  }
+
+  private int ingestSequential(List<SourceFile> files, Map<String, Long> mtimeCache) {
     int failures = 0;
     int total = files.size();
     int step = Math.clamp(total / PROGRESS_DIVISOR, 1, 100);
     int done = 0;
     try (Session session = driver.session()) {
       GraphWriter writer = new GraphWriter(session, project);
-      for (Path file : files) {
+      for (SourceFile file : files) {
         if (!ingestFileBatched(writer, file, mtimeCache)) {
           failures++;
         }
@@ -333,14 +394,15 @@ public final class IngestionOrchestrator {
    *
    * @return true on success (or skip), false if parsing or graph write fails
    */
-  private boolean ingestFileBatched(GraphWriter writer, Path file, Map<String, Long> mtimeCache) {
-    if (isFileUnchanged(file, mtimeCache)) {
-      log.debug("Skipping unchanged file: {}", file);
+  private boolean ingestFileBatched(
+      GraphWriter writer, SourceFile sourceFile, Map<String, Long> mtimeCache) {
+    if (isFileUnchanged(sourceFile.path(), mtimeCache)) {
+      log.debug("Skipping unchanged file: {}", sourceFile.path());
       return true;
     }
     writer.beginFileTransaction();
     try {
-      boolean success = ingestFile(writer, file);
+      boolean success = ingestFile(writer, sourceFile);
       if (success) {
         writer.commitFileTransaction();
       } else {
@@ -349,13 +411,13 @@ public final class IngestionOrchestrator {
       return success;
     } catch (Exception e) {
       writer.rollbackFileTransaction();
-      log.warn("Failed to ingest {}: {}", file, e.getMessage());
+      log.warn("Failed to ingest {}: {}", sourceFile.path(), e.getMessage());
       return false;
     }
   }
 
   @SuppressWarnings(value = {"java:S3776"})
-  private int ingestParallel(List<Path> files, Map<String, Long> mtimeCache)
+  private int ingestParallel(List<SourceFile> files, Map<String, Long> mtimeCache)
       throws InterruptedException {
     CopyOnWriteArrayList<Session> sessions = new CopyOnWriteArrayList<>();
     ThreadLocal<GraphWriter> threadWriter =
@@ -384,7 +446,7 @@ public final class IngestionOrchestrator {
 
     try {
       CountDownLatch latch = new CountDownLatch(total);
-      for (Path file : files) {
+      for (SourceFile file : files) {
         pool.submit(
             () -> {
               try {
@@ -392,7 +454,7 @@ public final class IngestionOrchestrator {
                   failures.incrementAndGet();
                 }
               } catch (Exception e) {
-                log.warn("Thread failure on {}: {}", file, e.getMessage());
+                log.warn("Thread failure on {}: {}", file.path(), e.getMessage());
                 failures.incrementAndGet();
               } finally {
                 int n = done.incrementAndGet();
@@ -428,12 +490,13 @@ public final class IngestionOrchestrator {
    *     incremental is true, otherwise empty)
    * @return true on success (or skip), false if parsing or graph write fails
    */
-  private boolean ingestFileChecked(GraphWriter writer, Path file, Map<String, Long> mtimeCache) {
-    if (isFileUnchanged(file, mtimeCache)) {
-      log.debug("Skipping unchanged file: {}", file);
+  private boolean ingestFileChecked(
+      GraphWriter writer, SourceFile sourceFile, Map<String, Long> mtimeCache) {
+    if (isFileUnchanged(sourceFile.path(), mtimeCache)) {
+      log.debug("Skipping unchanged file: {}", sourceFile.path());
       return true;
     }
-    return ingestFile(writer, file);
+    return ingestFile(writer, sourceFile);
   }
 
   /**
@@ -444,13 +507,18 @@ public final class IngestionOrchestrator {
    *
    * @return true on success, false if parsing or graph write fails
    */
-  private boolean ingestFile(GraphWriter writer, Path file) {
+  private boolean ingestFile(GraphWriter writer, SourceFile sourceFile) {
     log.atDebug()
         .setMessage("Ingesting {} (project={}, language={})")
-        .addArgument(file)
+        .addArgument(sourceFile::path)
         .addArgument(project)
-        .addArgument(languageAdapter::displayName)
+        .addArgument(sourceFile.adapter()::displayName)
         .log();
-    return languageAdapter.ingestFile(writer, file);
+    return sourceFile.adapter().ingestFile(writer, sourceFile.path());
+  }
+
+  /** Source file paired with the adapter selected by extension. */
+  private record SourceFile(Path path, LanguageAdapter adapter) {
+    // Record body intentionally empty.
   }
 }

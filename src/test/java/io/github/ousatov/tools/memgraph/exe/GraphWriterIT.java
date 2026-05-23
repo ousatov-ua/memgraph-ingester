@@ -88,14 +88,15 @@ class GraphWriterIT {
     long codeCount =
         session
             .run(
-                "MATCH (:Project {name: $name})-[:CONTAINS]->(c:Code {project: $name})"
+                "MATCH (:Project {name: $name})-[:CONTAINS]->(:Language)"
+                    + "-[:CONTAINS]->(c:Code {project: $name})"
                     + " RETURN count(c) AS n",
                 Map.of("name", PROJECT))
             .single()
             .get("n")
             .asLong();
 
-    assertEquals(1, codeCount);
+    assertEquals(SourceLanguage.supported().size(), codeCount);
 
     long memoryCount =
         session
@@ -131,7 +132,7 @@ class GraphWriterIT {
             .get("n")
             .asLong();
 
-    assertEquals(1, codeCount);
+    assertEquals(SourceLanguage.supported().size(), codeCount);
 
     long memoryCount =
         session
@@ -162,7 +163,8 @@ class GraphWriterIT {
     long count =
         session
             .run(
-                "MATCH (:Project {name: $p})-[:CONTAINS]->(:Code)-[:CONTAINS]->"
+                "MATCH (:Project {name: $p})-[:CONTAINS]->(:Language {name: 'Java'})"
+                    + "-[:CONTAINS]->(:Code)-[:CONTAINS]->"
                     + "(f:File {path: $path})"
                     + " RETURN count(f) AS n",
                 Map.of("p", PROJECT, "path", TEST_FILE.toString()))
@@ -216,7 +218,8 @@ class GraphWriterIT {
     long count =
         session
             .run(
-                "MATCH (:Project {name: $p})-[:CONTAINS]->(:Code)-[:CONTAINS]->"
+                "MATCH (:Project {name: $p})-[:CONTAINS]->(:Language {name: 'Java'})"
+                    + "-[:CONTAINS]->(:Code)-[:CONTAINS]->"
                     + "(pkg:Package {name: $name})"
                     + " RETURN count(pkg) AS n",
                 Map.of("p", PROJECT, "name", PKG))
@@ -584,8 +587,8 @@ class GraphWriterIT {
     Path jsFile = Path.of("/tmp/test-gw/src/app/service.js");
     String pkg = "js.app";
     String fqn = "js.app.service.Service";
-    writer.upsertFile(jsFile, SourceLanguage.JAVASCRIPT.graphName());
-    writer.upsertPackage(pkg);
+    writer.upsertFile(jsFile, SourceLanguage.JAVASCRIPT);
+    writer.upsertPackage(pkg, SourceLanguage.JAVASCRIPT);
 
     writer.upsertJavascriptClass(
         jsFile, pkg, fqn, "Service", "app/service.js", "", false, false, 1, 1);
@@ -607,8 +610,8 @@ class GraphWriterIT {
     Path jsFile = Path.of("/tmp/test-gw/src/app/service.js");
     String pkg = "js.app";
     String fqn = "js.app.service.Service";
-    writer.upsertFile(jsFile, SourceLanguage.JAVASCRIPT.graphName());
-    writer.upsertPackage(pkg);
+    writer.upsertFile(jsFile, SourceLanguage.JAVASCRIPT);
+    writer.upsertPackage(pkg, SourceLanguage.JAVASCRIPT);
 
     writer.upsertJavascriptClass(
         jsFile, pkg, fqn, "Service", "app/service.js", "", false, true, 1, 3);
@@ -647,8 +650,8 @@ class GraphWriterIT {
                 + "translation-repository-view-pending.component.spec.ts");
     String pkg = "js.app.translations.components.translation$2d$repository$2d$view$2d$pending";
     String fqn = pkg + ".translation$2d$repository$2d$view$2d$pending$2e$component$2e$spec$2e$ts";
-    writer.upsertFile(tsFile, SourceLanguage.JAVASCRIPT.graphName());
-    writer.upsertPackage(pkg);
+    writer.upsertFile(tsFile, SourceLanguage.JAVASCRIPT);
+    writer.upsertPackage(pkg, SourceLanguage.JAVASCRIPT);
 
     writer.upsertJavascriptModule(
         tsFile,
@@ -719,8 +722,8 @@ class GraphWriterIT {
     Path tsFile = Path.of("/tmp/test-gw/src/app/status.ts");
     String pkg = "js.app";
     String fqn = "js.app.status$2e$ts.Status";
-    writer.upsertFile(tsFile, SourceLanguage.JAVASCRIPT.graphName());
-    writer.upsertPackage(pkg);
+    writer.upsertFile(tsFile, SourceLanguage.JAVASCRIPT);
+    writer.upsertPackage(pkg, SourceLanguage.JAVASCRIPT);
 
     writer.upsertJavascriptEnum(tsFile, pkg, fqn, "Status", "app/status.ts", 1, 1);
 
@@ -743,8 +746,8 @@ class GraphWriterIT {
     Path tsFile = Path.of("/tmp/test-gw/src/app/user.service.ts");
     String pkg = "js.app";
     String fqn = "js.app.user$2e$service$2e$ts.UserService";
-    writer.upsertFile(tsFile, SourceLanguage.JAVASCRIPT.graphName());
-    writer.upsertPackage(pkg);
+    writer.upsertFile(tsFile, SourceLanguage.JAVASCRIPT);
+    writer.upsertPackage(pkg, SourceLanguage.JAVASCRIPT);
 
     writer.upsertJavascriptClass(
         tsFile, pkg, fqn, "UserService", "app/user.service.ts", "angular", true, false, 1, 5);
@@ -773,8 +776,8 @@ class GraphWriterIT {
     Path tsFile = Path.of("/tmp/test-gw/src/app/repository.interface.ts");
     String pkg = "js.app";
     String fqn = "js.app.repository$2e$interface$2e$ts.Repository";
-    writer.upsertFile(tsFile, SourceLanguage.JAVASCRIPT.graphName());
-    writer.upsertPackage(pkg);
+    writer.upsertFile(tsFile, SourceLanguage.JAVASCRIPT);
+    writer.upsertPackage(pkg, SourceLanguage.JAVASCRIPT);
 
     writer.upsertJavascriptInterface(
         tsFile, pkg, fqn, "Repository", "interface", "app/repository.interface.ts", "");
@@ -812,8 +815,8 @@ class GraphWriterIT {
     Path tsFile = Path.of("/tmp/test-gw/src/app/tabs.enum.ts");
     String pkg = "js.app";
     String fqn = "js.app.tabs$2e$enum$2e$ts.TabsEnum";
-    writer.upsertFile(tsFile, SourceLanguage.JAVASCRIPT.graphName());
-    writer.upsertPackage(pkg);
+    writer.upsertFile(tsFile, SourceLanguage.JAVASCRIPT);
+    writer.upsertPackage(pkg, SourceLanguage.JAVASCRIPT);
 
     writer.upsertJavascriptEnum(tsFile, pkg, fqn, "TabsEnum", "app/tabs.enum.ts", 1, 4);
     writer.upsertJavascriptField(fqn, fqn + "#VIEW", "VIEW", fqn, true, "enum-member");
@@ -837,9 +840,12 @@ class GraphWriterIT {
     String currentFqn = "js.app$2d$dir.app$2e$component$2e$ts";
     String legacyPkg = "js.app_dir";
     String legacyFqn = "js.app_dir.app_component";
-    writer.upsertFile(tsFile, SourceLanguage.JAVASCRIPT.graphName());
-    writer.upsertPackage(currentPkg);
-    writer.upsertPackage(legacyPkg);
+    writer.upsertFile(tsFile, SourceLanguage.JAVASCRIPT);
+    writer.upsertPackage(currentPkg, SourceLanguage.JAVASCRIPT);
+    writer.upsertPackage(legacyPkg, SourceLanguage.JAVASCRIPT);
+    session.run(
+        "MERGE (:Package {name: $name, project: $project})",
+        Map.of("name", legacyPkg, "project", PROJECT));
     writer.upsertJavascriptModule(
         tsFile, currentPkg, currentFqn, "app_component", "app-dir/app.component.ts", 1, 3);
     writer.upsertJavascriptModule(
@@ -977,7 +983,7 @@ class GraphWriterIT {
             .run(
                 "MATCH (n) WHERE n.project = $p"
                     + " AND (n:Code OR n:Package OR n:File OR n:Class OR n:Interface"
-                    + " OR n:Annotation OR n:Method OR n:Field)"
+                    + " OR n:Annotation OR n:Method OR n:Field OR n:Language)"
                     + " RETURN count(n) AS n",
                 Map.of("p", PROJECT))
             .single()

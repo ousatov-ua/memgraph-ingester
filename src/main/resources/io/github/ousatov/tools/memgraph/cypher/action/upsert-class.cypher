@@ -1,4 +1,4 @@
-MATCH (p:Package {name: $pkg, project: $project})
+MATCH (p:Package {name: $pkg, project: $project, language: $language})
 MATCH (f:File {path: $path, project: $project})
 MERGE (t:Class {fqn: $fqn, project: $project})
   SET t.name = $name,

@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.ousatov.tools.memgraph.extension.MemgraphExtension;
 import io.github.ousatov.tools.memgraph.extension.MemgraphInstance;
+import io.github.ousatov.tools.memgraph.schema.Memgraph;
 import io.github.ousatov.tools.memgraph.vo.Settings;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -152,6 +153,32 @@ class IngestionOrchestratorIT {
     }
   }
 
+  /**
+   * Minimal JS/TS adapter used to verify multi-adapter orchestration without invoking Node.js.
+   *
+   * @author Oleksii Usatov
+   */
+  private static final class StubJsLanguageAdapter implements LanguageAdapter {
+
+    @Override
+    public SourceLanguage language() {
+      return SourceLanguage.JAVASCRIPT;
+    }
+
+    @Override
+    public boolean accepts(Path file) {
+      return file.toString().endsWith(".ts");
+    }
+
+    @Override
+    public boolean ingestFile(GraphWriter writer, Path file) {
+      writer.upsertFile(file, language());
+      writer.upsertPackage("js.test", language());
+      writer.upsertJavascriptModule(file, "js.test", "js.test.App", "App", "app.ts", 1, 1);
+      return true;
+    }
+  }
+
   private static void deleteDir(Path dir) throws IOException {
     if (dir != null && Files.exists(dir)) {
       try (Stream<Path> walk = Files.walk(dir)) {
@@ -181,6 +208,97 @@ class IngestionOrchestratorIT {
   }
 
   @Test
+  void ingestsMatchingFilesThroughLanguageGroups() throws Exception {
+    currentProject = PROJECT_BASE + "-languages";
+    sourceDir = Files.createTempDirectory("orch-languages-src-");
+    Files.writeString(
+        sourceDir.resolve("Good.java"), "public class Good { int ok() { return 1; } }");
+    Path tsFile = Files.writeString(sourceDir.resolve("app.ts"), "export const app = 1;");
+
+    int failures =
+        new IngestionOrchestrator(
+                sourceDir,
+                currentProject,
+                1,
+                driver,
+                List.of(
+                    new JavaLanguageAdapter(new ParseService(sourceDir)),
+                    new StubJsLanguageAdapter()))
+            .run(Settings.def());
+
+    assertEquals(0, failures);
+    try (Session s = driver.session()) {
+      long javaFiles =
+          s.run(
+                  "MATCH (:Project {name: $p})-[:CONTAINS]->(:Language {name: 'Java'})"
+                      + "-[:CONTAINS]->(:Code {language: 'java'})-[:CONTAINS]->"
+                      + "(:File {path: $path, project: $p}) RETURN count(*) AS n",
+                  Map.of("p", currentProject, "path", sourceDir.resolve("Good.java").toString()))
+              .single()
+              .get("n")
+              .asLong();
+      long jsFiles =
+          s.run(
+                  "MATCH (:Project {name: $p})-[:CONTAINS]->(:Language {name: 'Js'})"
+                      + "-[:CONTAINS]->(:Code {language: 'javascript'})-[:CONTAINS]->"
+                      + "(:File {path: $path, project: $p}) RETURN count(*) AS n",
+                  Map.of("p", currentProject, "path", tsFile.toString()))
+              .single()
+              .get("n")
+              .asLong();
+
+      assertEquals(1, javaFiles);
+      assertEquals(1, jsFiles);
+    }
+  }
+
+  @Test
+  void appliesLanguageSchemaMigrationWhenLegacySchemaIsDetected() throws Exception {
+    currentProject = PROJECT_BASE + "-legacy-schema";
+    sourceDir = Files.createTempDirectory("orch-legacy-schema-src-");
+    Files.writeString(
+        sourceDir.resolve("Good.java"), "public class Good { int ok() { return 1; } }");
+    Path tsFile = Files.writeString(sourceDir.resolve("app.ts"), "export const app = 1;");
+
+    try (Session s = driver.session()) {
+      Memgraph.wipeAllData(s);
+      s.run("CREATE CONSTRAINT ON (p:Project) ASSERT p.name IS UNIQUE").consume();
+      s.run("CREATE CONSTRAINT ON (c:Code) ASSERT c.project IS UNIQUE").consume();
+      s.run(
+              "CREATE (project:Project {name: $p})"
+                  + " CREATE (project)-[:CONTAINS]->(:Code {project: $p})",
+              Map.of("p", currentProject))
+          .consume();
+    }
+
+    int failures =
+        new IngestionOrchestrator(
+                sourceDir,
+                currentProject,
+                1,
+                driver,
+                List.of(
+                    new JavaLanguageAdapter(new ParseService(sourceDir)),
+                    new StubJsLanguageAdapter()))
+            .run(Settings.def());
+
+    assertEquals(0, failures);
+    try (Session s = driver.session()) {
+      long jsFiles =
+          s.run(
+                  "MATCH (:Project {name: $p})-[:CONTAINS]->(:Language {name: 'Js'})"
+                      + "-[:CONTAINS]->(:Code {language: 'javascript'})-[:CONTAINS]->"
+                      + "(:File {path: $path, project: $p}) RETURN count(*) AS n",
+                  Map.of("p", currentProject, "path", tsFile.toString()))
+              .single()
+              .get("n")
+              .asLong();
+
+      assertEquals(1, jsFiles);
+    }
+  }
+
+  @Test
   void ingestsSequentiallyWithZeroFailuresInitSchema() throws Exception {
     currentProject = PROJECT_BASE + "-seq";
     sourceDir = buildSampleSourceTree();
@@ -200,14 +318,15 @@ class IngestionOrchestratorIT {
 
       long codeRootCount =
           s.run(
-                  "MATCH (:Project {name: $p})-[:CONTAINS]->(:Code {project: $p})"
+                  "MATCH (:Project {name: $p})-[:CONTAINS]->(:Language {name: 'Java'})"
+                      + "-[:CONTAINS]->(:Code {project: $p, language: 'java'})"
                       + "-[:CONTAINS]->(:File)-[:DEFINES]->(:Class)"
                       + " RETURN count(*) AS n",
                   Map.of("p", currentProject))
               .single()
               .get("n")
               .asLong();
-      assertTrue(codeRootCount >= 1, "Code graph must hang under :Project -> :Code");
+      assertTrue(codeRootCount >= 1, "Code graph must hang under :Project -> :Language -> :Code");
 
       long memoryRootCount =
           s.run(
