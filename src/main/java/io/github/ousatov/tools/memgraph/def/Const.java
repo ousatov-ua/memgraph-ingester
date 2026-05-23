@@ -57,6 +57,8 @@ public final class Const {
 
     public static final String CYPHER_WIPE_PROJECT_MEMORIES =
         action("wipe-project-memories.cypher");
+    public static final String CYPHER_CLEAR_CODE_PACKAGE_CODE_REF_RESOLUTIONS =
+        action("clear-code-package-code-ref-resolutions.cypher");
     public static final String CYPHER_RESOLVE_JAVA_CODE_REFS_CODE =
         action("Java/resolve-code-refs-code.cypher");
     public static final String CYPHER_RESOLVE_JAVA_CODE_REFS_PACKAGE =

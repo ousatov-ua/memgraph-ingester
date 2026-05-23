@@ -149,6 +149,7 @@ public final class GraphWriter {
   /** Refreshes {@code :CodeRef} resolution edges to the current project-scoped code graph. */
   public void resolveCodeRefs() {
     List.of(
+            Cypher.CYPHER_CLEAR_CODE_PACKAGE_CODE_REF_RESOLUTIONS,
             Cypher.CYPHER_RESOLVE_JAVA_CODE_REFS_CODE,
             Cypher.CYPHER_RESOLVE_JAVA_CODE_REFS_PACKAGE,
             Cypher.CYPHER_RESOLVE_JAVASCRIPT_CODE_REFS_CODE,

@@ -211,6 +211,36 @@ class MemoryGraphIT {
   }
 
   @Test
+  void resolveCodeRefsClearsUnsupportedCodeAndPackageEdges() {
+    session
+        .run(
+            "CREATE (code:Code {project: $p, language: 'python'})"
+                + " CREATE (pkg:Package {project: $p, name: 'shared', language: 'python'})"
+                + " CREATE (codeRef:CodeRef {project: $p, targetType: 'Code', key: 'python'})"
+                + " CREATE (pkgRef:CodeRef {project: $p,"
+                + " targetType: 'Package', key: 'python:shared'})"
+                + " CREATE (codeRef)-[:RESOLVES_TO]->(code)"
+                + " CREATE (pkgRef)-[:RESOLVES_TO]->(pkg)",
+            Map.of("p", PROJECT))
+        .consume();
+
+    writer.resolveCodeRefs();
+
+    long count =
+        session
+            .run(
+                "MATCH (ref:CodeRef {project: $p})-[rel:RESOLVES_TO]->()"
+                    + " WHERE ref.key IN ['python', 'python:shared']"
+                    + " RETURN count(rel) AS n",
+                Map.of("p", PROJECT))
+            .single()
+            .get("n")
+            .asLong();
+
+    assertEquals(0, count);
+  }
+
+  @Test
   @SuppressWarnings("java:S5778")
   void memoryIdentityConstraintRejectsDuplicateDecisionIdsWithinProject() {
     session
