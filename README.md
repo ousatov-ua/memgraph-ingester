@@ -6,10 +6,12 @@
 [![Visitors](https://visitor-badge.laobi.icu/badge?page_id=ousatov-ua.memgraph-ingester)](https://github.com/ousatov-ua/memgraph-ingester)
 [![GitHub commits](https://img.shields.io/github/commit-activity/t/ousatov-ua/memgraph-ingester)](https://github.com/ousatov-ua/memgraph-ingester/commits/main)
 [![GitHub last commit](https://img.shields.io/github/last-commit/ousatov-ua/memgraph-ingester)](https://github.com/ousatov-ua/memgraph-ingester/commits/main)
+[![Supports Java codebases](https://img.shields.io/badge/supports-Java-f89820?logo=openjdk&logoColor=white)](#3-ingest-java)
+[![Supports JavaScript/TypeScript codebases](https://img.shields.io/badge/supports-JavaScript%20%2F%20TypeScript-3178c6?logo=typescript&logoColor=white)](#4-ingest-javascript-or-typescript)
 
 ![memgraph-ingester-readme-banner-640x320.svg](image/memgraph-ingester-readme-banner-640x320.svg)
 
-Memgraph Ingester indexes a Java or JavaScript/TypeScript codebase into
+Memgraph Ingester indexes a **Java** or **JavaScript/TypeScript** codebase into
 [Memgraph](https://memgraph.com/) so AI agents can query a real code graph instead of repeatedly
 scanning raw files.
 
