@@ -725,6 +725,8 @@ Controlled values:
 
 For `:CodeRef`, use `key: 'java'` or `key: 'js'` for `targetType: 'Code'`, and
 `key: 'java:<package>'` or `key: 'js:<package>'` for `targetType: 'Package'`.
+Legacy project-key `Code` refs and unprefixed `Package` refs still resolve to all matching
+language-scoped nodes for backwards compatibility.
 
 See [`doc/MEMORY.md`](doc/MEMORY.md) for Memory examples and Cypher recipes.
 See [`doc/SCHEMA.md`](doc/SCHEMA.md) for the full graph model.

@@ -16,8 +16,13 @@ WITH ref,
 OPTIONAL MATCH (candidate:Package {project: ref.project, name: packageName})
 WHERE candidate.language = language
   OR language IS NULL
-WITH ref, collect(candidate) AS candidates
-WITH ref, CASE WHEN size(candidates) = 1 THEN candidates[0] ELSE null END AS target
-FOREACH (_ IN CASE WHEN target IS NULL THEN [] ELSE [1] END |
+WITH ref, language, collect(candidate) AS candidates
+WITH ref,
+     CASE
+       WHEN language IS NULL THEN candidates
+       WHEN size(candidates) = 1 THEN candidates
+       ELSE []
+     END AS targets
+FOREACH (target IN targets |
   MERGE (ref)-[:RESOLVES_TO]->(target)
 )

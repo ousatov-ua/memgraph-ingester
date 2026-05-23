@@ -91,7 +91,9 @@ All memory item labels are unique by `(id, project)`. Most memory items also use
 `Method`, or `Field`. `CodeRef.key` uses the target identity: reference language key for `Code`
 (`java` or `js`), language-prefixed package name for `Package` (`java:<package>` or
 `js:<package>`), path for `File`, FQN for `Class`/`Interface`/`Annotation`/`Field`, and
-signature for `Method`. The ingester deletes and recreates `RESOLVES_TO` edges after each run.
+signature for `Method`. Legacy project-key `Code` refs and unprefixed `Package` refs resolve to
+all matching language-scoped nodes. The ingester deletes and recreates `RESOLVES_TO` edges after
+each run.
 
 Common memory-to-memory links:
 
