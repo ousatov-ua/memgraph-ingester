@@ -39,8 +39,14 @@
     <awaitility.version>4.3.0</awaitility.version>
     <native.maven.plugin.version>1.1.0</native.maven.plugin.version>
     <maven.enforcer.version>3.6.2</maven.enforcer.version>
+    <exec.maven.plugin.version>3.5.0</exec.maven.plugin.version>
     <commons-compress.version>1.28.0</commons-compress.version>
     <xz.version>1.12</xz.version>
+    <metrics.bolt>bolt://localhost:7687</metrics.bolt>
+    <metrics.expected></metrics.expected>
+    <metrics.pass></metrics.pass>
+    <metrics.project>${project.artifactId}</metrics.project>
+    <metrics.user></metrics.user>
   </properties>
 
   <dependencies>
@@ -301,6 +307,44 @@
             <include>**/*IT.java</include>
           </includes>
         </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>exec-maven-plugin</artifactId>
+        <version>${exec.maven.plugin.version}</version>
+        <executions>
+          <execution>
+            <id>validate-metrics</id>
+            <goals>
+              <goal>java</goal>
+            </goals>
+            <configuration>
+              <mainClass>io.github.ousatov.tools.memgraph.exe.MetricsValidationCli</mainClass>
+              <classpathScope>runtime</classpathScope>
+              <arguments>
+                <argument>${metrics.expected}</argument>
+              </arguments>
+              <systemProperties>
+                <systemProperty>
+                  <key>metrics.bolt</key>
+                  <value>${metrics.bolt}</value>
+                </systemProperty>
+                <systemProperty>
+                  <key>metrics.pass</key>
+                  <value>${metrics.pass}</value>
+                </systemProperty>
+                <systemProperty>
+                  <key>metrics.project</key>
+                  <value>${metrics.project}</value>
+                </systemProperty>
+                <systemProperty>
+                  <key>metrics.user</key>
+                  <value>${metrics.user}</value>
+                </systemProperty>
+              </systemProperties>
+            </configuration>
+          </execution>
+        </executions>
       </plugin>
     </plugins>
   </build>

@@ -900,6 +900,21 @@ Run it:
 java -jar target/memgraph-ingester.jar --help
 ```
 
+### Validate a metrics snapshot
+
+The metrics validator is opt-in. It is not bound to the normal build, test, release, or native
+profiles. Run it after ingesting a project when you want to compare the current metrics table with
+an expected snapshot file:
+
+```bash
+mvn compile exec:java@validate-metrics \
+  -Dmetrics.expected=/path/to/expected-metrics.md \
+  -Dmetrics.project=memgraph-ingester \
+  -Dmetrics.bolt=bolt://localhost:7687
+```
+
+Use `-Dmetrics.user=...` and `-Dmetrics.pass=...` when the Bolt endpoint requires credentials.
+
 ### Build a native executable
 
 Native builds use GraalVM Native Image and build for the OS where Maven runs.
