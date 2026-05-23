@@ -106,11 +106,10 @@ final class CallEdgeWriter {
   private void upsertObjectCreationEdge(String callerSig, ObjectCreationExpr creation) {
     try {
       var resolvedCtor = creation.resolve();
-      String typeFqn =
-          JavaTypeNames.normalizeNestedFqn(resolvedCtor.declaringType().getQualifiedName());
-      String calleeSig =
-          JavaTypeNames.buildInitCallSig(typeFqn, resolvedCtor.getQualifiedSignature());
-      upsertCall(callerSig, calleeSig);
+      upsertResolvedConstructorCall(
+          callerSig,
+          resolvedCtor.declaringType().getQualifiedName(),
+          resolvedCtor.getQualifiedSignature());
     } catch (Exception _) {
       JavaTypeNames.resolveOrInferFqn(creation.getType())
           .ifPresent(fqn -> upsertCallByName(callerSig, fqn, Labels.INIT));
@@ -126,11 +125,10 @@ final class CallEdgeWriter {
       String callerSig, String ownerFqn, ExplicitConstructorInvocationStmt stmt) {
     try {
       var resolvedCtor = stmt.resolve();
-      String typeFqn =
-          JavaTypeNames.normalizeNestedFqn(resolvedCtor.declaringType().getQualifiedName());
-      String calleeSig =
-          JavaTypeNames.buildInitCallSig(typeFqn, resolvedCtor.getQualifiedSignature());
-      upsertCall(callerSig, calleeSig);
+      upsertResolvedConstructorCall(
+          callerSig,
+          resolvedCtor.declaringType().getQualifiedName(),
+          resolvedCtor.getQualifiedSignature());
     } catch (Exception _) {
       if (stmt.isThis()) {
         upsertCallByName(callerSig, ownerFqn, Labels.INIT);
@@ -153,6 +151,12 @@ final class CallEdgeWriter {
 
   private void upsertResolvedCall(String callerSig, ResolvedMethodDeclaration resolved) {
     upsertCall(callerSig, JavaTypeNames.buildResolvedMethodSignature(resolved));
+  }
+
+  private void upsertResolvedConstructorCall(
+      String callerSig, String declaringTypeFqn, String qualifiedSignature) {
+    String typeFqn = JavaTypeNames.normalizeNestedFqn(declaringTypeFqn);
+    upsertCall(callerSig, JavaTypeNames.buildInitCallSig(typeFqn, qualifiedSignature));
   }
 
   private void upsertCall(String callerSig, String calleeSig) {

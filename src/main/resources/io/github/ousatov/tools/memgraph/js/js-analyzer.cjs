@@ -71,10 +71,8 @@ const classSelfNamesByOwnerFqn = new Map();
 const classesByName = new Map();
 const callables = [];
 const SHADOWED_CLASS_SELF = Symbol('shadowedClassSelf');
-const imports = collectImports(sourceFile);
-const importedNames = collectImportedNames(sourceFile);
-const importedNamespaces = collectImportedNamespaces(sourceFile);
-const namespaceImports = collectNamespaceImports(sourceFile);
+const importMetadata = collectImportMetadata(sourceFile);
+const { imports, importedNames, importedNamespaces, namespaceImports } = importMetadata;
 const localTypeFqnsByName = new Map();
 collectLocalTypeMetadata(sourceFile);
 const topLevelFunctionsByName = new Map();
@@ -1138,86 +1136,48 @@ function decoratorReference(decorator) {
   return { name, fqn };
 }
 
-function collectImports(sf) {
-  const result = new Map();
+function collectImportMetadata(sf) {
+  const metadata = {
+    imports: new Map(),
+    importedNames: new Map(),
+    importedNamespaces: new Map(),
+    namespaceImports: new Map()
+  };
   for (const statement of sf.statements) {
     if (!isNamedModuleImport(statement)) {
       continue;
     }
-    const moduleNameText = statement.moduleSpecifier.text;
-    const moduleFqn = localImportedModuleFqn(moduleNameText);
+    const moduleSpecifier = statement.moduleSpecifier.text;
+    const moduleFqn = localImportedModuleFqn(moduleSpecifier);
     const clause = statement.importClause;
     if (clause.name) {
-      result.set(clause.name.text, importedSymbolFqn(moduleNameText, moduleFqn, 'default'));
-    }
-    const bindings = clause.namedBindings;
-    if (bindings && ts.isNamedImports(bindings)) {
-      for (const element of bindings.elements) {
-        const imported = element.propertyName ? element.propertyName.text : element.name.text;
-        result.set(element.name.text, importedSymbolFqn(moduleNameText, moduleFqn, imported));
-      }
-    }
-  }
-  return result;
-}
-
-function importedSymbolFqn(moduleSpecifier, moduleFqn, importedName) {
-  return moduleFqn ? `${moduleFqn}.${importedName}` : `${moduleSpecifier}.${importedName}`;
-}
-
-function collectImportedNames(sf) {
-  const result = new Map();
-  for (const statement of sf.statements) {
-    if (!isNamedModuleImport(statement)) {
-      continue;
-    }
-    const moduleFqn = localImportedModuleFqn(statement.moduleSpecifier.text);
-    if (!moduleFqn) {
-      continue;
-    }
-    const clause = statement.importClause;
-    if (clause.name) {
-      result.set(clause.name.text, { moduleFqn, importedName: 'default' });
+      addImportedSymbol(metadata, clause.name.text, 'default', moduleSpecifier, moduleFqn);
     }
     const bindings = clause.namedBindings;
     if (bindings && ts.isNamedImports(bindings)) {
       for (const element of bindings.elements) {
         const importedName = element.propertyName ? element.propertyName.text : element.name.text;
-        result.set(element.name.text, { moduleFqn, importedName });
+        addImportedSymbol(metadata, element.name.text, importedName, moduleSpecifier, moduleFqn);
       }
+    } else if (bindings && ts.isNamespaceImport(bindings)) {
+      if (moduleFqn) {
+        metadata.importedNamespaces.set(bindings.name.text, moduleFqn);
+      }
+      metadata.namespaceImports.set(bindings.name.text, moduleFqn || moduleSpecifier);
     }
   }
-  return result;
+  return metadata;
 }
 
-function collectImportedNamespaces(sf) {
-  const result = new Map();
-  for (const statement of sf.statements) {
-    if (!isNamedModuleImport(statement)) {
-      continue;
-    }
-    const moduleFqn = localImportedModuleFqn(statement.moduleSpecifier.text);
-    const bindings = statement.importClause.namedBindings;
-    if (moduleFqn && bindings && ts.isNamespaceImport(bindings)) {
-      result.set(bindings.name.text, moduleFqn);
-    }
+function addImportedSymbol(metadata, localName, importedName, moduleSpecifier, moduleFqn) {
+  metadata.imports.set(localName, importedSymbolFqn(moduleSpecifier, moduleFqn, importedName));
+  if (moduleFqn) {
+    metadata.importedNames.set(localName, { moduleFqn, importedName });
   }
-  return result;
 }
 
-function collectNamespaceImports(sf) {
-  const result = new Map();
-  for (const statement of sf.statements) {
-    if (!isNamedModuleImport(statement)) {
-      continue;
-    }
-    const moduleNameText = statement.moduleSpecifier.text;
-    const bindings = statement.importClause.namedBindings;
-    if (bindings && ts.isNamespaceImport(bindings)) {
-      result.set(bindings.name.text, localImportedModuleFqn(moduleNameText) || moduleNameText);
-    }
-  }
-  return result;
+function importedSymbolFqn(moduleSpecifier, moduleFqn, importedName) {
+  return moduleFqn ? `${moduleFqn}.${importedName}` : `${moduleSpecifier}.${importedName}`;
 }
 
 function registerInstancePropertyTypes(ownerFqn, node) {

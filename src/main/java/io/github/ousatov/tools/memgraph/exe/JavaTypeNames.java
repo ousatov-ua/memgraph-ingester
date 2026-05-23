@@ -1,5 +1,6 @@
 package io.github.ousatov.tools.memgraph.exe;
 
+import com.github.javaparser.ast.Node;
 import com.github.javaparser.ast.body.ConstructorDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.body.Parameter;
@@ -181,18 +182,7 @@ final class JavaTypeNames {
     }
     if (scope.isNameExpr()) {
       String name = scope.asNameExpr().getNameAsString();
-      return call.findCompilationUnit()
-          .flatMap(
-              cu -> {
-                for (var imp : cu.getImports()) {
-                  if (!imp.isAsterisk()
-                      && !imp.isStatic()
-                      && imp.getName().getIdentifier().equals(name)) {
-                    return Optional.of(imp.getNameAsString());
-                  }
-                }
-                return Optional.empty();
-              });
+      return importedTypeFqn(call, name);
     }
     return Optional.empty();
   }
@@ -200,35 +190,32 @@ final class JavaTypeNames {
   /**
    * Infers a type FQN from compilation-unit imports, falling back to the source-level type name.
    */
-  @SuppressWarnings("java:S3776")
   static String inferFqnFromImports(ClassOrInterfaceType type) {
     String simpleName = type.getNameAsString();
-    String fullName = type.asString();
-    String result =
-        type.findCompilationUnit()
-            .flatMap(
-                cu -> {
-                  for (var imp : cu.getImports()) {
-                    if (!imp.isAsterisk()
-                        && !imp.isStatic()
-                        && imp.getName().getIdentifier().equals(simpleName)) {
-                      return Optional.of(imp.getNameAsString());
-                    }
-                  }
-                  if (fullName.contains(".")) {
-                    String topLevel = fullName.substring(0, fullName.indexOf('.'));
-                    for (var imp : cu.getImports()) {
-                      if (!imp.isAsterisk()
-                          && !imp.isStatic()
-                          && imp.getName().getIdentifier().equals(topLevel)) {
-                        return Optional.of(
-                            imp.getNameAsString() + fullName.substring(fullName.indexOf('.')));
-                      }
-                    }
-                  }
-                  return Optional.empty();
-                })
-            .orElse(fullName);
+    String result = importedTypeFqn(type, simpleName).orElseGet(() -> inferNestedImport(type));
     return normalizeNestedFqn(result);
+  }
+
+  private static Optional<String> importedTypeFqn(Node node, String name) {
+    return node.findCompilationUnit()
+        .flatMap(
+            cu ->
+                cu.getImports().stream()
+                    .filter(imp -> !imp.isAsterisk() && !imp.isStatic())
+                    .filter(imp -> imp.getName().getIdentifier().equals(name))
+                    .map(imp -> imp.getNameAsString())
+                    .findFirst());
+  }
+
+  private static String inferNestedImport(ClassOrInterfaceType type) {
+    String fullName = type.asString();
+    int firstDot = fullName.indexOf('.');
+    if (firstDot < 0) {
+      return fullName;
+    }
+    String topLevel = fullName.substring(0, firstDot);
+    return importedTypeFqn(type, topLevel)
+        .map(importFqn -> importFqn + fullName.substring(firstDot))
+        .orElse(fullName);
   }
 }
