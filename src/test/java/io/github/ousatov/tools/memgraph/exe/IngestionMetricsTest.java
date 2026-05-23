@@ -36,9 +36,10 @@ class IngestionMetricsTest {
 
     assertEquals(
         """
-        Ingestion Metrics
+        # Ingestion Metrics
+
         | metric | value |
-        |---|---:|
+        | --- | ---: |
         | classes.internal | 7 |
         | calls | 11 |
         """,
@@ -70,6 +71,26 @@ class IngestionMetricsTest {
     assertTrue(
         readMetricQuery("methods.cypher").contains("WHERE n.isSynthetic = false"),
         "primary method metric should exclude synthetic methods");
+  }
+
+  @Test
+  void rejectsNonMarkdownSnapshotEvenWhenTextMatches() throws IOException {
+    String metrics =
+        """
+        Ingestion Metrics
+        | metric | value |
+        |---|---:|
+        | methods | 3 |
+        """;
+    Path expectedFile = tempDir.resolve("metrics.md");
+    Files.writeString(expectedFile, metrics);
+
+    IllegalStateException error =
+        assertThrows(
+            IllegalStateException.class,
+            () -> MetricsSnapshotValidator.validate(expectedFile, metrics));
+
+    assertTrue(error.getMessage().contains("Expected metrics must use Markdown table syntax."));
   }
 
   @Test
