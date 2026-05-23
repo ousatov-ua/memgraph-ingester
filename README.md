@@ -152,9 +152,12 @@ cd /path/to/your/java/project
   --source src/main/java \
   --bolt bolt://localhost:7687 \
   --project my-java-project \
+  --init-instructions \
   --wipe-project-code \
   --apply-schema
 ```
+
+Note: If you want to use memories too, then add `--with-memories`.
 
 Better Java symbol resolution for Maven projects:
 
@@ -167,6 +170,7 @@ CP=$(mvn -q dependency:build-classpath -DincludeScope=test -Dmdep.outputFile=/de
   --source src/main/java \
   --bolt bolt://localhost:7687 \
   --project my-java-project \
+  --init-instructions \
   --classpath "$CP" \
   --wipe-project-code \
   --apply-schema
@@ -191,6 +195,7 @@ cd /path/to/your/js/project
   --bolt bolt://localhost:7687 \
   --project my-js-project \
   --wipe-project-code \
+  --init-instructions \
   --apply-schema
 ```
 
