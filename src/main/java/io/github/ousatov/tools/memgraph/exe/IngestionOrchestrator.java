@@ -134,6 +134,9 @@ public final class IngestionOrchestrator {
       if (settings.applySchema()) {
         Memgraph.applySchema(bootstrap);
         log.info("Applying schema to Memgraph");
+      } else if (!Memgraph.hasLanguageScopedCodeSchema(bootstrap)) {
+        Memgraph.applySchema(bootstrap);
+        log.info("Applied language-scoped schema migration to Memgraph");
       }
       if (settings.wipeProjectCode()) {
         log.info("Wiping existing code graph for project '{}'...", project);

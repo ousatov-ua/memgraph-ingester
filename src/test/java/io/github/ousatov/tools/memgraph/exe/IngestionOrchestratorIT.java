@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.ousatov.tools.memgraph.extension.MemgraphExtension;
 import io.github.ousatov.tools.memgraph.extension.MemgraphInstance;
+import io.github.ousatov.tools.memgraph.schema.Memgraph;
 import io.github.ousatov.tools.memgraph.vo.Settings;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -247,6 +248,52 @@ class IngestionOrchestratorIT {
               .asLong();
 
       assertEquals(1, javaFiles);
+      assertEquals(1, jsFiles);
+    }
+  }
+
+  @Test
+  void appliesLanguageSchemaMigrationWhenLegacySchemaIsDetected() throws Exception {
+    currentProject = PROJECT_BASE + "-legacy-schema";
+    sourceDir = Files.createTempDirectory("orch-legacy-schema-src-");
+    Files.writeString(
+        sourceDir.resolve("Good.java"), "public class Good { int ok() { return 1; } }");
+    Path tsFile = Files.writeString(sourceDir.resolve("app.ts"), "export const app = 1;");
+
+    try (Session s = driver.session()) {
+      Memgraph.wipeAllData(s);
+      s.run("CREATE CONSTRAINT ON (p:Project) ASSERT p.name IS UNIQUE").consume();
+      s.run("CREATE CONSTRAINT ON (c:Code) ASSERT c.project IS UNIQUE").consume();
+      s.run(
+              "CREATE (project:Project {name: $p})"
+                  + " CREATE (project)-[:CONTAINS]->(:Code {project: $p})",
+              Map.of("p", currentProject))
+          .consume();
+    }
+
+    int failures =
+        new IngestionOrchestrator(
+                sourceDir,
+                currentProject,
+                1,
+                driver,
+                List.of(
+                    new JavaLanguageAdapter(new ParseService(sourceDir)),
+                    new StubJsLanguageAdapter()))
+            .run(Settings.def());
+
+    assertEquals(0, failures);
+    try (Session s = driver.session()) {
+      long jsFiles =
+          s.run(
+                  "MATCH (:Project {name: $p})-[:CONTAINS]->(:Language {name: 'Js'})"
+                      + "-[:CONTAINS]->(:Code {language: 'javascript'})-[:CONTAINS]->"
+                      + "(:File {path: $path, project: $p}) RETURN count(*) AS n",
+                  Map.of("p", currentProject, "path", tsFile.toString()))
+              .single()
+              .get("n")
+              .asLong();
+
       assertEquals(1, jsFiles);
     }
   }
