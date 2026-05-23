@@ -445,6 +445,58 @@ class JsAnalyzerTest {
   }
 
   @Test
+  void namedVariableClassExpressionConstructorSelfBindingRespectsParameterShadow()
+      throws IOException {
+    JsAnalysis analysis =
+        analyzeSource(
+            "named-class-constructor-shadow.ts",
+            """
+            class Named {}
+            const Alias = class Named {
+              static build(Named) {
+                return new Named();
+              }
+            };
+            """);
+
+    assertTrue(
+        analysis.calls().stream()
+            .noneMatch(
+                call ->
+                    "js.named$2d$class$2d$constructor$2d$shadow$2e$ts.Alias.build()"
+                            .equals(call.callerSignature())
+                        && "js.named$2d$class$2d$constructor$2d$shadow$2e$ts.Alias.<init>()"
+                            .equals(call.calleeSignature())));
+  }
+
+  @Test
+  void namedVariableClassExpressionMethodSelfBindingRespectsParameterShadow() throws IOException {
+    JsAnalysis analysis =
+        analyzeSource(
+            "named-class-method-shadow.ts",
+            """
+            class Named {
+              static run() {}
+            }
+            const Alias = class Named {
+              static invoke(Named) {
+                Named.run();
+              }
+            };
+            """);
+
+    assertTrue(
+        analysis.calls().stream()
+            .noneMatch(
+                call ->
+                    "js.named$2d$class$2d$method$2d$shadow$2e$ts.Alias.invoke()"
+                            .equals(call.callerSignature())
+                        && "js.named$2d$class$2d$method$2d$shadow$2e$ts.Alias"
+                            .equals(call.calleeOwnerFqn())
+                        && "run".equals(call.calleeName())));
+  }
+
+  @Test
   void resolvesCallsThroughTypedThisPropertyReceivers() throws IOException {
     Files.writeString(
         tempDir.resolve("repository.service.ts"),
