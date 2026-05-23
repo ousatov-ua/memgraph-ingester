@@ -14,9 +14,10 @@ import java.util.regex.Pattern;
  */
 public final class MetricsSnapshotValidator {
 
-  private static final List<String> MARKDOWN_PREFIX =
-      List.of("# Ingestion Metrics", "", "| metric | value |", "| --- | ---: |");
-  private static final Pattern DATA_ROW_PATTERN = Pattern.compile("\\| [^|]+ \\| \\d+ \\|");
+  private static final String HEADING = "# Ingestion Metrics";
+  private static final Pattern HEADER_PATTERN = Pattern.compile("\\| metric +\\| +value \\|");
+  private static final Pattern SEPARATOR_PATTERN = Pattern.compile("\\|-+\\|-+:\\|");
+  private static final Pattern DATA_ROW_PATTERN = Pattern.compile("\\| [^|]+ \\| +\\d+ \\|");
 
   private MetricsSnapshotValidator() {
     throw new UnsupportedOperationException("Utility class");
@@ -45,11 +46,14 @@ public final class MetricsSnapshotValidator {
 
   private static void validateMarkdownTable(String label, String metrics) {
     List<String> lines = metrics.lines().toList();
-    if (lines.size() < MARKDOWN_PREFIX.size()
-        || !lines.subList(0, MARKDOWN_PREFIX.size()).equals(MARKDOWN_PREFIX)) {
+    if (lines.size() < 4
+        || !HEADING.equals(lines.get(0))
+        || !lines.get(1).isEmpty()
+        || !HEADER_PATTERN.matcher(lines.get(2)).matches()
+        || !SEPARATOR_PATTERN.matcher(lines.get(3)).matches()) {
       throw new IllegalStateException(label + " metrics must use Markdown table syntax.");
     }
-    for (String line : lines.subList(MARKDOWN_PREFIX.size(), lines.size())) {
+    for (String line : lines.subList(4, lines.size())) {
       if (!DATA_ROW_PATTERN.matcher(line).matches()) {
         throw new IllegalStateException(
             label + " metrics row is not a Markdown table row: " + line);

@@ -12,8 +12,8 @@ public record IngestionMetrics(List<Row> rows) {
 
   private static final String TITLE = "Ingestion Metrics";
   private static final String HEADING = "# " + TITLE;
-  private static final String HEADER = "| metric | value |";
-  private static final String SEPARATOR = "| --- | ---: |";
+  private static final String METRIC_COLUMN = "metric";
+  private static final String VALUE_COLUMN = "value";
   private static final String LF = "\n";
 
   public IngestionMetrics {
@@ -22,19 +22,50 @@ public record IngestionMetrics(List<Row> rows) {
 
   /** Renders metrics in a human-readable and machine-friendly table. */
   public String toMarkdownTable() {
+    int metricWidth =
+        rows.stream().map(Row::name).mapToInt(String::length).max().orElse(METRIC_COLUMN.length());
+    metricWidth = Math.max(metricWidth, METRIC_COLUMN.length());
+    int valueWidth =
+        rows.stream()
+            .map(Row::value)
+            .map(String::valueOf)
+            .mapToInt(String::length)
+            .max()
+            .orElse(VALUE_COLUMN.length());
+    valueWidth = Math.max(valueWidth, VALUE_COLUMN.length());
     StringBuilder table = new StringBuilder(HEADING).append(LF).append(LF);
-    table.append(HEADER).append(LF);
-    table.append(SEPARATOR).append(LF);
+    table
+        .append("| ")
+        .append(padRight(METRIC_COLUMN, metricWidth))
+        .append(" | ")
+        .append(padLeft(VALUE_COLUMN, valueWidth))
+        .append(" |")
+        .append(LF);
+    table
+        .append("|")
+        .append("-".repeat(metricWidth + 2))
+        .append("|")
+        .append("-".repeat(valueWidth + 1))
+        .append(":|")
+        .append(LF);
     for (Row row : rows) {
       table
           .append("| ")
-          .append(row.name())
+          .append(padRight(row.name(), metricWidth))
           .append(" | ")
-          .append(row.value())
+          .append(padLeft(String.valueOf(row.value()), valueWidth))
           .append(" |")
           .append(LF);
     }
     return table.toString();
+  }
+
+  private static String padLeft(String value, int width) {
+    return " ".repeat(Math.max(0, width - value.length())) + value;
+  }
+
+  private static String padRight(String value, int width) {
+    return value + " ".repeat(Math.max(0, width - value.length()));
   }
 
   /**

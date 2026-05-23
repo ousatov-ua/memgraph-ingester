@@ -30,7 +30,8 @@ class IngestionMetricsTest {
         new IngestionMetrics(
             List.of(
                 new IngestionMetrics.Row("classes.internal", 7),
-                new IngestionMetrics.Row("calls", 11)));
+                new IngestionMetrics.Row("calls", 1061),
+                new IngestionMetrics.Row("resolved_code_refs", 16)));
 
     String table = metrics.toMarkdownTable();
 
@@ -38,10 +39,11 @@ class IngestionMetricsTest {
         """
         # Ingestion Metrics
 
-        | metric | value |
-        | --- | ---: |
-        | classes.internal | 7 |
-        | calls | 11 |
+        | metric             | value |
+        |--------------------|------:|
+        | classes.internal   |     7 |
+        | calls              |  1061 |
+        | resolved_code_refs |    16 |
         """,
         table);
   }
