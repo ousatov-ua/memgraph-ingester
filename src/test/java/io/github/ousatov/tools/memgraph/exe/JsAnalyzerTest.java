@@ -497,6 +497,64 @@ class JsAnalyzerTest {
   }
 
   @Test
+  void namedVariableClassExpressionConstructorSelfBindingRespectsNestedVarShadow()
+      throws IOException {
+    JsAnalysis analysis =
+        analyzeSource(
+            "named-class-constructor-var-shadow.ts",
+            """
+            class Named {}
+            const Alias = class Named {
+              static build() {
+                if (ready) {
+                  var Named = function Replacement() {};
+                }
+                return new Named();
+              }
+            };
+            """);
+
+    assertTrue(
+        analysis.calls().stream()
+            .noneMatch(
+                call ->
+                    "js.named$2d$class$2d$constructor$2d$var$2d$shadow$2e$ts.Alias.build()"
+                            .equals(call.callerSignature())
+                        && "js.named$2d$class$2d$constructor$2d$var$2d$shadow$2e$ts.Alias.<init>()"
+                            .equals(call.calleeSignature())));
+  }
+
+  @Test
+  void namedVariableClassExpressionMethodSelfBindingRespectsNestedVarShadow() throws IOException {
+    JsAnalysis analysis =
+        analyzeSource(
+            "named-class-method-var-shadow.ts",
+            """
+            class Named {
+              static run() {}
+            }
+            const Alias = class Named {
+              static invoke() {
+                if (ready) {
+                  var Named = {};
+                }
+                Named.run();
+              }
+            };
+            """);
+
+    assertTrue(
+        analysis.calls().stream()
+            .noneMatch(
+                call ->
+                    "js.named$2d$class$2d$method$2d$var$2d$shadow$2e$ts.Alias.invoke()"
+                            .equals(call.callerSignature())
+                        && "js.named$2d$class$2d$method$2d$var$2d$shadow$2e$ts.Alias"
+                            .equals(call.calleeOwnerFqn())
+                        && "run".equals(call.calleeName())));
+  }
+
+  @Test
   void resolvesCallsThroughTypedThisPropertyReceivers() throws IOException {
     Files.writeString(
         tempDir.resolve("repository.service.ts"),

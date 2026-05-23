@@ -1524,7 +1524,7 @@ function scopeDeclaresValueName(scope, name) {
   if (ts.isFunctionLike(scope)) {
     return Array.from(scope.parameters || []).some(parameter =>
       bindingNameContains(parameter.name, name)
-    );
+    ) || functionBodyDeclaresVarName(scope.body, name);
   }
   if (ts.isBlock(scope) || scope === sourceFile) {
     return Array.from(scope.statements || []).some(statement =>
@@ -1547,6 +1547,36 @@ function scopeDeclaresValueName(scope, name) {
       bindingNameContains(scope.variableDeclaration.name, name);
   }
   return false;
+}
+
+function functionBodyDeclaresVarName(body, name) {
+  if (!body) {
+    return false;
+  }
+  let found = false;
+  function visit(node) {
+    if (found) {
+      return;
+    }
+    if (node !== body && (ts.isFunctionLike(node) || isClassLike(node))) {
+      return;
+    }
+    if (
+      ts.isVariableDeclarationList(node) &&
+      (node.flags & ts.NodeFlags.BlockScoped) === 0 &&
+      variableDeclarationListContains(node, name)
+    ) {
+      found = true;
+      return;
+    }
+    ts.forEachChild(node, visit);
+  }
+  ts.forEachChild(body, visit);
+  return found;
+}
+
+function isClassLike(node) {
+  return ts.isClassDeclaration(node) || ts.isClassExpression(node);
 }
 
 function statementDeclaresValueName(statement, name) {
