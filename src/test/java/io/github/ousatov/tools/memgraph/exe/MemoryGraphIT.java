@@ -128,6 +128,70 @@ class MemoryGraphIT {
   }
 
   @Test
+  void codeRefsResolveLanguageSpecificCodeRoots() {
+    session
+        .run(
+            "MATCH (m:Memory {project: $p})"
+                + " MERGE (d:Decision {id: 'DEC-test-refers-to-java-code', project: $p})"
+                + " SET d.title = 'Document Java code root', d.status = 'accepted'"
+                + " MERGE (ref:CodeRef {project: $p, targetType: 'Code', key: 'java'})"
+                + " MERGE (m)-[:HAS_DECISION]->(d)"
+                + " MERGE (d)-[:REFERS_TO]->(ref)",
+            Map.of("p", PROJECT))
+        .consume();
+
+    writer.resolveCodeRefs();
+
+    long count =
+        session
+            .run(
+                "MATCH (:CodeRef {project: $p, targetType: 'Code', key: 'java'})"
+                    + "-[:RESOLVES_TO]->(:Code {project: $p, language: 'java'})"
+                    + " RETURN count(*) AS n",
+                Map.of("p", PROJECT))
+            .single()
+            .get("n")
+            .asLong();
+
+    assertEquals(1, count);
+  }
+
+  @Test
+  void codeRefsResolveLanguageSpecificPackages() {
+    writer.upsertPackage("shared", SourceLanguage.JAVA);
+    writer.upsertPackage("shared", SourceLanguage.JAVASCRIPT);
+
+    session
+        .run(
+            "MATCH (m:Memory {project: $p})"
+                + " MERGE (d:Decision {id: 'DEC-test-refers-to-js-package', project: $p})"
+                + " SET d.title = 'Document JS package', d.status = 'accepted'"
+                + " MERGE (ref:CodeRef {project: $p,"
+                + " targetType: 'Package', key: 'javascript:shared'})"
+                + " MERGE (m)-[:HAS_DECISION]->(d)"
+                + " MERGE (d)-[:REFERS_TO]->(ref)",
+            Map.of("p", PROJECT))
+        .consume();
+
+    writer.resolveCodeRefs();
+
+    long count =
+        session
+            .run(
+                "MATCH (:CodeRef {project: $p,"
+                    + " targetType: 'Package', key: 'javascript:shared'})"
+                    + "-[:RESOLVES_TO]->(:Package {project: $p,"
+                    + " name: 'shared', language: 'javascript'})"
+                    + " RETURN count(*) AS n",
+                Map.of("p", PROJECT))
+            .single()
+            .get("n")
+            .asLong();
+
+    assertEquals(1, count);
+  }
+
+  @Test
   @SuppressWarnings("java:S5778")
   void memoryIdentityConstraintRejectsDuplicateDecisionIdsWithinProject() {
     session
@@ -200,7 +264,8 @@ class MemoryGraphIT {
     long fileCount =
         session
             .run(
-                "MATCH (:Project {name: $p})-[:CONTAINS]->(:Code {project: $p})"
+                "MATCH (:Project {name: $p})-[:CONTAINS]->(:Language {name: 'Java'})"
+                    + "-[:CONTAINS]->(:Code {project: $p, language: 'java'})"
                     + "-[:CONTAINS]->(:File {path: $path, project: $p})"
                     + " RETURN count(*) AS n",
                 Map.of("p", PROJECT, "path", TEST_FILE.toString()))

@@ -1,8 +1,9 @@
 CREATE CONSTRAINT ON (p:Project)    ASSERT p.name                   IS UNIQUE;
 
-CREATE CONSTRAINT ON (c:Code)       ASSERT c.project                IS UNIQUE;
+CREATE CONSTRAINT ON (l:Language)   ASSERT l.project, l.name        IS UNIQUE;
+CREATE CONSTRAINT ON (c:Code)       ASSERT c.project, c.language    IS UNIQUE;
 
-CREATE CONSTRAINT ON (p:Package)    ASSERT p.name, p.project        IS UNIQUE;
+CREATE CONSTRAINT ON (p:Package)    ASSERT p.name, p.project, p.language IS UNIQUE;
 CREATE CONSTRAINT ON (c:Class)      ASSERT c.fqn, c.project         IS UNIQUE;
 CREATE CONSTRAINT ON (i:Interface)  ASSERT i.fqn, i.project         IS UNIQUE;
 CREATE CONSTRAINT ON (a:Annotation) ASSERT a.fqn, a.project         IS UNIQUE;
@@ -12,6 +13,9 @@ CREATE CONSTRAINT ON (file:File)    ASSERT file.path, file.project  IS UNIQUE;
 CREATE CONSTRAINT ON (pc:PendingCall) ASSERT pc.project, pc.callerSignature, pc.calleeOwnerFqn, pc.calleeName IS UNIQUE;
 CREATE INDEX ON :Project(name);
 CREATE INDEX ON :Code(project);
+CREATE INDEX ON :Code(language);
+CREATE INDEX ON :Language(project);
+CREATE INDEX ON :Language(name);
 CREATE INDEX ON :Class(project);
 CREATE INDEX ON :Class(name);
 CREATE INDEX ON :Interface(project);
@@ -24,6 +28,7 @@ CREATE INDEX ON :Method(ownerFqn);
 CREATE INDEX ON :Field(project);
 CREATE INDEX ON :Field(name);
 CREATE INDEX ON :Class(packageName);
+CREATE INDEX ON :Package(language);
 CREATE INDEX ON :PendingCall(project);
 CREATE INDEX ON :PendingCall(calleeOwnerFqn);
 

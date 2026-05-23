@@ -80,7 +80,7 @@ Memory links:
 (:Decision|...)-[:REFERS_TO]->(:CodeRef)-[:RESOLVES_TO]->(:Code|:Package|:File|:Class|:Interface|:Annotation|:Method|:Field)
 ```
 
-`CodeRef.key`: project name for `Code`, package name for `Package`, path for `File`, FQN for types/fields, signature for `Method`.
+`CodeRef.key`: language graph name for `Code` (`java` or `javascript`), language-prefixed package name for `Package` (`java:<package>` or `javascript:<package>`), path for `File`, FQN for types/fields, signature for `Method`.
 
 ## Memory Policy
 
@@ -138,6 +138,8 @@ MERGE (ref:CodeRef {project: '{{PROJECT_NAME}}', targetType: 'Class', key: '<fqn
 MERGE (d)-[:REFERS_TO]->(ref)
 MERGE (ref)-[:RESOLVES_TO]->(c);
 ```
+
+For `targetType: 'Code'`, use `key: 'java'` or `key: 'javascript'`. For `targetType: 'Package'`, use `key: 'java:<package>'` or `key: 'javascript:<package>'`.
 
 Verify recent memory and its code link before the final response. Adapt `HAS_DECISION`,
 `:Decision`, and `d` to the memory type just created:

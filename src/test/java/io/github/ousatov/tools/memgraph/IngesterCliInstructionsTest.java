@@ -91,7 +91,7 @@ class IngesterCliInstructionsTest {
   }
 
   @Test
-  void withMemoriesContinuesToJsIngestionValidationWhenSourceIsProvided() throws Exception {
+  void withMemoriesContinuesToIngestionValidationWhenSourceIsProvided() throws Exception {
     Path source = Files.createDirectories(tempDir.resolve("src"));
 
     CliProcessResult result =
@@ -100,8 +100,6 @@ class IngesterCliInstructionsTest {
             "-P",
             "cli-js-memory-project",
             "--with-memories",
-            "--language",
-            "js",
             "--source",
             source.toString());
 

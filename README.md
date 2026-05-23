@@ -11,7 +11,7 @@
 
 ![memgraph-ingester-readme-banner-640x320.svg](image/memgraph-ingester-readme-banner-640x320.svg)
 
-Memgraph Ingester indexes a **Java** or **JavaScript/TypeScript** codebase into
+Memgraph Ingester indexes **Java** and **JavaScript/TypeScript** source files into
 [Memgraph](https://memgraph.com/) so AI agents can query a real code graph instead of repeatedly
 scanning raw files.
 
@@ -26,7 +26,7 @@ The normal path is simple:
 
 1. Run Memgraph.
 2. Download one ingester executable.
-3. Run one command for Java or one command for JS/TS.
+3. Run one command; the ingester selects Java or JS/TS logic from each source file extension.
 4. Optionally connect your AI agent through MCP or `mgconsole`.
 
 No source code is uploaded by the ingester. It reads local files, writes graph nodes to your
@@ -65,7 +65,6 @@ If you do not want the ingester to download Node.js, use your own Node.js:
   --source . \
   --bolt bolt://localhost:7687 \
   --project my-js-project \
-  --language js \
   --js-runtime-mode system \
   --wipe-project-code \
   --apply-schema
@@ -80,7 +79,6 @@ If you want no network access during JS/TS ingestion, warm the cache once and th
   --source . \
   --bolt bolt://localhost:7687 \
   --project my-js-project \
-  --language js \
   --js-runtime-mode offline \
   --wipe-project-code
 ```
@@ -154,7 +152,6 @@ cd /path/to/your/java/project
   --source src/main/java \
   --bolt bolt://localhost:7687 \
   --project my-java-project \
-  --language java \
   --wipe-project-code \
   --apply-schema
 ```
@@ -170,7 +167,6 @@ CP=$(mvn -q dependency:build-classpath -DincludeScope=test -Dmdep.outputFile=/de
   --source src/main/java \
   --bolt bolt://localhost:7687 \
   --project my-java-project \
-  --language java \
   --classpath "$CP" \
   --wipe-project-code \
   --apply-schema
@@ -194,7 +190,6 @@ cd /path/to/your/js/project
   --source . \
   --bolt bolt://localhost:7687 \
   --project my-js-project \
-  --language js \
   --wipe-project-code \
   --apply-schema
 ```
@@ -219,8 +214,8 @@ mgconsole --host localhost --port 7687 --output-format=csv
 Then:
 
 ```cypher
-MATCH (p:Project)-[:CONTAINS]->(c:Code)
-RETURN p.name, c.sourceRoots, c.lastIngested
+MATCH (p:Project)-[:CONTAINS]->(l:Language)-[:CONTAINS]->(c:Code)
+RETURN p.name, l.name, c.sourceRoots, c.lastIngested
 ORDER BY c.lastIngested DESC;
 ```
 
@@ -289,8 +284,8 @@ This is safe for the named project, but it deletes that project's memory:
 List indexed projects:
 
 ```cypher
-MATCH (p:Project)-[:CONTAINS]->(c:Code)
-RETURN p.name, c.sourceRoots, c.lastIngested
+MATCH (p:Project)-[:CONTAINS]->(l:Language)-[:CONTAINS]->(c:Code)
+RETURN p.name, l.name, c.sourceRoots, c.lastIngested
 ORDER BY c.lastIngested DESC;
 ```
 
@@ -332,7 +327,7 @@ previous graph with generated sources only.
 
 ## JavaScript and TypeScript Guide
 
-Use `--language js`, `--language javascript`, `--language ts`, or `--language typescript`.
+JS/TS files are detected from their extensions during the normal `--source` scan.
 
 Accepted source extensions:
 
@@ -396,7 +391,6 @@ Custom cache:
   --source . \
   --bolt bolt://localhost:7687 \
   --project my-js-project \
-  --language js \
   --js-runtime-cache /path/to/cache \
   --wipe-project-code
 ```
@@ -408,7 +402,6 @@ Custom pinned versions:
   --source . \
   --bolt bolt://localhost:7687 \
   --project my-js-project \
-  --language js \
   --js-node-version 22.11.0 \
   --js-typescript-version 5.6.3 \
   --wipe-project-code
@@ -616,7 +609,6 @@ Options:
 | `--incremental` |  | no | `false` | Skip files whose last-modified timestamp matches the graph. |
 | `--watch` | `-w` | no | `false` | Watch the source directory and re-ingest changes. |
 | `--classpath` |  | no | empty | Platform-separated JAR paths for Java symbol resolution. |
-| `--language` |  | no | `java` | `java`, `js`, `javascript`, `ts`, or `typescript`. |
 | `--js-runtime-mode` |  | no | `managed` | `managed`, `system`, or `offline`. |
 | `--js-runtime-cache` |  | no | `~/.cache/memgraph-ingester` | Cache directory for managed Node.js and TypeScript downloads. |
 | `--js-node-version` |  | no | `22.11.0` | Pinned Node.js version for managed JS/TS parsing. |
@@ -645,18 +637,20 @@ rarely help.
 
 Memgraph Ingester creates two project-scoped graph roots:
 
-- Code graph: `(:Project)-[:CONTAINS]->(:Code)`
+- Code graph: `(:Project)-[:CONTAINS]->(:Language)-[:CONTAINS]->(:Code)`
 - Memory graph: `(:Project)-[:HAS_MEMORY]->(:Memory)`
 
-Every code and memory node uses the same `project` namespace.
+Every code and memory node uses the same `project` namespace. Code is grouped by language nodes
+named `Java` and `Js`.
 
 ### Code Nodes
 
 | Label | Identity | Key properties |
 |---|---|---|
 | `:Project` | `name` | Project anchor. |
-| `:Code` | `project` | `sourceRoots`, `lastIngested`. |
-| `:Package` | `(name, project)` | Package name. |
+| `:Language` | `(project, name)` | `Java` or `Js` group. |
+| `:Code` | `(project, language)` | `sourceRoots`, `lastIngested`. |
+| `:Package` | `(name, project, language)` | Package name. |
 | `:File` | `(path, project)` | `lastModified`, `language`. |
 | `:Class` | `(fqn, project)` | `name`, `packageName`, type flags, `language`, `kind`, `modulePath`, `framework`. |
 | `:Interface` | `(fqn, project)` | `name`, `packageName`, `language`, `kind`, `modulePath`, `framework`. |
@@ -669,7 +663,7 @@ Every code and memory node uses the same `project` namespace.
 
 | Relationship | Meaning |
 |---|---|
-| `(:Project)-[:CONTAINS]->(:Code)` | Code graph anchor. |
+| `(:Project)-[:CONTAINS]->(:Language)-[:CONTAINS]->(:Code)` | Code graph anchor per language. |
 | `(:Code)-[:CONTAINS]->(:Package \| :File)` | Top-level code membership. |
 | `(:Package)-[:CONTAINS]->(:Class \| :Interface \| :Annotation)` | Package contents. |
 | `(:File)-[:DEFINES]->(:Class \| :Interface \| :Annotation)` | Source location. |
@@ -729,6 +723,9 @@ Controlled values:
 | `(:Decision \| :ADR \| :Rule \| :Context \| :Finding \| :Task \| :Risk \| :Idea)-[:REFERS_TO]->(:CodeRef)` | Stable memory-to-code reference. |
 | `(:CodeRef)-[:RESOLVES_TO]->(:Code \| :Package \| :File \| :Class \| :Interface \| :Annotation \| :Method \| :Field)` | Current code node resolved after ingestion. |
 
+For `:CodeRef`, use `key: 'java'` or `key: 'javascript'` for `targetType: 'Code'`, and
+`key: 'java:<package>'` or `key: 'javascript:<package>'` for `targetType: 'Package'`.
+
 See [`doc/MEMORY.md`](doc/MEMORY.md) for Memory examples and Cypher recipes.
 See [`doc/SCHEMA.md`](doc/SCHEMA.md) for the full graph model.
 
@@ -737,7 +734,8 @@ See [`doc/SCHEMA.md`](doc/SCHEMA.md) for the full graph model.
 All classes in a project:
 
 ```cypher
-MATCH (:Project {name: 'my-project'})-[:CONTAINS]->(:Code)-[:CONTAINS]->(:File)-[:DEFINES]->(c:Class)
+MATCH (:Project {name: 'my-project'})-[:CONTAINS]->(:Language {name: 'Java'})
+  -[:CONTAINS]->(:Code)-[:CONTAINS]->(:File)-[:DEFINES]->(c:Class)
 WHERE c.isExternal = false
 RETURN c.fqn
 ORDER BY c.fqn;
@@ -836,7 +834,8 @@ RETURN labels(memory), memory.id, memory.title;
 │   │       ├── reflect-config.json             # GraalVM reflection metadata
 │   │       └── resource-config.json            # GraalVM bundled resource patterns
 │   ├── io/github/ousatov/tools/memgraph/cypher/
-│   │   ├── action/                             # Per-operation upsert, delete, and resolve Cypher
+│   │   ├── action/                             # Shared upsert, delete, and resolve Cypher
+│   │   │   └── Js/                             # JS/TS-specific cleanup Cypher
 │   │   ├── metrics/                            # Metrics snapshot Cypher queries
 │   │   ├── create-schema.cypher                # Constraints and indexes
 │   │   ├── drop-schema.cypher                  # Schema teardown

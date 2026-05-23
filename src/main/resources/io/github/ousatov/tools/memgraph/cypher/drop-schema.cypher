@@ -21,8 +21,11 @@ DROP CONSTRAINT ON (ref:CodeRef) ASSERT ref.project, ref.targetType, ref.key IS 
 // =====================================================
 
 DROP CONSTRAINT ON (p:Project) ASSERT p.name IS UNIQUE;
+DROP CONSTRAINT ON (l:Language) ASSERT l.project, l.name IS UNIQUE;
+DROP CONSTRAINT ON (c:Code) ASSERT c.project, c.language IS UNIQUE;
 DROP CONSTRAINT ON (c:Code) ASSERT c.project IS UNIQUE;
 
+DROP CONSTRAINT ON (p:Package) ASSERT p.name, p.project, p.language IS UNIQUE;
 DROP CONSTRAINT ON (p:Package) ASSERT p.name, p.project IS UNIQUE;
 DROP CONSTRAINT ON (c:Class) ASSERT c.fqn, c.project IS UNIQUE;
 DROP CONSTRAINT ON (i:Interface) ASSERT i.fqn, i.project IS UNIQUE;
@@ -84,6 +87,9 @@ DROP INDEX ON :ADR(status);
 
 DROP INDEX ON :Project(name);
 DROP INDEX ON :Code(project);
+DROP INDEX ON :Code(language);
+DROP INDEX ON :Language(project);
+DROP INDEX ON :Language(name);
 
 DROP INDEX ON :Class(project);
 DROP INDEX ON :Class(name);
@@ -102,5 +108,6 @@ DROP INDEX ON :Field(project);
 DROP INDEX ON :Field(name);
 
 DROP INDEX ON :Class(packageName);
+DROP INDEX ON :Package(language);
 DROP INDEX ON :PendingCall(project);
 DROP INDEX ON :PendingCall(calleeOwnerFqn);

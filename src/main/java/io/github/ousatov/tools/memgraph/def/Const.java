@@ -120,15 +120,15 @@ public final class Const {
      * previously written for the same file under an obsolete module FQN.
      */
     public static final String CYPHER_DELETE_STALE_JAVASCRIPT_MEMBERS_FOR_FILE =
-        action("delete-stale-javascript-members-for-file.cypher");
+        action("Js/delete-stale-members-for-file.cypher");
 
     /** Deletes stale JavaScript/TypeScript owners left behind by older module FQN schemes. */
     public static final String CYPHER_DELETE_STALE_JAVASCRIPT_OWNERS_FOR_FILE =
-        action("delete-stale-javascript-owners-for-file.cypher");
+        action("Js/delete-stale-owners-for-file.cypher");
 
     /** Deletes empty JavaScript/TypeScript package nodes left after stale owner cleanup. */
     public static final String CYPHER_DELETE_EMPTY_JAVASCRIPT_PACKAGES =
-        action("delete-empty-javascript-packages.cypher");
+        action("Js/delete-empty-packages.cypher");
 
     /**
      * Resolves pending owner/name calls once all candidate owners and methods have been ingested.
@@ -211,6 +211,7 @@ public final class Const {
     public static final String IS_SYNTHETIC = "isSynthetic";
     public static final String TYPE = "type";
     public static final String LANGUAGE = "language";
+    public static final String LANGUAGE_NAME = "languageName";
     public static final String KIND = "kind";
     public static final String MODULE_PATH = "modulePath";
     public static final String MODULE_PREFIX = "modulePrefix";

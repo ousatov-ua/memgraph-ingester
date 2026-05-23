@@ -77,13 +77,13 @@ Before reading any tagged file or directory:
 ```cypher
 // Package boundaries
 MATCH (p:Package {project: '{{PROJECT_NAME}}'})
-RETURN p.name ORDER BY p.name;
+RETURN p.language, p.name ORDER BY p.language, p.name;
 
 // Class inventory
 MATCH (p:Package {project: '{{PROJECT_NAME}}'})-[:CONTAINS]->(c:Class)
 WHERE c.isExternal = false
-RETURN p.name AS pkg, c.name AS cls, c.isAbstract, c.isFinal
-ORDER BY p.name, c.name;
+RETURN p.language AS language, p.name AS pkg, c.name AS cls, c.isAbstract, c.isFinal
+ORDER BY language, p.name, c.name;
 
 // Cross-class call graph
 MATCH (caller:Method {project: '{{PROJECT_NAME}}'})-[:CALLS]->(callee:Method {project: '{{PROJECT_NAME}}'})
@@ -125,8 +125,9 @@ ORDER BY c.fqn, f.name;
 | Label         | Key                    | Notable properties                                                                                                    |
 |---------------|------------------------|-----------------------------------------------------------------------------------------------------------------------|
 | `:Project`    | `name`                 | -                                                                                                                     |
-| `:Code`       | `project`              | `lastIngested`                                                                                                        |
-| `:Package`    | `(name, project)`      | -                                                                                                                     |
+| `:Language`   | `(project, name)`      | `graphName`                                                                                                           |
+| `:Code`       | `(project, language)`  | `lastIngested`, `languageName`                                                                                        |
+| `:Package`    | `(name, project, language)` | -                                                                                                                |
 | `:File`       | `(path, project)`      | `lastModified`, `language`                                                                                            |
 | `:Class`      | `(fqn, project)`       | `name`, `isAbstract`, `isEnum`, `isRecord`, `isFinal`, `isExternal`, `visibility`, `language`, `kind`, `modulePath`, `framework` |
 | `:Interface`  | `(fqn, project)`       | `name`, `visibility`, `isFinal`, `isExternal`, `language`, `kind`, `modulePath`, `framework`                          |
@@ -138,7 +139,7 @@ ORDER BY c.fqn, f.name;
 ### Code Relationships
 
 ```text
-(:Project)-[:CONTAINS]->(:Code)-[:CONTAINS]->(:Package|:File)
+(:Project)-[:CONTAINS]->(:Language)-[:CONTAINS]->(:Code)-[:CONTAINS]->(:Package|:File)
 (:Package)-[:CONTAINS]->(:Class|:Interface|:Annotation)
 (:File)-[:DEFINES]->(:Class|:Interface|:Annotation)
 (:Class)-[:EXTENDS]->(:Class)
@@ -152,7 +153,7 @@ ORDER BY c.fqn, f.name;
 
 ### Query Caveats
 
-- Code graph nodes may have optional `language` (`"java"` or `"javascript"`), `kind`, `modulePath`, and `framework` metadata. Older graphs may not have these properties.
+- Code is grouped by `(:Language {name: "Java"|"Js"})` between `:Project` and `:Code`. Code graph nodes may have optional `language` (`"java"` or `"javascript"`), `kind`, `modulePath`, and `framework` metadata. Older graphs may not have these properties.
 - `CALLS` has no `project`; filter both endpoints.
 - `CALLS` and `ANNOTATED_WITH` are best-effort; missing edges do not prove no relationship.
 - JavaScript/TypeScript modules are represented as synthetic `:Class` owner nodes with `language = "javascript"` and `kind = "module"`. Top-level functions and variables are declared by that module owner.

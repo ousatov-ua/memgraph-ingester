@@ -11,7 +11,6 @@ import io.github.ousatov.tools.memgraph.exe.ManagedNodeRuntime;
 import io.github.ousatov.tools.memgraph.exe.ManagedTypescriptPackage;
 import io.github.ousatov.tools.memgraph.exe.ParseService;
 import io.github.ousatov.tools.memgraph.exe.RuntimeMode;
-import io.github.ousatov.tools.memgraph.exe.SourceLanguage;
 import io.github.ousatov.tools.memgraph.vo.Settings;
 import java.io.File;
 import java.io.IOException;
@@ -136,13 +135,6 @@ public final class IngesterCli implements Callable<Integer> {
   private String classpath;
 
   @Option(
-      names = {"--language"},
-      defaultValue = "java",
-      description = "Source language to ingest: java or js. Defaults to java.")
-  @SuppressWarnings("unused")
-  private String language;
-
-  @Option(
       names = {"--js-runtime-mode"},
       defaultValue = "managed",
       description =
@@ -259,19 +251,13 @@ public final class IngesterCli implements Callable<Integer> {
       return 1;
     }
     log.info("Using next classpath entries: {}", classpath);
-    SourceLanguage selectedLanguage;
-    try {
-      selectedLanguage = SourceLanguage.parse(language);
-    } catch (IllegalArgumentException e) {
-      log.error(e.getMessage());
-      return 1;
-    }
-    log.info("Selected source language: {}", selectedLanguage.graphName());
     try (Driver driver = GraphDatabase.driver(boltUrl, AuthTokens.basic(user, pass))) {
-      LanguageAdapter languageAdapter =
-          createLanguageAdapter(selectedLanguage, selectedRuntimeMode);
+      List<LanguageAdapter> languageAdapters = createLanguageAdapters(selectedRuntimeMode);
+      log.info(
+          "Enabled source language adapters: {}",
+          languageAdapters.stream().map(LanguageAdapter::displayName).toList());
       IngestionOrchestrator orchestrator =
-          new IngestionOrchestrator(sourceRoot, project, threads, driver, languageAdapter);
+          new IngestionOrchestrator(sourceRoot, project, threads, driver, languageAdapters);
       var settings =
           new Settings(
               wipeAllData, applySchema, wipeProjectCode, wipeProjectMemories, incremental, watch);
@@ -309,7 +295,6 @@ public final class IngesterCli implements Callable<Integer> {
         || optionWasMatched("--pass")
         || optionWasMatched("-p")
         || optionWasMatched("--classpath")
-        || optionWasMatched("--language")
         || optionWasMatched("--js-runtime-mode")
         || optionWasMatched("--js-runtime-cache")
         || optionWasMatched("--js-node-version")
@@ -558,25 +543,23 @@ public final class IngesterCli implements Callable<Integer> {
     }
   }
 
-  private LanguageAdapter createLanguageAdapter(
-      SourceLanguage selectedLanguage, RuntimeMode selectedRuntimeMode) {
-    if (selectedLanguage == SourceLanguage.JAVA) {
-      List<Path> cpEntries =
-          (classpath == null || classpath.isBlank())
-              ? List.of()
-              : Arrays.stream(classpath.split(File.pathSeparator))
-                  .map(Path::of)
-                  .filter(Files::isRegularFile)
-                  .toList();
-      ParseService parseService = new ParseService(sourceRoot, cpEntries);
-      return new JavaLanguageAdapter(parseService);
-    }
+  private List<LanguageAdapter> createLanguageAdapters(RuntimeMode selectedRuntimeMode) {
+    List<Path> cpEntries =
+        (classpath == null || classpath.isBlank())
+            ? List.of()
+            : Arrays.stream(classpath.split(File.pathSeparator))
+                .map(Path::of)
+                .filter(Files::isRegularFile)
+                .toList();
+    ParseService parseService = new ParseService(sourceRoot, cpEntries);
     Path cacheRoot =
         jsRuntimeCache == null ? ManagedNodeRuntime.defaultCacheRoot() : jsRuntimeCache;
     ManagedNodeRuntime nodeRuntime =
         new ManagedNodeRuntime(cacheRoot, jsNodeVersion, selectedRuntimeMode);
     ManagedTypescriptPackage typescriptPackage =
         new ManagedTypescriptPackage(cacheRoot, jsTypescriptVersion, selectedRuntimeMode);
-    return new JsLanguageAdapter(new JsAnalyzer(sourceRoot, nodeRuntime, typescriptPackage));
+    return List.of(
+        new JavaLanguageAdapter(parseService),
+        new JsLanguageAdapter(new JsAnalyzer(sourceRoot, nodeRuntime, typescriptPackage)));
   }
 }

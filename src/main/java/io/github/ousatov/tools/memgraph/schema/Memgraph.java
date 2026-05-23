@@ -36,6 +36,10 @@ public final class Memgraph {
     return cypher("create-schema.cypher");
   }
 
+  private static String migrateSchemaQuery() {
+    return cypher("migrate-schema.cypher");
+  }
+
   private static String cypher(String file) {
     String resource = "/io/github/ousatov/tools/memgraph/cypher/" + file;
     try (InputStream in = Memgraph.class.getResourceAsStream(resource)) {
@@ -119,6 +123,7 @@ public final class Memgraph {
    * @param session session to use
    */
   public static void applySchema(Session session) {
+    applyTo(migrateSchemaQuery(), session, true);
     applyTo(createSchemaQuery(), session);
   }
 }

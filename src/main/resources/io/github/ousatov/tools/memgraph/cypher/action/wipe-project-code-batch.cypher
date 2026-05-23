@@ -2,6 +2,7 @@ MATCH (n)
 WHERE n.project = $project
   AND (
     n:Code
+    OR n:Language
     OR n:Package
     OR n:File
     OR n:Class

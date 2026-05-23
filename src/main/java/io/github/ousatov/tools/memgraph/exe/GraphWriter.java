@@ -194,9 +194,24 @@ public final class GraphWriter {
     }
   }
 
-  /** Creates or refreshes the {@code :Project -> :Code} and {@code :Project -> :Memory} anchors. */
+  /** Creates or refreshes all supported code-language roots and the {@code :Memory} anchor. */
   public void upsertProject(Path sourceRoot) {
-    cypher.run(Cypher.CYPHER_UPSERT_PROJECT, Map.of("sourceRoot", sourceRoot.toString()));
+    upsertProject(sourceRoot, SourceLanguage.supported());
+  }
+
+  /** Creates or refreshes selected {@code :Project -> :Language -> :Code} roots. */
+  public void upsertProject(Path sourceRoot, List<SourceLanguage> languages) {
+    for (SourceLanguage language : languages) {
+      cypher.run(
+          Cypher.CYPHER_UPSERT_PROJECT,
+          Map.of(
+              "sourceRoot",
+              sourceRoot.toString(),
+              Params.LANGUAGE,
+              language.graphName(),
+              Params.LANGUAGE_NAME,
+              language.nodeName()));
+    }
   }
 
   /** Backfills method owner metadata for graphs ingested before owner properties existed. */
@@ -206,11 +221,11 @@ public final class GraphWriter {
 
   /** Upserts a {@code :File} node and links it to the code anchor. */
   public void upsertFile(Path file) {
-    upsertFile(file, JAVA_LANGUAGE);
+    upsertFile(file, SourceLanguage.JAVA);
   }
 
-  /** Upserts a {@code :File} node and records the source language that produced it. */
-  public void upsertFile(Path file, String language) {
+  /** Upserts a {@code :File} node and links it under the language-specific code anchor. */
+  public void upsertFile(Path file, SourceLanguage language) {
     long lastModified;
     try {
       lastModified = Files.getLastModifiedTime(file).toMillis();
@@ -225,12 +240,27 @@ public final class GraphWriter {
             Params.LAST_MODIFIED,
             lastModified,
             Params.LANGUAGE,
-            language));
+            language.graphName(),
+            Params.LANGUAGE_NAME,
+            language.nodeName()));
   }
 
   /** Upserts a {@code :Package} node and links it to the code anchor. */
   public void upsertPackage(String pkg) {
-    cypher.run(Cypher.CYPHER_UPSERT_PACKAGE, Map.of(Params.NAME, pkg));
+    upsertPackage(pkg, SourceLanguage.JAVA);
+  }
+
+  /** Upserts a {@code :Package} node under the language-specific code anchor. */
+  public void upsertPackage(String pkg, SourceLanguage language) {
+    cypher.run(
+        Cypher.CYPHER_UPSERT_PACKAGE,
+        Map.of(
+            Params.NAME,
+            pkg,
+            Params.LANGUAGE,
+            language.graphName(),
+            Params.LANGUAGE_NAME,
+            language.nodeName()));
   }
 
   /** Upserts the synthetic module owner used for top-level JavaScript declarations. */
@@ -861,7 +891,9 @@ public final class GraphWriter {
             targetNameParam,
             JavaTypeNames.nameFromFqn(targetFqn),
             targetPkgParam,
-            JavaTypeNames.packageFromFqn(targetFqn)));
+            JavaTypeNames.packageFromFqn(targetFqn),
+            Params.LANGUAGE,
+            JAVASCRIPT_LANGUAGE));
   }
 
   private void upsertTypeRelation(
@@ -884,7 +916,9 @@ public final class GraphWriter {
                     targetNameParam,
                     JavaTypeNames.nameFromFqn(targetFqn),
                     targetPkgParam,
-                    JavaTypeNames.packageFromFqn(targetFqn))));
+                    JavaTypeNames.packageFromFqn(targetFqn),
+                    Params.LANGUAGE,
+                    JAVA_LANGUAGE)));
   }
 
   /** Upserts record components (parameters) as {@code :Field} nodes. */

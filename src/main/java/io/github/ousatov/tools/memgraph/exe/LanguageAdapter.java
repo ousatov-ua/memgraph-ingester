@@ -11,7 +11,12 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 
-/** Parses source files for one language and writes their structure through {@link GraphWriter}. */
+/**
+ * Parses source files for one supported language and writes their structure through {@link
+ * GraphWriter}.
+ *
+ * @author Oleksii Usatov
+ */
 public interface LanguageAdapter {
 
   SourceLanguage language();
@@ -21,7 +26,8 @@ public interface LanguageAdapter {
   boolean ingestFile(GraphWriter writer, Path file);
 
   default boolean shouldVisitDirectory(Path directory) {
-    return true;
+    Path fileName = directory.getFileName();
+    return fileName == null || !"node_modules".equals(fileName.toString());
   }
 
   default List<Path> discoverFiles(Path sourceRoot) {
@@ -53,6 +59,6 @@ public interface LanguageAdapter {
   }
 
   default String displayName() {
-    return language().graphName();
+    return language().nodeName();
   }
 }
