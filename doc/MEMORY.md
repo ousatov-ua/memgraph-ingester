@@ -34,7 +34,7 @@ isn't obvious from the source?"*
 | Node        | Property    | Allowed values                                         |
 |-------------|-------------|--------------------------------------------------------|
 | `:Decision` | `status`    | `proposed` · `accepted` · `rejected` · `superseded`   |
-| `:ADR`      | `status`    | `draft` · `accepted` · `rejected` · `superseded`       |
+| `:ADR`      | `status`    | `draft` · `proposed` · `accepted` · `rejected` · `superseded` |
 | `:Rule`     | `severity`  | `hard` · `soft` · `recommendation`                     |
 | `:Finding`  | `type`      | `bug` · `perf` · `constraint` · `security`             |
 | `:Finding`  | `status`    | `open` · `resolved` · `obsolete`                       |
@@ -46,10 +46,28 @@ isn't obvious from the source?"*
 
 ---
 
+## Agent workflow expectations
+
+Agents should read memory before answering status or pending-work questions, and before code-change
+tasks. The usual orientation set is: Rules, open Findings, Context, active Tasks, open Questions,
+and open Risks.
+
+Create or update a `:Task` for multi-step implementation, debugging, refactoring, documentation,
+dependency, test, or coverage work. Close tasks you create as `done`, `blocked`, or `cancelled`
+before the session ends.
+
+Use `datetime()` for `createdAt` and `updatedAt`; do not use `localDateTime()` for memory
+timestamps.
+
+Memory is not a changelog. Store only information that will help future decisions,
+investigations, or implementation work.
+
+---
+
 ## The three most important types: Finding, Rule, Context
 
 These three are the backbone of day-to-day agent guidance. They're queried automatically at the
-start of every task before any code is touched.
+start of memory-aware work before code is touched.
 
 ### 🔴 Rule — constraints the agent must follow
 
@@ -271,7 +289,8 @@ ships with a free community edition.
 
 ### Task
 
-Tracks unfinished work. Agents check open tasks at the end of a session.
+Tracks active or unfinished work. Agents check active tasks at the start of memory-aware work and
+close tasks they create before the end of a session.
 
 ```
 There's a TODO to add retry logic to GraphWriter. 
@@ -314,29 +333,34 @@ Holds proposed but not-yet-decided approaches.
 
 ```
 Someone suggested switching to virtual threads when JavaParser adds thread safety. 
-Record this as an open idea linked to IngestionOrchestrator.
+Record this as a proposed idea linked to IngestionOrchestrator.
 ```
 
 ---
 
 ## Linking memory to code
 
-Every memory node should be linked to the code it's about via a `:CodeRef`. This survives
-re-ingestion because the ingester refreshes `RESOLVES_TO` edges after each run.
+Every code-related memory node should be linked to the code it's about via a `:CodeRef`. This
+survives re-ingestion because the ingester refreshes `RESOLVES_TO` edges after each run.
 
 ```cypher
 // Step 1: write the memory node (see examples above)
 
-// Step 2: create the CodeRef and link it
+// Step 2: create the CodeRef and link it to an existing code node
+MATCH (c:Class {fqn: 'com.example.GraphWriter', project: 'my-project'})
 MERGE (ref:CodeRef {project: 'my-project', targetType: 'Class', key: 'com.example.GraphWriter'})
 MERGE (f:Finding {id: 'FIND-graphwriter-null-return', project: 'my-project'})
 MERGE (f)-[:REFERS_TO]->(ref)
-MERGE (ref)-[:RESOLVES_TO]->(c:Class {fqn: 'com.example.GraphWriter', project: 'my-project'})
+MERGE (ref)-[:RESOLVES_TO]->(c)
 RETURN ref;
 ```
 
+Use `MATCH` for code nodes instead of merging them inline. Code nodes are owned by ingestion, and
+inline `MERGE` can create incomplete code nodes or conflict with uniqueness constraints.
+
 `targetType` must be one of: `Code`, `Package`, `File`, `Class`, `Interface`, `Annotation`,
-`Method`, `Field`. `key` is the matching identity (FQN for types/fields, signature for methods).
+`Method`, `Field`. `key` is the matching identity: project name for `Code`, package name for
+`Package`, path for `File`, FQN for types/fields, and signature for methods.
 
 ---
 
@@ -378,7 +402,7 @@ RETURN labels(n) AS type, n.id AS id,
 
 ```cypher
 MATCH (m:Memory {project: 'my-project'})-[:HAS_TASK]->(t:Task)
-WHERE t.status IN ['todo', 'doing']
+WHERE t.status IN ['todo', 'doing', 'blocked']
 RETURN t.id, t.status, t.priority
 ORDER BY t.priority;
 ```
@@ -413,8 +437,9 @@ creates a new node.
 
 ## Tips
 
-- **Agents write memory automatically** — if the agent template is configured correctly, agents
-  create memory nodes at the end of every task without you asking. You can also ask explicitly:
+- **Agents write memory when it is useful** — if the agent template is configured correctly, agents
+  create memory for durable findings, decisions, tasks, risks, and context. You can also ask
+  explicitly:
   *"Save what we learned today as memory."*
 
 - **Memory survives re-ingestion** — `--wipe-project-code` does NOT delete memory.

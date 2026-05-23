@@ -459,12 +459,6 @@ Use `--instructions-file` to target a specific file:
 memgraph-ingester -P my-project --instructions-file .github/copilot-instructions.md
 ```
 
-The legacy helper scripts now delegate to the executable and accept the same optional flags:
-
-```bash
-MEMGRAPH_INGESTER_BIN=./memgraph-ingester-macos-arm64 script/init-memgraph-codex.sh my-project --with-memories
-```
-
 Commit the updated instruction file so future agent sessions get the same graph guidance.
 
 ## MCP or mgconsole
@@ -734,7 +728,7 @@ Controlled values:
 | `(:CodeRef)-[:RESOLVES_TO]->(:Code \| :Package \| :File \| :Class \| :Interface \| :Annotation \| :Method \| :Field)` | Current code node resolved after ingestion. |
 
 See [`doc/MEMORY.md`](doc/MEMORY.md) for Memory examples and Cypher recipes.
-See [`schema/SCHEMA.md`](schema/SCHEMA.md) for the full graph model.
+See [`doc/SCHEMA.md`](doc/SCHEMA.md) for the full graph model.
 
 ## Useful Queries
 
@@ -797,18 +791,11 @@ RETURN labels(memory), memory.id, memory.title;
 │   ├── maven.yml                               # Maven build/test workflow
 │   └── native-binaries.yml                     # GraalVM native binaries + JS runtime smoke tests
 ├── doc/
-│   └── MEMORY.md                               # Memory graph usage guide and recipes
+│   ├── MEMORY.md                               # Memory graph usage guide and recipes
+│   └── SCHEMA.md                               # Full code + memory graph schema reference
 ├── image/                                      # README banners and social preview assets
 ├── memgraph-platform/
 │   └── docker-compose.yml                      # Local Memgraph + Lab stack
-├── schema/
-│   └── SCHEMA.md                               # Full code + memory graph schema reference
-├── script/
-│   ├── init-memgraph-claude.sh                 # Delegates Claude instruction setup to executable
-│   ├── init-memgraph-codex.sh                  # Delegates Codex instruction setup to executable
-│   ├── init-memgraph-gemini.sh                 # Delegates Gemini instruction setup to executable
-│   ├── init-memgraph-github.sh                 # Delegates GitHub instruction setup to executable
-│   └── mgq                                     # Token-light mgconsole query wrapper
 ├── src/main/java/io/github/ousatov/tools/memgraph/
 │   ├── AgentInstructionsInstaller.java         # Agent instruction install/replace support
 │   ├── IngesterCli.java                        # picocli CLI entry point
@@ -817,21 +804,25 @@ RETURN labels(memory), memory.id, memory.title;
 │   ├── exception/
 │   │   └── ProcessingException.java            # Domain-level processing failure
 │   ├── exe/
-│   │   ├── LanguageAdapter.java                # Source-language adapter contract
+│   │   ├── CallEdgeWriter.java                 # Java call-edge extraction/writes
+│   │   ├── CypherExecutor.java                 # Cypher execution and retry handling
+│   │   ├── GraphWriter.java                    # Memgraph node/relationship writes
+│   │   ├── IngestionMetrics.java               # Metrics snapshot model
+│   │   ├── IngestionMetricsCollector.java      # Metrics collection from graph queries
+│   │   ├── IngestionOrchestrator.java          # Ingestion, wipe, incremental, and watch workflow
 │   │   ├── JavaLanguageAdapter.java            # JavaParser-backed Java ingestion adapter
-│   │   ├── JsLanguageAdapter.java              # Node/TypeScript-backed JS/TS ingestion adapter
-│   │   ├── JsAnalyzer.java                     # Java wrapper around the bundled JS analyzer
+│   │   ├── JavaTypeNames.java                  # Java type-name helpers
 │   │   ├── JsAnalysis.java                     # Neutral JS analyzer records
+│   │   ├── JsAnalyzer.java                     # Java wrapper around the bundled JS analyzer
+│   │   ├── JsLanguageAdapter.java              # Node/TypeScript-backed JS/TS ingestion adapter
+│   │   ├── LanguageAdapter.java                # Source-language adapter contract
 │   │   ├── ManagedNodeRuntime.java             # Downloaded/cached Node.js runtime management
 │   │   ├── ManagedTypescriptPackage.java       # Downloaded/cached TypeScript compiler management
+│   │   ├── MetricsSnapshotValidator.java       # Metrics snapshot comparison helper
+│   │   ├── MetricsValidationCli.java           # CLI for validating metrics snapshots
 │   │   ├── ParseService.java                   # JavaParser setup and parsing
-│   │   ├── IngestionOrchestrator.java          # Ingestion, wipe, incremental, and watch workflow
-│   │   ├── GraphWriter.java                    # Memgraph node/relationship writes
-│   │   ├── CypherExecutor.java                 # Cypher execution and retry handling
-│   │   ├── CallEdgeWriter.java                 # Java call-edge extraction/writes
-│   │   ├── JavaTypeNames.java                  # Java type-name helpers
-│   │   ├── SourceLanguage.java                 # Supported source-language values
-│   │   └── RuntimeMode.java                    # JS runtime mode values
+│   │   ├── RuntimeMode.java                    # JS runtime mode values
+│   │   └── SourceLanguage.java                 # Supported source-language values
 │   ├── schema/
 │   │   └── Memgraph.java                       # Schema loader and global wipe helpers
 │   └── vo/
@@ -843,20 +834,29 @@ RETURN labels(memory), memory.id, memory.title;
 │   │       ├── reflect-config.json             # GraalVM reflection metadata
 │   │       └── resource-config.json            # GraalVM bundled resource patterns
 │   ├── io/github/ousatov/tools/memgraph/cypher/
-│   │   ├── action/                             # Per-operation Cypher resources
+│   │   ├── action/                             # Per-operation upsert, delete, and resolve Cypher
+│   │   ├── metrics/                            # Metrics snapshot Cypher queries
 │   │   ├── create-schema.cypher                # Constraints and indexes
 │   │   ├── drop-schema.cypher                  # Schema teardown
 │   │   └── wipe-all-data.cypher                # Full data wipe
 │   ├── io/github/ousatov/tools/memgraph/js/
+│   │   ├── js-analyzer-ast.cjs                 # TypeScript AST extraction helpers
+│   │   ├── js-analyzer-paths.cjs               # JS/TS import and tsconfig path resolution
 │   │   └── js-analyzer.cjs                     # Bundled TypeScript compiler-based JS/TS analyzer
 │   └── simplelogger.properties                 # Runtime logging defaults
 ├── src/test/java/io/github/ousatov/tools/memgraph/
+│   ├── AgentInstructionsInstallerTest.java     # Agent instruction installer tests
+│   ├── CypherResourceTest.java                 # Bundled Cypher resource checks
+│   ├── IngesterCliInstructionsTest.java        # CLI instruction-generation tests
+│   ├── IngesterCliTest.java                    # CLI option and execution tests
+│   ├── exception/                              # Domain exception tests
 │   ├── extension/                              # Testcontainers Memgraph JUnit extension
 │   ├── exe/                                    # Parser, writer, orchestrator, and memory ITs
-│   └── ...                                     # CLI, schema, resource, and exception tests
+│   └── schema/                                 # Schema loader tests
 ├── template/
 │   ├── AI-memgraph-code-template.md            # Default code graph agent instructions
 │   └── AI-memgraph-memory-template.md          # Optional Memory workflow agent instructions
+├── .gitignore
 ├── LICENSE
 ├── pom.xml                                     # Maven build, release, and native-image configuration
 └── README.md                                   # User documentation

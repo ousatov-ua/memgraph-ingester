@@ -110,6 +110,48 @@ class IngestionOrchestratorIT {
     }
   }
 
+  private static void createClassCodeRef(String project, String fqn) {
+    try (Session s = driver.session()) {
+      s.run(
+              "MATCH (m:Memory {project: $p})"
+                  + " MERGE (d:Decision {id: 'DEC-watch-refers-to-class', project: $p})"
+                  + " SET d.title = 'Watch class reference', d.status = 'accepted'"
+                  + " MERGE (ref:CodeRef {project: $p, targetType: 'Class', key: $fqn})"
+                  + " MERGE (m)-[:HAS_DECISION]->(d)"
+                  + " MERGE (d)-[:REFERS_TO]->(ref)",
+              Map.of("p", project, "fqn", fqn))
+          .consume();
+    }
+  }
+
+  private static boolean classCodeRefResolved(String project, String fqn) {
+    try (Session s = driver.session()) {
+      return s.run(
+                  "MATCH (:CodeRef {project: $p, targetType: 'Class', key: $fqn})"
+                      + "-[:RESOLVES_TO]->(:Class {project: $p, fqn: $fqn})"
+                      + " RETURN count(*) AS n",
+                  Map.of("p", project, "fqn", fqn))
+              .single()
+              .get("n")
+              .asLong()
+          > 0;
+    }
+  }
+
+  private static boolean hasNoPhantomMethods(String project) {
+    try (Session s = driver.session()) {
+      return s.run(
+                  "MATCH (m:Method {project: $p})"
+                      + " WHERE m.startLine IS NULL"
+                      + " RETURN count(m) AS n",
+                  Map.of("p", project))
+              .single()
+              .get("n")
+              .asLong()
+          == 0;
+    }
+  }
+
   private static void deleteDir(Path dir) throws IOException {
     if (dir != null && Files.exists(dir)) {
       try (Stream<Path> walk = Files.walk(dir)) {
@@ -225,6 +267,7 @@ class IngestionOrchestratorIT {
     await().pollDelay(Duration.ofMillis(300)).atMost(Duration.ofSeconds(1)).until(() -> true);
 
     Path watchedFile = sourceDir.resolve("Watched.java");
+    createClassCodeRef(currentProject, "Watched");
 
     try {
       await()
@@ -236,13 +279,19 @@ class IngestionOrchestratorIT {
                     watchedFile,
                     """
                     public class Watched {
-                      public String value() {
-                        return "changed";
+                      public int value(String text) {
+                        return text.length();
                       }
                     }
                     """);
                 assertTrue(
                     classExists(currentProject, "Watched"), "Watch mode must ingest changed files");
+                assertTrue(
+                    hasNoPhantomMethods(currentProject),
+                    "Watch mode must clean up phantom external Method nodes");
+                assertTrue(
+                    classCodeRefResolved(currentProject, "Watched"),
+                    "Watch mode must refresh CodeRef resolution edges");
               });
       await()
           .atMost(Duration.ofSeconds(10))

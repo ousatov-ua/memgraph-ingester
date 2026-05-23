@@ -155,12 +155,7 @@ public final class IngestionOrchestrator {
 
     try (Session session = driver.session()) {
       GraphWriter postWriter = new GraphWriter(session, project);
-      postWriter.resolvePendingCalls();
-      log.info("Resolved pending owner/name CALLS edges for '{}'", project);
-      postWriter.deletePhantomMethods();
-      log.info("Removed phantom external Method nodes for '{}'", project);
-      postWriter.resolveCodeRefs();
-      log.info("Refreshed :CodeRef resolution edges for '{}'", project);
+      refreshDerivedGraphArtifacts(postWriter);
       printMetrics(session);
     }
 
@@ -239,12 +234,20 @@ public final class IngestionOrchestrator {
         }
       }
       if (anySuccess) {
-        writer.resolvePendingCalls();
-        writer.deletePhantomMethods();
-        writer.resolveCodeRefs();
+        refreshDerivedGraphArtifacts(writer);
         log.info("Watch re-ingestion complete.");
       }
     }
+  }
+
+  /** Refreshes graph artifacts that depend on all available code nodes being present. */
+  private void refreshDerivedGraphArtifacts(GraphWriter writer) {
+    writer.resolvePendingCalls();
+    log.info("Resolved pending owner/name CALLS edges for '{}'", project);
+    writer.deletePhantomMethods();
+    log.info("Removed phantom external Method nodes for '{}'", project);
+    writer.resolveCodeRefs();
+    log.info("Refreshed :CodeRef resolution edges for '{}'", project);
   }
 
   @SuppressWarnings({"java:S106", "java:S1181"})
