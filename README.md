@@ -67,6 +67,7 @@ If you do not want the ingester to download Node.js, use your own Node.js:
   --project my-js-project \
   --js-runtime-mode system \
   --wipe-project-code \
+  --init-instructions \
   --apply-schema
 ```
 
@@ -80,6 +81,7 @@ If you want no network access during JS/TS ingestion, warm the cache once and th
   --bolt bolt://localhost:7687 \
   --project my-js-project \
   --js-runtime-mode offline \
+  --init-instructions \
   --wipe-project-code
 ```
 
