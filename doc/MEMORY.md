@@ -361,8 +361,7 @@ inline `MERGE` can create incomplete code nodes or conflict with uniqueness cons
 `targetType` must be one of: `Code`, `Package`, `File`, `Class`, `Interface`, `Annotation`,
 `Method`, `Field`. `key` is the matching identity: reference language key for `Code` (`java` or
 `js`), language-prefixed package name for `Package` (`java:<package>` or `js:<package>`), path for
-`File`, FQN for types/fields, and signature for methods. Legacy project-key `Code` refs and
-unprefixed `Package` refs remain supported but may resolve to multiple language-scoped nodes.
+`File`, FQN for types/fields, and signature for methods.
 
 ---
 

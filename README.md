@@ -725,8 +725,6 @@ Controlled values:
 
 For `:CodeRef`, use `key: 'java'` or `key: 'js'` for `targetType: 'Code'`, and
 `key: 'java:<package>'` or `key: 'js:<package>'` for `targetType: 'Package'`.
-Legacy project-key `Code` refs and unprefixed `Package` refs still resolve to all matching
-language-scoped nodes for backwards compatibility.
 
 See [`doc/MEMORY.md`](doc/MEMORY.md) for Memory examples and Cypher recipes.
 See [`doc/SCHEMA.md`](doc/SCHEMA.md) for the full graph model.
@@ -781,7 +779,7 @@ RETURN labels(memory), memory.id, memory.title;
   methods are preferred, then the nearest superclass with exactly one matching method. Pending calls
   for a reingested JS/TS file are cleared before the file's current calls are stored.
 - Raw JS/TS `:Class` queries include synthetic module owners and TypeScript enums. Filter
-  `language = "javascript"` and `kind = "class"` when you only want JavaScript/TypeScript classes.
+  `language = "js"` and `kind = "class"` when you only want JavaScript/TypeScript classes.
 - Generated code is indexed only when its generated source directory is passed to `--source`.
 - With `--threads > 1`, log order is non-deterministic. Graph writes are idempotent.
 

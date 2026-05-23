@@ -166,8 +166,18 @@ public final class IngestionOrchestrator {
     Map<String, Long> mtimeCache = Map.of();
     if (incremental) {
       try (Session session = driver.session()) {
-        List<Path> paths = files.stream().map(SourceFile::path).toList();
-        mtimeCache = new GraphWriter(session, project).getAllFileLastModified(paths);
+        GraphWriter writer = new GraphWriter(session, project);
+        Map<String, Long> preloaded = new HashMap<>();
+        Map<SourceLanguage, List<Path>> pathsByLanguage = new LinkedHashMap<>();
+        for (SourceFile file : files) {
+          pathsByLanguage
+              .computeIfAbsent(file.adapter().language(), ignored -> new ArrayList<>())
+              .add(file.path());
+        }
+        for (var entry : pathsByLanguage.entrySet()) {
+          preloaded.putAll(writer.getAllFileLastModified(entry.getValue(), entry.getKey()));
+        }
+        mtimeCache = Map.copyOf(preloaded);
         log.info("Pre-loaded {} stored file timestamps for incremental mode.", mtimeCache.size());
       }
     }

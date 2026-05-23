@@ -153,10 +153,10 @@ ORDER BY c.fqn, f.name;
 
 ### Query Caveats
 
-- Code is grouped by `(:Language {name: "Java"|"Js"})` between `:Project` and `:Code`. Code graph nodes may have optional `language` (`"java"` or `"javascript"`), `kind`, `modulePath`, and `framework` metadata. Older graphs may not have these properties.
+- Code is grouped by `(:Language {name: "Java"|"Js"})` between `:Project` and `:Code`. Code graph nodes may have optional `language` (`"java"` or `"js"`), `kind`, `modulePath`, and `framework` metadata. Older graphs may not have these properties.
 - `CALLS` has no `project`; filter both endpoints.
 - `CALLS` and `ANNOTATED_WITH` are best-effort; missing edges do not prove no relationship.
-- JavaScript/TypeScript modules are represented as synthetic `:Class` owner nodes with `language = "javascript"` and `kind = "module"`. Top-level functions and variables are declared by that module owner.
+- JavaScript/TypeScript modules are represented as synthetic `:Class` owner nodes with `language = "js"` and `kind = "module"`. Top-level functions and variables are declared by that module owner.
 - Raw JavaScript/TypeScript `:Class` queries include synthetic module owners and TypeScript enums. Filter by `kind = "class"` when you only want classes.
 - JavaScript/TypeScript file discovery is bounded by the configured `--source` root. If `--source` points at `src`, root-level config or support files such as `jest.config.ts`, `webpack.config.ts`, `karma.conf.js`, or `mocker/*.js` are outside the ingested tree. Use the repository root as `--source` when those files should be code nodes. `node_modules` is still skipped.
 - JavaScript/TypeScript classes reuse `:Class`; TypeScript interfaces and type aliases reuse `:Interface`; decorators reuse `:Annotation` plus `ANNOTATED_WITH`.

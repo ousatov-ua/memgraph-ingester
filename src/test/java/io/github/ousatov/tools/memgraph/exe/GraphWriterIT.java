@@ -212,6 +212,62 @@ class GraphWriterIT {
   }
 
   @Test
+  void getAllFileLastModifiedExcludesIncompleteJavascriptFiles() throws IOException {
+    Path tempFile = Files.createTempFile("app-", ".ts");
+    try {
+      writer.upsertFile(tempFile, SourceLanguage.JAVASCRIPT);
+
+      Map<String, Long> incompleteCache =
+          writer.getAllFileLastModified(List.of(tempFile), SourceLanguage.JAVASCRIPT);
+      assertFalse(incompleteCache.containsKey(tempFile.toString()));
+
+      writer.upsertPackage("js.test", SourceLanguage.JAVASCRIPT);
+      writer.upsertJavascriptModule(tempFile, "js.test", "js.test.App", "App", "app.ts", 1, 1);
+
+      Map<String, Long> completeCache =
+          writer.getAllFileLastModified(List.of(tempFile), SourceLanguage.JAVASCRIPT);
+      assertTrue(completeCache.containsKey(tempFile.toString()));
+    } finally {
+      Files.deleteIfExists(tempFile);
+    }
+  }
+
+  @Test
+  void getAllFileLastModifiedKeepsJavaFilesWithoutDefinitions() throws IOException {
+    Path tempFile = Files.createTempFile("widget-", ".java");
+    try {
+      writer.upsertFile(tempFile, SourceLanguage.JAVA);
+
+      Map<String, Long> cache =
+          writer.getAllFileLastModified(List.of(tempFile), SourceLanguage.JAVA);
+
+      assertTrue(cache.containsKey(tempFile.toString()));
+    } finally {
+      Files.deleteIfExists(tempFile);
+    }
+  }
+
+  @Test
+  void getAllFileLastModifiedExcludesFilesWithoutJsLanguage() throws IOException {
+    Path tempFile = Files.createTempFile("missing-js-language-", ".ts");
+    try {
+      writer.upsertFile(tempFile, SourceLanguage.JAVASCRIPT);
+      session
+          .run(
+              "MATCH (f:File {project: $p, path: $path}) REMOVE f.language",
+              Map.of("p", PROJECT, "path", tempFile.toString()))
+          .consume();
+
+      Map<String, Long> cache =
+          writer.getAllFileLastModified(List.of(tempFile), SourceLanguage.JAVASCRIPT);
+
+      assertFalse(cache.containsKey(tempFile.toString()));
+    } finally {
+      Files.deleteIfExists(tempFile);
+    }
+  }
+
+  @Test
   void upsertPackageCreatesPackageWithContainsEdge() {
     writer.upsertPackage(PKG);
 

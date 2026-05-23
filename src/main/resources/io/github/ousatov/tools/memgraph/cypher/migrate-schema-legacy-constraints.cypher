@@ -1,0 +1,2 @@
+DROP CONSTRAINT ON (c:Code) ASSERT c.project IS UNIQUE;
+DROP CONSTRAINT ON (p:Package) ASSERT p.name, p.project IS UNIQUE;

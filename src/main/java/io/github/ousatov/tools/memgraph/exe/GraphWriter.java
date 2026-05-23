@@ -149,8 +149,10 @@ public final class GraphWriter {
   /** Refreshes {@code :CodeRef} resolution edges to the current project-scoped code graph. */
   public void resolveCodeRefs() {
     List.of(
-            Cypher.CYPHER_RESOLVE_CODE_REFS_CODE,
-            Cypher.CYPHER_RESOLVE_CODE_REFS_PACKAGE,
+            Cypher.CYPHER_RESOLVE_JAVA_CODE_REFS_CODE,
+            Cypher.CYPHER_RESOLVE_JAVA_CODE_REFS_PACKAGE,
+            Cypher.CYPHER_RESOLVE_JAVASCRIPT_CODE_REFS_CODE,
+            Cypher.CYPHER_RESOLVE_JAVASCRIPT_CODE_REFS_PACKAGE,
             Cypher.CYPHER_RESOLVE_CODE_REFS_FILE,
             Cypher.CYPHER_RESOLVE_CODE_REFS_CLASS,
             Cypher.CYPHER_RESOLVE_CODE_REFS_INTERFACE,
@@ -165,13 +167,14 @@ public final class GraphWriter {
    * already present in the graph are included in the returned map; absent files are omitted.
    *
    * @param files list of source paths to check
+   * @param language source language for the files
    * @return map of {@code path.toString()} → stored epoch-millis
    */
-  public Map<String, Long> getAllFileLastModified(List<Path> files) {
+  public Map<String, Long> getAllFileLastModified(List<Path> files, SourceLanguage language) {
     List<String> paths = files.stream().map(Path::toString).toList();
     try {
       return cypher.read(
-          Cypher.CYPHER_GET_FILES_LAST_MODIFIED,
+          getFilesLastModifiedCypher(language),
           Map.of("paths", paths),
           result -> {
             Map<String, Long> mtimes = HashMap.newHashMap(files.size() * 2);
@@ -192,6 +195,13 @@ public final class GraphWriter {
           e.getMessage());
       return Map.of();
     }
+  }
+
+  private static String getFilesLastModifiedCypher(SourceLanguage language) {
+    return switch (language) {
+      case JAVA -> Cypher.CYPHER_GET_JAVA_FILES_LAST_MODIFIED;
+      case JAVASCRIPT -> Cypher.CYPHER_GET_JAVASCRIPT_FILES_LAST_MODIFIED;
+    };
   }
 
   /** Creates or refreshes all supported code-language roots and the {@code :Memory} anchor. */
