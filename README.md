@@ -723,8 +723,8 @@ Controlled values:
 | `(:Decision \| :ADR \| :Rule \| :Context \| :Finding \| :Task \| :Risk \| :Idea)-[:REFERS_TO]->(:CodeRef)` | Stable memory-to-code reference. |
 | `(:CodeRef)-[:RESOLVES_TO]->(:Code \| :Package \| :File \| :Class \| :Interface \| :Annotation \| :Method \| :Field)` | Current code node resolved after ingestion. |
 
-For `:CodeRef`, use `key: 'java'` or `key: 'javascript'` for `targetType: 'Code'`, and
-`key: 'java:<package>'` or `key: 'javascript:<package>'` for `targetType: 'Package'`.
+For `:CodeRef`, use `key: 'java'` or `key: 'js'` for `targetType: 'Code'`, and
+`key: 'java:<package>'` or `key: 'js:<package>'` for `targetType: 'Package'`.
 
 See [`doc/MEMORY.md`](doc/MEMORY.md) for Memory examples and Cypher recipes.
 See [`doc/SCHEMA.md`](doc/SCHEMA.md) for the full graph model.

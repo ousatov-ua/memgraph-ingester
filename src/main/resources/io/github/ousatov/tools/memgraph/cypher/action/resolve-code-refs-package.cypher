@@ -5,12 +5,12 @@ DELETE old
 WITH ref,
      CASE
        WHEN ref.key STARTS WITH 'java:' THEN 'java'
-       WHEN ref.key STARTS WITH 'javascript:' THEN 'javascript'
+       WHEN ref.key STARTS WITH 'js:' THEN 'javascript'
        ELSE null
      END AS language,
      CASE
        WHEN ref.key STARTS WITH 'java:' THEN substring(ref.key, 5)
-       WHEN ref.key STARTS WITH 'javascript:' THEN substring(ref.key, 11)
+       WHEN ref.key STARTS WITH 'js:' THEN substring(ref.key, 3)
        ELSE ref.key
      END AS packageName
 OPTIONAL MATCH (candidate:Package {project: ref.project, name: packageName})

@@ -5,7 +5,7 @@ DELETE old
 WITH ref,
      CASE
        WHEN ref.key = 'java' THEN 'java'
-       WHEN ref.key = 'javascript' THEN 'javascript'
+       WHEN ref.key = 'js' THEN 'javascript'
        ELSE null
      END AS language
 OPTIONAL MATCH (candidate:Code {project: ref.project})

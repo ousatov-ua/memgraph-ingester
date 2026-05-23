@@ -139,10 +139,20 @@ class MemoryGraphIT {
                 + " MERGE (d)-[:REFERS_TO]->(ref)",
             Map.of("p", PROJECT))
         .consume();
+    session
+        .run(
+            "MATCH (m:Memory {project: $p})"
+                + " MERGE (d:Decision {id: 'DEC-test-refers-to-js-code', project: $p})"
+                + " SET d.title = 'Document JS code root', d.status = 'accepted'"
+                + " MERGE (ref:CodeRef {project: $p, targetType: 'Code', key: 'js'})"
+                + " MERGE (m)-[:HAS_DECISION]->(d)"
+                + " MERGE (d)-[:REFERS_TO]->(ref)",
+            Map.of("p", PROJECT))
+        .consume();
 
     writer.resolveCodeRefs();
 
-    long count =
+    long javaCount =
         session
             .run(
                 "MATCH (:CodeRef {project: $p, targetType: 'Code', key: 'java'})"
@@ -152,8 +162,19 @@ class MemoryGraphIT {
             .single()
             .get("n")
             .asLong();
+    long jsCount =
+        session
+            .run(
+                "MATCH (:CodeRef {project: $p, targetType: 'Code', key: 'js'})"
+                    + "-[:RESOLVES_TO]->(:Code {project: $p, language: 'javascript'})"
+                    + " RETURN count(*) AS n",
+                Map.of("p", PROJECT))
+            .single()
+            .get("n")
+            .asLong();
 
-    assertEquals(1, count);
+    assertEquals(1, javaCount);
+    assertEquals(1, jsCount);
   }
 
   @Test
@@ -167,7 +188,7 @@ class MemoryGraphIT {
                 + " MERGE (d:Decision {id: 'DEC-test-refers-to-js-package', project: $p})"
                 + " SET d.title = 'Document JS package', d.status = 'accepted'"
                 + " MERGE (ref:CodeRef {project: $p,"
-                + " targetType: 'Package', key: 'javascript:shared'})"
+                + " targetType: 'Package', key: 'js:shared'})"
                 + " MERGE (m)-[:HAS_DECISION]->(d)"
                 + " MERGE (d)-[:REFERS_TO]->(ref)",
             Map.of("p", PROJECT))
@@ -179,7 +200,7 @@ class MemoryGraphIT {
         session
             .run(
                 "MATCH (:CodeRef {project: $p,"
-                    + " targetType: 'Package', key: 'javascript:shared'})"
+                    + " targetType: 'Package', key: 'js:shared'})"
                     + "-[:RESOLVES_TO]->(:Package {project: $p,"
                     + " name: 'shared', language: 'javascript'})"
                     + " RETURN count(*) AS n",
