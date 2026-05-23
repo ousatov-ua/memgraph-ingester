@@ -319,6 +319,335 @@ class JsAnalyzerTest {
   }
 
   @Test
+  void analyzesNamedClassExpressionsInCallArguments() throws IOException {
+    JsAnalysis analysis =
+        analyzeSource(
+            "pipe.mock.ts",
+            """
+            import { Pipe } from '@angular/core';
+
+            export function pipeMock(options: Pipe): Pipe {
+              const metadata: Pipe = {
+                name: options.name,
+              };
+
+              return Pipe(metadata)(class PipeMock {});
+            }
+            """);
+
+    JsAnalysis.TypeDecl pipeMock =
+        analysis.types().stream()
+            .filter(type -> "PipeMock".equals(type.name()))
+            .findFirst()
+            .orElseThrow();
+
+    assertEquals("class", pipeMock.kind());
+    assertTrue(pipeMock.fqn().contains(".$local$"));
+  }
+
+  @Test
+  void namedClassExpressionsDoNotHideTopLevelClasses() throws IOException {
+    JsAnalysis analysis =
+        analyzeSource(
+            "class-expression-scope.ts",
+            """
+            class Helper {}
+            decorate(class Helper {});
+            class Consumer extends Helper {}
+            """);
+
+    String topLevelHelperFqn = "js.class$2d$expression$2d$scope$2e$ts.Helper";
+    String consumerFqn = "js.class$2d$expression$2d$scope$2e$ts.Consumer";
+
+    assertTrue(
+        analysis.types().stream()
+            .anyMatch(type -> "Helper".equals(type.name()) && type.fqn().contains(".$local$")));
+    assertTrue(
+        analysis.relations().stream()
+            .anyMatch(
+                relation ->
+                    "classExtends".equals(relation.kind())
+                        && consumerFqn.equals(relation.childFqn())
+                        && topLevelHelperFqn.equals(relation.targetFqn())));
+  }
+
+  @Test
+  void parenthesizedVariableClassExpressionsUseVariableName() throws IOException {
+    JsAnalysis analysis =
+        analyzeSource(
+            "parenthesized-alias.ts",
+            """
+            const Alias = (class Named {
+              static make() {}
+            });
+            Alias.make();
+            """);
+
+    assertTrue(
+        analysis.types().stream()
+            .anyMatch(
+                type ->
+                    "Alias".equals(type.name())
+                        && "js.parenthesized$2d$alias$2e$ts.Alias".equals(type.fqn())));
+    assertTrue(analysis.types().stream().noneMatch(type -> "Named".equals(type.name())));
+    assertTrue(
+        analysis.calls().stream()
+            .anyMatch(
+                call ->
+                    "js.parenthesized$2d$alias$2e$ts.Alias.make()".equals(call.calleeSignature())));
+  }
+
+  @Test
+  void assertedVariableClassExpressionsUseVariableName() throws IOException {
+    JsAnalysis analysis =
+        analyzeSource(
+            "asserted-alias.ts",
+            """
+            const Alias = (class Named {
+              static make() {}
+            }) as any;
+            Alias.make();
+            """);
+
+    assertTrue(
+        analysis.types().stream()
+            .anyMatch(
+                type ->
+                    "Alias".equals(type.name())
+                        && "js.asserted$2d$alias$2e$ts.Alias".equals(type.fqn())));
+    assertTrue(analysis.types().stream().noneMatch(type -> "Named".equals(type.name())));
+    assertTrue(
+        analysis.calls().stream()
+            .anyMatch(
+                call -> "js.asserted$2d$alias$2e$ts.Alias.make()".equals(call.calleeSignature())));
+  }
+
+  @Test
+  void namedVariableClassExpressionsPreserveClassLocalSelfBinding() throws IOException {
+    JsAnalysis analysis =
+        analyzeSource(
+            "named-class-self.ts",
+            """
+            const Alias = class Named {
+              static build() {
+                return new Named();
+              }
+            };
+            """);
+
+    assertTrue(
+        analysis.calls().stream()
+            .anyMatch(
+                call ->
+                    "js.named$2d$class$2d$self$2e$ts.Alias.build()".equals(call.callerSignature())
+                        && "js.named$2d$class$2d$self$2e$ts.Alias.<init>()"
+                            .equals(call.calleeSignature())));
+  }
+
+  @Test
+  void namedVariableClassExpressionConstructorSelfBindingRespectsParameterShadow()
+      throws IOException {
+    JsAnalysis analysis =
+        analyzeSource(
+            "named-class-constructor-shadow.ts",
+            """
+            class Named {}
+            const Alias = class Named {
+              static build(Named) {
+                return new Named();
+              }
+            };
+            """);
+
+    assertTrue(
+        analysis.calls().stream()
+            .noneMatch(
+                call ->
+                    "js.named$2d$class$2d$constructor$2d$shadow$2e$ts.Alias.build()"
+                            .equals(call.callerSignature())
+                        && "js.named$2d$class$2d$constructor$2d$shadow$2e$ts.Alias.<init>()"
+                            .equals(call.calleeSignature())));
+  }
+
+  @Test
+  void namedVariableClassExpressionMethodSelfBindingRespectsParameterShadow() throws IOException {
+    JsAnalysis analysis =
+        analyzeSource(
+            "named-class-method-shadow.ts",
+            """
+            class Named {
+              static run() {}
+            }
+            const Alias = class Named {
+              static invoke(Named) {
+                Named.run();
+              }
+            };
+            """);
+
+    assertTrue(
+        analysis.calls().stream()
+            .noneMatch(
+                call ->
+                    "js.named$2d$class$2d$method$2d$shadow$2e$ts.Alias.invoke()"
+                            .equals(call.callerSignature())
+                        && "js.named$2d$class$2d$method$2d$shadow$2e$ts.Alias"
+                            .equals(call.calleeOwnerFqn())
+                        && "run".equals(call.calleeName())));
+  }
+
+  @Test
+  void namedVariableClassExpressionConstructorSelfBindingRespectsNestedVarShadow()
+      throws IOException {
+    JsAnalysis analysis =
+        analyzeSource(
+            "named-class-constructor-var-shadow.ts",
+            """
+            class Named {}
+            const Alias = class Named {
+              static build() {
+                if (ready) {
+                  var Named = function Replacement() {};
+                }
+                return new Named();
+              }
+            };
+            """);
+
+    assertTrue(
+        analysis.calls().stream()
+            .noneMatch(
+                call ->
+                    "js.named$2d$class$2d$constructor$2d$var$2d$shadow$2e$ts.Alias.build()"
+                            .equals(call.callerSignature())
+                        && "js.named$2d$class$2d$constructor$2d$var$2d$shadow$2e$ts.Alias.<init>()"
+                            .equals(call.calleeSignature())));
+  }
+
+  @Test
+  void namedVariableClassExpressionMethodSelfBindingRespectsNestedVarShadow() throws IOException {
+    JsAnalysis analysis =
+        analyzeSource(
+            "named-class-method-var-shadow.ts",
+            """
+            class Named {
+              static run() {}
+            }
+            const Alias = class Named {
+              static invoke() {
+                if (ready) {
+                  var Named = {};
+                }
+                Named.run();
+              }
+            };
+            """);
+
+    assertTrue(
+        analysis.calls().stream()
+            .noneMatch(
+                call ->
+                    "js.named$2d$class$2d$method$2d$var$2d$shadow$2e$ts.Alias.invoke()"
+                            .equals(call.callerSignature())
+                        && "js.named$2d$class$2d$method$2d$var$2d$shadow$2e$ts.Alias"
+                            .equals(call.calleeOwnerFqn())
+                        && "run".equals(call.calleeName())));
+  }
+
+  @Test
+  void resolvesCallsThroughTypedThisPropertyReceivers() throws IOException {
+    Files.writeString(
+        tempDir.resolve("repository.service.ts"),
+        """
+        export class RepositoryService {
+          getRepos() {}
+        }
+        """);
+    JsAnalysis analysis =
+        analyzeSource(
+            "repository.component.ts",
+            """
+            import { RepositoryService } from './repository.service';
+
+            class RepositoryComponent {
+              constructor(private repositoryService: RepositoryService) {}
+
+              load() {
+                return this.repositoryService.getRepos();
+              }
+            }
+            """);
+
+    assertTrue(
+        analysis.calls().stream()
+            .anyMatch(
+                call ->
+                    "js.repository$2e$component$2e$ts.RepositoryComponent.load()"
+                            .equals(call.callerSignature())
+                        && "js.repository$2e$service$2e$ts.RepositoryService"
+                            .equals(call.calleeOwnerFqn())
+                        && "getRepos".equals(call.calleeName())));
+  }
+
+  @Test
+  void topLevelRouteConstUsesSyntheticModuleOwner() throws IOException {
+    JsAnalysis analysis =
+        analyzeSource(
+            "app.module.ts",
+            """
+            import { NgModule } from '@angular/core';
+            import { RouterModule, Routes } from '@angular/router';
+
+            const appRoutes: Routes = [];
+
+            @NgModule({
+              imports: [RouterModule.forRoot(appRoutes)],
+            })
+            export class AppModule {}
+            """);
+
+    assertEquals("js.app$2e$module$2e$ts", analysis.moduleFqn());
+    assertTrue(
+        analysis.members().stream()
+            .anyMatch(
+                member ->
+                    "js.app$2e$module$2e$ts".equals(member.ownerFqn())
+                        && "field".equals(member.memberType())
+                        && "appRoutes".equals(member.name())));
+    assertTrue(
+        analysis.types().stream()
+            .anyMatch(
+                type ->
+                    "class".equals(type.kind())
+                        && "js.app$2e$module$2e$ts.AppModule".equals(type.fqn())));
+  }
+
+  @Test
+  void ignoresExternalTypedThisPropertyReceivers() throws IOException {
+    JsAnalysis analysis =
+        analyzeSource(
+            "external-receiver.ts",
+            """
+            import { Router } from '@angular/router';
+
+            class NavigationComponent {
+              constructor(private router: Router) {}
+
+              go() {
+                return this.router.navigate(['/home']);
+              }
+            }
+            """);
+
+    assertTrue(
+        analysis.calls().stream()
+            .noneMatch(
+                call ->
+                    "@angular/router.Router".equals(call.calleeOwnerFqn())
+                        && "navigate".equals(call.calleeName())));
+  }
+
+  @Test
   void reExportedClassAliasesResolveAfterHelperSplit() throws IOException {
     Files.writeString(
         tempDir.resolve("source.ts"),

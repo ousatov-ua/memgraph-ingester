@@ -443,6 +443,24 @@ class GraphWriterIT {
   }
 
   @Test
+  void upsertTypeDoesNotCreateOrphansWhenFileOrPackageAnchorIsMissing() {
+    ClassOrInterfaceDeclaration decl = parseDecl("package com.example; public class Widget {}");
+
+    writer.upsertType(TEST_FILE, PKG, decl);
+
+    long count =
+        session
+            .run(
+                "MATCH (c:Class {fqn: $fqn, project: $p}) RETURN count(c) AS n",
+                Map.of("fqn", "com.example.Widget", "p", PROJECT))
+            .single()
+            .get("n")
+            .asLong();
+
+    assertEquals(0, count);
+  }
+
+  @Test
   void upsertTypeCreatesConstructorNode() {
     writer.upsertFile(TEST_FILE);
     writer.upsertPackage(PKG);
@@ -618,6 +636,82 @@ class GraphWriterIT {
 
     assertEquals(0, noArgCtorCount, "Declared JS constructors must not create a fake no-arg ctor");
     assertEquals(1, declaredCtorCount, "The declared JS constructor must still be ingested");
+  }
+
+  @Test
+  void upsertJavascriptModuleLinksModuleToFileAndPackage() {
+    Path tsFile =
+        Path.of(
+            "/tmp/test-gw/src/app/translations/components/"
+                + "translation-repository-view-pending/"
+                + "translation-repository-view-pending.component.spec.ts");
+    String pkg = "js.app.translations.components.translation$2d$repository$2d$view$2d$pending";
+    String fqn = pkg + ".translation$2d$repository$2d$view$2d$pending$2e$component$2e$spec$2e$ts";
+    writer.upsertFile(tsFile, SourceLanguage.JAVASCRIPT.graphName());
+    writer.upsertPackage(pkg);
+
+    writer.upsertJavascriptModule(
+        tsFile,
+        pkg,
+        fqn,
+        "translation_repository_view_pending_component_spec",
+        "app/translations/components/translation-repository-view-pending/"
+            + "translation-repository-view-pending.component.spec.ts",
+        1,
+        397);
+
+    var row =
+        session
+            .run(
+                "MATCH (:Package {name: $pkg, project: $p})-[:CONTAINS]->"
+                    + "(module:Class {fqn: $fqn, project: $p}) "
+                    + "MATCH (:File {path: $path, project: $p})-[:DEFINES]->(module) "
+                    + "RETURN count(module) AS n, module.kind AS kind",
+                Map.of("pkg", pkg, "fqn", fqn, "path", tsFile.toString(), "p", PROJECT))
+            .single();
+
+    assertEquals(1, row.get("n").asLong());
+    assertEquals("module", row.get("kind").asString());
+  }
+
+  @Test
+  void upsertJavascriptModuleDoesNotCreateOrphansWhenAnchorsAreMissing() {
+    Path tsFile = Path.of("/tmp/test-gw/src/app/orphan.spec.ts");
+    String pkg = "js.app";
+    String fqn = "js.app.orphan$2e$spec$2e$ts";
+
+    writer.upsertJavascriptModule(tsFile, pkg, fqn, "orphan_spec", "app/orphan.spec.ts", 1, 1);
+
+    var row =
+        session
+            .run(
+                "OPTIONAL MATCH (module:Class {fqn: $fqn, project: $p}) "
+                    + "OPTIONAL MATCH (method:Method {signature: $sig, project: $p}) "
+                    + "RETURN count(module) AS modules, count(method) AS methods",
+                Map.of("fqn", fqn, "sig", fqn + ".<init>()", "p", PROJECT))
+            .single();
+
+    assertEquals(0, row.get("modules").asLong());
+    assertEquals(0, row.get("methods").asLong());
+  }
+
+  @Test
+  void upsertJavascriptMembersDoNotCreateOrphansWhenOwnerIsMissing() {
+    String owner = "js.app.missing$2e$ts.Missing";
+    writer.upsertJavascriptField(owner, owner + "#value", "value", "string", false, "property");
+    writer.upsertJavascriptMethod(owner, owner + ".load()", "load", "void", false, 1, 1, "method");
+
+    var row =
+        session
+            .run(
+                "OPTIONAL MATCH (field:Field {fqn: $fieldFqn, project: $p}) "
+                    + "OPTIONAL MATCH (method:Method {signature: $methodSig, project: $p}) "
+                    + "RETURN count(field) AS fields, count(method) AS methods",
+                Map.of("fieldFqn", owner + "#value", "methodSig", owner + ".load()", "p", PROJECT))
+            .single();
+
+    assertEquals(0, row.get("fields").asLong());
+    assertEquals(0, row.get("methods").asLong());
   }
 
   @Test
@@ -1375,6 +1469,84 @@ class GraphWriterIT {
   }
 
   @Test
+  void unresolvedUnscopedCallFallsBackToInheritedOwnerMethod() {
+    writer.upsertFile(TEST_FILE);
+    writer.upsertPackage(PKG);
+    ClassOrInterfaceDeclaration base =
+        parseDecl(
+            "package com.example;"
+                + " public class BaseService {"
+                + "   public void refreshRepository() {}"
+                + " }");
+    ClassOrInterfaceDeclaration service =
+        parseDecl(
+            "package com.example;"
+                + " public class RepositoryService extends com.example.BaseService {"
+                + "   public void load() { refreshRepository(); }"
+                + " }");
+
+    writer.upsertType(TEST_FILE, PKG, base);
+    writer.upsertType(TEST_FILE, PKG, service);
+    writer.upsertTypeCallEdges(PKG, service);
+
+    long callCount =
+        session
+            .run(
+                "MATCH (caller:Method {project: $p})-[:CALLS]->(callee:Method {project: $p})"
+                    + " WHERE caller.name = 'load'"
+                    + " AND callee.name = 'refreshRepository'"
+                    + " AND callee.ownerFqn = 'com.example.BaseService'"
+                    + " RETURN count(*) AS n",
+                Map.of("p", PROJECT))
+            .single()
+            .get("n")
+            .asLong();
+
+    assertEquals(1, callCount);
+  }
+
+  @Test
+  void unresolvedUnscopedCallFallsBackToNearestInheritedOwnerMethod() {
+    writer.upsertFile(TEST_FILE);
+    writer.upsertPackage(PKG);
+    ClassOrInterfaceDeclaration base =
+        parseDecl(
+            "package com.example;"
+                + " public class BaseService {"
+                + "   public void refreshRepository() {}"
+                + " }");
+    ClassOrInterfaceDeclaration middle =
+        parseDecl(
+            "package com.example;"
+                + " public class MiddleService extends com.example.BaseService {"
+                + "   public void refreshRepository() {}"
+                + " }");
+    ClassOrInterfaceDeclaration service =
+        parseDecl(
+            "package com.example;"
+                + " public class RepositoryService extends com.example.MiddleService {"
+                + "   public void load() { refreshRepository(); }"
+                + " }");
+
+    writer.upsertType(TEST_FILE, PKG, base);
+    writer.upsertType(TEST_FILE, PKG, middle);
+    writer.upsertType(TEST_FILE, PKG, service);
+    writer.upsertTypeCallEdges(PKG, service);
+
+    var row =
+        session
+            .run(
+                "MATCH (caller:Method {name: 'load', project: $p})-[:CALLS]->"
+                    + "(callee:Method {name: 'refreshRepository', project: $p})"
+                    + " RETURN count(callee) AS n, collect(callee.ownerFqn) AS owners",
+                Map.of("p", PROJECT))
+            .single();
+
+    assertEquals(1, row.get("n").asLong());
+    assertEquals(List.of("com.example.MiddleService"), row.get("owners").asList());
+  }
+
+  @Test
   void pendingCallByNameResolvesAfterCalleeArrives() {
     writer.upsertFile(TEST_FILE);
     writer.upsertPackage(PKG);
@@ -1427,6 +1599,102 @@ class GraphWriterIT {
     assertEquals(0, callsBefore);
     assertEquals(0, pendingAfter);
     assertEquals(1, callsAfter);
+  }
+
+  @Test
+  void pendingCallByNameResolvesThroughInheritedOwnerMethod() {
+    writer.upsertFile(TEST_FILE);
+    writer.upsertPackage(PKG);
+    ClassOrInterfaceDeclaration caller =
+        parseDecl("package com.example; public class Caller { public void run() {} }");
+    ClassOrInterfaceDeclaration service =
+        parseDecl(
+            "package com.example;"
+                + " public class RepositoryService extends com.example.BaseService {}");
+    ClassOrInterfaceDeclaration base =
+        parseDecl(
+            "package com.example;"
+                + " public class BaseService {"
+                + "   public void refreshRepository() {}"
+                + " }");
+
+    writer.upsertType(TEST_FILE, PKG, caller);
+    writer.upsertType(TEST_FILE, PKG, service);
+    writer.upsertPendingCallByName(
+        "com.example.Caller.run()", "com.example.RepositoryService", "refreshRepository");
+
+    long pendingBefore =
+        session
+            .run("MATCH (p:PendingCall {project: $p}) RETURN count(p) AS n", Map.of("p", PROJECT))
+            .single()
+            .get("n")
+            .asLong();
+
+    writer.upsertType(TEST_FILE, PKG, base);
+    writer.resolvePendingCalls();
+
+    var row =
+        session
+            .run(
+                "MATCH (pending:PendingCall {project: $p}) WITH count(pending) AS pendingAfter"
+                    + " OPTIONAL MATCH (:Method {name: 'run', project: $p})-[:CALLS]->"
+                    + "(callee:Method {name: 'refreshRepository', project: $p}) RETURN"
+                    + " pendingAfter, count(callee) AS callsAfter, collect(callee.ownerFqn) AS"
+                    + " owners",
+                Map.of("p", PROJECT))
+            .single();
+
+    assertEquals(1, pendingBefore);
+    assertEquals(0, row.get("pendingAfter").asLong());
+    assertEquals(1, row.get("callsAfter").asLong());
+    assertEquals(List.of("com.example.BaseService"), row.get("owners").asList());
+  }
+
+  @Test
+  void pendingCallByNameResolvesThroughNearestInheritedOwnerMethod() {
+    writer.upsertFile(TEST_FILE);
+    writer.upsertPackage(PKG);
+    ClassOrInterfaceDeclaration caller =
+        parseDecl("package com.example; public class Caller { public void run() {} }");
+    ClassOrInterfaceDeclaration service =
+        parseDecl(
+            "package com.example;"
+                + " public class RepositoryService extends com.example.MiddleService {}");
+    ClassOrInterfaceDeclaration middle =
+        parseDecl(
+            "package com.example;"
+                + " public class MiddleService extends com.example.BaseService {"
+                + "   public void refreshRepository() {}"
+                + " }");
+    ClassOrInterfaceDeclaration base =
+        parseDecl(
+            "package com.example;"
+                + " public class BaseService {"
+                + "   public void refreshRepository() {}"
+                + " }");
+
+    writer.upsertType(TEST_FILE, PKG, caller);
+    writer.upsertType(TEST_FILE, PKG, service);
+    writer.upsertType(TEST_FILE, PKG, middle);
+    writer.upsertType(TEST_FILE, PKG, base);
+    writer.upsertPendingCallByName(
+        "com.example.Caller.run()", "com.example.RepositoryService", "refreshRepository");
+    writer.resolvePendingCalls();
+
+    var row =
+        session
+            .run(
+                "MATCH (pending:PendingCall {project: $p}) WITH count(pending) AS pendingAfter"
+                    + " OPTIONAL MATCH (:Method {name: 'run', project: $p})-[:CALLS]->"
+                    + "(callee:Method {name: 'refreshRepository', project: $p}) RETURN"
+                    + " pendingAfter, count(callee) AS callsAfter, collect(callee.ownerFqn) AS"
+                    + " owners",
+                Map.of("p", PROJECT))
+            .single();
+
+    assertEquals(0, row.get("pendingAfter").asLong());
+    assertEquals(1, row.get("callsAfter").asLong());
+    assertEquals(List.of("com.example.MiddleService"), row.get("owners").asList());
   }
 
   @Test

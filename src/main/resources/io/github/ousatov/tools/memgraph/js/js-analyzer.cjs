@@ -49,7 +49,6 @@ const {
   classFieldKind,
   hasStatic,
   isFunctionInitializer,
-  isClassExpressionInitializer,
   unwrapExpression,
   expressionNameParts,
   isDeclarationWithOwnCallableScope,
@@ -67,8 +66,11 @@ const callableByNode = new WeakMap();
 const declarationsByName = new Map();
 const declarationsByOwnerAndName = new Map();
 const staticDeclarationsByOwnerAndName = new Map();
+const instancePropertyTypesByOwnerAndName = new Map();
+const classSelfNamesByOwnerFqn = new Map();
 const classesByName = new Map();
 const callables = [];
+const SHADOWED_CLASS_SELF = Symbol('shadowedClassSelf');
 const imports = collectImports(sourceFile);
 const importedNames = collectImportedNames(sourceFile);
 const importedNamespaces = collectImportedNamespaces(sourceFile);
@@ -184,10 +186,21 @@ function visitNestedTypeDeclaration(
   } else if (
     ts.isVariableDeclaration(node) &&
     !isTopLevelVariableDeclaration(node) &&
-    ts.isIdentifier(node.name) &&
-    isClassExpressionInitializer(node.initializer)
+    ts.isIdentifier(node.name)
   ) {
-    collectClass(node.initializer, node.name.text, [], {
+    const classExpression = classExpressionInitializer(node.initializer);
+    if (classExpression) {
+      collectClass(classExpression, node.name.text, [], {
+        initializerCallerOwnerFqn: callerOwnerFqn,
+        initializerCallerSignature: callerSignature,
+        skipStaticInitializerCalls: !collectStaticInitializerCalls,
+        skipClassNameLookup: true,
+        skipMemberUnscopedLookup: true,
+        skipExportModel: true
+      });
+    }
+  } else if (shouldCollectNamedClassExpression(node)) {
+    collectClass(node, node.name.text, [], {
       initializerCallerOwnerFqn: callerOwnerFqn,
       initializerCallerSignature: callerSignature,
       skipStaticInitializerCalls: !collectStaticInitializerCalls,
@@ -239,6 +252,7 @@ function collectClass(node, name, aliases = [], options = {}) {
   });
   writeDecorators(node, 'fqn', fqn);
   writeHeritageRelations(node, fqn, 'class');
+  registerInstancePropertyTypes(fqn, node);
   for (const member of node.members) {
     if (ts.isConstructorDeclaration(member)) {
       if (member.body) {
@@ -364,10 +378,13 @@ function collectVariables(node, ownerFqn) {
     const name = decl.name.text;
     if (isFunctionInitializer(decl.initializer)) {
       collectFunction(ownerFqn, name, decl.initializer, 'function');
-    } else if (isClassExpressionInitializer(decl.initializer)) {
-      collectClass(decl.initializer, name);
     } else {
-      writeField(ownerFqn, name, typeText(decl.type), 'variable', decl, false);
+      const classExpression = classExpressionInitializer(decl.initializer);
+      if (classExpression) {
+        collectClass(classExpression, name);
+      } else {
+        writeField(ownerFqn, name, typeText(decl.type), 'variable', decl, false);
+      }
     }
   }
 }
@@ -539,8 +556,9 @@ function exportedClassModels(targetModulePath, seen = new Set()) {
 
 function collectLocalClassExpressionShapes(statement, sf, target) {
   for (const decl of statement.declarationList.declarations) {
-    if (ts.isIdentifier(decl.name) && isClassExpressionInitializer(decl.initializer)) {
-      target.set(decl.name.text, classShape(decl.initializer, sf));
+    const classExpression = classExpressionInitializer(decl.initializer);
+    if (ts.isIdentifier(decl.name) && classExpression) {
+      target.set(decl.name.text, classShape(classExpression, sf));
     }
   }
 }
@@ -558,9 +576,10 @@ function collectExportedClassDeclaration(statement, targetModuleFqn, sf, exporte
 
 function collectExportedClassExpressionShapes(statement, targetModuleFqn, sf, exported) {
   for (const decl of statement.declarationList.declarations) {
-    if (ts.isIdentifier(decl.name) && isClassExpressionInitializer(decl.initializer)) {
+    const classExpression = classExpressionInitializer(decl.initializer);
+    if (ts.isIdentifier(decl.name) && classExpression) {
       const name = decl.name.text;
-      exported.set(name, classModel(targetModuleFqn, name, classShape(decl.initializer, sf)));
+      exported.set(name, classModel(targetModuleFqn, name, classShape(classExpression, sf)));
     }
   }
 }
@@ -851,7 +870,7 @@ function collectCalls(
   if (ts.isCallExpression(node)) {
     writeCall(callerSignature, calleeFor(node.expression, callerOwnerFqn));
   } else if (ts.isNewExpression(node)) {
-    writeCall(callerSignature, constructorCalleeFor(node.expression));
+    writeCall(callerSignature, constructorCalleeFor(node.expression, callerOwnerFqn));
   }
   ts.forEachChild(
     node,
@@ -908,7 +927,7 @@ function writeCall(callerSignature, callee) {
   });
 }
 
-function constructorCalleeFor(expr) {
+function constructorCalleeFor(expr, callerOwnerFqn) {
   const target = unwrapExpression(expr);
   const namespaceOwner = namespaceQualifiedOwner(target);
   if (namespaceOwner) {
@@ -917,7 +936,11 @@ function constructorCalleeFor(expr) {
   if (!ts.isIdentifier(target)) {
     return null;
   }
-  const ownerFqn = classesByName.get(target.text);
+  const classSelfFqn = classSelfTypeFqn(callerOwnerFqn, target.text, target);
+  if (classSelfFqn === SHADOWED_CLASS_SELF) {
+    return null;
+  }
+  const ownerFqn = classSelfFqn || classesByName.get(target.text);
   if (!ownerFqn) {
     const constructorFunction = uniqueDeclaration(target.text);
     if (constructorFunction) {
@@ -960,6 +983,12 @@ function receiverOwner(expr, callerOwnerFqn) {
   if (namespaceOwner) {
     return { ownerFqn: namespaceOwner, byName: true };
   }
+  if (ts.isPropertyAccessExpression(receiver)) {
+    const ownerFqn = instancePropertyReceiverOwner(receiver, callerOwnerFqn);
+    if (ownerFqn) {
+      return { ownerFqn, byName: true };
+    }
+  }
   if (receiver.kind === ts.SyntaxKind.ThisKeyword) {
     return callerOwnerFqn === moduleFqn ? null : { ownerFqn: callerOwnerFqn, staticOnly: false };
   }
@@ -972,13 +1001,21 @@ function receiverOwner(expr, callerOwnerFqn) {
     if (imported) {
       return { ownerFqn: `${imported.moduleFqn}.${imported.importedName}`, byName: true };
     }
-    const ownerFqn = classesByName.get(receiver.text);
+    const classSelfFqn = classSelfTypeFqn(callerOwnerFqn, receiver.text, receiver);
+    if (classSelfFqn === SHADOWED_CLASS_SELF) {
+      return null;
+    }
+    const ownerFqn = classSelfFqn || classesByName.get(receiver.text);
     return ownerFqn ? { ownerFqn, staticOnly: true } : null;
   }
   if (ts.isNewExpression(receiver)) {
     const target = unwrapExpression(receiver.expression);
     if (ts.isIdentifier(target)) {
-      const ownerFqn = classesByName.get(target.text);
+      const classSelfFqn = classSelfTypeFqn(callerOwnerFqn, target.text, target);
+      if (classSelfFqn === SHADOWED_CLASS_SELF) {
+        return null;
+      }
+      const ownerFqn = classSelfFqn || classesByName.get(target.text);
       if (ownerFqn) {
         return { ownerFqn, staticOnly: false };
       }
@@ -987,6 +1024,13 @@ function receiverOwner(expr, callerOwnerFqn) {
     }
   }
   return null;
+}
+
+function instancePropertyReceiverOwner(receiver, callerOwnerFqn) {
+  if (callerOwnerFqn === moduleFqn || unwrapExpression(receiver.expression).kind !== ts.SyntaxKind.ThisKeyword) {
+    return '';
+  }
+  return instancePropertyTypesByOwnerAndName.get(`${callerOwnerFqn}\u0000${receiver.name.text}`) || '';
 }
 
 function namespaceQualifiedOwner(expr) {
@@ -1176,6 +1220,77 @@ function collectNamespaceImports(sf) {
   return result;
 }
 
+function registerInstancePropertyTypes(ownerFqn, node) {
+  for (const member of node.members || []) {
+    if (
+      ts.isPropertyDeclaration(member) &&
+      !hasStatic(member) &&
+      member.name &&
+      ts.isIdentifier(member.name)
+    ) {
+      registerInstancePropertyType(ownerFqn, member.name.text, member.type, member);
+    } else if (ts.isConstructorDeclaration(member)) {
+      for (const parameter of member.parameters || []) {
+        if (isConstructorParameterProperty(parameter) && ts.isIdentifier(parameter.name)) {
+          registerInstancePropertyType(ownerFqn, parameter.name.text, parameter.type, parameter);
+        }
+      }
+    }
+  }
+}
+
+function registerInstancePropertyType(ownerFqn, name, typeNode, contextNode) {
+  const targetFqn = typeNodeReferenceFqn(typeNode, contextNode);
+  if (isInternalTypeFqn(targetFqn)) {
+    instancePropertyTypesByOwnerAndName.set(`${ownerFqn}\u0000${name}`, targetFqn);
+  }
+}
+
+function isConstructorParameterProperty(parameter) {
+  return hasModifier(parameter, ts.SyntaxKind.PrivateKeyword) ||
+    hasModifier(parameter, ts.SyntaxKind.PublicKeyword) ||
+    hasModifier(parameter, ts.SyntaxKind.ProtectedKeyword) ||
+    hasModifier(parameter, ts.SyntaxKind.ReadonlyKeyword);
+}
+
+function typeNodeReferenceFqn(typeNode, contextNode) {
+  if (!typeNode || !ts.isTypeReferenceNode(typeNode)) {
+    return '';
+  }
+  return typeNameReferenceFqn(typeNode.typeName, contextNode);
+}
+
+function typeNameReferenceFqn(typeName, contextNode) {
+  const parts = typeNameParts(typeName);
+  if (parts.length === 0) {
+    return '';
+  }
+  if (parts.length === 1) {
+    const name = parts[0];
+    return localTypeFqn(name, contextNode) || imports.get(name) || classesByName.get(name) || '';
+  }
+  const namespaceOwner = namespaceImports.get(parts[0]) || importedNamespaces.get(parts[0]);
+  if (namespaceOwner) {
+    return [namespaceOwner, ...parts.slice(1)].join('.');
+  }
+  const importedTopLevel = imports.get(parts[0]);
+  return importedTopLevel ? [importedTopLevel, ...parts.slice(1)].join('.') : '';
+}
+
+function typeNameParts(typeName) {
+  if (ts.isIdentifier(typeName)) {
+    return [typeName.text];
+  }
+  if (ts.isQualifiedName(typeName)) {
+    return [...typeNameParts(typeName.left), typeName.right.text];
+  }
+  return [];
+}
+
+function isInternalTypeFqn(fqn) {
+  return fqn.startsWith('js.');
+}
+
 function collectLocalTypeMetadata(node) {
   if (ts.isClassDeclaration(node)) {
     const graphName = declarationName(node);
@@ -1198,23 +1313,100 @@ function collectLocalTypeMetadata(node) {
     registerTypeNode(node, node.name.text, isTopLevelDeclaration(node));
   } else if (
     ts.isVariableDeclaration(node) &&
-    ts.isIdentifier(node.name) &&
-    isClassExpressionInitializer(node.initializer)
+    ts.isIdentifier(node.name)
   ) {
-    const topLevel = isTopLevelVariableDeclaration(node);
-    const fqn = registerTypeNode(node.initializer, node.name.text, topLevel);
-    if (topLevel) {
-      registerUniqueName(classesByName, node.name.text, fqn);
+    const classExpression = classExpressionInitializer(node.initializer);
+    if (classExpression) {
+      const topLevel = isTopLevelVariableDeclaration(node);
+      const fqn = registerTypeNode(classExpression, node.name.text, topLevel);
+      if (topLevel) {
+        registerUniqueName(classesByName, node.name.text, fqn);
+      }
     }
+  } else if (shouldCollectNamedClassExpression(node)) {
+    registerTypeNode(node, node.name.text, false, { registerScoped: false });
   }
   ts.forEachChild(node, collectLocalTypeMetadata);
 }
 
-function registerTypeNode(node, name, topLevel) {
+function classExpressionInitializer(initializer) {
+  if (!initializer) {
+    return null;
+  }
+  const expression = unwrapClassInitializerExpression(initializer);
+  return ts.isClassExpression(expression) ? expression : null;
+}
+
+function unwrapClassInitializerExpression(expression) {
+  let current = expression;
+  while (isClassInitializerWrapper(current)) {
+    current = current.expression;
+  }
+  return current;
+}
+
+function shouldCollectNamedClassExpression(node) {
+  return ts.isClassExpression(node) &&
+    Boolean(node.name) &&
+    !isVariableClassExpressionInitializer(node) &&
+    !isExportAssignmentClassExpression(node);
+}
+
+function isVariableClassExpressionInitializer(node) {
+  let current = node;
+  let parent = current.parent;
+  while (
+    parent &&
+    isClassInitializerWrapper(parent) &&
+    parent.expression === current
+  ) {
+    current = parent;
+    parent = current.parent;
+  }
+  return Boolean(
+    parent &&
+      ts.isVariableDeclaration(parent) &&
+      parent.initializer === current &&
+      ts.isIdentifier(parent.name)
+  );
+}
+
+function isExportAssignmentClassExpression(node) {
+  let current = node;
+  let parent = current.parent;
+  while (
+    parent &&
+    isClassInitializerWrapper(parent) &&
+    parent.expression === current
+  ) {
+    current = parent;
+    parent = current.parent;
+  }
+  return Boolean(
+    parent &&
+      ts.isExportAssignment(parent) &&
+      unwrapExpression(parent.expression) === unwrapExpression(current)
+  );
+}
+
+function isClassInitializerWrapper(node) {
+  return ts.isParenthesizedExpression(node) ||
+    ts.isAsExpression(node) ||
+    ts.isTypeAssertionExpression(node) ||
+    ts.isNonNullExpression(node) ||
+    (ts.isSatisfiesExpression && ts.isSatisfiesExpression(node));
+}
+
+function registerTypeNode(node, name, topLevel, options = {}) {
   const fqn = topLevel ? `${moduleFqn}.${name}` : localTypeFqnFor(node, name);
   typeFqnByNode.set(node, fqn);
   typeNameByNode.set(node, name);
-  registerScopedLocalType(node, name, fqn);
+  if (ts.isClassExpression(node) && node.name) {
+    registerClassSelfType(node, node.name.text, fqn);
+  }
+  if (options.registerScoped !== false) {
+    registerScopedLocalType(node, name, fqn);
+  }
   if (topLevel) {
     registerUniqueName(localTypeFqnsByName, name, fqn);
   }
@@ -1223,6 +1415,15 @@ function registerTypeNode(node, name, topLevel) {
 
 function registerScopedLocalType(node, name, fqn) {
   const scope = lexicalTypeScope(node);
+  registerLocalType(scope, name, fqn);
+}
+
+function registerClassSelfType(node, name, fqn) {
+  registerLocalType(node, name, fqn);
+  classSelfNamesByOwnerFqn.set(`${fqn}\u0000${name}`, fqn);
+}
+
+function registerLocalType(scope, name, fqn) {
   if (!localTypeScopesByNode.has(scope)) {
     localTypeScopesByNode.set(scope, new Map());
   }
@@ -1287,12 +1488,119 @@ function parentTypeScope(scope) {
 
 function isTypeScope(node) {
   return node === sourceFile ||
+    ts.isClassDeclaration(node) ||
+    ts.isClassExpression(node) ||
     ts.isBlock(node) ||
     ts.isModuleBlock(node) ||
     node.kind === ts.SyntaxKind.CaseBlock ||
     ts.isForStatement(node) ||
     ts.isForInStatement(node) ||
     ts.isForOfStatement(node);
+}
+
+function classSelfTypeFqn(ownerFqn, name, contextNode = null) {
+  const fqn = classSelfNamesByOwnerFqn.get(`${ownerFqn}\u0000${name}`) || '';
+  if (!fqn || !contextNode) {
+    return fqn;
+  }
+  return isClassSelfNameShadowed(contextNode, ownerFqn, name) ? SHADOWED_CLASS_SELF : fqn;
+}
+
+function isClassSelfNameShadowed(contextNode, ownerFqn, name) {
+  let current = contextNode.parent;
+  while (current) {
+    if (ts.isClassExpression(current) && typeFqnByNode.get(current) === ownerFqn) {
+      return false;
+    }
+    if (scopeDeclaresValueName(current, name)) {
+      return true;
+    }
+    current = current.parent;
+  }
+  return false;
+}
+
+function scopeDeclaresValueName(scope, name) {
+  if (ts.isFunctionLike(scope)) {
+    return Array.from(scope.parameters || []).some(parameter =>
+      bindingNameContains(parameter.name, name)
+    ) || functionBodyDeclaresVarName(scope.body, name);
+  }
+  if (ts.isBlock(scope) || scope === sourceFile) {
+    return Array.from(scope.statements || []).some(statement =>
+      statementDeclaresValueName(statement, name)
+    );
+  }
+  if (scope.kind === ts.SyntaxKind.CaseClause || scope.kind === ts.SyntaxKind.DefaultClause) {
+    return Array.from(scope.statements || []).some(statement =>
+      statementDeclaresValueName(statement, name)
+    );
+  }
+  if (ts.isForStatement(scope)) {
+    return variableDeclarationListContains(scope.initializer, name);
+  }
+  if (ts.isForInStatement(scope) || ts.isForOfStatement(scope)) {
+    return variableDeclarationListContains(scope.initializer, name);
+  }
+  if (ts.isCatchClause(scope)) {
+    return Boolean(scope.variableDeclaration) &&
+      bindingNameContains(scope.variableDeclaration.name, name);
+  }
+  return false;
+}
+
+function functionBodyDeclaresVarName(body, name) {
+  if (!body) {
+    return false;
+  }
+  let found = false;
+  function visit(node) {
+    if (found) {
+      return;
+    }
+    if (node !== body && (ts.isFunctionLike(node) || isClassLike(node))) {
+      return;
+    }
+    if (
+      ts.isVariableDeclarationList(node) &&
+      (node.flags & ts.NodeFlags.BlockScoped) === 0 &&
+      variableDeclarationListContains(node, name)
+    ) {
+      found = true;
+      return;
+    }
+    ts.forEachChild(node, visit);
+  }
+  ts.forEachChild(body, visit);
+  return found;
+}
+
+function isClassLike(node) {
+  return ts.isClassDeclaration(node) || ts.isClassExpression(node);
+}
+
+function statementDeclaresValueName(statement, name) {
+  if (ts.isVariableStatement(statement)) {
+    return variableDeclarationListContains(statement.declarationList, name);
+  }
+  return (ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement)) &&
+    Boolean(statement.name) &&
+    statement.name.text === name;
+}
+
+function variableDeclarationListContains(node, name) {
+  return Boolean(node) &&
+    ts.isVariableDeclarationList(node) &&
+    Array.from(node.declarations || []).some(decl => bindingNameContains(decl.name, name));
+}
+
+function bindingNameContains(bindingName, name) {
+  if (ts.isIdentifier(bindingName)) {
+    return bindingName.text === name;
+  }
+  return Array.from(bindingName.elements || []).some(element =>
+    !ts.isOmittedExpression(element) && bindingNameContains(element.name, name)
+  );
 }
 
 function emittedClassExpression(node) {

@@ -128,6 +128,9 @@ Common memory-to-memory links:
   by the module owner. TypeScript interfaces and type aliases reuse `:Interface`; decorators reuse
   `:Annotation` and `ANNOTATED_WITH`. TypeScript enums reuse `:Class` with `isEnum = true` and
   `kind = "enum"`. Angular decorators can set `framework = "angular"`.
+- JavaScript/TypeScript file discovery is bounded by the configured `--source` root. Use the
+  repository root as `--source` when root-level config or support files should be code nodes.
+  `node_modules` is still skipped.
 - JavaScript/TypeScript class and interface heritage is represented with the shared `EXTENDS` and
   `IMPLEMENTS` relationships. Relative imports and `tsconfig.json` path aliases, including aliases
   inherited through extended configs, that resolve under the ingested source root can point
@@ -140,10 +143,11 @@ Common memory-to-memory links:
 - JavaScript/TypeScript function-valued class fields are emitted as `:Method` records for callable
   inventories and receiver-scoped `CALLS` resolution. They can also appear as `:Field` records
   because the source member is still a class field.
-- JavaScript/TypeScript class expressions assigned to variables are emitted as `:Class` nodes using
-  the variable name. Relative imports and `tsconfig.json` path aliases, including aliases inherited
-  through extended configs, that resolve to local source files can produce owner/name `CALLS` edges
-  when the target owner has exactly one method with the imported name.
+- JavaScript/TypeScript named class expressions and class expressions assigned to variables are
+  emitted as `:Class` nodes. Variable-assigned class expressions use the variable name. Relative
+  imports and `tsconfig.json` path aliases, including aliases inherited through extended configs,
+  that resolve to local source files can produce owner/name `CALLS` edges when the target owner has
+  exactly one method with the imported name.
 - JavaScript/TypeScript exported callable aliases such as `export { foo as bar }`,
   `export { foo as bar } from "./mod"`, and `export default foo` are emitted as graph-visible
   declarations for the public export names so deferred owner/name call resolution can match imports
@@ -151,7 +155,7 @@ Common memory-to-memory links:
   declarations so `new X()` imports from barrel modules can resolve through the alias.
 - JavaScript/TypeScript namespace-qualified decorators preserve the namespace in the annotation FQN
   when the namespace import can be identified.
-- `CALLS` edges only connect methods within the same project. External library calls are dropped to avoid phantom nodes. JavaScript/TypeScript owner/name calls that cross file-order boundaries are first stored as `:PendingCall` records, then resolved after the ingestion batch when the target owner declares exactly one method with that name. Unresolved or ambiguous pending calls can remain until a later ingestion supplies a unique target; pending calls for a reingested JS/TS file are cleared before the file's current calls are stored.
+- `CALLS` edges only connect methods within the same project. External library calls are dropped to avoid phantom nodes. JavaScript/TypeScript owner/name calls that cross file-order boundaries are first stored as `:PendingCall` records, then resolved after the ingestion batch. Direct owner methods are preferred, then the nearest superclass with exactly one matching method. Unresolved or ambiguous pending calls can remain until a later ingestion supplies a unique target; pending calls for a reingested JS/TS file are cleared before the file's current calls are stored.
 - JavaScript/TypeScript `CALLS` edges are syntax-only best effort. Top-level IIFEs/callbacks and
   local function constructors are handled, but dynamic dispatch, framework templates, dependency
   injection, monkey-patching, and generated code can be missing.
