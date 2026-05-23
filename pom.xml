@@ -4,7 +4,7 @@
 
   <groupId>io.github.ousatov-ua</groupId>
   <artifactId>memgraph-ingester</artifactId>
-  <version>9.0.7</version>
+  <version>9.0.8</version>
   <packaging>jar</packaging>
 
   <name>Memgraph Ingester</name>
