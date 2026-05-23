@@ -11,6 +11,7 @@ import java.util.List;
 public record IngestionMetrics(List<Row> rows) {
 
   private static final String TITLE = "Ingestion Metrics";
+  private static final String LF = "\n";
 
   public IngestionMetrics {
     rows = List.copyOf(rows);
@@ -18,9 +19,9 @@ public record IngestionMetrics(List<Row> rows) {
 
   /** Renders metrics in a human-readable and machine-friendly table. */
   public String toMarkdownTable() {
-    StringBuilder table = new StringBuilder(TITLE).append(System.lineSeparator());
-    table.append("| metric | value |").append(System.lineSeparator());
-    table.append("|---|---:|").append(System.lineSeparator());
+    StringBuilder table = new StringBuilder(TITLE).append(LF);
+    table.append("| metric | value |").append(LF);
+    table.append("|---|---:|").append(LF);
     for (Row row : rows) {
       table
           .append("| ")
@@ -28,7 +29,7 @@ public record IngestionMetrics(List<Row> rows) {
           .append(" | ")
           .append(row.value())
           .append(" |")
-          .append(System.lineSeparator());
+          .append(LF);
     }
     return table.toString();
   }

@@ -4,8 +4,11 @@ import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -63,6 +66,13 @@ class IngestionMetricsTest {
   }
 
   @Test
+  void excludesSyntheticMethodsFromPrimaryMethodMetric() throws IOException {
+    assertTrue(
+        readMetricQuery("methods.cypher").contains("WHERE n.isSynthetic = false"),
+        "primary method metric should exclude synthetic methods");
+  }
+
+  @Test
   void rejectsDifferentSnapshot() throws IOException {
     String actualMetrics =
         new IngestionMetrics(List.of(new IngestionMetrics.Row("methods", 3))).toMarkdownTable();
@@ -74,5 +84,16 @@ class IngestionMetricsTest {
     assertThrows(
         IllegalStateException.class,
         () -> MetricsSnapshotValidator.validate(expectedFile, actualMetrics));
+  }
+
+  private static String readMetricQuery(String resourceName) throws IOException {
+    try (InputStream input =
+        IngestionMetricsCollector.class.getResourceAsStream(
+            "/io/github/ousatov/tools/memgraph/cypher/metrics/" + resourceName)) {
+      if (input == null) {
+        throw new AssertionError("Missing metrics query resource " + resourceName);
+      }
+      return new String(input.readAllBytes(), StandardCharsets.UTF_8);
+    }
   }
 }

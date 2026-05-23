@@ -247,11 +247,11 @@ public final class IngestionOrchestrator {
     }
   }
 
-  @SuppressWarnings("java:S106")
+  @SuppressWarnings({"java:S106", "java:S1181"})
   private void printMetrics(Session session) {
     try {
       System.out.print(IngestionMetricsCollector.collect(session, project).toMarkdownTable());
-    } catch (RuntimeException e) {
+    } catch (RuntimeException | LinkageError e) {
       log.warn("Could not print ingestion metrics for '{}': {}", project, e.getMessage());
     }
   }
