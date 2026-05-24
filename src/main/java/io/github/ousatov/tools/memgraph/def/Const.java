@@ -328,6 +328,7 @@ public final class Const {
     public static final String MODULE_PATH = "modulePath";
     public static final String MODULE_PREFIX = "modulePrefix";
     public static final String PATHS = "paths";
+    public static final String RETAINED_PATHS = "retainedPaths";
     public static final String SOURCE_ROOT = "sourceRoot";
     public static final String SOURCE_ROOT_PREFIX = "sourceRootPrefix";
     public static final String CLASS_FQNS = "classFqns";

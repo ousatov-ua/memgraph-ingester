@@ -1762,6 +1762,80 @@ class GraphWriterIT {
   }
 
   @Test
+  void deleteFilesMissingFromSourcePreservesOwnerRetainedByAnotherLanguage() {
+    Path missingFile = SRC_ROOT.resolve("app/missing.ts");
+    Path retainedFile = SRC_ROOT.resolve("com/example/Owner.java");
+    String ownerFqn = "com.example.Owner";
+    session
+        .run(
+            """
+            MERGE (missingFile:File {path: $missingPath, project: $p})
+            SET missingFile.language = 'js'
+            MERGE (retainedFile:File {path: $retainedPath, project: $p})
+            SET retainedFile.language = 'java'
+            MERGE (owner:Class {fqn: $ownerFqn, project: $p})
+            SET owner.name = 'Owner', owner.language = 'java', owner.isExternal = false
+            MERGE (missingFile)-[:DEFINES]->(owner)
+            MERGE (retainedFile)-[:DEFINES]->(owner)
+            """,
+            Map.of(
+                "p",
+                PROJECT,
+                "missingPath",
+                missingFile.toString(),
+                "retainedPath",
+                retainedFile.toString(),
+                "ownerFqn",
+                ownerFqn))
+        .consume();
+
+    writer.deleteFilesMissingFromSource(
+        SRC_ROOT, List.of(), List.of(retainedFile), SourceLanguage.JAVASCRIPT);
+
+    var row =
+        session
+            .run(
+                """
+                OPTIONAL MATCH (missingFile:File {path: $missingPath, project: $p})
+                OPTIONAL MATCH (retainedFile:File {path: $retainedPath, project: $p})
+                OPTIONAL MATCH (owner:Class {fqn: $ownerFqn, project: $p})
+                RETURN count(DISTINCT missingFile) AS missingFiles,
+                    count(DISTINCT retainedFile) AS retainedFiles,
+                    count(DISTINCT owner) AS owners
+                """,
+                Map.of(
+                    "p",
+                    PROJECT,
+                    "missingPath",
+                    missingFile.toString(),
+                    "retainedPath",
+                    retainedFile.toString(),
+                    "ownerFqn",
+                    ownerFqn))
+            .single();
+
+    assertEquals(0, row.get("missingFiles").asLong());
+    assertEquals(1, row.get("retainedFiles").asLong());
+    assertEquals(1, row.get("owners").asLong());
+  }
+
+  @Test
+  void hasExistingDefinitionsReturnsTrueWhenOnlyClassMatches() {
+    String ownerFqn = "com.example.OnlyClass";
+    session
+        .run(
+            "MERGE (owner:Class {fqn: $ownerFqn, project: $p}) "
+                + "SET owner.name = 'OnlyClass', owner.language = 'java', owner.isExternal = false",
+            Map.of("p", PROJECT, "ownerFqn", ownerFqn))
+        .consume();
+
+    SourceFileDefinitions definitions =
+        SourceFileDefinitions.of(List.of(ownerFqn), List.of(), List.of(), List.of(), List.of());
+
+    assertTrue(writer.hasExistingDefinitions(definitions));
+  }
+
+  @Test
   void deleteStaleDefinitionsForFilePreservesSharedOwnerRelationsFromRetainedFile() {
     Path changedFile = Path.of("/tmp/test-gw/src/app/changed.ts");
     Path retainedFile = Path.of("/tmp/test-gw/src/app/retained.ts");

@@ -120,6 +120,7 @@ class CypherResourceTest {
     assertTrue(cypher.contains("MATCH (annotationDefinition:Annotation {project: $project})"));
     assertTrue(cypher.contains("MATCH (methodDefinition:Method {project: $project})"));
     assertTrue(cypher.contains("MATCH (fieldDefinition:Field {project: $project})"));
+    assertTrue(cypher.contains("OPTIONAL MATCH"));
   }
 
   @Test

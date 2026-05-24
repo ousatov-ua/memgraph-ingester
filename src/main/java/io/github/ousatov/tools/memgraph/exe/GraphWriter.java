@@ -191,6 +191,18 @@ public final class GraphWriter {
   /** Deletes file graph state for language-specific files absent from the current source tree. */
   public void deleteFilesMissingFromSource(
       Path sourceRoot, Collection<Path> files, SourceLanguage language) {
+    deleteFilesMissingFromSource(sourceRoot, files, files, language);
+  }
+
+  /**
+   * Deletes language-specific files absent from the current source tree while preserving
+   * definitions still retained by any active project file.
+   */
+  public void deleteFilesMissingFromSource(
+      Path sourceRoot,
+      Collection<Path> files,
+      Collection<Path> retainedFiles,
+      SourceLanguage language) {
     String sourceRootText = sourceRoot.toString();
     String separator = sourceRoot.getFileSystem().getSeparator();
     String sourceRootPrefix =
@@ -199,6 +211,8 @@ public final class GraphWriter {
         Map.of(
             Params.PATHS,
             files.stream().map(Path::toString).toList(),
+            Params.RETAINED_PATHS,
+            retainedFiles.stream().map(Path::toString).toList(),
             Params.SOURCE_ROOT,
             sourceRootText,
             Params.SOURCE_ROOT_PREFIX,

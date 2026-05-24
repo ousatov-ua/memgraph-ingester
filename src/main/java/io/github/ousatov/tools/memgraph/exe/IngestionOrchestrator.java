@@ -437,11 +437,12 @@ public final class IngestionOrchestrator {
           .computeIfAbsent(file.adapter().language(), ignored -> new ArrayList<>())
           .add(file.path());
     }
+    List<Path> retainedPaths = files.stream().map(SourceFile::path).toList();
     try (Session session = driver.session()) {
       GraphWriter writer = new GraphWriter(session, project);
       for (SourceLanguage language : languages()) {
         List<Path> currentPaths = pathsByLanguage.getOrDefault(language, List.of());
-        writer.deleteFilesMissingFromSource(sourceRoot, currentPaths, language);
+        writer.deleteFilesMissingFromSource(sourceRoot, currentPaths, retainedPaths, language);
       }
     }
   }
