@@ -24,6 +24,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -327,13 +328,29 @@ public final class GraphWriter {
 
   /** Returns project file paths under the active source root. */
   public Set<Path> getFilePathsInSourceRoot(Path sourceRoot) {
+    return getFilePathsInSourceRoot(sourceRoot, Cypher.CYPHER_GET_FILES_IN_SOURCE_ROOT, Map.of());
+  }
+
+  /** Returns language-specific project file paths under the active source root. */
+  public Set<Path> getFilePathsInSourceRoot(Path sourceRoot, SourceLanguage language) {
+    return getFilePathsInSourceRoot(
+        sourceRoot,
+        getFilesInSourceRootCypher(language),
+        Map.of(Params.LANGUAGE, language.graphName()));
+  }
+
+  private Set<Path> getFilePathsInSourceRoot(
+      Path sourceRoot, String query, Map<String, Object> extraParams) {
     String sourceRootText = sourceRoot.toString();
     String separator = sourceRoot.getFileSystem().getSeparator();
     String sourceRootPrefix =
         sourceRootText.endsWith(separator) ? sourceRootText : sourceRootText + separator;
+    Map<String, Object> params = new HashMap<>(extraParams);
+    params.put(Params.SOURCE_ROOT, sourceRootText);
+    params.put(Params.SOURCE_ROOT_PREFIX, sourceRootPrefix);
     return cypher.read(
-        Cypher.CYPHER_GET_FILES_IN_SOURCE_ROOT,
-        Map.of(Params.SOURCE_ROOT, sourceRootText, Params.SOURCE_ROOT_PREFIX, sourceRootPrefix),
+        query,
+        params,
         result -> {
           Set<Path> paths = new HashSet<>();
           while (result.hasNext()) {
@@ -343,6 +360,22 @@ public final class GraphWriter {
             }
           }
           return paths;
+        });
+  }
+
+  /** Returns the stored module path for {@code file}, when available. */
+  public Optional<String> getModulePath(Path file, SourceLanguage language) {
+    return cypher.read(
+        getModulePathCypher(language),
+        Map.of(Params.PATH, file.toString()),
+        result -> {
+          if (!result.hasNext()) {
+            return Optional.empty();
+          }
+          String modulePath = result.next().get(Params.MODULE_PATH).asString(null);
+          return modulePath == null || modulePath.isBlank()
+              ? Optional.empty()
+              : Optional.of(modulePath);
         });
   }
 
@@ -378,6 +411,20 @@ public final class GraphWriter {
     return switch (language) {
       case JAVA -> Cypher.CYPHER_GET_JAVA_FILES_LAST_MODIFIED;
       case JAVASCRIPT -> Cypher.CYPHER_GET_JAVASCRIPT_FILES_LAST_MODIFIED;
+    };
+  }
+
+  private static String getFilesInSourceRootCypher(SourceLanguage language) {
+    return switch (language) {
+      case JAVA -> Cypher.CYPHER_GET_JAVA_FILES_IN_SOURCE_ROOT;
+      case JAVASCRIPT -> Cypher.CYPHER_GET_JAVASCRIPT_FILES_IN_SOURCE_ROOT;
+    };
+  }
+
+  private static String getModulePathCypher(SourceLanguage language) {
+    return switch (language) {
+      case JAVA -> Cypher.CYPHER_GET_JAVA_MODULE_PATH_FOR_FILE;
+      case JAVASCRIPT -> Cypher.CYPHER_GET_JAVASCRIPT_MODULE_PATH_FOR_FILE;
     };
   }
 

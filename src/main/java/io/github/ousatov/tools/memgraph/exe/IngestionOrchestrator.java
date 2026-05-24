@@ -330,7 +330,7 @@ public final class IngestionOrchestrator {
             deletedFiles.size(),
             updateFailures);
       }
-      refreshRetainedFilesAfterWatchDelete(writer, refreshAfterDelete, currentFilesByPath);
+      refreshRetainedFilesAfterDelete(writer, refreshAfterDelete, currentFilesByPath);
       if (changedGraph) {
         refreshDerivedGraphArtifacts(writer);
         log.info("Watch re-ingestion complete.");
@@ -381,7 +381,7 @@ public final class IngestionOrchestrator {
           refreshAfterDelete.addAll(sharedRetainedFiles);
         }
       }
-      refreshRetainedFilesAfterWatchDelete(writer, refreshAfterDelete, Map.of());
+      refreshRetainedFilesAfterDelete(writer, refreshAfterDelete, Map.of());
       return changedGraph;
     } catch (RuntimeException e) {
       log.warn("Could not reconcile watch delete fallback: {}", e.getMessage());
@@ -389,20 +389,19 @@ public final class IngestionOrchestrator {
     }
   }
 
-  private void refreshRetainedFilesAfterWatchDelete(
+  private void refreshRetainedFilesAfterDelete(
       GraphWriter writer, Collection<Path> paths, Map<Path, SourceFile> currentFilesByPath) {
     for (Path path : paths.stream().sorted().toList()) {
-      Optional<SourceFile> retainedFile = sourceFileFor(path, currentFilesByPath);
+      Optional<SourceFile> retainedFile = sourceFileFor(path, currentFilesByPath, writer);
       if (retainedFile.isEmpty()) {
         continue;
       }
       try {
         if (!ingestFileBatched(writer, retainedFile.get(), StoredFileState.empty())) {
-          log.warn("Failed to refresh retained file after watch delete: {}", path);
+          log.warn("Failed to refresh retained file after delete: {}", path);
         }
       } catch (RuntimeException e) {
-        log.warn(
-            "Failed to refresh retained file after watch delete on {}: {}", path, e.getMessage());
+        log.warn("Failed to refresh retained file after delete on {}: {}", path, e.getMessage());
       }
     }
   }
@@ -541,15 +540,28 @@ public final class IngestionOrchestrator {
 
   private void deleteMissingSourceFiles(List<SourceFile> files, Collection<Path> retainedPaths) {
     Map<SourceLanguage, List<Path>> pathsByLanguage = new LinkedHashMap<>();
+    Map<Path, SourceFile> currentFilesByPath = new LinkedHashMap<>();
     for (SourceFile file : files) {
+      currentFilesByPath.put(file.path(), file);
       pathsByLanguage
           .computeIfAbsent(file.adapter().language(), ignored -> new ArrayList<>())
           .add(file.path());
     }
     try (Session session = driver.session()) {
       GraphWriter writer = new GraphWriter(session, project);
+      writer.setRetainedSourcePaths(retainedPaths);
+      Set<Path> refreshAfterDelete = new LinkedHashSet<>();
       for (SourceLanguage language : languages()) {
         List<Path> currentPaths = pathsByLanguage.getOrDefault(language, List.of());
+        Set<Path> currentPathSet = new HashSet<>(currentPaths);
+        writer.getFilePathsInSourceRoot(sourceRoot, language).stream()
+            .filter(path -> !currentPathSet.contains(path))
+            .filter(path -> !Files.exists(path))
+            .sorted()
+            .forEach(
+                missingFile ->
+                    refreshAfterDelete.addAll(
+                        writer.getRetainedFilePathsSharingDefinitionsWith(missingFile)));
         runMissingFileCleanupWithRetry(
             sourceRoot,
             language,
@@ -557,6 +569,7 @@ public final class IngestionOrchestrator {
                 writer.deleteFilesMissingFromSource(
                     sourceRoot, currentPaths, retainedPaths, language));
       }
+      refreshRetainedFilesAfterDelete(writer, refreshAfterDelete, currentFilesByPath);
     }
   }
 
@@ -585,12 +598,43 @@ public final class IngestionOrchestrator {
     return languageAdapters.stream().filter(adapter -> adapter.accepts(file)).findFirst();
   }
 
-  private Optional<SourceFile> sourceFileFor(Path file, Map<Path, SourceFile> currentFilesByPath) {
+  private Optional<SourceFile> sourceFileFor(
+      Path file, Map<Path, SourceFile> currentFilesByPath, GraphWriter writer) {
     SourceFile currentFile = currentFilesByPath.get(file);
     if (currentFile != null) {
       return Optional.of(currentFile);
     }
-    return adapterFor(file).map(adapter -> new SourceFile(file, adapter));
+    return adapterFor(file)
+        .map(adapter -> new SourceFile(file, adapterForRetainedFile(file, adapter, writer)));
+  }
+
+  private LanguageAdapter adapterForRetainedFile(
+      Path file, LanguageAdapter adapter, GraphWriter writer) {
+    return writer
+        .getModulePath(file, adapter.language())
+        .flatMap(modulePath -> sourceRootFromModulePath(file, modulePath))
+        .map(adapter::forSourceRoot)
+        .orElse(adapter);
+  }
+
+  private static Optional<Path> sourceRootFromModulePath(Path file, String modulePathText) {
+    Path modulePath = Path.of(modulePathText).normalize();
+    Path normalizedFile = file.normalize();
+    if (!normalizedFile.endsWith(modulePath)) {
+      return Optional.empty();
+    }
+    int rootNameCount = normalizedFile.getNameCount() - modulePath.getNameCount();
+    if (rootNameCount < 0) {
+      return Optional.empty();
+    }
+    Path root = normalizedFile.getRoot();
+    for (int index = 0; index < rootNameCount; index++) {
+      root =
+          root == null
+              ? normalizedFile.getName(index)
+              : root.resolve(normalizedFile.getName(index));
+    }
+    return Optional.ofNullable(root);
   }
 
   private int ingestSequential(

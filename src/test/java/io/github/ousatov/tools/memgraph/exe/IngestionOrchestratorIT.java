@@ -165,6 +165,20 @@ class IngestionOrchestratorIT {
     }
   }
 
+  private static List<String> moduleFqnsForFile(String project, Path file) {
+    try (Session s = driver.session()) {
+      return s.run(
+              """
+              MATCH (:File {project: $p, path: $path})-[:DEFINES]->(module {project: $p})
+              WHERE module.modulePath IS NOT NULL
+              RETURN module.fqn AS fqn
+              ORDER BY fqn
+              """,
+              Map.of("p", project, "path", file.toString()))
+          .list(row -> row.get("fqn").asString());
+    }
+  }
+
   private static void createClassCodeRef(String project, String fqn) {
     try (Session s = driver.session()) {
       s.run(
@@ -265,6 +279,46 @@ class IngestionOrchestratorIT {
       writer.upsertFile(file, language());
       writer.upsertPackage("js.test", language());
       writer.upsertJavascriptModule(file, "js.test", "js.test.App", "App", "app.ts", 1, 1);
+      return true;
+    }
+  }
+
+  /**
+   * Stub adapter whose module identity depends on the configured source root.
+   *
+   * @author Oleksii Usatov
+   */
+  private static final class RootAwareStubLanguageAdapter implements LanguageAdapter {
+
+    private final Path sourceRoot;
+
+    private RootAwareStubLanguageAdapter(Path sourceRoot) {
+      this.sourceRoot = sourceRoot;
+    }
+
+    @Override
+    public SourceLanguage language() {
+      return SourceLanguage.JAVASCRIPT;
+    }
+
+    @Override
+    public boolean accepts(Path file) {
+      return file.toString().endsWith(".ts");
+    }
+
+    @Override
+    public LanguageAdapter forSourceRoot(Path sourceRoot) {
+      return new RootAwareStubLanguageAdapter(sourceRoot);
+    }
+
+    @Override
+    public boolean ingestFile(GraphWriter writer, Path file) {
+      String modulePath = sourceRoot.relativize(file).toString().replace('\\', '/');
+      String moduleName = modulePath.replaceAll("[^A-Za-z0-9]", "_");
+      String moduleFqn = "js.test." + moduleName;
+      writer.upsertFile(file, language());
+      writer.upsertPackage("js.test", language());
+      writer.upsertJavascriptModule(file, "js.test", moduleFqn, moduleName, modulePath, 1, 1);
       return true;
     }
   }
@@ -984,6 +1038,35 @@ class IngestionOrchestratorIT {
   }
 
   @Test
+  void watchModeRefreshesRetainedModuleFileWithStoredSourceRoot() throws Exception {
+    currentProject = PROJECT_BASE + "-watch-delete-module-retained-root";
+    sourceDir = Files.createTempDirectory("orch-watch-delete-module-root-a-");
+    Path otherRoot = Files.createTempDirectory("orch-watch-delete-module-root-b-");
+    try {
+      Path removedFile = sourceDir.resolve("shared.ts");
+      Path retainedFile = otherRoot.resolve("shared.ts");
+      Files.writeString(removedFile, "export const shared = true;\n");
+      Files.writeString(retainedFile, "export const shared = true;\n");
+      IngestionOrchestrator rootAOrchestrator =
+          new IngestionOrchestrator(
+              sourceDir, currentProject, 1, driver, new RootAwareStubLanguageAdapter(sourceDir));
+      IngestionOrchestrator rootBOrchestrator =
+          new IngestionOrchestrator(
+              otherRoot, currentProject, 1, driver, new RootAwareStubLanguageAdapter(otherRoot));
+      assertEquals(0, rootAOrchestrator.run(Settings.def()));
+      assertEquals(0, rootBOrchestrator.run(Settings.def()));
+      assertEquals(List.of("js.test.shared_ts"), moduleFqnsForFile(currentProject, retainedFile));
+
+      Files.delete(removedFile);
+      rootAOrchestrator.ingestChangedFiles(Set.of(removedFile));
+
+      assertEquals(List.of("js.test.shared_ts"), moduleFqnsForFile(currentProject, retainedFile));
+    } finally {
+      deleteDir(otherRoot);
+    }
+  }
+
+  @Test
   void ingestsSequentiallyWithZeroFailures() throws Exception {
     currentProject = PROJECT_BASE + "-seq";
     sourceDir = buildSampleSourceTree();
@@ -1610,6 +1693,46 @@ class IngestionOrchestratorIT {
       assertFalse(fileExistsInGraph(currentProject, removedFile));
       assertTrue(fileExistsInGraph(currentProject, retainedFile));
       assertTrue(classExists(currentProject, "com.example.Shared"));
+    } finally {
+      deleteDir(otherRoot);
+    }
+  }
+
+  @Test
+  void missingFileCleanupRefreshesRetainedFileFromOtherSourceRoot() throws Exception {
+    currentProject = PROJECT_BASE + "-missing-file-refresh-other-root";
+    sourceDir = Files.createTempDirectory("orch-missing-file-refresh-root-a-");
+    Path otherRoot = Files.createTempDirectory("orch-missing-file-refresh-root-b-");
+    try {
+      Path rootA = sourceDir.resolve("com/example");
+      Path rootB = otherRoot.resolve("com/example");
+      Files.createDirectories(rootA);
+      Files.createDirectories(rootB);
+      Path removedFile = rootA.resolve("Shared.java");
+      Path retainedFile = rootB.resolve("Shared.java");
+      Files.writeString(rootA.resolve("Helper.java"), helperSource());
+      Files.writeString(rootB.resolve("Helper.java"), helperSource());
+      Files.writeString(removedFile, sharedWithHelperCallSource());
+      Files.writeString(retainedFile, sharedWithoutHelperCallSource());
+      IngestionOrchestrator rootAOrchestrator =
+          new IngestionOrchestrator(
+              sourceDir, currentProject, 1, driver, new ParseService(sourceDir));
+      IngestionOrchestrator rootBOrchestrator =
+          new IngestionOrchestrator(
+              otherRoot, currentProject, 1, driver, new ParseService(otherRoot));
+      assertEquals(0, rootAOrchestrator.run(Settings.def()));
+      assertTrue(
+          callEdgeExists(currentProject, "com.example.Shared.serve()", "com.example.Helper.go()"));
+      assertEquals(0, rootBOrchestrator.run(Settings.def()));
+      assertTrue(
+          callEdgeExists(currentProject, "com.example.Shared.serve()", "com.example.Helper.go()"));
+
+      Files.delete(removedFile);
+      assertEquals(0, rootAOrchestrator.run(Settings.def()));
+
+      assertTrue(fileExistsInGraph(currentProject, retainedFile));
+      assertFalse(
+          callEdgeExists(currentProject, "com.example.Shared.serve()", "com.example.Helper.go()"));
     } finally {
       deleteDir(otherRoot);
     }

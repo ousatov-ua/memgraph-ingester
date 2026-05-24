@@ -140,8 +140,9 @@ Common memory-to-memory links:
 - Regular and watch re-ingestion prune deleted files and removed declarations. Changed-file
   cleanup and replacement writes are per-file transactional. Retained snapshots include
   active-source files, existing same-root graph files, and existing files from other source roots.
-  Watch re-ingestion skips delete cleanup after update failures, retries snapshot-failed batches,
-  reconciles delete-only snapshot failures, and refreshes retained files after deletes.
+  Re-ingestion refreshes retained files after deletes with the retained file's source root. Watch
+  re-ingestion also skips delete cleanup after update failures, retries snapshot-failed batches,
+  and reconciles delete-only snapshot failures.
 - JavaScript/TypeScript class and interface heritage is represented with the shared `EXTENDS` and
   `IMPLEMENTS` relationships. Relative imports and `tsconfig.json` path aliases, including aliases
   inherited through extended configs, that resolve under the ingested source root can point

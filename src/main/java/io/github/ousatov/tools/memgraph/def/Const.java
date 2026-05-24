@@ -48,12 +48,28 @@ public final class Const {
     public static final String CYPHER_GET_JAVA_FILES_LAST_MODIFIED =
         action("Java/get-files-last-modified.cypher");
 
+    /** Fetches Java project file paths under the active source root. */
+    public static final String CYPHER_GET_JAVA_FILES_IN_SOURCE_ROOT =
+        action("Java/get-files-in-source-root.cypher");
+
+    /** Fetches the stored module path for one Java source file. */
+    public static final String CYPHER_GET_JAVA_MODULE_PATH_FOR_FILE =
+        action("Java/get-module-path-for-file.cypher");
+
     /**
      * Batch-fetches JS/TS {@code lastModified} values for files whose module owner is already
      * present in the graph.
      */
     public static final String CYPHER_GET_JAVASCRIPT_FILES_LAST_MODIFIED =
         action("Js/get-files-last-modified.cypher");
+
+    /** Fetches JS/TS project file paths under the active source root. */
+    public static final String CYPHER_GET_JAVASCRIPT_FILES_IN_SOURCE_ROOT =
+        action("Js/get-files-in-source-root.cypher");
+
+    /** Fetches the stored module path for one JS/TS source file. */
+    public static final String CYPHER_GET_JAVASCRIPT_MODULE_PATH_FOR_FILE =
+        action("Js/get-module-path-for-file.cypher");
 
     /** Fetches retained source file paths outside the active source root. */
     public static final String CYPHER_GET_RETAINED_FILES_OUTSIDE_SOURCE_ROOT =

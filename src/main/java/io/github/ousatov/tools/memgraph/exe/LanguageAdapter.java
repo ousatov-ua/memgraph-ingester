@@ -25,6 +25,11 @@ public interface LanguageAdapter {
 
   boolean ingestFile(GraphWriter writer, Path file);
 
+  /** Returns an equivalent adapter configured for {@code sourceRoot}. */
+  default LanguageAdapter forSourceRoot(Path sourceRoot) {
+    return this;
+  }
+
   default boolean shouldVisitDirectory(Path directory) {
     Path fileName = directory.getFileName();
     return fileName == null || !"node_modules".equals(fileName.toString());

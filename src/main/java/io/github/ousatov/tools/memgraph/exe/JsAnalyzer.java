@@ -232,6 +232,10 @@ public final class JsAnalyzer {
     }
   }
 
+  JsAnalyzer withSourceRoot(Path sourceRoot) {
+    return new JsAnalyzer(sourceRoot, nodeRuntime, typescriptPackage);
+  }
+
   private static final class JsonCursor {
 
     private final String input;

@@ -46,6 +46,11 @@ public final class JsLanguageAdapter implements LanguageAdapter {
   }
 
   @Override
+  public LanguageAdapter forSourceRoot(Path sourceRoot) {
+    return new JsLanguageAdapter(analyzer.withSourceRoot(sourceRoot));
+  }
+
+  @Override
   public boolean ingestFile(GraphWriter writer, Path file) {
     try {
       JsAnalysis analysis = analyzer.analyze(file);

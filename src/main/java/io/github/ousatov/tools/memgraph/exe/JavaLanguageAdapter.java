@@ -45,6 +45,11 @@ public final class JavaLanguageAdapter implements LanguageAdapter {
   }
 
   @Override
+  public LanguageAdapter forSourceRoot(Path sourceRoot) {
+    return new JavaLanguageAdapter(new ParseService(sourceRoot));
+  }
+
+  @Override
   public boolean ingestFile(GraphWriter writer, Path file) {
     var cuOpt = parseService.parse(file);
     if (cuOpt.isEmpty()) {
