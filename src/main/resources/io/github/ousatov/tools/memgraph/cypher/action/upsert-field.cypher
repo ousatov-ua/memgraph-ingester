@@ -1,3 +1,4 @@
+MATCH (file:File {path: $path, project: $project})
 MATCH (owner)
 WHERE owner.fqn = $owner AND owner.project = $project
   AND (owner:Class OR owner:Interface OR owner:Annotation)
@@ -9,3 +10,4 @@ MERGE (f:Field {fqn: $fqn, project: $project})
       f.language = $language,
       f.kind = $kind
 MERGE (owner)-[:DECLARES]->(f)
+MERGE (file)-[:DEFINES]->(f)

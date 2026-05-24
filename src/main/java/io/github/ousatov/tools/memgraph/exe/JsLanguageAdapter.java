@@ -67,7 +67,7 @@ public final class JsLanguageAdapter implements LanguageAdapter {
               type ->
                   upsertType(writer, file, analysis.packageName(), analysis.modulePath(), type));
       analysis.relations().forEach(relation -> upsertRelation(writer, relation));
-      analysis.members().forEach(member -> upsertMember(writer, member));
+      analysis.members().forEach(member -> upsertMember(writer, file, member));
       analysis.annotations().forEach(annotation -> upsertAnnotation(writer, annotation));
       analysis.calls().forEach(call -> upsertCall(writer, call));
       return true;
@@ -154,9 +154,10 @@ public final class JsLanguageAdapter implements LanguageAdapter {
     }
   }
 
-  private static void upsertMember(GraphWriter writer, JsAnalysis.MemberDecl member) {
+  private static void upsertMember(GraphWriter writer, Path file, JsAnalysis.MemberDecl member) {
     if ("method".equals(member.memberType())) {
       writer.upsertJavascriptMethod(
+          file,
           member.ownerFqn(),
           member.key(),
           member.name(),
@@ -167,6 +168,7 @@ public final class JsLanguageAdapter implements LanguageAdapter {
           member.kind());
     } else {
       writer.upsertJavascriptField(
+          file,
           member.ownerFqn(),
           member.key(),
           member.name(),

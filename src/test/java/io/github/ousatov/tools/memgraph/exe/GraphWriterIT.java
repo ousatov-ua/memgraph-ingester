@@ -672,7 +672,7 @@ class GraphWriterIT {
     writer.upsertJavascriptClass(
         jsFile, pkg, fqn, "Service", "app/service.js", "", false, true, 1, 3);
     writer.upsertJavascriptMethod(
-        fqn, fqn + ".<init>(any)", "<init>", "void", false, 2, 2, "constructor");
+        jsFile, fqn, fqn + ".<init>(any)", "<init>", "void", false, 2, 2, "constructor");
 
     long noArgCtorCount =
         session
@@ -756,9 +756,42 @@ class GraphWriterIT {
 
   @Test
   void upsertJavascriptMembersDoNotCreateOrphansWhenOwnerIsMissing() {
+    Path jsFile = Path.of("/tmp/test-gw/src/app/missing.ts");
     String owner = "js.app.missing$2e$ts.Missing";
-    writer.upsertJavascriptField(owner, owner + "#value", "value", "string", false, "property");
-    writer.upsertJavascriptMethod(owner, owner + ".load()", "load", "void", false, 1, 1, "method");
+    writer.upsertJavascriptField(
+        jsFile, owner, owner + "#value", "value", "string", false, "property");
+    writer.upsertJavascriptMethod(
+        jsFile, owner, owner + ".load()", "load", "void", false, 1, 1, "method");
+
+    var row =
+        session
+            .run(
+                "OPTIONAL MATCH (field:Field {fqn: $fieldFqn, project: $p}) "
+                    + "OPTIONAL MATCH (method:Method {signature: $methodSig, project: $p}) "
+                    + "RETURN count(field) AS fields, count(method) AS methods",
+                Map.of("fieldFqn", owner + "#value", "methodSig", owner + ".load()", "p", PROJECT))
+            .single();
+
+    assertEquals(0, row.get("fields").asLong());
+    assertEquals(0, row.get("methods").asLong());
+  }
+
+  @Test
+  void upsertJavascriptMembersDoNotCreateOrphansWhenFileIsMissing() {
+    Path jsFile = Path.of("/tmp/test-gw/src/app/missing-file.ts");
+    String owner = "js.app.missing$2d$file$2e$ts.MissingFile";
+    session
+        .run(
+            "MERGE (owner:Class {fqn: $owner, project: $p}) "
+                + "SET owner.name = 'MissingFile', owner.language = 'js', "
+                + "owner.isExternal = false",
+            Map.of("owner", owner, "p", PROJECT))
+        .consume();
+
+    writer.upsertJavascriptField(
+        jsFile, owner, owner + "#value", "value", "string", false, "property");
+    writer.upsertJavascriptMethod(
+        jsFile, owner, owner + ".load()", "load", "void", false, 1, 1, "method");
 
     var row =
         session
@@ -839,6 +872,7 @@ class GraphWriterIT {
         tsFile, pkg, fqn, "Repository", "interface", "app/repository.interface.ts", "");
     writer.upsertJavascriptInterfaceExtends(fqn, "js.app.base$2e$interface$2e$ts.RepositoryBase");
     writer.upsertJavascriptField(
+        tsFile,
         fqn,
         fqn + "#pendingItemsCount",
         "pendingItemsCount",
@@ -846,7 +880,7 @@ class GraphWriterIT {
         false,
         "interface-property");
     writer.upsertJavascriptMethod(
-        fqn, fqn + ".save(Repository)", "save", "void", false, 3, 3, "interface-method");
+        tsFile, fqn, fqn + ".save(Repository)", "save", "void", false, 3, 3, "interface-method");
 
     var row =
         session
@@ -875,8 +909,9 @@ class GraphWriterIT {
     writer.upsertPackage(pkg, SourceLanguage.JAVASCRIPT);
 
     writer.upsertJavascriptEnum(tsFile, pkg, fqn, "TabsEnum", "app/tabs.enum.ts", 1, 4);
-    writer.upsertJavascriptField(fqn, fqn + "#VIEW", "VIEW", fqn, true, "enum-member");
-    writer.upsertJavascriptField(fqn, fqn + "#PENDING", "PENDING", fqn, true, "enum-member");
+    writer.upsertJavascriptField(tsFile, fqn, fqn + "#VIEW", "VIEW", fqn, true, "enum-member");
+    writer.upsertJavascriptField(
+        tsFile, fqn, fqn + "#PENDING", "PENDING", fqn, true, "enum-member");
 
     List<String> fieldNames =
         session
@@ -918,6 +953,7 @@ class GraphWriterIT {
         1,
         3);
     writer.upsertJavascriptField(
+        tsFile,
         legacyFqn + ".AppComponent",
         legacyFqn + ".AppComponent#title",
         "title",
@@ -925,6 +961,7 @@ class GraphWriterIT {
         false,
         "property");
     writer.upsertJavascriptMethod(
+        tsFile,
         legacyFqn + ".AppComponent",
         legacyFqn + ".AppComponent.render()",
         "render",
@@ -1274,6 +1311,8 @@ class GraphWriterIT {
                 + "MERGE (oldFile)-[:DEFINES]->(owner) "
                 + "MERGE (newFile)-[:DEFINES]->(owner) "
                 + "MERGE (owner)-[:DECLARES]->(target) "
+                + "MERGE (oldFile)-[:DEFINES]->(target) "
+                + "MERGE (newFile)-[:DEFINES]->(target) "
                 + "MERGE (caller)-[:CALLS]->(target)",
             Map.of(
                 "p",
@@ -1321,6 +1360,84 @@ class GraphWriterIT {
     assertEquals(1, row.get("newFiles").asLong());
     assertEquals(1, row.get("owners").asLong());
     assertEquals(1, row.get("methods").asLong());
+  }
+
+  @Test
+  void deleteFilesMissingFromSourceDeletesOnlyMembersOwnedByMissingFiles() {
+    Path missingFile = Path.of("/tmp/test-gw/src/app/missing.ts");
+    Path retainedFile = Path.of("/tmp/test-gw/src/app/retained.ts");
+    String ownerFqn = "js.app.shared.Owner";
+    String staleSig = ownerFqn + ".stale()";
+    String sharedSig = ownerFqn + ".shared()";
+    session
+        .run(
+            "MERGE (missingFile:File {path: $missingPath, project: $p}) "
+                + "SET missingFile.language = 'js' "
+                + "MERGE (retainedFile:File {path: $retainedPath, project: $p}) "
+                + "SET retainedFile.language = 'js' "
+                + "MERGE (owner:Class {fqn: $ownerFqn, project: $p}) "
+                + "SET owner.name = 'Owner', owner.language = 'js', owner.isExternal = false "
+                + "MERGE (stale:Method {signature: $staleSig, project: $p}) "
+                + "SET stale.name = 'stale', stale.ownerFqn = $ownerFqn, "
+                + "stale.ownerDisplayName = 'Owner' "
+                + "MERGE (shared:Method {signature: $sharedSig, project: $p}) "
+                + "SET shared.name = 'shared', shared.ownerFqn = $ownerFqn, "
+                + "shared.ownerDisplayName = 'Owner' "
+                + "MERGE (missingFile)-[:DEFINES]->(owner) "
+                + "MERGE (retainedFile)-[:DEFINES]->(owner) "
+                + "MERGE (owner)-[:DECLARES]->(stale) "
+                + "MERGE (owner)-[:DECLARES]->(shared) "
+                + "MERGE (missingFile)-[:DEFINES]->(stale) "
+                + "MERGE (missingFile)-[:DEFINES]->(shared) "
+                + "MERGE (retainedFile)-[:DEFINES]->(shared)",
+            Map.of(
+                "p",
+                PROJECT,
+                "missingPath",
+                missingFile.toString(),
+                "retainedPath",
+                retainedFile.toString(),
+                "ownerFqn",
+                ownerFqn,
+                "staleSig",
+                staleSig,
+                "sharedSig",
+                sharedSig))
+        .consume();
+
+    writer.deleteFilesMissingFromSource(List.of(retainedFile), SourceLanguage.JAVASCRIPT);
+
+    var row =
+        session
+            .run(
+                "OPTIONAL MATCH (stale:Method {signature: $staleSig, project: $p}) "
+                    + "OPTIONAL MATCH (shared:Method {signature: $sharedSig, project: $p}) "
+                    + "OPTIONAL MATCH (owner:Class {fqn: $ownerFqn, project: $p}) "
+                    + "OPTIONAL MATCH (missingFile:File {path: $missingPath, project: $p}) "
+                    + "OPTIONAL MATCH (:File {path: $retainedPath, project: $p})"
+                    + "-[:DEFINES]->(shared) "
+                    + "RETURN count(DISTINCT stale) AS staleMethods, "
+                    + "count(DISTINCT shared) AS sharedMethods, count(DISTINCT owner) AS owners, "
+                    + "count(DISTINCT missingFile) AS missingFiles",
+                Map.of(
+                    "p",
+                    PROJECT,
+                    "missingPath",
+                    missingFile.toString(),
+                    "retainedPath",
+                    retainedFile.toString(),
+                    "ownerFqn",
+                    ownerFqn,
+                    "staleSig",
+                    staleSig,
+                    "sharedSig",
+                    sharedSig))
+            .single();
+
+    assertEquals(0, row.get("staleMethods").asLong());
+    assertEquals(1, row.get("sharedMethods").asLong());
+    assertEquals(1, row.get("owners").asLong());
+    assertEquals(0, row.get("missingFiles").asLong());
   }
 
   @Test

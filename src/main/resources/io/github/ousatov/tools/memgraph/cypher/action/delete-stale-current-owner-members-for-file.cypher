@@ -1,3 +1,4 @@
+MATCH (:File {path: $path, project: $project})-[defines:DEFINES]->(member)
 MATCH (owner)-[:DECLARES]->(member)
 WHERE owner.project = $project
   AND (
@@ -10,4 +11,9 @@ WHERE owner.project = $project
     (member:Method AND NOT member.signature IN $methodSignatures)
     OR (member:Field AND NOT member.fqn IN $fieldFqns)
   )
+DELETE defines
+WITH member
+OPTIONAL MATCH (other:File {project: $project})-[:DEFINES]->(member)
+WITH member, count(other) AS remainingDefinitions
+WHERE remainingDefinitions = 0
 DETACH DELETE member

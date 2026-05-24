@@ -58,7 +58,7 @@ All memory item labels are unique by `(id, project)`. Most memory items also use
 (Code)      -[:CONTAINS]->      (Package)
 (Code)      -[:CONTAINS]->      (File)
 (Package)   -[:CONTAINS]->      (Class | Interface | Annotation)
-(File)      -[:DEFINES]->       (Class | Interface | Annotation)
+(File)      -[:DEFINES]->       (Class | Interface | Annotation | Method | Field)
 (Class)     -[:EXTENDS]->       (Class)
 (Interface) -[:EXTENDS]->       (Interface)
 (Class)     -[:IMPLEMENTS]->    (Interface)

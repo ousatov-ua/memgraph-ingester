@@ -185,7 +185,14 @@ public final class IngestionOrchestrator {
       }
     }
 
-    deleteMissingSourceFiles(files);
+    if (failures == 0) {
+      deleteMissingSourceFiles(files);
+    } else {
+      log.warn(
+          "Skipping missing-file cleanup because {} file(s) failed to ingest; existing graph"
+              + " state will be kept for retry.",
+          failures);
+    }
 
     try (Session session = driver.session()) {
       GraphWriter postWriter = new GraphWriter(session, project);
@@ -584,11 +591,20 @@ public final class IngestionOrchestrator {
               }
             });
       }
-      if (!latch.await(SHUTDOWN_TIMEOUT_MINUTES, TimeUnit.MINUTES)) {
-        log.warn("Ingestion did not complete within {} minutes.", SHUTDOWN_TIMEOUT_MINUTES);
-      }
-
+      boolean completed = latch.await(SHUTDOWN_TIMEOUT_MINUTES, TimeUnit.MINUTES);
       pool.shutdown();
+      if (!completed) {
+        log.warn("Ingestion did not complete within {} minutes.", SHUTDOWN_TIMEOUT_MINUTES);
+        pool.shutdownNow();
+        if (!pool.awaitTermination(SHUTDOWN_TIMEOUT_MINUTES, TimeUnit.MINUTES)) {
+          throw new ProcessingException(
+              "Parallel ingestion timed out and worker threads did not stop cleanly");
+        }
+        failures.addAndGet(Math.max(1, total - done.get()));
+      } else if (!pool.awaitTermination(SHUTDOWN_TIMEOUT_MINUTES, TimeUnit.MINUTES)) {
+        pool.shutdownNow();
+        throw new ProcessingException("Parallel ingestion workers did not stop cleanly");
+      }
     } finally {
       for (Session s : sessions) {
         try {

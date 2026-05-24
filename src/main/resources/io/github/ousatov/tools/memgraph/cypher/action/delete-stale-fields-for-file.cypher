@@ -1,5 +1,8 @@
-MATCH (:File {path: $path, project: $project})-[:DEFINES]->(owner)-[:DECLARES]->(field:Field {project: $project})
-WHERE owner.project = $project
-  AND (owner:Class OR owner:Interface OR owner:Annotation)
-  AND NOT field.fqn IN $fieldFqns
+MATCH (sourceFile:File {path: $path, project: $project})-[defines:DEFINES]->(field:Field {project: $project})
+WHERE NOT field.fqn IN $fieldFqns
+DELETE defines
+WITH field
+OPTIONAL MATCH (other:File {project: $project})-[:DEFINES]->(field)
+WITH field, count(other) AS remainingDefinitions
+WHERE remainingDefinitions = 0
 DETACH DELETE field

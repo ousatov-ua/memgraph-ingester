@@ -142,7 +142,7 @@ ORDER BY c.fqn, f.name;
 ```text
 (:Project)-[:CONTAINS]->(:Language)-[:CONTAINS]->(:Code)-[:CONTAINS]->(:Package|:File)
 (:Package)-[:CONTAINS]->(:Class|:Interface|:Annotation)
-(:File)-[:DEFINES]->(:Class|:Interface|:Annotation)
+(:File)-[:DEFINES]->(:Class|:Interface|:Annotation|:Method|:Field)
 (:Class)-[:EXTENDS]->(:Class)
 (:Class)-[:IMPLEMENTS]->(:Interface)
 (:Interface)-[:EXTENDS]->(:Interface)

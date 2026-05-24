@@ -1033,6 +1033,61 @@ class IngestionOrchestratorIT {
   }
 
   @Test
+  void failedMovedFileIngestSkipsMissingFileCleanup() throws Exception {
+    currentProject = PROJECT_BASE + "-failed-moved-file-missing-cleanup";
+    sourceDir = Files.createTempDirectory("orch-failed-moved-file-src-");
+    Path pkgDir = sourceDir.resolve("com/example");
+    Files.createDirectories(pkgDir);
+    Path oldFile = pkgDir.resolve("ZOld.java");
+    Path newFile = pkgDir.resolve("ANew.java");
+    Files.writeString(
+        oldFile,
+        """
+        package com.example;
+
+        public class Moved {
+          public void oldMethod() {}
+        }
+        """);
+    IngestionOrchestrator normal =
+        new IngestionOrchestrator(
+            sourceDir, currentProject, 1, driver, new ParseService(sourceDir));
+    assertEquals(0, normal.run(Settings.def()));
+    assertTrue(fileExistsInGraph(currentProject, oldFile));
+    assertTrue(methodExists(currentProject, "com.example.Moved.oldMethod()"));
+
+    Files.writeString(
+        newFile,
+        """
+        package com.example;
+
+        public class Moved {
+          public void newMethod() {}
+        }
+        """);
+    Files.delete(oldFile);
+    IngestionOrchestrator failing =
+        new IngestionOrchestrator(
+            sourceDir,
+            currentProject,
+            2,
+            driver,
+            new CleanupThenFailingJavaAdapter(
+                SourceFileDefinitions.of(
+                    Set.of("com.example.Moved"),
+                    Set.of(),
+                    Set.of(),
+                    Set.of("com.example.Moved.newMethod()"),
+                    Set.of())));
+
+    assertEquals(1, failing.run(Settings.def()));
+
+    assertTrue(fileExistsInGraph(currentProject, oldFile));
+    assertTrue(methodExists(currentProject, "com.example.Moved.oldMethod()"));
+    assertFalse(methodExists(currentProject, "com.example.Moved.newMethod()"));
+  }
+
+  @Test
   void reingestionPreservesOwnerMovedToAnotherFileInSameRun() throws Exception {
     currentProject = PROJECT_BASE + "-moved-owner";
     sourceDir = Files.createTempDirectory("orch-moved-owner-src-");

@@ -676,7 +676,7 @@ named `Java` and `Js`.
 | `(:Project)-[:CONTAINS]->(:Language)-[:CONTAINS]->(:Code)` | Code graph anchor per language. |
 | `(:Code)-[:CONTAINS]->(:Package \| :File)` | Top-level code membership. |
 | `(:Package)-[:CONTAINS]->(:Class \| :Interface \| :Annotation)` | Package contents. |
-| `(:File)-[:DEFINES]->(:Class \| :Interface \| :Annotation)` | Source location. |
+| `(:File)-[:DEFINES]->(:Class \| :Interface \| :Annotation \| :Method \| :Field)` | Source location and file-owned members. |
 | `(:Class)-[:EXTENDS]->(:Class)` | Class inheritance. |
 | `(:Class)-[:IMPLEMENTS]->(:Interface)` | Interface implementation. |
 | `(:Interface)-[:EXTENDS]->(:Interface)` | Interface inheritance. |

@@ -1,3 +1,4 @@
+MATCH (file:File {path: $path, project: $project})
 MATCH (owner)
 WHERE owner.fqn = $owner AND owner.project = $project
   AND (owner:Class OR owner:Interface OR owner:Annotation)
@@ -14,3 +15,4 @@ MERGE (m:Method {signature: $sig, project: $project})
       m.kind = $kind,
       m.isSynthetic = $isSynthetic
 MERGE (owner)-[:DECLARES]->(m)
+MERGE (file)-[:DEFINES]->(m)

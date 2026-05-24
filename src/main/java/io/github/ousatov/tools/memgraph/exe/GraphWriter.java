@@ -413,6 +413,7 @@ public final class GraphWriter {
         modulePath,
         "");
     upsertMethodNode(
+        file,
         new Method(
             fqn,
             fqn + "." + Labels.INIT + "()",
@@ -454,6 +455,7 @@ public final class GraphWriter {
         endLine);
     if (!hasDeclaredConstructor) {
       upsertMethodNode(
+          file,
           new Method(
               fqn,
               fqn + "." + Labels.INIT + "()",
@@ -559,10 +561,18 @@ public final class GraphWriter {
 
   /** Upserts a JavaScript/TypeScript property or top-level variable as a {@code :Field}. */
   public void upsertJavascriptField(
-      String ownerFqn, String fqn, String name, String type, boolean isStatic, String kind) {
+      Path file,
+      String ownerFqn,
+      String fqn,
+      String name,
+      String type,
+      boolean isStatic,
+      String kind) {
     cypher.run(
         Cypher.CYPHER_UPSERT_FIELD,
         Map.of(
+            Params.PATH,
+            file.toString(),
             Params.FQN,
             fqn,
             Params.NAME,
@@ -584,6 +594,7 @@ public final class GraphWriter {
   /** Upserts a JavaScript/TypeScript function or method as a {@code :Method}. */
   @SuppressWarnings("java:S107")
   public void upsertJavascriptMethod(
+      Path file,
       String ownerFqn,
       String signature,
       String name,
@@ -593,6 +604,7 @@ public final class GraphWriter {
       int endLine,
       String kind) {
     upsertMethodNode(
+        file,
         new Method(
             ownerFqn,
             signature,
@@ -802,10 +814,10 @@ public final class GraphWriter {
         true);
     upsertAnnotationsByFqn(fqn, decl);
     upsertImplementedTypes(fqn, decl);
-    decl.getEntries().forEach(entry -> upsertEnumConstant(fqn, entry));
-    decl.getFields().forEach(f -> upsertField(fqn, f));
-    decl.getMethods().forEach(m -> upsertMethod(fqn, m));
-    decl.getConstructors().forEach(c -> upsertConstructor(fqn, c));
+    decl.getEntries().forEach(entry -> upsertEnumConstant(file, fqn, entry));
+    decl.getFields().forEach(f -> upsertField(file, fqn, f));
+    decl.getMethods().forEach(m -> upsertMethod(file, fqn, m));
+    decl.getConstructors().forEach(c -> upsertConstructor(file, fqn, c));
     nestedClassDeclarationsOf(decl.getMembers())
         .forEach(nested -> upsertTypeInternal(file, pkg, fqn, nested));
   }
@@ -828,12 +840,12 @@ public final class GraphWriter {
         true);
     upsertAnnotationsByFqn(fqn, decl);
     upsertImplementedTypes(fqn, decl);
-    decl.getFields().forEach(f -> upsertField(fqn, f));
-    upsertRecordComponents(fqn, decl);
-    decl.getMethods().forEach(m -> upsertMethod(fqn, m));
-    decl.getConstructors().forEach(c -> upsertConstructor(fqn, c));
-    upsertRecordCanonicalConstructor(fqn, decl);
-    upsertRecordAccessors(fqn, decl);
+    decl.getFields().forEach(f -> upsertField(file, fqn, f));
+    upsertRecordComponents(file, fqn, decl);
+    decl.getMethods().forEach(m -> upsertMethod(file, fqn, m));
+    decl.getConstructors().forEach(c -> upsertConstructor(file, fqn, c));
+    upsertRecordCanonicalConstructor(file, fqn, decl);
+    upsertRecordAccessors(file, fqn, decl);
     nestedClassDeclarationsOf(decl.getMembers())
         .forEach(nested -> upsertTypeInternal(file, pkg, fqn, nested));
   }
@@ -930,11 +942,11 @@ public final class GraphWriter {
     }
     upsertAnnotationsByFqn(fqn, decl);
     upsertInheritance(fqn, decl);
-    decl.getFields().forEach(f -> upsertField(fqn, f));
-    decl.getMethods().forEach(m -> upsertMethod(fqn, m));
-    decl.getConstructors().forEach(c -> upsertConstructor(fqn, c));
+    decl.getFields().forEach(f -> upsertField(file, fqn, f));
+    decl.getMethods().forEach(m -> upsertMethod(file, fqn, m));
+    decl.getConstructors().forEach(c -> upsertConstructor(file, fqn, c));
     if (!decl.isInterface() && decl.getConstructors().isEmpty()) {
-      upsertImplicitDefaultConstructor(fqn, decl);
+      upsertImplicitDefaultConstructor(file, fqn, decl);
     }
     // Recurse into directly nested class/interface declarations with correct FQN.
     nestedClassDeclarationsOf(decl.getMembers())
@@ -1048,12 +1060,14 @@ public final class GraphWriter {
   }
 
   /** Upserts record components (parameters) as {@code :Field} nodes. */
-  private void upsertRecordComponents(String ownerFqn, RecordDeclaration decl) {
+  private void upsertRecordComponents(Path file, String ownerFqn, RecordDeclaration decl) {
     for (Parameter param : decl.getParameters()) {
       String fqn = ownerFqn + "#" + param.getNameAsString();
       cypher.run(
           Cypher.CYPHER_UPSERT_FIELD,
           Map.of(
+              Params.PATH,
+              file.toString(),
               Params.FQN,
               fqn,
               Params.NAME,
@@ -1074,7 +1088,7 @@ public final class GraphWriter {
     }
   }
 
-  private void upsertField(String ownerFqn, FieldDeclaration field) {
+  private void upsertField(Path file, String ownerFqn, FieldDeclaration field) {
     field
         .getVariables()
         .forEach(
@@ -1083,6 +1097,8 @@ public final class GraphWriter {
               cypher.run(
                   Cypher.CYPHER_UPSERT_FIELD,
                   Map.of(
+                      Params.PATH,
+                      file.toString(),
                       Params.FQN,
                       fqn,
                       Params.NAME,
@@ -1103,10 +1119,12 @@ public final class GraphWriter {
             });
   }
 
-  private void upsertEnumConstant(String ownerFqn, EnumConstantDeclaration entry) {
+  private void upsertEnumConstant(Path file, String ownerFqn, EnumConstantDeclaration entry) {
     cypher.run(
         Cypher.CYPHER_UPSERT_FIELD,
         Map.of(
+            Params.PATH,
+            file.toString(),
             Params.FQN,
             ownerFqn + "#" + entry.getNameAsString(),
             Params.NAME,
@@ -1125,9 +1143,10 @@ public final class GraphWriter {
             ownerFqn));
   }
 
-  private void upsertMethod(String ownerFqn, MethodDeclaration method) {
+  private void upsertMethod(Path file, String ownerFqn, MethodDeclaration method) {
     String signature = JavaTypeNames.buildSignature(ownerFqn, method);
     upsertMethodNode(
+        file,
         new Method(
             ownerFqn,
             signature,
@@ -1141,9 +1160,10 @@ public final class GraphWriter {
     upsertAnnotationsBySig(signature, method);
   }
 
-  private void upsertConstructor(String ownerFqn, ConstructorDeclaration ctor) {
+  private void upsertConstructor(Path file, String ownerFqn, ConstructorDeclaration ctor) {
     String signature = JavaTypeNames.buildConstructorSignature(ownerFqn, ctor);
     upsertMethodNode(
+        file,
         new Method(
             ownerFqn,
             signature,
@@ -1158,10 +1178,11 @@ public final class GraphWriter {
   }
 
   /** Shared helper that creates or updates a {@code :Method} node with all properties. */
-  private void upsertMethodNode(Method method) {
+  private void upsertMethodNode(Path file, Method method) {
     cypher.run(
         Cypher.CYPHER_UPSERT_METHOD,
         Map.ofEntries(
+            Map.entry(Params.PATH, file.toString()),
             Map.entry(Params.SIG, method.signature()),
             Map.entry(Params.NAME, method.name()),
             Map.entry(Params.RET, method.returnType()),
@@ -1180,7 +1201,7 @@ public final class GraphWriter {
    * Synthesizes the canonical constructor for a record if no explicit canonical constructor is
    * declared. The canonical constructor has the same parameter list as the record components.
    */
-  private void upsertRecordCanonicalConstructor(String fqn, RecordDeclaration decl) {
+  private void upsertRecordCanonicalConstructor(Path file, String fqn, RecordDeclaration decl) {
     String canonicalParams =
         decl.getParameters().stream()
             .map(JavaTypeNames::resolveParamType)
@@ -1191,6 +1212,7 @@ public final class GraphWriter {
             .anyMatch(c -> JavaTypeNames.buildConstructorSignature(fqn, c).equals(canonicalSig));
     if (!hasCanonical) {
       upsertMethodNode(
+          file,
           new Method(
               fqn,
               canonicalSig,
@@ -1209,8 +1231,10 @@ public final class GraphWriter {
    * isSynthetic=true} so it is invisible to default method-count queries but exists as a valid
    * CALLS target — preventing phantom cleanup from erasing {@code new ClassName()} call edges.
    */
-  private void upsertImplicitDefaultConstructor(String fqn, ClassOrInterfaceDeclaration decl) {
+  private void upsertImplicitDefaultConstructor(
+      Path file, String fqn, ClassOrInterfaceDeclaration decl) {
     upsertMethodNode(
+        file,
         new Method(
             fqn,
             fqn + "." + Labels.INIT + "()",
@@ -1227,7 +1251,7 @@ public final class GraphWriter {
    * Synthesizes accessor methods for record components that don't have an explicit accessor
    * declared.
    */
-  private void upsertRecordAccessors(String fqn, RecordDeclaration decl) {
+  private void upsertRecordAccessors(Path file, String fqn, RecordDeclaration decl) {
     var explicitMethods =
         decl.getMethods().stream()
             .filter(m -> m.getParameters().isEmpty())
@@ -1239,6 +1263,7 @@ public final class GraphWriter {
       if (!explicitMethods.contains(accessorName)) {
         String sig = fqn + "." + accessorName + "()";
         upsertMethodNode(
+            file,
             new Method(
                 fqn,
                 sig,
