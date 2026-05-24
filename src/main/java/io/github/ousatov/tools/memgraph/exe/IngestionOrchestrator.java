@@ -63,6 +63,7 @@ public final class IngestionOrchestrator {
   private final int threads;
   private final Driver driver;
   private final List<LanguageAdapter> languageAdapters;
+  private final Set<Path> pendingWatchFiles = new LinkedHashSet<>();
   private boolean incremental;
 
   /**
@@ -272,10 +273,16 @@ public final class IngestionOrchestrator {
   void ingestChangedFiles(Set<Path> files) {
     try (Session session = driver.session()) {
       GraphWriter writer = new GraphWriter(session, project);
+      Set<Path> watchFiles = watchFilesForProcessing(files);
       Optional<WatchSourceSnapshot> sourceSnapshot = sourceSnapshotForWatch(writer);
       if (sourceSnapshot.isEmpty()) {
+        pendingWatchFiles.addAll(watchFiles);
+        if (reconcileDeletedWatchFiles(watchFiles, writer)) {
+          refreshDerivedGraphArtifacts(writer);
+        }
         return;
       }
+      pendingWatchFiles.clear();
       WatchSourceSnapshot snapshot = sourceSnapshot.get();
       writer.setRetainedSourcePaths(snapshot.retainedPaths());
       Map<Path, SourceFile> currentFilesByPath = new HashMap<>();
@@ -284,13 +291,16 @@ public final class IngestionOrchestrator {
       int updateFailures = 0;
       Set<Path> refreshAfterDelete = new LinkedHashSet<>();
       List<SourceFile> existingFiles =
-          files.stream()
+          watchFiles.stream()
               .map(currentFilesByPath::get)
               .filter(sourceFile -> sourceFile != null)
               .sorted(Comparator.comparing(SourceFile::path))
               .toList();
       List<Path> deletedFiles =
-          files.stream().filter(file -> !currentFilesByPath.containsKey(file)).sorted().toList();
+          watchFiles.stream()
+              .filter(file -> !currentFilesByPath.containsKey(file))
+              .sorted()
+              .toList();
       for (SourceFile file : existingFiles) {
         try {
           boolean updated = ingestFileBatched(writer, file, StoredFileState.empty());
@@ -348,6 +358,35 @@ public final class IngestionOrchestrator {
     } catch (RuntimeException e) {
       log.warn("Skipping watch re-ingestion because source snapshot failed: {}", e.getMessage());
       return Optional.empty();
+    }
+  }
+
+  private Set<Path> watchFilesForProcessing(Set<Path> files) {
+    Set<Path> watchFiles = new LinkedHashSet<>(pendingWatchFiles);
+    watchFiles.addAll(files);
+    return watchFiles;
+  }
+
+  private boolean reconcileDeletedWatchFiles(Set<Path> files, GraphWriter writer) {
+    try {
+      List<SourceFile> existingFiles =
+          files.stream()
+              .filter(Files::exists)
+              .flatMap(
+                  file -> adapterFor(file).map(adapter -> new SourceFile(file, adapter)).stream())
+              .toList();
+      writer.setRetainedSourcePaths(retainedSourcePaths(existingFiles, writer));
+      boolean changedGraph = false;
+      for (Path file : files.stream().filter(file -> !Files.exists(file)).sorted().toList()) {
+        if (adapterFor(file).isPresent()
+            && deleteSourceFileWithRetry(file, writer::deleteSourceFile)) {
+          changedGraph = true;
+        }
+      }
+      return changedGraph;
+    } catch (RuntimeException e) {
+      log.warn("Could not reconcile watch delete fallback: {}", e.getMessage());
+      return false;
     }
   }
 
@@ -477,6 +516,7 @@ public final class IngestionOrchestrator {
         .sorted()
         .forEach(retainedPaths::add);
     writer.getRetainedFilePathsOutsideSourceRoot(sourceRoot).stream()
+        .filter(Files::exists)
         .sorted()
         .forEach(retainedPaths::add);
     return List.copyOf(retainedPaths);
@@ -493,7 +533,29 @@ public final class IngestionOrchestrator {
       GraphWriter writer = new GraphWriter(session, project);
       for (SourceLanguage language : languages()) {
         List<Path> currentPaths = pathsByLanguage.getOrDefault(language, List.of());
-        writer.deleteFilesMissingFromSource(sourceRoot, currentPaths, retainedPaths, language);
+        runMissingFileCleanupWithRetry(
+            sourceRoot,
+            language,
+            () ->
+                writer.deleteFilesMissingFromSource(
+                    sourceRoot, currentPaths, retainedPaths, language));
+      }
+    }
+  }
+
+  void runMissingFileCleanupWithRetry(
+      Path sourceRoot, SourceLanguage language, Runnable cleanupAction) {
+    long backoffMs = FILE_TX_INITIAL_BACKOFF_MS;
+    for (int attempt = 1; attempt <= FILE_TX_RETRY_ATTEMPTS; attempt++) {
+      try {
+        cleanupAction.run();
+        return;
+      } catch (RuntimeException e) {
+        if (!GraphWriter.isRetryable(e) || attempt == FILE_TX_RETRY_ATTEMPTS) {
+          throw e;
+        }
+        backoffMs =
+            sleepBeforeFileRetry(sourceRoot.resolve(language.graphName()), attempt, e, backoffMs);
       }
     }
   }

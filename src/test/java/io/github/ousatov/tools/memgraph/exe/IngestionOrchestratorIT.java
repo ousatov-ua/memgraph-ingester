@@ -678,6 +678,27 @@ class IngestionOrchestratorIT {
   }
 
   @Test
+  void missingFileCleanupRetriesTransientFailure() throws Exception {
+    currentProject = PROJECT_BASE + "-missing-cleanup-retry";
+    sourceDir = Files.createTempDirectory("orch-missing-cleanup-retry-src-");
+    IngestionOrchestrator orchestrator =
+        new IngestionOrchestrator(
+            sourceDir, currentProject, 1, driver, new ParseService(sourceDir));
+    AtomicInteger attempts = new AtomicInteger();
+
+    orchestrator.runMissingFileCleanupWithRetry(
+        sourceDir,
+        SourceLanguage.JAVA,
+        () -> {
+          if (attempts.getAndIncrement() == 0) {
+            throw new RuntimeException("deadlock detected");
+          }
+        });
+
+    assertEquals(2, attempts.get());
+  }
+
+  @Test
   void watchModeSkipsCycleWhenSourceSnapshotFails() throws Exception {
     currentProject = PROJECT_BASE + "-watch-snapshot-failure";
     sourceDir = Files.createTempDirectory("orch-watch-snapshot-failure-src-");
@@ -724,6 +745,34 @@ class IngestionOrchestratorIT {
 
     assertFalse(worker.isAlive(), "Watch mode must exit after interruption");
     assertNull(failure.get(), () -> "Watch mode failed: " + failure.get());
+  }
+
+  @Test
+  void watchModeReconcilesDeletedFilesWhenSourceSnapshotFails() throws Exception {
+    currentProject = PROJECT_BASE + "-watch-snapshot-failure-delete";
+    sourceDir = Files.createTempDirectory("orch-watch-snapshot-failure-delete-src-");
+    Path deletedFile = sourceDir.resolve("Deleted.java");
+    try (Session s = driver.session()) {
+      s.run(
+              """
+              MERGE (f:File {path: $path, project: $p})
+              SET f.language = 'java'
+              MERGE (c:Class {fqn: 'Deleted', project: $p})
+              SET c.name = 'Deleted', c.language = 'java', c.isExternal = false
+              MERGE (f)-[:DEFINES]->(c)
+              """,
+              Map.of("p", currentProject, "path", deletedFile.toString()))
+          .consume();
+    }
+    SnapshotFailingWatchAdapter adapter = new SnapshotFailingWatchAdapter();
+    adapter.discoverFiles(sourceDir);
+    IngestionOrchestrator orchestrator =
+        new IngestionOrchestrator(sourceDir, currentProject, 1, driver, adapter);
+
+    orchestrator.ingestChangedFiles(Set.of(deletedFile));
+
+    assertFalse(fileExistsInGraph(currentProject, deletedFile));
+    assertFalse(classExists(currentProject, "Deleted"));
   }
 
   @Test
@@ -1542,6 +1591,47 @@ class IngestionOrchestratorIT {
 
       assertTrue(fileExistsInGraph(currentProject, sharedB));
       assertTrue(
+          callEdgeExists(currentProject, "com.example.Shared.serve()", "com.example.Helper.go()"));
+    } finally {
+      deleteDir(otherRoot);
+    }
+  }
+
+  @Test
+  void changedFileCleanupIgnoresMissingOutsideRootRetainedFiles() throws Exception {
+    currentProject = PROJECT_BASE + "-changed-file-missing-other-root";
+    sourceDir = Files.createTempDirectory("orch-changed-file-missing-root-a-");
+    Path otherRoot = Files.createTempDirectory("orch-changed-file-missing-root-b-");
+    try {
+      Path rootA = sourceDir.resolve("com/example");
+      Files.createDirectories(rootA);
+      Path shared = rootA.resolve("Shared.java");
+      Path missingRetained = otherRoot.resolve("com/example/Shared.java");
+      Files.writeString(rootA.resolve("Helper.java"), helperSource());
+      Files.writeString(shared, sharedWithHelperCallSource());
+      IngestionOrchestrator orchestrator =
+          new IngestionOrchestrator(
+              sourceDir, currentProject, 1, driver, new ParseService(sourceDir));
+      assertEquals(0, orchestrator.run(Settings.def()));
+      assertTrue(
+          callEdgeExists(currentProject, "com.example.Shared.serve()", "com.example.Helper.go()"));
+      try (Session s = driver.session()) {
+        s.run(
+                """
+                MATCH (caller:Method {project: $p, signature: 'com.example.Shared.serve()'})
+                MERGE (f:File {path: $path, project: $p})
+                SET f.language = 'java', f.lastModified = 1
+                MERGE (f)-[:DEFINES]->(caller)
+                """,
+                Map.of("p", currentProject, "path", missingRetained.toString()))
+            .consume();
+      }
+
+      Files.writeString(shared, sharedWithoutHelperCallSource());
+
+      assertEquals(0, orchestrator.run(Settings.def()));
+
+      assertFalse(
           callEdgeExists(currentProject, "com.example.Shared.serve()", "com.example.Helper.go()"));
     } finally {
       deleteDir(otherRoot);
