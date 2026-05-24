@@ -1363,6 +1363,74 @@ class GraphWriterIT {
   }
 
   @Test
+  void deleteSourceFilePreservesPendingCallsForRetainedFileOnSharedOwner() {
+    Path oldFile = Path.of("/tmp/test-gw/src/app/old.ts");
+    Path retainedFile = Path.of("/tmp/test-gw/src/app/retained.ts");
+    String ownerFqn = "js.app.shared.Owner";
+    String oldCallerSig = ownerFqn + ".oldCaller()";
+    String retainedCallerSig = ownerFqn + ".retainedCaller()";
+    session
+        .run(
+            "MERGE (oldFile:File {path: $oldPath, project: $p}) "
+                + "SET oldFile.language = 'js' "
+                + "MERGE (retainedFile:File {path: $retainedPath, project: $p}) "
+                + "SET retainedFile.language = 'js' "
+                + "MERGE (owner:Class {fqn: $ownerFqn, project: $p}) "
+                + "SET owner.name = 'Owner', owner.language = 'js', owner.isExternal = false "
+                + "MERGE (oldCaller:Method {signature: $oldCallerSig, project: $p}) "
+                + "SET oldCaller.name = 'oldCaller', oldCaller.ownerFqn = $ownerFqn, "
+                + "oldCaller.ownerDisplayName = 'Owner' "
+                + "MERGE (retainedCaller:Method {signature: $retainedCallerSig, project: $p}) "
+                + "SET retainedCaller.name = 'retainedCaller', "
+                + "retainedCaller.ownerFqn = $ownerFqn, retainedCaller.ownerDisplayName = 'Owner' "
+                + "MERGE (oldFile)-[:DEFINES]->(owner) "
+                + "MERGE (retainedFile)-[:DEFINES]->(owner) "
+                + "MERGE (owner)-[:DECLARES]->(oldCaller) "
+                + "MERGE (owner)-[:DECLARES]->(retainedCaller) "
+                + "MERGE (oldFile)-[:DEFINES]->(oldCaller) "
+                + "MERGE (retainedFile)-[:DEFINES]->(retainedCaller)",
+            Map.of(
+                "p",
+                PROJECT,
+                "oldPath",
+                oldFile.toString(),
+                "retainedPath",
+                retainedFile.toString(),
+                "ownerFqn",
+                ownerFqn,
+                "oldCallerSig",
+                oldCallerSig,
+                "retainedCallerSig",
+                retainedCallerSig))
+        .consume();
+    writer.upsertPendingCallByName(oldCallerSig, "js.app.shared.Helper", "assist");
+    writer.upsertPendingCallByName(retainedCallerSig, "js.app.shared.Helper", "assist");
+
+    writer.deleteSourceFile(oldFile);
+
+    var row =
+        session
+            .run(
+                "OPTIONAL MATCH (oldPending:PendingCall {callerSignature: $oldCallerSig, "
+                    + "project: $p}) "
+                    + "OPTIONAL MATCH (retainedPending:PendingCall {callerSignature: "
+                    + "$retainedCallerSig, project: $p}) "
+                    + "RETURN count(DISTINCT oldPending) AS oldPending, "
+                    + "count(DISTINCT retainedPending) AS retainedPending",
+                Map.of(
+                    "p",
+                    PROJECT,
+                    "oldCallerSig",
+                    oldCallerSig,
+                    "retainedCallerSig",
+                    retainedCallerSig))
+            .single();
+
+    assertEquals(0, row.get("oldPending").asLong());
+    assertEquals(1, row.get("retainedPending").asLong());
+  }
+
+  @Test
   void deleteFilesMissingFromSourceDeletesOnlyMembersOwnedByMissingFiles() {
     Path missingFile = Path.of("/tmp/test-gw/src/app/missing.ts");
     Path retainedFile = Path.of("/tmp/test-gw/src/app/retained.ts");
@@ -1438,6 +1506,74 @@ class GraphWriterIT {
     assertEquals(1, row.get("sharedMethods").asLong());
     assertEquals(1, row.get("owners").asLong());
     assertEquals(0, row.get("missingFiles").asLong());
+  }
+
+  @Test
+  void deleteFilesMissingFromSourcePreservesPendingCallsForRetainedFileOnSharedOwner() {
+    Path missingFile = Path.of("/tmp/test-gw/src/app/missing.ts");
+    Path retainedFile = Path.of("/tmp/test-gw/src/app/retained.ts");
+    String ownerFqn = "js.app.shared.Owner";
+    String missingCallerSig = ownerFqn + ".missingCaller()";
+    String retainedCallerSig = ownerFqn + ".retainedCaller()";
+    session
+        .run(
+            "MERGE (missingFile:File {path: $missingPath, project: $p}) "
+                + "SET missingFile.language = 'js' "
+                + "MERGE (retainedFile:File {path: $retainedPath, project: $p}) "
+                + "SET retainedFile.language = 'js' "
+                + "MERGE (owner:Class {fqn: $ownerFqn, project: $p}) "
+                + "SET owner.name = 'Owner', owner.language = 'js', owner.isExternal = false "
+                + "MERGE (missingCaller:Method {signature: $missingCallerSig, project: $p}) "
+                + "SET missingCaller.name = 'missingCaller', "
+                + "missingCaller.ownerFqn = $ownerFqn, missingCaller.ownerDisplayName = 'Owner' "
+                + "MERGE (retainedCaller:Method {signature: $retainedCallerSig, project: $p}) "
+                + "SET retainedCaller.name = 'retainedCaller', "
+                + "retainedCaller.ownerFqn = $ownerFqn, retainedCaller.ownerDisplayName = 'Owner' "
+                + "MERGE (missingFile)-[:DEFINES]->(owner) "
+                + "MERGE (retainedFile)-[:DEFINES]->(owner) "
+                + "MERGE (owner)-[:DECLARES]->(missingCaller) "
+                + "MERGE (owner)-[:DECLARES]->(retainedCaller) "
+                + "MERGE (missingFile)-[:DEFINES]->(missingCaller) "
+                + "MERGE (retainedFile)-[:DEFINES]->(retainedCaller)",
+            Map.of(
+                "p",
+                PROJECT,
+                "missingPath",
+                missingFile.toString(),
+                "retainedPath",
+                retainedFile.toString(),
+                "ownerFqn",
+                ownerFqn,
+                "missingCallerSig",
+                missingCallerSig,
+                "retainedCallerSig",
+                retainedCallerSig))
+        .consume();
+    writer.upsertPendingCallByName(missingCallerSig, "js.app.shared.Helper", "assist");
+    writer.upsertPendingCallByName(retainedCallerSig, "js.app.shared.Helper", "assist");
+
+    writer.deleteFilesMissingFromSource(List.of(retainedFile), SourceLanguage.JAVASCRIPT);
+
+    var row =
+        session
+            .run(
+                "OPTIONAL MATCH (missingPending:PendingCall {callerSignature: "
+                    + "$missingCallerSig, project: $p}) "
+                    + "OPTIONAL MATCH (retainedPending:PendingCall {callerSignature: "
+                    + "$retainedCallerSig, project: $p}) "
+                    + "RETURN count(DISTINCT missingPending) AS missingPending, "
+                    + "count(DISTINCT retainedPending) AS retainedPending",
+                Map.of(
+                    "p",
+                    PROJECT,
+                    "missingCallerSig",
+                    missingCallerSig,
+                    "retainedCallerSig",
+                    retainedCallerSig))
+            .single();
+
+    assertEquals(0, row.get("missingPending").asLong());
+    assertEquals(1, row.get("retainedPending").asLong());
   }
 
   @Test
