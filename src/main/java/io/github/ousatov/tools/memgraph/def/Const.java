@@ -48,12 +48,40 @@ public final class Const {
     public static final String CYPHER_GET_JAVA_FILES_LAST_MODIFIED =
         action("Java/get-files-last-modified.cypher");
 
+    /** Fetches Java project file paths under the active source root. */
+    public static final String CYPHER_GET_JAVA_FILES_IN_SOURCE_ROOT =
+        action("Java/get-files-in-source-root.cypher");
+
+    /** Fetches source-root reconstruction metadata for one Java source file. */
+    public static final String CYPHER_GET_JAVA_SOURCE_ROOT_HINT_FOR_FILE =
+        action("Java/get-source-root-hint-for-file.cypher");
+
     /**
      * Batch-fetches JS/TS {@code lastModified} values for files whose module owner is already
      * present in the graph.
      */
     public static final String CYPHER_GET_JAVASCRIPT_FILES_LAST_MODIFIED =
         action("Js/get-files-last-modified.cypher");
+
+    /** Fetches JS/TS project file paths under the active source root. */
+    public static final String CYPHER_GET_JAVASCRIPT_FILES_IN_SOURCE_ROOT =
+        action("Js/get-files-in-source-root.cypher");
+
+    /** Fetches source-root reconstruction metadata for one JS/TS source file. */
+    public static final String CYPHER_GET_JAVASCRIPT_SOURCE_ROOT_HINT_FOR_FILE =
+        action("Js/get-source-root-hint-for-file.cypher");
+
+    /** Fetches retained source file paths outside the active source root. */
+    public static final String CYPHER_GET_RETAINED_FILES_OUTSIDE_SOURCE_ROOT =
+        action("get-retained-files-outside-source-root.cypher");
+
+    /** Fetches project file paths under the active source root. */
+    public static final String CYPHER_GET_FILES_IN_SOURCE_ROOT =
+        action("get-files-in-source-root.cypher");
+
+    /** Fetches retained files that define declarations shared with one source file. */
+    public static final String CYPHER_GET_RETAINED_FILES_SHARING_DEFINITIONS_WITH_FILE =
+        action("get-retained-files-sharing-definitions-with-file.cypher");
 
     public static final String CYPHER_WIPE_PROJECT_MEMORIES =
         action("wipe-project-memories.cypher");
@@ -124,6 +152,98 @@ public final class Const {
      */
     public static final String CYPHER_DELETE_PENDING_CALLS_FOR_FILE =
         action("delete-pending-calls-for-file.cypher");
+
+    /** Clears outgoing {@code CALLS} edges from methods declared by one source file. */
+    public static final String CYPHER_DELETE_CALLS_FOR_FILE =
+        action("delete-calls-for-file.cypher");
+
+    /** Clears owner-level annotation edges for declarations in one source file. */
+    public static final String CYPHER_DELETE_OWNER_ANNOTATIONS_FOR_FILE =
+        action("delete-owner-annotations-for-file.cypher");
+
+    /** Clears member-level annotation edges for declarations in one source file. */
+    public static final String CYPHER_DELETE_MEMBER_ANNOTATIONS_FOR_FILE =
+        action("delete-member-annotations-for-file.cypher");
+
+    /** Clears inheritance and implementation edges for declarations in one source file. */
+    public static final String CYPHER_DELETE_TYPE_RELATIONS_FOR_FILE =
+        action("delete-type-relations-for-file.cypher");
+
+    /**
+     * Clears outgoing {@code CALLS} edges from methods declared by the owners currently present in
+     * one source file.
+     */
+    public static final String CYPHER_DELETE_CURRENT_OWNER_CALLS_FOR_FILE =
+        action("delete-current-owner-calls-for-file.cypher");
+
+    /**
+     * Clears owner-level annotation edges for declarations currently present in one source file.
+     */
+    public static final String CYPHER_DELETE_CURRENT_OWNER_ANNOTATIONS_FOR_FILE =
+        action("delete-current-owner-annotations-for-file.cypher");
+
+    /**
+     * Clears member-level annotation edges for declarations currently present in one source file.
+     */
+    public static final String CYPHER_DELETE_CURRENT_MEMBER_ANNOTATIONS_FOR_FILE =
+        action("delete-current-member-annotations-for-file.cypher");
+
+    /**
+     * Clears inheritance and implementation edges for declarations currently present in one source
+     * file.
+     */
+    public static final String CYPHER_DELETE_CURRENT_TYPE_RELATIONS_FOR_FILE =
+        action("delete-current-type-relations-for-file.cypher");
+
+    /** Deletes member declarations absent from owners currently present in one source file. */
+    public static final String CYPHER_DELETE_STALE_CURRENT_OWNER_MEMBERS_FOR_FILE =
+        action("delete-stale-current-owner-members-for-file.cypher");
+
+    /** Deletes method declarations that no longer exist in a source file. */
+    public static final String CYPHER_DELETE_STALE_METHODS_FOR_FILE =
+        action("delete-stale-methods-for-file.cypher");
+
+    /** Deletes field declarations that no longer exist in a source file. */
+    public static final String CYPHER_DELETE_STALE_FIELDS_FOR_FILE =
+        action("delete-stale-fields-for-file.cypher");
+
+    /** Deletes members of type declarations that no longer exist in a source file. */
+    public static final String CYPHER_DELETE_STALE_OWNER_MEMBERS_FOR_FILE =
+        action("delete-stale-owner-members-for-file.cypher");
+
+    /** Deletes type declarations that no longer exist in a source file. */
+    public static final String CYPHER_DELETE_STALE_OWNERS_FOR_FILE =
+        action("delete-stale-owners-for-file.cypher");
+
+    /** Deletes all member declarations for a removed source file. */
+    public static final String CYPHER_DELETE_MEMBERS_FOR_FILE =
+        action("delete-members-for-file.cypher");
+
+    /** Deletes all type declarations for a removed source file. */
+    public static final String CYPHER_DELETE_OWNERS_FOR_FILE =
+        action("delete-owners-for-file.cypher");
+
+    /** Deletes a removed source file node. */
+    public static final String CYPHER_DELETE_FILE = action("delete-file.cypher");
+
+    /** Deletes empty package nodes after source-file cleanup. */
+    public static final String CYPHER_DELETE_EMPTY_PACKAGES =
+        action("delete-empty-packages.cypher");
+
+    /** Deletes deferred owner/name calls for files no longer present in the source tree. */
+    public static final String CYPHER_DELETE_MISSING_FILE_PENDING_CALLS =
+        action("delete-missing-file-pending-calls.cypher");
+
+    /** Deletes member declarations for files no longer present in the source tree. */
+    public static final String CYPHER_DELETE_MISSING_FILE_MEMBERS =
+        action("delete-missing-file-members.cypher");
+
+    /** Deletes type declarations for files no longer present in the source tree. */
+    public static final String CYPHER_DELETE_MISSING_FILE_OWNERS =
+        action("delete-missing-file-owners.cypher");
+
+    /** Deletes file nodes no longer present in the source tree. */
+    public static final String CYPHER_DELETE_MISSING_FILES = action("delete-missing-files.cypher");
 
     /**
      * Deletes stale JavaScript/TypeScript method and field declarations whose owners were
@@ -225,6 +345,16 @@ public final class Const {
     public static final String KIND = "kind";
     public static final String MODULE_PATH = "modulePath";
     public static final String MODULE_PREFIX = "modulePrefix";
+    public static final String PATHS = "paths";
+    public static final String RETAINED_PATHS = "retainedPaths";
+    public static final String SOURCE_ROOT = "sourceRoot";
+    public static final String SOURCE_ROOT_HINT = "sourceRootHint";
+    public static final String SOURCE_ROOT_PREFIX = "sourceRootPrefix";
+    public static final String CLASS_FQNS = "classFqns";
+    public static final String INTERFACE_FQNS = "interfaceFqns";
+    public static final String ANNOTATION_FQNS = "annotationFqns";
+    public static final String METHOD_SIGNATURES = "methodSignatures";
+    public static final String FIELD_FQNS = "fieldFqns";
     public static final String FRAMEWORK = "framework";
     public static final String END_LINE = "endLine";
     public static final String START_LINE = "startLine";

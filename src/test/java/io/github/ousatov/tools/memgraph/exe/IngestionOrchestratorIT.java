@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import io.github.ousatov.tools.memgraph.exception.ProcessingException;
 import io.github.ousatov.tools.memgraph.extension.MemgraphExtension;
 import io.github.ousatov.tools.memgraph.extension.MemgraphInstance;
 import io.github.ousatov.tools.memgraph.schema.Memgraph;
@@ -18,8 +19,11 @@ import java.time.Duration;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.AfterAll;
@@ -111,6 +115,70 @@ class IngestionOrchestratorIT {
     }
   }
 
+  private static boolean fileExistsInGraph(String project, Path file) {
+    try (Session s = driver.session()) {
+      return s.run(
+                  "MATCH (f:File {project: $p, path: $path}) RETURN count(f) AS n",
+                  Map.of("p", project, "path", file.toString()))
+              .single()
+              .get("n")
+              .asLong()
+          > 0;
+    }
+  }
+
+  private static boolean methodExists(String project, String signature) {
+    try (Session s = driver.session()) {
+      return s.run(
+                  "MATCH (m:Method {project: $p, signature: $sig}) RETURN count(m) AS n",
+                  Map.of("p", project, "sig", signature))
+              .single()
+              .get("n")
+              .asLong()
+          > 0;
+    }
+  }
+
+  private static boolean fieldExists(String project, String fqn) {
+    try (Session s = driver.session()) {
+      return s.run(
+                  "MATCH (f:Field {project: $p, fqn: $fqn}) RETURN count(f) AS n",
+                  Map.of("p", project, "fqn", fqn))
+              .single()
+              .get("n")
+              .asLong()
+          > 0;
+    }
+  }
+
+  private static boolean callEdgeExists(String project, String caller, String callee) {
+    try (Session s = driver.session()) {
+      return s.run(
+                  "MATCH (:Method {project: $p, signature: $caller})"
+                      + "-[:CALLS]->(:Method {project: $p, signature: $callee})"
+                      + " RETURN count(*) AS n",
+                  Map.of("p", project, "caller", caller, "callee", callee))
+              .single()
+              .get("n")
+              .asLong()
+          > 0;
+    }
+  }
+
+  private static List<String> moduleFqnsForFile(String project, Path file) {
+    try (Session s = driver.session()) {
+      return s.run(
+              """
+              MATCH (:File {project: $p, path: $path})-[:DEFINES]->(module {project: $p})
+              WHERE module.modulePath IS NOT NULL
+              RETURN module.fqn AS fqn
+              ORDER BY fqn
+              """,
+              Map.of("p", project, "path", file.toString()))
+          .list(row -> row.get("fqn").asString());
+    }
+  }
+
   private static void createClassCodeRef(String project, String fqn) {
     try (Session s = driver.session()) {
       s.run(
@@ -153,6 +221,42 @@ class IngestionOrchestratorIT {
     }
   }
 
+  private static String helperSource() {
+    return """
+    package com.example;
+
+    class Helper {
+      static void go() {
+        // Test helper body is intentionally empty.
+      }
+    }
+    """;
+  }
+
+  private static String sharedWithHelperCallSource() {
+    return """
+    package com.example;
+
+    class Shared {
+      void serve() {
+        Helper.go();
+      }
+    }
+    """;
+  }
+
+  private static String sharedWithoutHelperCallSource() {
+    return """
+    package com.example;
+
+    class Shared {
+      void serve() {
+        // Test source intentionally has no calls.
+      }
+    }
+    """;
+  }
+
   /**
    * Minimal JS/TS adapter used to verify multi-adapter orchestration without invoking Node.js.
    *
@@ -176,6 +280,194 @@ class IngestionOrchestratorIT {
       writer.upsertPackage("js.test", language());
       writer.upsertJavascriptModule(file, "js.test", "js.test.App", "App", "app.ts", 1, 1);
       return true;
+    }
+  }
+
+  /**
+   * Stub adapter whose module identity depends on the configured source root.
+   *
+   * @author Oleksii Usatov
+   */
+  private static final class RootAwareStubLanguageAdapter implements LanguageAdapter {
+
+    private final Path sourceRoot;
+
+    private RootAwareStubLanguageAdapter(Path sourceRoot) {
+      this.sourceRoot = sourceRoot;
+    }
+
+    @Override
+    public SourceLanguage language() {
+      return SourceLanguage.JAVASCRIPT;
+    }
+
+    @Override
+    public boolean accepts(Path file) {
+      return file.toString().endsWith(".ts");
+    }
+
+    @Override
+    public LanguageAdapter forSourceRoot(Path sourceRoot) {
+      return new RootAwareStubLanguageAdapter(sourceRoot);
+    }
+
+    @Override
+    public boolean ingestFile(GraphWriter writer, Path file) {
+      String modulePath = sourceRoot.relativize(file).toString().replace('\\', '/');
+      String moduleName = modulePath.replaceAll("[^A-Za-z0-9]", "_");
+      String moduleFqn = "js.test." + moduleName;
+      writer.upsertFile(file, language());
+      writer.upsertPackage("js.test", language());
+      writer.upsertJavascriptModule(file, "js.test", moduleFqn, moduleName, modulePath, 1, 1);
+      return true;
+    }
+  }
+
+  /**
+   * Adapter that fails watch source snapshot discovery after an optional priming call.
+   *
+   * @author Oleksii Usatov
+   */
+  private static final class SnapshotFailingWatchAdapter implements LanguageAdapter {
+
+    private final LanguageAdapter delegate;
+    private final AtomicInteger discoveries = new AtomicInteger();
+
+    private SnapshotFailingWatchAdapter() {
+      this(null);
+    }
+
+    private SnapshotFailingWatchAdapter(LanguageAdapter delegate) {
+      this.delegate = delegate;
+    }
+
+    @Override
+    public SourceLanguage language() {
+      return SourceLanguage.JAVA;
+    }
+
+    @Override
+    public boolean accepts(Path file) {
+      return file.toString().endsWith(".java");
+    }
+
+    @Override
+    public List<Path> discoverFiles(Path sourceRoot) {
+      if (discoveries.incrementAndGet() == 1) {
+        return List.of();
+      }
+      throw new ProcessingException("snapshot failed");
+    }
+
+    @Override
+    public boolean ingestFile(GraphWriter writer, Path file) {
+      if (delegate != null) {
+        return delegate.ingestFile(writer, file);
+      }
+      writer.upsertFile(file, language());
+      return true;
+    }
+
+    private int discoveries() {
+      return discoveries.get();
+    }
+  }
+
+  /**
+   * Adapter that simulates a file-level failure after stale cleanup has run.
+   *
+   * @author Oleksii Usatov
+   */
+  private static final class CleanupThenFailingJavaAdapter implements LanguageAdapter {
+
+    private final SourceFileDefinitions definitions;
+
+    private CleanupThenFailingJavaAdapter() {
+      this(SourceFileDefinitions.of(Set.of(), Set.of(), Set.of(), Set.of(), Set.of()));
+    }
+
+    private CleanupThenFailingJavaAdapter(SourceFileDefinitions definitions) {
+      this.definitions = definitions;
+    }
+
+    @Override
+    public SourceLanguage language() {
+      return SourceLanguage.JAVA;
+    }
+
+    @Override
+    public boolean accepts(Path file) {
+      return file.toString().endsWith(".java");
+    }
+
+    @Override
+    public boolean ingestFile(GraphWriter writer, Path file) {
+      writer.deleteStaleDefinitionsForFile(file, definitions);
+      return false;
+    }
+  }
+
+  /** Adapter that simulates a JS/TS file-level failure after stale cleanup has run. */
+  private static final class CleanupThenFailingJsAdapter implements LanguageAdapter {
+
+    @Override
+    public SourceLanguage language() {
+      return SourceLanguage.JAVASCRIPT;
+    }
+
+    @Override
+    public boolean accepts(Path file) {
+      return file.toString().endsWith(".ts");
+    }
+
+    @Override
+    public boolean ingestFile(GraphWriter writer, Path file) {
+      writer.deleteStaleDefinitionsForFile(
+          file, SourceFileDefinitions.of(Set.of(), Set.of(), Set.of(), Set.of(), Set.of()));
+      return false;
+    }
+  }
+
+  /**
+   * Adapter that records whether independent files still use parallel ingest.
+   *
+   * @author Oleksii Usatov
+   */
+  private static final class ConcurrencyTrackingJavaAdapter implements LanguageAdapter {
+
+    private final AtomicInteger active = new AtomicInteger();
+    private final AtomicInteger maxActive = new AtomicInteger();
+    private final CountDownLatch firstWorkers = new CountDownLatch(2);
+
+    @Override
+    public SourceLanguage language() {
+      return SourceLanguage.JAVA;
+    }
+
+    @Override
+    public boolean accepts(Path file) {
+      return file.toString().endsWith(".java");
+    }
+
+    @Override
+    public boolean ingestFile(GraphWriter writer, Path file) {
+      int current = active.incrementAndGet();
+      maxActive.accumulateAndGet(current, Math::max);
+      try {
+        firstWorkers.countDown();
+        if (current <= 2) {
+          await().until(() -> firstWorkers.getCount() == 0);
+        }
+        writer.upsertFile(file, language());
+        writer.upsertPackage("com.example", language());
+        return true;
+      } finally {
+        active.decrementAndGet();
+      }
+    }
+
+    private int maxActive() {
+      return maxActive.get();
     }
   }
 
@@ -416,6 +708,15 @@ class IngestionOrchestratorIT {
           .atMost(Duration.ofSeconds(10))
           .pollInterval(Duration.ofMillis(50))
           .until(() -> worker.getState() == Thread.State.WAITING);
+      Files.delete(watchedFile);
+      await()
+          .atMost(Duration.ofSeconds(10))
+          .pollInterval(Duration.ofMillis(250))
+          .untilAsserted(
+              () ->
+                  assertFalse(
+                      classExists(currentProject, "Watched"),
+                      "Watch mode must delete graph state for removed files"));
     } finally {
       worker.interrupt();
       worker.join(TimeUnit.SECONDS.toMillis(5));
@@ -423,6 +724,388 @@ class IngestionOrchestratorIT {
 
     assertFalse(worker.isAlive(), "Watch mode must exit after interruption");
     assertNull(failure.get(), () -> "Watch mode failed: " + failure.get());
+  }
+
+  @Test
+  void watchDeleteRetriesTransientFailure() throws Exception {
+    currentProject = PROJECT_BASE + "-watch-delete-retry";
+    sourceDir = Files.createTempDirectory("orch-watch-delete-retry-src-");
+    IngestionOrchestrator orchestrator =
+        new IngestionOrchestrator(
+            sourceDir, currentProject, 1, driver, new ParseService(sourceDir));
+    AtomicInteger attempts = new AtomicInteger();
+
+    boolean deleted =
+        orchestrator.deleteSourceFileWithRetry(
+            sourceDir.resolve("Gone.java"),
+            file -> {
+              if (attempts.getAndIncrement() == 0) {
+                throw new RuntimeException("conflicting transactions");
+              }
+            });
+
+    assertTrue(deleted);
+    assertEquals(2, attempts.get());
+  }
+
+  @Test
+  void retainedFileLookupRetriesTransientFailure() throws Exception {
+    currentProject = PROJECT_BASE + "-retained-lookup-retry";
+    sourceDir = Files.createTempDirectory("orch-retained-lookup-retry-src-");
+    Path deletedFile = sourceDir.resolve("Gone.java");
+    Path retainedFile = sourceDir.resolve("Retained.java");
+    IngestionOrchestrator orchestrator =
+        new IngestionOrchestrator(
+            sourceDir, currentProject, 1, driver, new ParseService(sourceDir));
+    AtomicInteger attempts = new AtomicInteger();
+
+    var retainedFiles =
+        orchestrator.retainedFilesSharingDefinitionsWithRetry(
+            deletedFile,
+            file -> {
+              if (attempts.getAndIncrement() == 0) {
+                throw new RuntimeException("deadlock detected");
+              }
+              return Set.of(retainedFile);
+            });
+
+    assertTrue(retainedFiles.isPresent());
+    assertEquals(Set.of(retainedFile), retainedFiles.get());
+    assertEquals(2, attempts.get());
+  }
+
+  @Test
+  void retainedRefreshCatchesSourceRootLookupFailure() throws Exception {
+    currentProject = PROJECT_BASE + "-retained-refresh-lookup-failure";
+    sourceDir = Files.createTempDirectory("orch-retained-refresh-lookup-failure-src-");
+    IngestionOrchestrator orchestrator =
+        new IngestionOrchestrator(
+            sourceDir, currentProject, 1, driver, new ParseService(sourceDir));
+
+    Session closedSession = driver.session();
+    GraphWriter writer = new GraphWriter(closedSession, currentProject);
+    closedSession.close();
+
+    orchestrator.refreshRetainedFilesAfterDelete(
+        writer, Set.of(sourceDir.resolve("Retained.java")), Map.of());
+  }
+
+  @Test
+  void missingFileCleanupRetriesTransientFailure() throws Exception {
+    currentProject = PROJECT_BASE + "-missing-cleanup-retry";
+    sourceDir = Files.createTempDirectory("orch-missing-cleanup-retry-src-");
+    IngestionOrchestrator orchestrator =
+        new IngestionOrchestrator(
+            sourceDir, currentProject, 1, driver, new ParseService(sourceDir));
+    AtomicInteger attempts = new AtomicInteger();
+
+    orchestrator.runMissingFileCleanupWithRetry(
+        sourceDir,
+        SourceLanguage.JAVA,
+        () -> {
+          if (attempts.getAndIncrement() == 0) {
+            throw new RuntimeException("deadlock detected");
+          }
+        });
+
+    assertEquals(2, attempts.get());
+  }
+
+  @Test
+  void watchModeSkipsCycleWhenSourceSnapshotFails() throws Exception {
+    currentProject = PROJECT_BASE + "-watch-snapshot-failure";
+    sourceDir = Files.createTempDirectory("orch-watch-snapshot-failure-src-");
+    SnapshotFailingWatchAdapter adapter = new SnapshotFailingWatchAdapter();
+    IngestionOrchestrator orchestrator =
+        new IngestionOrchestrator(sourceDir, currentProject, 1, driver, adapter);
+    AtomicReference<Throwable> failure = new AtomicReference<>();
+    Thread worker =
+        new Thread(
+            () -> {
+              try {
+                orchestrator.run(new Settings(false, true, false, false, false, true));
+              } catch (Throwable t) {
+                failure.set(t);
+              }
+            },
+            "watch-snapshot-failure-test");
+    worker.start();
+
+    try {
+      await()
+          .atMost(Duration.ofSeconds(10))
+          .pollInterval(Duration.ofMillis(50))
+          .until(() -> worker.getState() == Thread.State.WAITING);
+      await().pollDelay(Duration.ofMillis(300)).atMost(Duration.ofSeconds(1)).until(() -> true);
+      Path flakyFile = sourceDir.resolve("Flaky.java");
+      await()
+          .atMost(Duration.ofSeconds(10))
+          .pollInterval(Duration.ofMillis(250))
+          .untilAsserted(
+              () -> {
+                Files.writeString(
+                    flakyFile, "public class Flaky { int value = " + adapter.discoveries() + "; }");
+                assertTrue(adapter.discoveries() >= 2);
+              });
+      await()
+          .atMost(Duration.ofSeconds(5))
+          .pollInterval(Duration.ofMillis(50))
+          .until(() -> worker.isAlive() && failure.get() == null);
+    } finally {
+      worker.interrupt();
+      worker.join(TimeUnit.SECONDS.toMillis(5));
+    }
+
+    assertFalse(worker.isAlive(), "Watch mode must exit after interruption");
+    assertNull(failure.get(), () -> "Watch mode failed: " + failure.get());
+  }
+
+  @Test
+  void watchModeReconcilesDeletedFilesWhenSourceSnapshotFails() throws Exception {
+    currentProject = PROJECT_BASE + "-watch-snapshot-failure-delete";
+    sourceDir = Files.createTempDirectory("orch-watch-snapshot-failure-delete-src-");
+    Path deletedFile = sourceDir.resolve("Deleted.java");
+    try (Session s = driver.session()) {
+      s.run(
+              """
+              MERGE (f:File {path: $path, project: $p})
+              SET f.language = 'java'
+              MERGE (c:Class {fqn: 'Deleted', project: $p})
+              SET c.name = 'Deleted', c.language = 'java', c.isExternal = false
+              MERGE (f)-[:DEFINES]->(c)
+              """,
+              Map.of("p", currentProject, "path", deletedFile.toString()))
+          .consume();
+    }
+    SnapshotFailingWatchAdapter adapter = new SnapshotFailingWatchAdapter();
+    adapter.discoverFiles(sourceDir);
+    IngestionOrchestrator orchestrator =
+        new IngestionOrchestrator(sourceDir, currentProject, 1, driver, adapter);
+
+    orchestrator.ingestChangedFiles(Set.of(deletedFile));
+
+    assertFalse(fileExistsInGraph(currentProject, deletedFile));
+    assertFalse(classExists(currentProject, "Deleted"));
+  }
+
+  @Test
+  void watchModeKeepsDeletedFilesWhenSnapshotFailsWithExistingChanges() throws Exception {
+    currentProject = PROJECT_BASE + "-watch-snapshot-failure-mixed";
+    sourceDir = Files.createTempDirectory("orch-watch-snapshot-failure-mixed-src-");
+    Path deletedFile = sourceDir.resolve("OldShared.java");
+    Path existingFile = sourceDir.resolve("NewShared.java");
+    Files.writeString(existingFile, "class Shared { int value; }");
+    try (Session s = driver.session()) {
+      s.run(
+              """
+              MERGE (f:File {path: $path, project: $p})
+              SET f.language = 'java'
+              MERGE (c:Class {fqn: 'Shared', project: $p})
+              SET c.name = 'Shared', c.language = 'java', c.isExternal = false
+              MERGE (f)-[:DEFINES]->(c)
+              """,
+              Map.of("p", currentProject, "path", deletedFile.toString()))
+          .consume();
+    }
+    SnapshotFailingWatchAdapter adapter = new SnapshotFailingWatchAdapter();
+    adapter.discoverFiles(sourceDir);
+    IngestionOrchestrator orchestrator =
+        new IngestionOrchestrator(sourceDir, currentProject, 1, driver, adapter);
+
+    orchestrator.ingestChangedFiles(Set.of(deletedFile, existingFile));
+
+    assertTrue(fileExistsInGraph(currentProject, deletedFile));
+    assertFalse(fileExistsInGraph(currentProject, existingFile));
+  }
+
+  @Test
+  void watchModeRefreshesRetainedFileAfterFallbackDelete() throws Exception {
+    currentProject = PROJECT_BASE + "-watch-snapshot-fallback-refresh";
+    sourceDir = Files.createTempDirectory("orch-watch-snapshot-fallback-refresh-src-");
+    Path pkg = sourceDir.resolve("com/example");
+    Files.createDirectories(pkg);
+    Path oldShared = pkg.resolve("OldShared.java");
+    Path newShared = pkg.resolve("NewShared.java");
+    Files.writeString(pkg.resolve("Helper.java"), helperSource());
+    Files.writeString(oldShared, sharedWithHelperCallSource());
+    IngestionOrchestrator normal =
+        new IngestionOrchestrator(
+            sourceDir, currentProject, 1, driver, new ParseService(sourceDir));
+    assertEquals(0, normal.run(Settings.def()));
+    assertTrue(
+        callEdgeExists(currentProject, "com.example.Shared.serve()", "com.example.Helper.go()"));
+
+    Files.writeString(newShared, sharedWithoutHelperCallSource());
+    normal.ingestChangedFiles(Set.of(newShared));
+    assertTrue(
+        callEdgeExists(currentProject, "com.example.Shared.serve()", "com.example.Helper.go()"));
+
+    Files.delete(oldShared);
+    SnapshotFailingWatchAdapter adapter =
+        new SnapshotFailingWatchAdapter(new JavaLanguageAdapter(new ParseService(sourceDir)));
+    adapter.discoverFiles(sourceDir);
+    IngestionOrchestrator failingSnapshot =
+        new IngestionOrchestrator(sourceDir, currentProject, 1, driver, adapter);
+
+    failingSnapshot.ingestChangedFiles(Set.of(oldShared));
+
+    assertTrue(fileExistsInGraph(currentProject, newShared));
+    assertFalse(
+        callEdgeExists(currentProject, "com.example.Shared.serve()", "com.example.Helper.go()"));
+  }
+
+  @Test
+  void watchModeSkipsDeletedFilesWhenFileUpdateFails() throws Exception {
+    currentProject = PROJECT_BASE + "-watch-failed-update-skip-delete";
+    sourceDir = Files.createTempDirectory("orch-watch-failed-update-skip-delete-src-");
+    Path existingFile = sourceDir.resolve("Existing.java");
+    Path deletedFile = sourceDir.resolve("Deleted.java");
+    Files.writeString(existingFile, "class Existing {}");
+    try (Session s = driver.session()) {
+      s.run(
+              """
+              MERGE (f:File {path: $path, project: $p})
+              SET f.language = 'java'
+              MERGE (c:Class {fqn: 'Deleted', project: $p})
+              SET c.name = 'Deleted', c.language = 'java', c.isExternal = false
+              MERGE (f)-[:DEFINES]->(c)
+              """,
+              Map.of("p", currentProject, "path", deletedFile.toString()))
+          .consume();
+    }
+    IngestionOrchestrator orchestrator =
+        new IngestionOrchestrator(
+            sourceDir, currentProject, 1, driver, new CleanupThenFailingJavaAdapter());
+
+    orchestrator.ingestChangedFiles(Set.of(existingFile, deletedFile));
+
+    assertTrue(fileExistsInGraph(currentProject, deletedFile));
+  }
+
+  @Test
+  void watchModeRefreshesRetainedFileAfterDeletingMovedSharedMethod() throws Exception {
+    currentProject = PROJECT_BASE + "-watch-delete-moved-shared-method";
+    sourceDir = Files.createTempDirectory("orch-watch-delete-moved-shared-method-src-");
+    Path pkg = sourceDir.resolve("com/example");
+    Files.createDirectories(pkg);
+    Path helper = pkg.resolve("Helper.java");
+    Path oldShared = pkg.resolve("OldShared.java");
+    Path newShared = pkg.resolve("NewShared.java");
+    Files.writeString(
+        helper,
+        """
+        package com.example;
+
+        class Helper {
+          static void go() {}
+        }
+        """);
+    Files.writeString(
+        oldShared,
+        """
+        package com.example;
+
+        class Shared {
+          void serve() {
+            Helper.go();
+          }
+        }
+        """);
+    IngestionOrchestrator orchestrator =
+        new IngestionOrchestrator(
+            sourceDir, currentProject, 1, driver, new ParseService(sourceDir));
+    assertEquals(0, orchestrator.run(Settings.def()));
+    assertTrue(
+        callEdgeExists(currentProject, "com.example.Shared.serve()", "com.example.Helper.go()"));
+
+    Files.writeString(
+        newShared,
+        """
+        package com.example;
+
+        class Shared {
+          void serve() {}
+        }
+        """);
+    orchestrator.ingestChangedFiles(Set.of(newShared));
+    assertTrue(
+        callEdgeExists(currentProject, "com.example.Shared.serve()", "com.example.Helper.go()"));
+
+    Files.delete(oldShared);
+    orchestrator.ingestChangedFiles(Set.of(oldShared));
+
+    assertTrue(fileExistsInGraph(currentProject, newShared));
+    assertFalse(
+        callEdgeExists(currentProject, "com.example.Shared.serve()", "com.example.Helper.go()"));
+  }
+
+  @Test
+  void watchModeRefreshesRetainedFileFromOtherSourceRootAfterDelete() throws Exception {
+    currentProject = PROJECT_BASE + "-watch-delete-moved-shared-other-root";
+    sourceDir = Files.createTempDirectory("orch-watch-delete-moved-shared-root-a-");
+    Path otherRoot = Files.createTempDirectory("orch-watch-delete-moved-shared-root-b-");
+    try {
+      Path rootA = sourceDir.resolve("com/example");
+      Path rootB = otherRoot.resolve("com/example");
+      Files.createDirectories(rootA);
+      Files.createDirectories(rootB);
+      Path oldShared = rootA.resolve("OldShared.java");
+      Path newShared = rootB.resolve("NewShared.java");
+      Files.writeString(rootA.resolve("Helper.java"), helperSource());
+      Files.writeString(rootB.resolve("Helper.java"), helperSource());
+      Files.writeString(oldShared, sharedWithHelperCallSource());
+      Files.writeString(newShared, sharedWithoutHelperCallSource());
+      IngestionOrchestrator rootAOrchestrator =
+          new IngestionOrchestrator(
+              sourceDir, currentProject, 1, driver, new ParseService(sourceDir));
+      IngestionOrchestrator rootBOrchestrator =
+          new IngestionOrchestrator(
+              otherRoot, currentProject, 1, driver, new ParseService(otherRoot));
+      assertEquals(0, rootAOrchestrator.run(Settings.def()));
+      assertTrue(
+          callEdgeExists(currentProject, "com.example.Shared.serve()", "com.example.Helper.go()"));
+      assertEquals(0, rootBOrchestrator.run(Settings.def()));
+      assertTrue(
+          callEdgeExists(currentProject, "com.example.Shared.serve()", "com.example.Helper.go()"));
+
+      Files.delete(oldShared);
+      rootAOrchestrator.ingestChangedFiles(Set.of(oldShared));
+
+      assertTrue(fileExistsInGraph(currentProject, newShared));
+      assertFalse(
+          callEdgeExists(currentProject, "com.example.Shared.serve()", "com.example.Helper.go()"));
+    } finally {
+      deleteDir(otherRoot);
+    }
+  }
+
+  @Test
+  void watchModeRefreshesRetainedModuleFileWithStoredSourceRoot() throws Exception {
+    currentProject = PROJECT_BASE + "-watch-delete-module-retained-root";
+    sourceDir = Files.createTempDirectory("orch-watch-delete-module-root-a-");
+    Path otherRoot = Files.createTempDirectory("orch-watch-delete-module-root-b-");
+    try {
+      Path removedFile = sourceDir.resolve("shared.ts");
+      Path retainedFile = otherRoot.resolve("shared.ts");
+      Files.writeString(removedFile, "export const shared = true;\n");
+      Files.writeString(retainedFile, "export const shared = true;\n");
+      IngestionOrchestrator rootAOrchestrator =
+          new IngestionOrchestrator(
+              sourceDir, currentProject, 1, driver, new RootAwareStubLanguageAdapter(sourceDir));
+      IngestionOrchestrator rootBOrchestrator =
+          new IngestionOrchestrator(
+              otherRoot, currentProject, 1, driver, new RootAwareStubLanguageAdapter(otherRoot));
+      assertEquals(0, rootAOrchestrator.run(Settings.def()));
+      assertEquals(0, rootBOrchestrator.run(Settings.def()));
+      assertEquals(List.of("js.test.shared_ts"), moduleFqnsForFile(currentProject, retainedFile));
+
+      Files.delete(removedFile);
+      rootAOrchestrator.ingestChangedFiles(Set.of(removedFile));
+
+      assertEquals(List.of("js.test.shared_ts"), moduleFqnsForFile(currentProject, retainedFile));
+    } finally {
+      deleteDir(otherRoot);
+    }
   }
 
   @Test
@@ -600,6 +1283,47 @@ class IngestionOrchestratorIT {
   }
 
   @Test
+  void newFilesWithoutDefinitionOverlapStillIngestInParallel() throws Exception {
+    currentProject = PROJECT_BASE + "-new-files-parallel";
+    sourceDir = Files.createTempDirectory("orch-new-files-parallel-src-");
+    Path pkgDir = sourceDir.resolve("com/example");
+    Files.createDirectories(pkgDir);
+    Files.writeString(
+        pkgDir.resolve("Seed.java"),
+        """
+        package com.example;
+
+        public class Seed {}
+        """);
+    IngestionOrchestrator normal =
+        new IngestionOrchestrator(
+            sourceDir, currentProject, 1, driver, new ParseService(sourceDir));
+    assertEquals(0, normal.run(Settings.def()));
+
+    Files.writeString(
+        pkgDir.resolve("FreshOne.java"),
+        """
+        package com.example;
+
+        public class FreshOne {}
+        """);
+    Files.writeString(
+        pkgDir.resolve("FreshTwo.java"),
+        """
+        package com.example;
+
+        public class FreshTwo {}
+        """);
+    ConcurrencyTrackingJavaAdapter adapter = new ConcurrencyTrackingJavaAdapter();
+    IngestionOrchestrator parallel =
+        new IngestionOrchestrator(sourceDir, currentProject, 2, driver, adapter);
+
+    assertEquals(0, parallel.run(Settings.def()));
+
+    assertTrue(adapter.maxActive() > 1, "independent new files should use parallel ingest");
+  }
+
+  @Test
   void wipeDeletesExistingNodesBeforeReingest() throws Exception {
     currentProject = PROJECT_BASE + "-wipe";
     sourceDir = buildSampleSourceTree();
@@ -710,6 +1434,693 @@ class IngestionOrchestratorIT {
               .asLong();
       assertEquals(countAfterFirst, countAfterSecond, "MERGE-based upsert must be idempotent");
     }
+  }
+
+  @Test
+  void reingestionDeletesRemovedSourceFiles() throws Exception {
+    currentProject = PROJECT_BASE + "-removed-file";
+    sourceDir = buildSampleSourceTree();
+    IngestionOrchestrator orchestrator =
+        new IngestionOrchestrator(
+            sourceDir, currentProject, 1, driver, new ParseService(sourceDir));
+    Path widgetFile = sourceDir.resolve("com/example/Widget.java");
+
+    assertEquals(0, orchestrator.run(Settings.def()));
+    assertTrue(classExists(currentProject, "com.example.Widget"));
+    assertTrue(fileExistsInGraph(currentProject, widgetFile));
+
+    Files.delete(widgetFile);
+    assertEquals(0, orchestrator.run(Settings.def()));
+
+    assertFalse(classExists(currentProject, "com.example.Widget"));
+    assertFalse(fileExistsInGraph(currentProject, widgetFile));
+    assertFalse(methodExists(currentProject, "com.example.Widget.getName()"));
+    assertFalse(fieldExists(currentProject, "com.example.Widget#name"));
+  }
+
+  @Test
+  void reingestionDeletesRemovedDeclarationsFromChangedFile() throws Exception {
+    currentProject = PROJECT_BASE + "-removed-declarations";
+    sourceDir = buildSampleSourceTree();
+    IngestionOrchestrator orchestrator =
+        new IngestionOrchestrator(
+            sourceDir, currentProject, 1, driver, new ParseService(sourceDir));
+    Path widgetFile = sourceDir.resolve("com/example/Widget.java");
+
+    assertEquals(0, orchestrator.run(Settings.def()));
+    Files.writeString(
+        widgetFile,
+        """
+        package com.example;
+
+        public class Widget {
+          public String changed() {
+            return "changed";
+          }
+        }
+        """);
+
+    assertEquals(0, orchestrator.run(Settings.def()));
+
+    assertTrue(methodExists(currentProject, "com.example.Widget.changed()"));
+    assertFalse(methodExists(currentProject, "com.example.Widget.getName()"));
+    assertFalse(fieldExists(currentProject, "com.example.Widget#name"));
+  }
+
+  @Test
+  void reingestionDeletesOwnerRemovedFromChangedFile() throws Exception {
+    currentProject = PROJECT_BASE + "-removed-owner";
+    sourceDir = Files.createTempDirectory("orch-removed-owner-src-");
+    Path pkgDir = sourceDir.resolve("com/example");
+    Files.createDirectories(pkgDir);
+    Path file = pkgDir.resolve("Types.java");
+    Files.writeString(
+        file,
+        """
+        package com.example;
+
+        class Removed {
+          void gone() {}
+        }
+
+        class Kept {}
+        """);
+    IngestionOrchestrator orchestrator =
+        new IngestionOrchestrator(
+            sourceDir, currentProject, 1, driver, new ParseService(sourceDir));
+
+    assertEquals(0, orchestrator.run(Settings.def()));
+    assertTrue(classExists(currentProject, "com.example.Removed"));
+    assertTrue(methodExists(currentProject, "com.example.Removed.gone()"));
+
+    Files.writeString(
+        file,
+        """
+        package com.example;
+
+        class Kept {}
+        """);
+
+    assertEquals(0, orchestrator.run(Settings.def()));
+
+    assertFalse(classExists(currentProject, "com.example.Removed"));
+    assertFalse(methodExists(currentProject, "com.example.Removed.gone()"));
+    assertTrue(classExists(currentProject, "com.example.Kept"));
+  }
+
+  @Test
+  void parallelFailedFileIngestRollsBackStaleCleanup() throws Exception {
+    currentProject = PROJECT_BASE + "-parallel-atomic-failure";
+    sourceDir = Files.createTempDirectory("orch-parallel-atomic-src-");
+    Path pkgDir = sourceDir.resolve("com/example");
+    Files.createDirectories(pkgDir);
+    Path file = pkgDir.resolve("Atomic.java");
+    Files.writeString(
+        file,
+        """
+        package com.example;
+
+        public class Atomic {
+          public void oldMethod() {}
+        }
+        """);
+    IngestionOrchestrator normal =
+        new IngestionOrchestrator(
+            sourceDir, currentProject, 1, driver, new ParseService(sourceDir));
+    assertEquals(0, normal.run(Settings.def()));
+    assertTrue(classExists(currentProject, "com.example.Atomic"));
+    assertTrue(methodExists(currentProject, "com.example.Atomic.oldMethod()"));
+
+    IngestionOrchestrator failing =
+        new IngestionOrchestrator(
+            sourceDir, currentProject, 2, driver, new CleanupThenFailingJavaAdapter());
+    assertEquals(1, failing.run(Settings.def()));
+
+    assertTrue(fileExistsInGraph(currentProject, file));
+    assertTrue(classExists(currentProject, "com.example.Atomic"));
+    assertTrue(methodExists(currentProject, "com.example.Atomic.oldMethod()"));
+  }
+
+  @Test
+  void parallelFailedUncachedExistingJavascriptFileRollsBackStaleCleanup() throws Exception {
+    currentProject = PROJECT_BASE + "-parallel-js-uncached";
+    sourceDir = Files.createTempDirectory("orch-parallel-js-uncached-src-");
+    Path file = sourceDir.resolve("app.ts");
+    Files.writeString(file, "export class App {}\n");
+    try (Session s = driver.session()) {
+      s.run(
+              "MERGE (f:File {path: $path, project: $p})"
+                  + " SET f.language = 'js', f.lastModified = 1"
+                  + " MERGE (c:Class {fqn: 'js.test.App', project: $p})"
+                  + " SET c.name = 'App', c.language = 'js', c.kind = 'class',"
+                  + "     c.isExternal = false"
+                  + " MERGE (f)-[:DEFINES]->(c)",
+              Map.of("p", currentProject, "path", file.toString()))
+          .consume();
+    }
+    assertTrue(classExists(currentProject, "js.test.App"));
+
+    IngestionOrchestrator failing =
+        new IngestionOrchestrator(
+            sourceDir, currentProject, 2, driver, new CleanupThenFailingJsAdapter());
+    assertEquals(1, failing.run(Settings.def()));
+
+    assertTrue(fileExistsInGraph(currentProject, file));
+    assertTrue(classExists(currentProject, "js.test.App"));
+  }
+
+  @Test
+  void parallelFailedNewMovedOwnerFileRollsBackCurrentOwnerCleanup() throws Exception {
+    currentProject = PROJECT_BASE + "-parallel-new-moved-owner";
+    sourceDir = Files.createTempDirectory("orch-parallel-new-moved-owner-src-");
+    Path pkgDir = sourceDir.resolve("com/example");
+    Files.createDirectories(pkgDir);
+    Path oldFile = pkgDir.resolve("ZOld.java");
+    Path newFile = pkgDir.resolve("ANew.java");
+    Files.writeString(
+        oldFile,
+        """
+        package com.example;
+
+        public class Moved {
+          public void oldMethod() {}
+        }
+        """);
+    IngestionOrchestrator normal =
+        new IngestionOrchestrator(
+            sourceDir, currentProject, 1, driver, new ParseService(sourceDir));
+    assertEquals(0, normal.run(Settings.def()));
+    assertTrue(methodExists(currentProject, "com.example.Moved.oldMethod()"));
+
+    Files.writeString(
+        newFile,
+        """
+        package com.example;
+
+        public class Moved {
+          public void newMethod() {}
+        }
+        """);
+    IngestionOrchestrator failing =
+        new IngestionOrchestrator(
+            sourceDir,
+            currentProject,
+            2,
+            driver,
+            new CleanupThenFailingJavaAdapter(
+                SourceFileDefinitions.of(
+                    Set.of("com.example.Moved"),
+                    Set.of(),
+                    Set.of(),
+                    Set.of("com.example.Moved.newMethod()"),
+                    Set.of())));
+
+    assertEquals(2, failing.run(Settings.def()));
+
+    assertTrue(methodExists(currentProject, "com.example.Moved.oldMethod()"));
+    assertFalse(methodExists(currentProject, "com.example.Moved.newMethod()"));
+  }
+
+  @Test
+  void reingestionIgnoresDeletedFilesWhenRefreshingRetainedOwnerRelations() throws Exception {
+    currentProject = PROJECT_BASE + "-deleted-file-retained-relations";
+    sourceDir = Files.createTempDirectory("orch-deleted-file-relations-src-");
+    Path pkgDir = sourceDir.resolve("com/example");
+    Files.createDirectories(pkgDir);
+    Path oldFile = pkgDir.resolve("OldMoved.java");
+    Path newFile = pkgDir.resolve("NewMoved.java");
+    Files.writeString(
+        oldFile,
+        """
+        package com.example;
+
+        @Deprecated
+        class Moved extends OldBase {}
+        """);
+    IngestionOrchestrator orchestrator =
+        new IngestionOrchestrator(
+            sourceDir, currentProject, 1, driver, new ParseService(sourceDir));
+
+    assertEquals(0, orchestrator.run(Settings.def()));
+
+    Files.writeString(
+        newFile,
+        """
+        package com.example;
+
+        class Moved extends NewBase {}
+        """);
+    Files.delete(oldFile);
+
+    assertEquals(0, orchestrator.run(Settings.def()));
+
+    try (Session s = driver.session()) {
+      var row =
+          s.run(
+                  """
+                  MATCH (moved:Class {project: $p, fqn: 'com.example.Moved'})
+                  OPTIONAL MATCH (moved)-[:EXTENDS]->(oldParent:Class {project: $p, name: 'OldBase'})
+                  OPTIONAL MATCH (moved)-[:EXTENDS]->(newParent:Class {project: $p, name: 'NewBase'})
+                  OPTIONAL MATCH (moved)-[:ANNOTATED_WITH]->(deprecated:Annotation {project: $p, name: 'Deprecated'})
+                  OPTIONAL MATCH (oldFile:File {project: $p, path: $oldPath})
+                  RETURN count(DISTINCT oldParent) AS oldParents,
+                         count(DISTINCT newParent) AS newParents,
+                         count(DISTINCT deprecated) AS deprecated,
+                         count(DISTINCT oldFile) AS oldFiles
+                  """,
+                  Map.of("p", currentProject, "oldPath", oldFile.toString()))
+              .single();
+
+      assertEquals(0, row.get("oldParents").asLong());
+      assertEquals(1, row.get("newParents").asLong());
+      assertEquals(0, row.get("deprecated").asLong());
+      assertEquals(0, row.get("oldFiles").asLong());
+    }
+  }
+
+  @Test
+  void missingFileCleanupPreservesDefinitionsFromOtherSourceRoots() throws Exception {
+    currentProject = PROJECT_BASE + "-missing-file-other-root";
+    sourceDir = Files.createTempDirectory("orch-missing-file-root-a-");
+    Path otherRoot = Files.createTempDirectory("orch-missing-file-root-b-");
+    try {
+      Path rootA = sourceDir.resolve("com/example");
+      Path rootB = otherRoot.resolve("com/example");
+      Files.createDirectories(rootA);
+      Files.createDirectories(rootB);
+      Path removedFile = rootA.resolve("Shared.java");
+      Path retainedFile = rootB.resolve("Shared.java");
+      String source =
+          """
+          package com.example;
+
+          public class Shared {}
+          """;
+      Files.writeString(removedFile, source);
+      Files.writeString(retainedFile, source);
+      IngestionOrchestrator rootAOrchestrator =
+          new IngestionOrchestrator(
+              sourceDir, currentProject, 1, driver, new ParseService(sourceDir));
+      IngestionOrchestrator rootBOrchestrator =
+          new IngestionOrchestrator(
+              otherRoot, currentProject, 1, driver, new ParseService(otherRoot));
+      assertEquals(0, rootAOrchestrator.run(Settings.def()));
+      assertEquals(0, rootBOrchestrator.run(Settings.def()));
+      assertTrue(classExists(currentProject, "com.example.Shared"));
+
+      Files.delete(removedFile);
+
+      assertEquals(0, rootAOrchestrator.run(Settings.def()));
+
+      assertFalse(fileExistsInGraph(currentProject, removedFile));
+      assertTrue(fileExistsInGraph(currentProject, retainedFile));
+      assertTrue(classExists(currentProject, "com.example.Shared"));
+    } finally {
+      deleteDir(otherRoot);
+    }
+  }
+
+  @Test
+  void missingFileCleanupRefreshesRetainedFileFromOtherSourceRoot() throws Exception {
+    currentProject = PROJECT_BASE + "-missing-file-refresh-other-root";
+    sourceDir = Files.createTempDirectory("orch-missing-file-refresh-root-a-");
+    Path otherRoot = Files.createTempDirectory("orch-missing-file-refresh-root-b-");
+    try {
+      Path rootA = sourceDir.resolve("com/example");
+      Path rootB = otherRoot.resolve("com/example");
+      Files.createDirectories(rootA);
+      Files.createDirectories(rootB);
+      Path removedFile = rootA.resolve("Shared.java");
+      Path retainedFile = rootB.resolve("Shared.java");
+      Files.writeString(rootA.resolve("Helper.java"), helperSource());
+      Files.writeString(rootB.resolve("Helper.java"), helperSource());
+      Files.writeString(removedFile, sharedWithHelperCallSource());
+      Files.writeString(retainedFile, sharedWithoutHelperCallSource());
+      IngestionOrchestrator rootAOrchestrator =
+          new IngestionOrchestrator(
+              sourceDir, currentProject, 1, driver, new ParseService(sourceDir));
+      IngestionOrchestrator rootBOrchestrator =
+          new IngestionOrchestrator(
+              otherRoot, currentProject, 1, driver, new ParseService(otherRoot));
+      assertEquals(0, rootAOrchestrator.run(Settings.def()));
+      assertTrue(
+          callEdgeExists(currentProject, "com.example.Shared.serve()", "com.example.Helper.go()"));
+      assertEquals(0, rootBOrchestrator.run(Settings.def()));
+      assertTrue(
+          callEdgeExists(currentProject, "com.example.Shared.serve()", "com.example.Helper.go()"));
+
+      Files.delete(removedFile);
+      assertEquals(0, rootAOrchestrator.run(Settings.def()));
+
+      assertTrue(fileExistsInGraph(currentProject, retainedFile));
+      assertFalse(
+          callEdgeExists(currentProject, "com.example.Shared.serve()", "com.example.Helper.go()"));
+    } finally {
+      deleteDir(otherRoot);
+    }
+  }
+
+  @Test
+  void missingFileCleanupRefreshesRetainedJavaFileWithStoredSourceRoot() throws Exception {
+    currentProject = PROJECT_BASE + "-missing-file-refresh-java-root";
+    sourceDir = Files.createTempDirectory("orch-missing-file-refresh-java-root-a-");
+    Path otherRoot = Files.createTempDirectory("orch-missing-file-refresh-java-root-b-");
+    try {
+      Path rootA = sourceDir.resolve("com/example");
+      Path rootB = otherRoot.resolve("com/example");
+      Files.createDirectories(rootA);
+      Files.createDirectories(rootB);
+      Path removedFile = rootA.resolve("Shared.java");
+      Path retainedFile = rootB.resolve("Shared.java");
+      Files.writeString(removedFile, sharedWithoutHelperCallSource());
+      Files.writeString(rootB.resolve("Helper.java"), helperSource());
+      Files.writeString(retainedFile, sharedWithHelperCallSource());
+      IngestionOrchestrator rootAOrchestrator =
+          new IngestionOrchestrator(
+              sourceDir, currentProject, 1, driver, new ParseService(sourceDir));
+      IngestionOrchestrator rootBOrchestrator =
+          new IngestionOrchestrator(
+              otherRoot, currentProject, 1, driver, new ParseService(otherRoot));
+      assertEquals(0, rootAOrchestrator.run(Settings.def()));
+      assertFalse(
+          callEdgeExists(currentProject, "com.example.Shared.serve()", "com.example.Helper.go()"));
+      assertEquals(0, rootBOrchestrator.run(Settings.def()));
+      assertTrue(
+          callEdgeExists(currentProject, "com.example.Shared.serve()", "com.example.Helper.go()"));
+
+      Files.delete(removedFile);
+      assertEquals(0, rootAOrchestrator.run(Settings.def()));
+
+      assertTrue(fileExistsInGraph(currentProject, retainedFile));
+      assertTrue(
+          callEdgeExists(currentProject, "com.example.Shared.serve()", "com.example.Helper.go()"));
+    } finally {
+      deleteDir(otherRoot);
+    }
+  }
+
+  @Test
+  void changedFileCleanupPreservesCallsFromOtherSourceRoots() throws Exception {
+    currentProject = PROJECT_BASE + "-changed-file-other-root";
+    sourceDir = Files.createTempDirectory("orch-changed-file-root-a-");
+    Path otherRoot = Files.createTempDirectory("orch-changed-file-root-b-");
+    try {
+      Path rootA = sourceDir.resolve("com/example");
+      Path rootB = otherRoot.resolve("com/example");
+      Files.createDirectories(rootA);
+      Files.createDirectories(rootB);
+      Path sharedA = rootA.resolve("Shared.java");
+      Path sharedB = rootB.resolve("Shared.java");
+      String helper =
+          """
+          package com.example;
+
+          public class Helper {
+            public static void go() {}
+          }
+          """;
+      String sharedWithCall =
+          """
+          package com.example;
+
+          public class Shared {
+            public void serve() {
+              Helper.go();
+            }
+          }
+          """;
+      Files.writeString(rootA.resolve("Helper.java"), helper);
+      Files.writeString(rootB.resolve("Helper.java"), helper);
+      Files.writeString(sharedA, sharedWithCall);
+      Files.writeString(sharedB, sharedWithCall);
+      IngestionOrchestrator rootAOrchestrator =
+          new IngestionOrchestrator(
+              sourceDir, currentProject, 1, driver, new ParseService(sourceDir));
+      IngestionOrchestrator rootBOrchestrator =
+          new IngestionOrchestrator(
+              otherRoot, currentProject, 1, driver, new ParseService(otherRoot));
+      assertEquals(0, rootAOrchestrator.run(Settings.def()));
+      assertEquals(0, rootBOrchestrator.run(Settings.def()));
+      assertTrue(
+          callEdgeExists(currentProject, "com.example.Shared.serve()", "com.example.Helper.go()"));
+
+      Files.writeString(
+          sharedA,
+          """
+          package com.example;
+
+          public class Shared {
+            public void serve() {}
+          }
+          """);
+
+      assertEquals(0, rootAOrchestrator.run(Settings.def()));
+
+      assertTrue(fileExistsInGraph(currentProject, sharedB));
+      assertTrue(
+          callEdgeExists(currentProject, "com.example.Shared.serve()", "com.example.Helper.go()"));
+    } finally {
+      deleteDir(otherRoot);
+    }
+  }
+
+  @Test
+  void changedFileCleanupIgnoresMissingOutsideRootRetainedFiles() throws Exception {
+    currentProject = PROJECT_BASE + "-changed-file-missing-other-root";
+    sourceDir = Files.createTempDirectory("orch-changed-file-missing-root-a-");
+    Path otherRoot = Files.createTempDirectory("orch-changed-file-missing-root-b-");
+    try {
+      Path rootA = sourceDir.resolve("com/example");
+      Files.createDirectories(rootA);
+      Path shared = rootA.resolve("Shared.java");
+      Path missingRetained = otherRoot.resolve("com/example/Shared.java");
+      Files.writeString(rootA.resolve("Helper.java"), helperSource());
+      Files.writeString(shared, sharedWithHelperCallSource());
+      IngestionOrchestrator orchestrator =
+          new IngestionOrchestrator(
+              sourceDir, currentProject, 1, driver, new ParseService(sourceDir));
+      assertEquals(0, orchestrator.run(Settings.def()));
+      assertTrue(
+          callEdgeExists(currentProject, "com.example.Shared.serve()", "com.example.Helper.go()"));
+      try (Session s = driver.session()) {
+        s.run(
+                """
+                MATCH (caller:Method {project: $p, signature: 'com.example.Shared.serve()'})
+                MERGE (f:File {path: $path, project: $p})
+                SET f.language = 'java', f.lastModified = 1
+                MERGE (f)-[:DEFINES]->(caller)
+                """,
+                Map.of("p", currentProject, "path", missingRetained.toString()))
+            .consume();
+      }
+
+      Files.writeString(shared, sharedWithoutHelperCallSource());
+
+      assertEquals(0, orchestrator.run(Settings.def()));
+
+      assertFalse(
+          callEdgeExists(currentProject, "com.example.Shared.serve()", "com.example.Helper.go()"));
+    } finally {
+      deleteDir(otherRoot);
+    }
+  }
+
+  @Test
+  void changedFileCleanupRetainsSameRootFilesOutsideConfiguredAdapters() throws Exception {
+    currentProject = PROJECT_BASE + "-same-root-retained-unconfigured";
+    sourceDir = Files.createTempDirectory("orch-same-root-retained-unconfigured-src-");
+    Path pkgDir = sourceDir.resolve("com/example");
+    Files.createDirectories(pkgDir);
+    Path helper = pkgDir.resolve("Helper.java");
+    Path shared = pkgDir.resolve("Shared.java");
+    Path retainedTs = sourceDir.resolve("retained.ts");
+    Files.writeString(helper, helperSource());
+    Files.writeString(shared, sharedWithHelperCallSource());
+    Files.writeString(retainedTs, "export const retained = true;\n");
+    IngestionOrchestrator orchestrator =
+        new IngestionOrchestrator(
+            sourceDir, currentProject, 1, driver, new ParseService(sourceDir));
+    assertEquals(0, orchestrator.run(Settings.def()));
+    assertTrue(
+        callEdgeExists(currentProject, "com.example.Shared.serve()", "com.example.Helper.go()"));
+    try (Session s = driver.session()) {
+      s.run(
+              """
+              MATCH (caller:Method {project: $p, signature: 'com.example.Shared.serve()'})
+              MERGE (f:File {path: $path, project: $p})
+              SET f.language = 'js', f.lastModified = 1
+              MERGE (f)-[:DEFINES]->(caller)
+              """,
+              Map.of("p", currentProject, "path", retainedTs.toString()))
+          .consume();
+    }
+
+    Files.writeString(shared, sharedWithoutHelperCallSource());
+
+    assertEquals(0, orchestrator.run(Settings.def()));
+
+    assertTrue(fileExistsInGraph(currentProject, retainedTs));
+    assertTrue(
+        callEdgeExists(currentProject, "com.example.Shared.serve()", "com.example.Helper.go()"));
+  }
+
+  @Test
+  void failedMovedFileIngestSkipsMissingFileCleanup() throws Exception {
+    currentProject = PROJECT_BASE + "-failed-moved-file-missing-cleanup";
+    sourceDir = Files.createTempDirectory("orch-failed-moved-file-src-");
+    Path pkgDir = sourceDir.resolve("com/example");
+    Files.createDirectories(pkgDir);
+    Path oldFile = pkgDir.resolve("ZOld.java");
+    Path newFile = pkgDir.resolve("ANew.java");
+    Files.writeString(
+        oldFile,
+        """
+        package com.example;
+
+        public class Moved {
+          public void oldMethod() {}
+        }
+        """);
+    IngestionOrchestrator normal =
+        new IngestionOrchestrator(
+            sourceDir, currentProject, 1, driver, new ParseService(sourceDir));
+    assertEquals(0, normal.run(Settings.def()));
+    assertTrue(fileExistsInGraph(currentProject, oldFile));
+    assertTrue(methodExists(currentProject, "com.example.Moved.oldMethod()"));
+
+    Files.writeString(
+        newFile,
+        """
+        package com.example;
+
+        public class Moved {
+          public void newMethod() {}
+        }
+        """);
+    Files.delete(oldFile);
+    IngestionOrchestrator failing =
+        new IngestionOrchestrator(
+            sourceDir,
+            currentProject,
+            2,
+            driver,
+            new CleanupThenFailingJavaAdapter(
+                SourceFileDefinitions.of(
+                    Set.of("com.example.Moved"),
+                    Set.of(),
+                    Set.of(),
+                    Set.of("com.example.Moved.newMethod()"),
+                    Set.of())));
+
+    assertEquals(1, failing.run(Settings.def()));
+
+    assertTrue(fileExistsInGraph(currentProject, oldFile));
+    assertTrue(methodExists(currentProject, "com.example.Moved.oldMethod()"));
+    assertFalse(methodExists(currentProject, "com.example.Moved.newMethod()"));
+  }
+
+  @Test
+  void reingestionPreservesOwnerMovedToAnotherFileInSameRun() throws Exception {
+    currentProject = PROJECT_BASE + "-moved-owner";
+    sourceDir = Files.createTempDirectory("orch-moved-owner-src-");
+    Path pkgDir = sourceDir.resolve("com/example");
+    Files.createDirectories(pkgDir);
+    Path oldFile = pkgDir.resolve("ZOld.java");
+    Path newFile = pkgDir.resolve("ANew.java");
+    Files.writeString(
+        oldFile,
+        """
+        package com.example;
+
+        public class Moved {
+          public void oldMethod() {}
+        }
+        """);
+    IngestionOrchestrator orchestrator =
+        new IngestionOrchestrator(
+            sourceDir, currentProject, 1, driver, new ParseService(sourceDir));
+    assertEquals(0, orchestrator.run(Settings.def()));
+    assertTrue(classExists(currentProject, "com.example.Moved"));
+
+    Files.writeString(
+        newFile,
+        """
+        package com.example;
+
+        public class Moved {
+          public void newMethod() {}
+        }
+        """);
+    Files.writeString(
+        oldFile,
+        """
+        package com.example;
+
+        class ZOld {}
+        """);
+
+    assertEquals(0, orchestrator.run(Settings.def()));
+
+    assertTrue(classExists(currentProject, "com.example.Moved"));
+    assertTrue(methodExists(currentProject, "com.example.Moved.newMethod()"));
+    assertFalse(methodExists(currentProject, "com.example.Moved.oldMethod()"));
+  }
+
+  @Test
+  void reingestionPreservesInboundCallsWhenMovedFileIsDeleted() throws Exception {
+    currentProject = PROJECT_BASE + "-deleted-moved-owner";
+    sourceDir = Files.createTempDirectory("orch-deleted-moved-owner-src-");
+    Path pkgDir = sourceDir.resolve("com/example");
+    Files.createDirectories(pkgDir);
+    Path oldFile = pkgDir.resolve("ZMoved.java");
+    Path callerFile = pkgDir.resolve("Caller.java");
+    Path newFile = pkgDir.resolve("AMoved.java");
+    Files.writeString(
+        oldFile,
+        """
+        package com.example;
+
+        class Moved {
+          void target() {}
+        }
+        """);
+    Files.writeString(
+        callerFile,
+        """
+        package com.example;
+
+        class Caller {
+          void call() {
+            new Moved().target();
+          }
+        }
+        """);
+    IngestionOrchestrator orchestrator =
+        new IngestionOrchestrator(
+            sourceDir, currentProject, 1, driver, new ParseService(sourceDir));
+
+    assertEquals(0, orchestrator.run(Settings.def()));
+    assertTrue(
+        callEdgeExists(currentProject, "com.example.Caller.call()", "com.example.Moved.target()"));
+
+    Files.writeString(
+        newFile,
+        """
+        package com.example;
+
+        class Moved {
+          void target() {}
+        }
+        """);
+    Files.delete(oldFile);
+
+    assertEquals(0, orchestrator.run(new Settings(false, false, false, false, true, false)));
+
+    assertFalse(fileExistsInGraph(currentProject, oldFile));
+    assertTrue(fileExistsInGraph(currentProject, newFile));
+    assertTrue(methodExists(currentProject, "com.example.Moved.target()"));
+    assertTrue(
+        callEdgeExists(currentProject, "com.example.Caller.call()", "com.example.Moved.target()"));
   }
 
   @Test
@@ -1048,6 +2459,66 @@ class IngestionOrchestratorIT {
       assertEquals(1, newThingCount);
       assertEquals(1, changedMethodCount);
     }
+  }
+
+  @Test
+  void incrementalRunPreservesIncomingCallEdgesWhenCalleeChanges() throws Exception {
+    currentProject = PROJECT_BASE + "-incremental-callee-change";
+    sourceDir = Files.createTempDirectory("orch-incremental-callee-src-");
+    Path pkgDir = sourceDir.resolve("com/example");
+    Files.createDirectories(pkgDir);
+    Files.writeString(
+        pkgDir.resolve("AAACaller.java"),
+        """
+        package com.example;
+
+        public class AAACaller {
+          public void doWork() {
+            new BBBService().serve();
+          }
+        }
+        """);
+    Path serviceFile = pkgDir.resolve("BBBService.java");
+    Files.writeString(
+        serviceFile,
+        """
+        package com.example;
+
+        public class BBBService {
+          public void serve() {}
+        }
+        """);
+    IngestionOrchestrator orchestrator =
+        new IngestionOrchestrator(
+            sourceDir, currentProject, 1, driver, new ParseService(sourceDir));
+    assertEquals(0, orchestrator.run(Settings.def()));
+    assertTrue(
+        callEdgeExists(
+            currentProject, "com.example.AAACaller.doWork()", "com.example.BBBService.serve()"));
+
+    Files.writeString(
+        serviceFile,
+        """
+        package com.example;
+
+        public class BBBService {
+          private int calls;
+
+          public void serve() {
+            calls++;
+          }
+        }
+        """);
+    Files.setLastModifiedTime(
+        serviceFile,
+        FileTime.fromMillis(System.currentTimeMillis() + TimeUnit.SECONDS.toMillis(5)));
+
+    assertEquals(0, orchestrator.run(new Settings(false, false, false, false, true, false)));
+
+    assertTrue(
+        callEdgeExists(
+            currentProject, "com.example.AAACaller.doWork()", "com.example.BBBService.serve()"));
+    assertTrue(fieldExists(currentProject, "com.example.BBBService#calls"));
   }
 
   @Test

@@ -146,12 +146,12 @@ public final class Memgraph {
     boolean packageConstraint = false;
     Result result = session.run("SHOW CONSTRAINT INFO");
     while (result.hasNext()) {
-      var record = result.next();
-      if (!"unique".equals(record.get("constraint type").asString(""))) {
+      var theRecord = result.next();
+      if (!"unique".equals(theRecord.get("constraint type").asString(""))) {
         continue;
       }
-      String label = record.get("label").asString("");
-      List<String> properties = record.get("properties").asList(Value::asString);
+      String label = theRecord.get("label").asString("");
+      List<String> properties = theRecord.get("properties").asList(Value::asString);
       if ("Language".equals(label) && hasSameProperties(properties, "project", "name")) {
         languageConstraint = true;
       } else if ("Code".equals(label) && hasSameProperties(properties, "project", "language")) {

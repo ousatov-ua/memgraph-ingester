@@ -236,9 +236,17 @@ You should see your project name and a fresh `lastIngested` timestamp.
 <ingester> \
   --source src/main/java \
   --bolt bolt://localhost:7687 \
-  --project my-java-project \
-  --wipe-project-code
+  --project my-java-project
 ```
+
+Regular re-ingestion prunes graph state for source files that were deleted and for declarations or
+file-local relationships removed from changed files. Use `--wipe-project-code` only when you want a
+fresh project code graph before ingestion starts.
+Changed-file cleanup and replacement writes are committed per file, including with `--threads > 1`.
+Retained snapshots include active-source files, existing same-root graph files, and existing files
+from other source roots. Re-ingestion refreshes retained files after deletes with the retained
+file's source root. Watch re-ingestion also skips delete cleanup after update failures, retries
+snapshot-failed batches, and reconciles delete-only snapshot failures.
 
 ### Faster re-runs
 
@@ -264,8 +272,8 @@ Use `--watch` to keep the graph fresh while editing:
   --watch
 ```
 
-Watch mode recursively watches the source tree, debounces rapid saves, and re-ingests changed
-files.
+Watch mode recursively watches the source tree, debounces rapid saves, re-ingests changed files,
+and removes graph state for deleted files.
 
 ### Fresh project code and memory
 
@@ -673,7 +681,7 @@ named `Java` and `Js`.
 | `(:Project)-[:CONTAINS]->(:Language)-[:CONTAINS]->(:Code)` | Code graph anchor per language. |
 | `(:Code)-[:CONTAINS]->(:Package \| :File)` | Top-level code membership. |
 | `(:Package)-[:CONTAINS]->(:Class \| :Interface \| :Annotation)` | Package contents. |
-| `(:File)-[:DEFINES]->(:Class \| :Interface \| :Annotation)` | Source location. |
+| `(:File)-[:DEFINES]->(:Class \| :Interface \| :Annotation \| :Method \| :Field)` | Source location and file-owned members. |
 | `(:Class)-[:EXTENDS]->(:Class)` | Class inheritance. |
 | `(:Class)-[:IMPLEMENTS]->(:Interface)` | Interface implementation. |
 | `(:Interface)-[:EXTENDS]->(:Interface)` | Interface inheritance. |
@@ -785,6 +793,14 @@ RETURN labels(memory), memory.id, memory.title;
   resolved in-file are stored as `:PendingCall` records and retried after the batch. Direct owner
   methods are preferred, then the nearest superclass with exactly one matching method. Pending calls
   for a reingested JS/TS file are cleared before the file's current calls are stored.
+- Re-ingestion refreshes file-local outgoing `CALLS`, `ANNOTATED_WITH`, `EXTENDS`, and `IMPLEMENTS`
+  relationships before writing the current file data, while preserving current method nodes so
+  incoming `CALLS` edges from unchanged files survive incremental runs.
+- Changed-file cleanup and replacement writes are per-file transactional. Retained snapshots include
+  active-source files, existing same-root graph files, and existing files from other source roots.
+- Re-ingestion refreshes retained files after deletes with the retained file's source root. Watch
+  re-ingestion also skips delete cleanup after update failures, retries snapshot-failed batches,
+  and reconciles delete-only snapshot failures.
 - Raw JS/TS `:Class` queries include synthetic module owners and TypeScript enums. Filter
   `language = "js"` and `kind = "class"` when you only want JavaScript/TypeScript classes.
 - Generated code is indexed only when its generated source directory is passed to `--source`.

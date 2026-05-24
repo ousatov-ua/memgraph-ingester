@@ -242,11 +242,20 @@ MERGE (m)-[:HAS_CONTEXT]->(c)
 RETURN c.id;
 ```
 
-**Cypher — read all Context:**
+**Cypher — read Context index first:**
 
 ```cypher
 MATCH (m:Memory {project: 'my-project'})-[:HAS_CONTEXT]->(c:Context)
-RETURN c.id, c.content, c.source
+RETURN c.id, c.title, c.topic, c.source
+ORDER BY c.topic, c.id;
+```
+
+Fetch `content` only for relevant Context rows:
+
+```cypher
+MATCH (m:Memory {project: 'my-project'})-[:HAS_CONTEXT]->(c:Context)
+WHERE c.id IN ['CTX-concurrency-threading'] OR c.topic IN ['concurrency']
+RETURN c.id, c.title, c.topic, c.content, c.source
 ORDER BY c.id;
 ```
 

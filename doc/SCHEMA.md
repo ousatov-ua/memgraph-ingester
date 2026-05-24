@@ -58,7 +58,7 @@ All memory item labels are unique by `(id, project)`. Most memory items also use
 (Code)      -[:CONTAINS]->      (Package)
 (Code)      -[:CONTAINS]->      (File)
 (Package)   -[:CONTAINS]->      (Class | Interface | Annotation)
-(File)      -[:DEFINES]->       (Class | Interface | Annotation)
+(File)      -[:DEFINES]->       (Class | Interface | Annotation | Method | Field)
 (Class)     -[:EXTENDS]->       (Class)
 (Interface) -[:EXTENDS]->       (Interface)
 (Class)     -[:IMPLEMENTS]->    (Interface)
@@ -137,6 +137,12 @@ Common memory-to-memory links:
 - JavaScript/TypeScript file discovery is bounded by the configured `--source` root. Use the
   repository root as `--source` when root-level config or support files should be code nodes.
   `node_modules` is still skipped.
+- Regular and watch re-ingestion prune deleted files and removed declarations. Changed-file
+  cleanup and replacement writes are per-file transactional. Retained snapshots include
+  active-source files, existing same-root graph files, and existing files from other source roots.
+  Re-ingestion refreshes retained files after deletes with the retained file's source root. Watch
+  re-ingestion also skips delete cleanup after update failures, retries snapshot-failed batches,
+  and reconciles delete-only snapshot failures.
 - JavaScript/TypeScript class and interface heritage is represented with the shared `EXTENDS` and
   `IMPLEMENTS` relationships. Relative imports and `tsconfig.json` path aliases, including aliases
   inherited through extended configs, that resolve under the ingested source root can point

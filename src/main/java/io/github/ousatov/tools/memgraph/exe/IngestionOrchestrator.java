@@ -16,10 +16,12 @@ import java.nio.file.WatchKey;
 import java.nio.file.WatchService;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -30,6 +32,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
+import java.util.function.Function;
 import org.jspecify.annotations.NonNull;
 import org.neo4j.driver.Driver;
 import org.neo4j.driver.Session;
@@ -50,6 +54,9 @@ public final class IngestionOrchestrator {
   private static final Logger log = LoggerFactory.getLogger(IngestionOrchestrator.class);
 
   private static final long SHUTDOWN_TIMEOUT_MINUTES = 10L;
+  private static final int FILE_TX_RETRY_ATTEMPTS = 16;
+  private static final long FILE_TX_INITIAL_BACKOFF_MS = 10L;
+  private static final long FILE_TX_MAX_BACKOFF_MS = 1_000L;
   private static final int PROGRESS_DIVISOR = 10;
 
   private final Path sourceRoot;
@@ -57,6 +64,7 @@ public final class IngestionOrchestrator {
   private final int threads;
   private final Driver driver;
   private final List<LanguageAdapter> languageAdapters;
+  private final Set<Path> pendingWatchFiles = new LinkedHashSet<>();
   private boolean incremental;
 
   /**
@@ -155,6 +163,7 @@ public final class IngestionOrchestrator {
     }
 
     List<SourceFile> files = discoverSourceFiles();
+    List<Path> retainedSourcePaths = retainedSourcePaths(files);
     log.atInfo()
         .setMessage(
             "Found {} supported source files across {} adapter(s). Ingesting with {} thread(s).")
@@ -163,35 +172,32 @@ public final class IngestionOrchestrator {
         .addArgument(threads)
         .log();
 
-    Map<String, Long> mtimeCache = Map.of();
+    StoredFileState storedFiles = preloadStoredFileState(files);
     if (incremental) {
-      try (Session session = driver.session()) {
-        GraphWriter writer = new GraphWriter(session, project);
-        Map<String, Long> preloaded = new HashMap<>();
-        Map<SourceLanguage, List<Path>> pathsByLanguage = new LinkedHashMap<>();
-        for (SourceFile file : files) {
-          pathsByLanguage
-              .computeIfAbsent(file.adapter().language(), ignored -> new ArrayList<>())
-              .add(file.path());
-        }
-        for (var entry : pathsByLanguage.entrySet()) {
-          preloaded.putAll(writer.getAllFileLastModified(entry.getValue(), entry.getKey()));
-        }
-        mtimeCache = Map.copyOf(preloaded);
-        log.info("Pre-loaded {} stored file timestamps for incremental mode.", mtimeCache.size());
-      }
+      log.info(
+          "Pre-loaded {} stored file timestamps for incremental mode.",
+          storedFiles.lastModifiedByPath().size());
     }
 
     int failures;
     if (threads == 1) {
-      failures = ingestSequential(files, mtimeCache);
+      failures = ingestSequential(files, storedFiles, retainedSourcePaths);
     } else {
       try {
-        failures = ingestParallel(files, mtimeCache);
+        failures = ingestParallel(files, storedFiles, retainedSourcePaths);
       } catch (InterruptedException e) {
         Thread.currentThread().interrupt();
         throw new ProcessingException("Interrupted during ingestion", e);
       }
+    }
+
+    if (failures == 0) {
+      deleteMissingSourceFiles(files, retainedSourcePaths);
+    } else {
+      log.warn(
+          "Skipping missing-file cleanup because {} file(s) failed to ingest; existing graph"
+              + " state will be kept for retry.",
+          failures);
     }
 
     try (Session session = driver.session()) {
@@ -265,23 +271,187 @@ public final class IngestionOrchestrator {
     }
   }
 
-  private void ingestChangedFiles(Set<Path> files) {
+  void ingestChangedFiles(Set<Path> files) {
     try (Session session = driver.session()) {
       GraphWriter writer = new GraphWriter(session, project);
-      boolean anySuccess = false;
-      for (Path file : files) {
-        Optional<LanguageAdapter> adapter = adapterFor(file);
-        if (Files.exists(file)
-            && adapter.isPresent()
-            && ingestFile(writer, new SourceFile(file, adapter.get()))) {
-          anySuccess = true;
+      Set<Path> watchFiles = watchFilesForProcessing(files);
+      Optional<WatchSourceSnapshot> sourceSnapshot = sourceSnapshotForWatch(writer);
+      if (sourceSnapshot.isEmpty()) {
+        pendingWatchFiles.addAll(watchFiles);
+        if (reconcileDeletedWatchFiles(watchFiles, writer)) {
+          refreshDerivedGraphArtifacts(writer);
+        }
+        return;
+      }
+      pendingWatchFiles.clear();
+      WatchSourceSnapshot snapshot = sourceSnapshot.get();
+      writer.setRetainedSourcePaths(snapshot.retainedPaths());
+      Map<Path, SourceFile> currentFilesByPath = new HashMap<>();
+      snapshot.files().forEach(sourceFile -> currentFilesByPath.put(sourceFile.path(), sourceFile));
+      boolean changedGraph = false;
+      int updateFailures = 0;
+      Set<Path> refreshAfterDelete = new LinkedHashSet<>();
+      List<SourceFile> existingFiles =
+          watchFiles.stream()
+              .map(currentFilesByPath::get)
+              .filter(sourceFile -> sourceFile != null)
+              .sorted(Comparator.comparing(SourceFile::path))
+              .toList();
+      List<Path> deletedFiles =
+          watchFiles.stream()
+              .filter(file -> !currentFilesByPath.containsKey(file))
+              .sorted()
+              .toList();
+      for (SourceFile file : existingFiles) {
+        try {
+          boolean updated = ingestFileBatched(writer, file, StoredFileState.empty());
+          changedGraph |= updated;
+          if (!updated) {
+            updateFailures++;
+          }
+        } catch (RuntimeException e) {
+          updateFailures++;
+          log.warn("Failed to update graph for watch event on {}: {}", file.path(), e.getMessage());
         }
       }
-      if (anySuccess) {
+      if (updateFailures == 0) {
+        for (Path file : deletedFiles) {
+          if (adapterFor(file).isEmpty()) {
+            continue;
+          }
+          Optional<Set<Path>> sharedRetainedFiles =
+              retainedFilesSharingDefinitionsWithRetry(
+                  file, writer::getRetainedFilePathsSharingDefinitionsWith);
+          if (sharedRetainedFiles.isEmpty()) {
+            continue;
+          }
+          if (deleteSourceFileWithRetry(file, writer::deleteSourceFile)) {
+            changedGraph = true;
+            refreshAfterDelete.addAll(sharedRetainedFiles.get());
+          }
+        }
+      } else if (!deletedFiles.isEmpty()) {
+        log.warn(
+            "Skipping watch delete cleanup for {} file(s) because {} file update(s) failed.",
+            deletedFiles.size(),
+            updateFailures);
+      }
+      refreshRetainedFilesAfterDelete(writer, refreshAfterDelete, currentFilesByPath);
+      if (changedGraph) {
         refreshDerivedGraphArtifacts(writer);
         log.info("Watch re-ingestion complete.");
       }
     }
+  }
+
+  private Optional<WatchSourceSnapshot> sourceSnapshotForWatch(GraphWriter writer) {
+    try {
+      List<SourceFile> files = discoverSourceFiles();
+      return Optional.of(new WatchSourceSnapshot(files, retainedSourcePaths(files, writer)));
+    } catch (RuntimeException e) {
+      log.warn("Skipping watch re-ingestion because source snapshot failed: {}", e.getMessage());
+      return Optional.empty();
+    }
+  }
+
+  private Set<Path> watchFilesForProcessing(Set<Path> files) {
+    Set<Path> watchFiles = new LinkedHashSet<>(pendingWatchFiles);
+    watchFiles.addAll(files);
+    return watchFiles;
+  }
+
+  private boolean reconcileDeletedWatchFiles(Set<Path> files, GraphWriter writer) {
+    try {
+      List<SourceFile> existingFiles =
+          files.stream()
+              .filter(Files::exists)
+              .flatMap(
+                  file -> adapterFor(file).map(adapter -> new SourceFile(file, adapter)).stream())
+              .toList();
+      if (!existingFiles.isEmpty()) {
+        log.warn(
+            "Skipping watch delete fallback because {} changed file(s) still exist.",
+            existingFiles.size());
+        return false;
+      }
+      writer.setRetainedSourcePaths(retainedSourcePaths(existingFiles, writer));
+      boolean changedGraph = false;
+      Set<Path> refreshAfterDelete = new LinkedHashSet<>();
+      for (Path file : files.stream().filter(file -> !Files.exists(file)).sorted().toList()) {
+        if (adapterFor(file).isEmpty()) {
+          continue;
+        }
+        Optional<Set<Path>> sharedRetainedFiles =
+            retainedFilesSharingDefinitionsWithRetry(
+                file, writer::getRetainedFilePathsSharingDefinitionsWith);
+        if (sharedRetainedFiles.isEmpty()) {
+          continue;
+        }
+        if (deleteSourceFileWithRetry(file, writer::deleteSourceFile)) {
+          changedGraph = true;
+          refreshAfterDelete.addAll(sharedRetainedFiles.get());
+        }
+      }
+      refreshRetainedFilesAfterDelete(writer, refreshAfterDelete, Map.of());
+      return changedGraph;
+    } catch (RuntimeException e) {
+      log.warn("Could not reconcile watch delete fallback: {}", e.getMessage());
+      return false;
+    }
+  }
+
+  void refreshRetainedFilesAfterDelete(
+      GraphWriter writer, Collection<Path> paths, Map<Path, SourceFile> currentFilesByPath) {
+    for (Path path : paths.stream().sorted().toList()) {
+      try {
+        Optional<SourceFile> retainedFile = sourceFileFor(path, currentFilesByPath, writer);
+        if (retainedFile.isEmpty()) {
+          continue;
+        }
+        if (!ingestFileBatched(writer, retainedFile.get(), StoredFileState.empty())) {
+          log.warn("Failed to refresh retained file after delete: {}", path);
+        }
+      } catch (RuntimeException e) {
+        log.warn("Failed to refresh retained file after delete on {}: {}", path, e.getMessage());
+      }
+    }
+  }
+
+  boolean deleteSourceFileWithRetry(Path file, Consumer<Path> deleteAction) {
+    long backoffMs = FILE_TX_INITIAL_BACKOFF_MS;
+    for (int attempt = 1; attempt <= FILE_TX_RETRY_ATTEMPTS; attempt++) {
+      try {
+        deleteAction.accept(file);
+        return true;
+      } catch (RuntimeException e) {
+        if (!GraphWriter.isRetryable(e) || attempt == FILE_TX_RETRY_ATTEMPTS) {
+          log.warn("Failed to update graph for watch delete on {}: {}", file, e.getMessage());
+          return false;
+        }
+        backoffMs = sleepBeforeFileRetry(file, attempt, e, backoffMs);
+      }
+    }
+    return false;
+  }
+
+  Optional<Set<Path>> retainedFilesSharingDefinitionsWithRetry(
+      Path file, Function<Path, Set<Path>> retainedFilesLookup) {
+    long backoffMs = FILE_TX_INITIAL_BACKOFF_MS;
+    for (int attempt = 1; attempt <= FILE_TX_RETRY_ATTEMPTS; attempt++) {
+      try {
+        return Optional.of(retainedFilesLookup.apply(file));
+      } catch (RuntimeException e) {
+        if (!GraphWriter.isRetryable(e) || attempt == FILE_TX_RETRY_ATTEMPTS) {
+          log.warn(
+              "Failed to read retained files sharing definitions with {}: {}",
+              file,
+              e.getMessage());
+          return Optional.empty();
+        }
+        backoffMs = sleepBeforeFileRetry(file, attempt, e, backoffMs);
+      }
+    }
+    return Optional.empty();
   }
 
   /** Refreshes graph artifacts that depend on all available code nodes being present. */
@@ -290,6 +460,8 @@ public final class IngestionOrchestrator {
     log.info("Resolved pending owner/name CALLS edges for '{}'", project);
     writer.deletePhantomMethods();
     log.info("Removed phantom external Method nodes for '{}'", project);
+    writer.deleteEmptyPackages();
+    log.info("Removed empty Package nodes for '{}'", project);
     writer.resolveCodeRefs();
     log.info("Refreshed :CodeRef resolution edges for '{}'", project);
   }
@@ -350,6 +522,106 @@ public final class IngestionOrchestrator {
     return List.copyOf(byPath.values());
   }
 
+  private StoredFileState preloadStoredFileState(List<SourceFile> files) {
+    if (!incremental) {
+      return StoredFileState.empty();
+    }
+    try (Session session = driver.session()) {
+      GraphWriter writer = new GraphWriter(session, project);
+      Map<String, Long> preloaded = new HashMap<>();
+      Map<SourceLanguage, List<Path>> pathsByLanguage = new LinkedHashMap<>();
+      for (SourceFile file : files) {
+        pathsByLanguage
+            .computeIfAbsent(file.adapter().language(), ignored -> new ArrayList<>())
+            .add(file.path());
+      }
+      for (var entry : pathsByLanguage.entrySet()) {
+        preloaded.putAll(writer.getAllFileLastModified(entry.getValue(), entry.getKey()));
+      }
+      return new StoredFileState(Map.copyOf(preloaded), true);
+    } catch (RuntimeException e) {
+      log.warn(
+          "Could not batch-fetch stored source files; changed files will be ingested"
+              + " transactionally: {}",
+          e.getMessage());
+      return StoredFileState.unreliable();
+    }
+  }
+
+  private List<Path> retainedSourcePaths(List<SourceFile> files) {
+    try (Session session = driver.session()) {
+      return retainedSourcePaths(files, new GraphWriter(session, project));
+    }
+  }
+
+  private List<Path> retainedSourcePaths(List<SourceFile> files, GraphWriter writer) {
+    Set<Path> retainedPaths = new LinkedHashSet<>();
+    files.stream().map(SourceFile::path).forEach(retainedPaths::add);
+    writer.getFilePathsInSourceRoot(sourceRoot).stream()
+        .filter(path -> !retainedPaths.contains(path))
+        .filter(Files::exists)
+        .sorted()
+        .forEach(retainedPaths::add);
+    writer.getRetainedFilePathsOutsideSourceRoot(sourceRoot).stream()
+        .filter(Files::exists)
+        .sorted()
+        .forEach(retainedPaths::add);
+    return List.copyOf(retainedPaths);
+  }
+
+  private void deleteMissingSourceFiles(List<SourceFile> files, Collection<Path> retainedPaths) {
+    Map<SourceLanguage, List<Path>> pathsByLanguage = new LinkedHashMap<>();
+    Map<Path, SourceFile> currentFilesByPath = new LinkedHashMap<>();
+    for (SourceFile file : files) {
+      currentFilesByPath.put(file.path(), file);
+      pathsByLanguage
+          .computeIfAbsent(file.adapter().language(), ignored -> new ArrayList<>())
+          .add(file.path());
+    }
+    try (Session session = driver.session()) {
+      GraphWriter writer = new GraphWriter(session, project);
+      writer.setRetainedSourcePaths(retainedPaths);
+      Set<Path> retainedPathSet = new HashSet<>(retainedPaths);
+      Set<Path> refreshAfterDelete = new LinkedHashSet<>();
+      for (SourceLanguage language : languages()) {
+        List<Path> currentPaths = pathsByLanguage.getOrDefault(language, List.of());
+        Set<Path> currentPathSet = new HashSet<>(currentPaths);
+        writer.getFilePathsInSourceRoot(sourceRoot, language).stream()
+            .filter(path -> !currentPathSet.contains(path))
+            .filter(path -> !retainedPathSet.contains(path))
+            .sorted()
+            .forEach(
+                missingFile ->
+                    refreshAfterDelete.addAll(
+                        writer.getRetainedFilePathsSharingDefinitionsWith(missingFile)));
+        runMissingFileCleanupWithRetry(
+            sourceRoot,
+            language,
+            () ->
+                writer.deleteFilesMissingFromSource(
+                    sourceRoot, currentPaths, retainedPaths, language));
+      }
+      refreshRetainedFilesAfterDelete(writer, refreshAfterDelete, currentFilesByPath);
+    }
+  }
+
+  void runMissingFileCleanupWithRetry(
+      Path sourceRoot, SourceLanguage language, Runnable cleanupAction) {
+    long backoffMs = FILE_TX_INITIAL_BACKOFF_MS;
+    for (int attempt = 1; attempt <= FILE_TX_RETRY_ATTEMPTS; attempt++) {
+      try {
+        cleanupAction.run();
+        return;
+      } catch (RuntimeException e) {
+        if (!GraphWriter.isRetryable(e) || attempt == FILE_TX_RETRY_ATTEMPTS) {
+          throw e;
+        }
+        backoffMs =
+            sleepBeforeFileRetry(sourceRoot.resolve(language.graphName()), attempt, e, backoffMs);
+      }
+    }
+  }
+
   private List<SourceLanguage> languages() {
     return languageAdapters.stream().map(LanguageAdapter::language).distinct().toList();
   }
@@ -358,15 +630,86 @@ public final class IngestionOrchestrator {
     return languageAdapters.stream().filter(adapter -> adapter.accepts(file)).findFirst();
   }
 
-  private int ingestSequential(List<SourceFile> files, Map<String, Long> mtimeCache) {
+  private Optional<SourceFile> sourceFileFor(
+      Path file, Map<Path, SourceFile> currentFilesByPath, GraphWriter writer) {
+    SourceFile currentFile = currentFilesByPath.get(file);
+    if (currentFile != null) {
+      return Optional.of(currentFile);
+    }
+    return adapterFor(file)
+        .map(adapter -> new SourceFile(file, adapterForRetainedFile(file, adapter, writer)));
+  }
+
+  private LanguageAdapter adapterForRetainedFile(
+      Path file, LanguageAdapter adapter, GraphWriter writer) {
+    return writer
+        .getSourceRootHint(file, adapter.language())
+        .flatMap(hint -> sourceRootFromHint(file, adapter.language(), hint))
+        .map(adapter::forSourceRoot)
+        .orElse(adapter);
+  }
+
+  private static Optional<Path> sourceRootFromHint(
+      Path file, SourceLanguage language, String sourceRootHint) {
+    return switch (language) {
+      case JAVA ->
+          relativePathFromPackageName(file, sourceRootHint)
+              .flatMap(relativePath -> sourceRootFromRelativePath(file, relativePath));
+      case JAVASCRIPT ->
+          sourceRootHint.isBlank()
+              ? Optional.empty()
+              : sourceRootFromRelativePath(file, Path.of(sourceRootHint).normalize());
+    };
+  }
+
+  private static Optional<Path> relativePathFromPackageName(Path file, String packageName) {
+    Path fileName = file.getFileName();
+    if (fileName == null) {
+      return Optional.empty();
+    }
+    Path relativePath = fileName;
+    if (!packageName.isBlank()) {
+      String[] packageParts = packageName.split("\\.");
+      for (int index = packageParts.length - 1; index >= 0; index--) {
+        if (packageParts[index].isBlank()) {
+          return Optional.empty();
+        }
+        relativePath = Path.of(packageParts[index]).resolve(relativePath);
+      }
+    }
+    return Optional.of(relativePath);
+  }
+
+  private static Optional<Path> sourceRootFromRelativePath(Path file, Path relativePath) {
+    Path normalizedFile = file.normalize();
+    if (!normalizedFile.endsWith(relativePath)) {
+      return Optional.empty();
+    }
+    int rootNameCount = normalizedFile.getNameCount() - relativePath.getNameCount();
+    if (rootNameCount < 0) {
+      return Optional.empty();
+    }
+    Path root = normalizedFile.getRoot();
+    for (int index = 0; index < rootNameCount; index++) {
+      root =
+          root == null
+              ? normalizedFile.getName(index)
+              : root.resolve(normalizedFile.getName(index));
+    }
+    return Optional.ofNullable(root);
+  }
+
+  private int ingestSequential(
+      List<SourceFile> files, StoredFileState storedFiles, Collection<Path> retainedSourcePaths) {
     int failures = 0;
     int total = files.size();
     int step = Math.clamp(total / PROGRESS_DIVISOR, 1, 100);
     int done = 0;
     try (Session session = driver.session()) {
       GraphWriter writer = new GraphWriter(session, project);
+      writer.setRetainedSourcePaths(retainedSourcePaths);
       for (SourceFile file : files) {
-        if (!ingestFileBatched(writer, file, mtimeCache)) {
+        if (!ingestFileBatched(writer, file, storedFiles)) {
           failures++;
         }
         done++;
@@ -382,11 +725,11 @@ public final class IngestionOrchestrator {
    * Returns {@code true} when incremental mode is active and the file's filesystem {@code
    * lastModified} matches the value stored in {@code mtimeCache}, meaning no re-ingest is needed.
    */
-  private boolean isFileUnchanged(Path file, Map<String, Long> mtimeCache) {
-    if (!incremental) {
+  private boolean isFileUnchanged(Path file, StoredFileState storedFiles) {
+    if (!incremental || !storedFiles.reliableExistingPaths()) {
       return false;
     }
-    Long storedModified = mtimeCache.get(file.toString());
+    Long storedModified = storedFiles.lastModifiedByPath().get(file.toString());
     if (storedModified == null || storedModified <= 0) {
       return false;
     }
@@ -398,44 +741,80 @@ public final class IngestionOrchestrator {
   }
 
   /**
-   * Wraps {@link #ingestFile} in an explicit per-file transaction so all writes for the file are
-   * committed in a single Bolt round-trip. Safe only in sequential mode where there is exactly one
-   * concurrent writer — no Memgraph MVCC conflicts are possible.
+   * Wraps {@link #ingestFile} in an explicit per-file transaction so cleanup and replacement writes
+   * are committed atomically.
    *
    * @return true on success (or skip), false if parsing or graph write fails
    */
   private boolean ingestFileBatched(
-      GraphWriter writer, SourceFile sourceFile, Map<String, Long> mtimeCache) {
-    if (isFileUnchanged(sourceFile.path(), mtimeCache)) {
+      GraphWriter writer, SourceFile sourceFile, StoredFileState storedFiles) {
+    if (isFileUnchanged(sourceFile.path(), storedFiles)) {
       log.debug("Skipping unchanged file: {}", sourceFile.path());
       return true;
     }
-    writer.beginFileTransaction();
-    try {
-      boolean success = ingestFile(writer, sourceFile);
-      if (success) {
-        writer.commitFileTransaction();
-      } else {
+    long backoffMs = FILE_TX_INITIAL_BACKOFF_MS;
+    for (int attempt = 1; attempt <= FILE_TX_RETRY_ATTEMPTS; attempt++) {
+      writer.beginFileTransaction();
+      try {
+        boolean success = ingestFile(writer, sourceFile);
+        if (success) {
+          writer.commitFileTransaction();
+        } else {
+          writer.rollbackFileTransaction();
+        }
+        return success;
+      } catch (RuntimeException e) {
         writer.rollbackFileTransaction();
+        if (!GraphWriter.isRetryable(e) || attempt == FILE_TX_RETRY_ATTEMPTS) {
+          log.warn("Failed to ingest {}: {}", sourceFile.path(), e.getMessage());
+          return false;
+        }
+        backoffMs = sleepBeforeFileRetry(sourceFile.path(), attempt, e, backoffMs);
       }
-      return success;
-    } catch (Exception e) {
-      writer.rollbackFileTransaction();
-      log.warn("Failed to ingest {}: {}", sourceFile.path(), e.getMessage());
-      return false;
     }
+    return false;
+  }
+
+  private long sleepBeforeFileRetry(Path file, int attempt, RuntimeException e, long backoffMs) {
+    long jitterMs = Math.floorMod((long) file.hashCode() + attempt * 31L, backoffMs);
+    long delayMs = backoffMs + jitterMs;
+    log.debug(
+        "Retrying {} after transaction conflict on attempt {} in {} ms: {}",
+        file,
+        attempt,
+        delayMs,
+        e.getMessage());
+    try {
+      TimeUnit.MILLISECONDS.sleep(delayMs);
+    } catch (InterruptedException ie) {
+      Thread.currentThread().interrupt();
+      throw new ProcessingException("Interrupted during file retry", ie);
+    }
+    return Math.min(backoffMs * 2, FILE_TX_MAX_BACKOFF_MS);
   }
 
   @SuppressWarnings(value = {"java:S3776"})
-  private int ingestParallel(List<SourceFile> files, Map<String, Long> mtimeCache)
+  private int ingestParallel(
+      List<SourceFile> files, StoredFileState storedFiles, Collection<Path> retainedSourcePaths)
       throws InterruptedException {
+    return ingestParallelTransactional(files, storedFiles, retainedSourcePaths);
+  }
+
+  private int ingestParallelTransactional(
+      List<SourceFile> files, StoredFileState storedFiles, Collection<Path> retainedSourcePaths)
+      throws InterruptedException {
+    if (files.isEmpty()) {
+      return 0;
+    }
     CopyOnWriteArrayList<Session> sessions = new CopyOnWriteArrayList<>();
     ThreadLocal<GraphWriter> threadWriter =
         ThreadLocal.withInitial(
             () -> {
               Session s = driver.session();
               sessions.add(s);
-              return new GraphWriter(s, project);
+              GraphWriter writer = new GraphWriter(s, project);
+              writer.setRetainedSourcePaths(retainedSourcePaths);
+              return writer;
             });
 
     AtomicInteger threadCounter = new AtomicInteger();
@@ -460,7 +839,7 @@ public final class IngestionOrchestrator {
         pool.submit(
             () -> {
               try {
-                if (!ingestFileChecked(threadWriter.get(), file, mtimeCache)) {
+                if (!ingestFileBatched(threadWriter.get(), file, storedFiles)) {
                   failures.incrementAndGet();
                 }
               } catch (Exception e) {
@@ -475,11 +854,20 @@ public final class IngestionOrchestrator {
               }
             });
       }
-      if (!latch.await(SHUTDOWN_TIMEOUT_MINUTES, TimeUnit.MINUTES)) {
-        log.warn("Ingestion did not complete within {} minutes.", SHUTDOWN_TIMEOUT_MINUTES);
-      }
-
+      boolean completed = latch.await(SHUTDOWN_TIMEOUT_MINUTES, TimeUnit.MINUTES);
       pool.shutdown();
+      if (!completed) {
+        log.warn("Ingestion did not complete within {} minutes.", SHUTDOWN_TIMEOUT_MINUTES);
+        pool.shutdownNow();
+        if (!pool.awaitTermination(SHUTDOWN_TIMEOUT_MINUTES, TimeUnit.MINUTES)) {
+          throw new ProcessingException(
+              "Parallel ingestion timed out and worker threads did not stop cleanly");
+        }
+        failures.addAndGet(Math.max(1, total - done.get()));
+      } else if (!pool.awaitTermination(SHUTDOWN_TIMEOUT_MINUTES, TimeUnit.MINUTES)) {
+        pool.shutdownNow();
+        throw new ProcessingException("Parallel ingestion workers did not stop cleanly");
+      }
     } finally {
       for (Session s : sessions) {
         try {
@@ -490,23 +878,6 @@ public final class IngestionOrchestrator {
       }
     }
     return failures.get();
-  }
-
-  /**
-   * Parses and ingests a single file. In incremental mode, skips files whose filesystem {@code
-   * lastModified} matches the value stored in {@code mtimeCache}.
-   *
-   * @param mtimeCache pre-loaded map of path → stored lastModified (populated at run-start when
-   *     incremental is true, otherwise empty)
-   * @return true on success (or skip), false if parsing or graph write fails
-   */
-  private boolean ingestFileChecked(
-      GraphWriter writer, SourceFile sourceFile, Map<String, Long> mtimeCache) {
-    if (isFileUnchanged(sourceFile.path(), mtimeCache)) {
-      log.debug("Skipping unchanged file: {}", sourceFile.path());
-      return true;
-    }
-    return ingestFile(writer, sourceFile);
   }
 
   /**
@@ -527,8 +898,25 @@ public final class IngestionOrchestrator {
     return sourceFile.adapter().ingestFile(writer, sourceFile.path());
   }
 
+  private record StoredFileState(
+      Map<String, Long> lastModifiedByPath, boolean reliableExistingPaths) {
+
+    static StoredFileState empty() {
+      return new StoredFileState(Map.of(), true);
+    }
+
+    static StoredFileState unreliable() {
+      return new StoredFileState(Map.of(), false);
+    }
+  }
+
   /** Source file paired with the adapter selected by extension. */
   private record SourceFile(Path path, LanguageAdapter adapter) {
+    // Record body intentionally empty.
+  }
+
+  /** Source files and retained paths captured from one watch-cycle snapshot. */
+  private record WatchSourceSnapshot(List<SourceFile> files, List<Path> retainedPaths) {
     // Record body intentionally empty.
   }
 }

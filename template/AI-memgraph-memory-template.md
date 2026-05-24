@@ -26,7 +26,8 @@ WHERE f.status = 'open'
 RETURN f.id, f.type, f.summary;
 
 MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_CONTEXT]->(c:Context)
-RETURN c.id, c.content, c.source;
+RETURN c.id, c.title, c.topic, c.source
+ORDER BY c.topic, c.id;
 
 MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_TASK]->(t:Task)
 WHERE t.status IN ['todo', 'doing', 'blocked']
@@ -40,6 +41,16 @@ RETURN q.id, q.title;
 MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_RISK]->(r:Risk)
 WHERE r.status = 'open'
 RETURN r.id, r.title, r.severity;
+```
+
+Context orientation is index-first: fetch `content` only for relevant Context IDs, topics, or
+keywords. Fetch all Context content only for broad or ambiguous memory work.
+
+```cypher
+MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_CONTEXT]->(c:Context)
+WHERE c.id IN ['CTX-<id>'] OR c.topic IN ['<topic>']
+RETURN c.id, c.title, c.topic, c.content, c.source
+ORDER BY c.id;
 ```
 
 ## Memory Schema
@@ -86,6 +97,7 @@ Memory links:
 
 Memory is not a changelog. Store only information useful for future decisions, investigations, or implementation work.
 Do not create memory nodes just because files changed; routine edits belong in Git diff, tests, and final response.
+Use concise Markdown in free-text memory fields when it improves scanning, such as `content`, `summary`, `evidence`, `description`, `rationale`, `consequences`, `mitigation`, `answer`, or `notes`. Keep it short and summarizable.
 
 A `Task` is for durable work tracking, not every assistant action.
 Create or update a `Task` for explicit tracking/follow-up requests, unfinished or blocked work, continuation of an existing Task, or multi-step implementation/debugging/refactoring/documentation/dependency/test/coverage work.
@@ -117,6 +129,12 @@ SET t.status = 'done', t.updatedAt = datetime();
 ```
 
 ### Saving Memory
+
+#### Interactive input limits
+
+With interactive `mgconsole`, keep memory writes short. Do not paste long one-line statements with
+large string literals; store concise summaries and split lifecycle/content/link/verification into
+separate statements. If the console waits after a paste, cancel/restart and replay short statements.
 
 Create/update the memory node first:
 

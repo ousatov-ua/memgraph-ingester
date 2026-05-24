@@ -17,12 +17,13 @@ When Memgraph returns no relevant rows, fall back to text search and state why.
 ### Mandatory Triggers
 
 - **Status/pending-work requests:** query Memgraph staleness or relevant structure first, then check Git when local changes are relevant. Never answer from Git alone unless the user explicitly asks for Git-only status.
-- **Codebase orientation reuse:** Codebase Analysis queries are session-scoped. If they were already run for `{{PROJECT_NAME}}` in this assistant session, reuse those results for follow-up work unless the user asks for a refresh, source files changed, or the task scope is unrelated.
+- **No ritual Codebase Analysis:** do not run Codebase Analysis queries just to have context. Run them only when a trigger below applies or code structure/relationships are needed.
+- **Orientation reuse:** Memgraph query results are session-scoped. Reuse relevant results unless the user asks for a refresh, source files changed, memory changed, or the task scope is unrelated.
 - **Relationship refresh after edits:** if source files changed during the session, re-query Memgraph relationships before relying on earlier relationship results; live ingestion may make cached relationships stale.
-- **Code changes:** before any code-change task, run Codebase Analysis queries. Empty results are valid. Skip only if already run in this session and still fresh.
-- **Class/interface work:** before touching a class or interface, query its full hierarchy.
+- **Code changes:** before source-code changes, run the smallest useful Memgraph query set. Use focused symbol/file/method queries for known targets. Run full Codebase Analysis only for broad, ambiguous, cross-cutting, inheritance-heavy, or unfamiliar-subsystem work. Empty results are valid; fall back to text search and state why.
+- **Class/interface work:** query hierarchy before changing class/interface declarations, inheritance, `implements`/`extends`, constructor contracts, or overridden/inherited APIs. For small body-only edits inside a known class, hierarchy lookup is optional unless inheritance could affect behavior.
 - **Symbol work:** for investigations involving symbols, fields, methods, callers, implementations, inheritance, decorators/annotations, imports, exports, or type usages, query Memgraph before source inspection, filesystem search, IDE/LSP, or runtime introspection. JavaScript/TypeScript CALLS edges are best-effort.
-- **Method body reads:** first query `startLine` and `endLine`, then read only that source range.
+- **Method body reads:** when the target method is known, first query `startLine` and `endLine`, then read only that source range. If the method is not known, use a focused symbol query by class/name before reading source.
 
 ## Memgraph Access
 
@@ -67,9 +68,9 @@ echo "MATCH (n) RETURN n;" | mgconsole [options]
 
 `@`-tagged paths hint at scope only; they do not bypass Memgraph.
 
-Before reading any tagged file or directory:
+Before reading any tagged source file or directory for code work:
 
-1. Run Codebase Analysis queries.
+1. Run focused Memgraph queries when code structure or relationships are relevant.
 2. Then open source files for line-level detail.
 
 ## Codebase Analysis Queries
@@ -118,6 +119,35 @@ RETURN c.fqn AS cls, f.name, f.type, f.visibility
 ORDER BY c.fqn, f.name;
 ```
 
+## Focused Memgraph Queries
+
+For narrow known-target edits, prefer focused queries:
+
+```cypher
+// Find a type by simple name
+MATCH (t {project: '{{PROJECT_NAME}}'})
+WHERE (t:Class OR t:Interface) AND t.name = '<TypeName>'
+RETURN labels(t) AS labels, t.fqn AS fqn, t.kind AS kind, t.modulePath AS modulePath
+ORDER BY fqn LIMIT 20;
+
+// Find members of a known class
+MATCH (c:Class {project: '{{PROJECT_NAME}}', fqn: '<fqn>'})-[:DECLARES]->(m:Method)
+RETURN m.signature, m.name, m.startLine, m.endLine, m.returnType, m.visibility
+ORDER BY m.name;
+
+MATCH (c:Class {project: '{{PROJECT_NAME}}', fqn: '<fqn>'})-[:DECLARES]->(f:Field)
+RETURN f.fqn, f.name, f.type, f.visibility, f.isStatic
+ORDER BY f.name;
+
+// Find callers of a known method or owner
+MATCH (caller:Method {project: '{{PROJECT_NAME}}'})-[:CALLS]->(callee:Method {project: '{{PROJECT_NAME}}'})
+WHERE callee.signature CONTAINS '<signature-or-owner-fragment>'
+RETURN caller.signature, caller.ownerDisplayName, caller.startLine, caller.endLine
+ORDER BY caller.signature LIMIT 100;
+```
+
+Use full Codebase Analysis only when focused queries do not identify the target or broad relationship context is needed.
+
 ## Schema
 
 ### Code Nodes
@@ -141,7 +171,7 @@ ORDER BY c.fqn, f.name;
 ```text
 (:Project)-[:CONTAINS]->(:Language)-[:CONTAINS]->(:Code)-[:CONTAINS]->(:Package|:File)
 (:Package)-[:CONTAINS]->(:Class|:Interface|:Annotation)
-(:File)-[:DEFINES]->(:Class|:Interface|:Annotation)
+(:File)-[:DEFINES]->(:Class|:Interface|:Annotation|:Method|:Field)
 (:Class)-[:EXTENDS]->(:Class)
 (:Class)-[:IMPLEMENTS]->(:Interface)
 (:Interface)-[:EXTENDS]->(:Interface)
@@ -169,6 +199,7 @@ ORDER BY c.fqn, f.name;
 - JavaScript/TypeScript exported callable aliases such as `export { foo as bar }`, `export { foo as bar } from "./mod"`, and `export default foo` are emitted as graph-visible declarations for their public export names so deferred owner/name call resolution can match imports by exported name. Class re-export aliases are emitted as `:Class` nodes with constructor declarations so `new X()` imports from barrel modules can resolve through the alias.
 - JavaScript/TypeScript namespace-qualified decorators preserve the namespace in the annotation FQN when the namespace import can be identified.
 - JavaScript/TypeScript owner/name fallback calls can be stored as `:PendingCall` records during ingestion and resolved after the batch. Direct owner methods are preferred, then the nearest superclass with exactly one matching method. Unresolved or ambiguous pending calls can remain until later ingestion; pending calls for a reingested JS/TS file are cleared before the file's current calls are stored.
+- Regular and watch re-ingestion prune deleted files and removed declarations. Retained snapshots include active-source files, existing same-root graph files, and existing files from other source roots. Re-ingestion refreshes retained files after deletes with the retained file's source root. Watch re-ingestion also skips delete cleanup after update failures, retries snapshot-failed batches, and reconciles delete-only snapshot failures.
 - JavaScript/TypeScript `CALLS` edges are syntax-only and intra-project best effort, not a complete raw AST call inventory. Identifier calls resolve only when the local declaration name is unique. Property calls resolve only for known local receivers such as `this`, typed `this.<property>` receivers for local classes, a local class, or `new LocalClass()`. Constructor calls from `new LocalClass()` and local function constructors resolve to explicit or synthesized signatures; imported or barrel class constructors use owner/name pending calls. Top-level IIFEs and callback bodies are traversed, while standalone nested functions are skipped. Unknown receivers, dynamic dispatch, dependency injection, framework templates, monkey-patching, and generated code can be missing.
 - JavaScript/TypeScript `packageName` and module owner FQN values are synthetic, collision-safe encoded path identities with a `js.` prefix; they are not npm package names or raw filenames.
 - Fully ingested `Method` nodes store `ownerFqn` and `ownerDisplayName`; prefer those properties for relationship summaries instead of parsing `signature` or traversing `DECLARES`.

@@ -19,9 +19,13 @@ import io.github.ousatov.tools.memgraph.vo.Method;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Collection;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.neo4j.driver.Session;
@@ -35,12 +39,9 @@ import org.slf4j.LoggerFactory;
  * one instance; in parallel mode each worker thread creates its own, ensuring no session is shared
  * across threads.
  *
- * <p>In sequential mode, callers may open an explicit per-file transaction via {@link
- * #beginFileTransaction()} / {@link #commitFileTransaction()} / {@link #rollbackFileTransaction()}
- * to batch all writes for a file into a single Bolt round-trip, which eliminates 50–100 autocommit
- * transactions per file. This is safe only when there is exactly one writer (sequential mode),
- * because Memgraph MVCC will abort concurrent transactions that MERGE the same shared nodes (e.g.,
- * {@code :Package}, parent {@code :Class}/{@code :Interface}, {@code :Annotation}).
+ * <p>Callers may open an explicit per-file transaction via {@link #beginFileTransaction()} / {@link
+ * #commitFileTransaction()} / {@link #rollbackFileTransaction()} so destructive cleanup and
+ * replacement writes commit atomically for one source file.
  *
  * @author Oleksii Usatov
  */
@@ -54,6 +55,7 @@ public final class GraphWriter {
 
   private final CypherExecutor cypher;
   private final CallEdgeWriter callEdges;
+  private List<String> retainedSourcePaths = List.of();
 
   /**
    * @param session Bolt session — must not be shared with other threads
@@ -64,10 +66,14 @@ public final class GraphWriter {
     this.callEdges = new CallEdgeWriter(cypher);
   }
 
+  /** Sets project paths that should preserve shared definitions during file cleanup. */
+  public void setRetainedSourcePaths(Collection<Path> files) {
+    retainedSourcePaths = files.stream().map(Path::toString).toList();
+  }
+
   /**
-   * Opens an explicit Bolt transaction so that all subsequent Cypher writes are batched into a
-   * single round-trip. Must only be called in sequential (single-writer) mode; concurrent writers
-   * sharing the same nodes will trigger Memgraph MVCC conflicts.
+   * Opens an explicit Bolt transaction so that all subsequent Cypher writes for a source file
+   * commit or roll back together.
    *
    * <p>Call {@link #commitFileTransaction()} when all writes succeed, or {@link
    * #rollbackFileTransaction()} on any failure.
@@ -126,7 +132,108 @@ public final class GraphWriter {
 
   /** Removes stale deferred owner/name call records for methods declared by one source file. */
   public void deletePendingCallsForFile(Path file) {
-    cypher.run(Cypher.CYPHER_DELETE_PENDING_CALLS_FOR_FILE, Map.of(Params.PATH, file.toString()));
+    cypher.run(
+        Cypher.CYPHER_DELETE_PENDING_CALLS_FOR_FILE,
+        Map.of(Params.PATH, file.toString(), Params.PATHS, retainedSourcePaths));
+  }
+
+  /**
+   * Prunes graph state for declarations and file-local relationships that disappeared from a source
+   * file.
+   *
+   * <p>Current method nodes are kept so incoming {@code CALLS} edges from unchanged files survive
+   * incremental re-ingestion. Their outgoing edges are cleared and recreated from the current file
+   * body. Current owners are refreshed by FQN before file-local stale-owner cleanup so a
+   * declaration moved from another file does not carry stale members, annotations, or type
+   * relations forward.
+   */
+  public void deleteStaleDefinitionsForFile(Path file, SourceFileDefinitions definitions) {
+    deletePendingCallsForFile(file);
+    Map<String, Object> params =
+        Map.ofEntries(
+            Map.entry(Params.PATH, file.toString()),
+            Map.entry(Params.CLASS_FQNS, definitions.classFqns()),
+            Map.entry(Params.INTERFACE_FQNS, definitions.interfaceFqns()),
+            Map.entry(Params.ANNOTATION_FQNS, definitions.annotationFqns()),
+            Map.entry(Params.METHOD_SIGNATURES, definitions.methodSignatures()),
+            Map.entry(Params.FIELD_FQNS, definitions.fieldFqns()),
+            Map.entry(Params.PATHS, retainedSourcePaths));
+    List.of(
+            Cypher.CYPHER_DELETE_CURRENT_OWNER_CALLS_FOR_FILE,
+            Cypher.CYPHER_DELETE_CURRENT_OWNER_ANNOTATIONS_FOR_FILE,
+            Cypher.CYPHER_DELETE_CURRENT_MEMBER_ANNOTATIONS_FOR_FILE,
+            Cypher.CYPHER_DELETE_CURRENT_TYPE_RELATIONS_FOR_FILE,
+            Cypher.CYPHER_DELETE_STALE_CURRENT_OWNER_MEMBERS_FOR_FILE,
+            Cypher.CYPHER_DELETE_STALE_OWNER_MEMBERS_FOR_FILE,
+            Cypher.CYPHER_DELETE_STALE_OWNERS_FOR_FILE,
+            Cypher.CYPHER_DELETE_CALLS_FOR_FILE,
+            Cypher.CYPHER_DELETE_OWNER_ANNOTATIONS_FOR_FILE,
+            Cypher.CYPHER_DELETE_MEMBER_ANNOTATIONS_FOR_FILE,
+            Cypher.CYPHER_DELETE_TYPE_RELATIONS_FOR_FILE,
+            Cypher.CYPHER_DELETE_STALE_METHODS_FOR_FILE,
+            Cypher.CYPHER_DELETE_STALE_FIELDS_FOR_FILE)
+        .forEach(q -> cypher.run(q, params));
+  }
+
+  /** Deletes all graph state owned by a source file that no longer exists. */
+  public void deleteSourceFile(Path file) {
+    runInFileTransaction(
+        () -> {
+          deletePendingCallsForFile(file);
+          List.of(
+                  Cypher.CYPHER_DELETE_MEMBERS_FOR_FILE,
+                  Cypher.CYPHER_DELETE_OWNERS_FOR_FILE,
+                  Cypher.CYPHER_DELETE_FILE,
+                  Cypher.CYPHER_DELETE_EMPTY_PACKAGES)
+              .forEach(q -> cypher.run(q, Map.of(Params.PATH, file.toString())));
+        });
+  }
+
+  /** Deletes file graph state for language-specific files absent from the current source tree. */
+  public void deleteFilesMissingFromSource(
+      Path sourceRoot, Collection<Path> files, SourceLanguage language) {
+    deleteFilesMissingFromSource(sourceRoot, files, files, language);
+  }
+
+  /**
+   * Deletes language-specific files absent from the current source tree while preserving
+   * definitions still retained by any active project file.
+   */
+  public void deleteFilesMissingFromSource(
+      Path sourceRoot,
+      Collection<Path> files,
+      Collection<Path> retainedFiles,
+      SourceLanguage language) {
+    String sourceRootText = sourceRoot.toString();
+    String separator = sourceRoot.getFileSystem().getSeparator();
+    String sourceRootPrefix =
+        sourceRootText.endsWith(separator) ? sourceRootText : sourceRootText + separator;
+    Map<String, Object> params =
+        Map.of(
+            Params.PATHS,
+            files.stream().map(Path::toString).toList(),
+            Params.RETAINED_PATHS,
+            retainedFiles.stream().map(Path::toString).toList(),
+            Params.SOURCE_ROOT,
+            sourceRootText,
+            Params.SOURCE_ROOT_PREFIX,
+            sourceRootPrefix,
+            Params.LANGUAGE,
+            language.graphName());
+    runInFileTransaction(
+        () ->
+            List.of(
+                    Cypher.CYPHER_DELETE_MISSING_FILE_PENDING_CALLS,
+                    Cypher.CYPHER_DELETE_MISSING_FILE_MEMBERS,
+                    Cypher.CYPHER_DELETE_MISSING_FILE_OWNERS,
+                    Cypher.CYPHER_DELETE_MISSING_FILES,
+                    Cypher.CYPHER_DELETE_EMPTY_PACKAGES)
+                .forEach(q -> cypher.run(q, params)));
+  }
+
+  /** Deletes package nodes that no longer contain any code declarations. */
+  public void deleteEmptyPackages() {
+    cypher.run(Cypher.CYPHER_DELETE_EMPTY_PACKAGES, Map.of());
   }
 
   /**
@@ -198,10 +305,124 @@ public final class GraphWriter {
     }
   }
 
+  /** Returns project file paths outside the active source root that must remain retained. */
+  public Set<Path> getRetainedFilePathsOutsideSourceRoot(Path sourceRoot) {
+    String sourceRootText = sourceRoot.toString();
+    String separator = sourceRoot.getFileSystem().getSeparator();
+    String sourceRootPrefix =
+        sourceRootText.endsWith(separator) ? sourceRootText : sourceRootText + separator;
+    return cypher.read(
+        Cypher.CYPHER_GET_RETAINED_FILES_OUTSIDE_SOURCE_ROOT,
+        Map.of(Params.SOURCE_ROOT, sourceRootText, Params.SOURCE_ROOT_PREFIX, sourceRootPrefix),
+        result -> {
+          Set<Path> retained = new HashSet<>();
+          while (result.hasNext()) {
+            String path = result.next().get(Params.PATH).asString(null);
+            if (path != null) {
+              retained.add(Path.of(path));
+            }
+          }
+          return retained;
+        });
+  }
+
+  /** Returns project file paths under the active source root. */
+  public Set<Path> getFilePathsInSourceRoot(Path sourceRoot) {
+    return getFilePathsInSourceRoot(sourceRoot, Cypher.CYPHER_GET_FILES_IN_SOURCE_ROOT, Map.of());
+  }
+
+  /** Returns language-specific project file paths under the active source root. */
+  public Set<Path> getFilePathsInSourceRoot(Path sourceRoot, SourceLanguage language) {
+    return getFilePathsInSourceRoot(
+        sourceRoot,
+        getFilesInSourceRootCypher(language),
+        Map.of(Params.LANGUAGE, language.graphName()));
+  }
+
+  private Set<Path> getFilePathsInSourceRoot(
+      Path sourceRoot, String query, Map<String, Object> extraParams) {
+    String sourceRootText = sourceRoot.toString();
+    String separator = sourceRoot.getFileSystem().getSeparator();
+    String sourceRootPrefix =
+        sourceRootText.endsWith(separator) ? sourceRootText : sourceRootText + separator;
+    Map<String, Object> params = new HashMap<>(extraParams);
+    params.put(Params.SOURCE_ROOT, sourceRootText);
+    params.put(Params.SOURCE_ROOT_PREFIX, sourceRootPrefix);
+    return cypher.read(
+        query,
+        params,
+        result -> {
+          Set<Path> paths = new HashSet<>();
+          while (result.hasNext()) {
+            String path = result.next().get(Params.PATH).asString(null);
+            if (path != null) {
+              paths.add(Path.of(path));
+            }
+          }
+          return paths;
+        });
+  }
+
+  /** Returns the stored source-root reconstruction hint for {@code file}, when available. */
+  public Optional<String> getSourceRootHint(Path file, SourceLanguage language) {
+    return cypher.read(
+        getSourceRootHintCypher(language),
+        Map.of(Params.PATH, file.toString()),
+        result -> {
+          if (!result.hasNext()) {
+            return Optional.empty();
+          }
+          String hint = result.next().get(Params.SOURCE_ROOT_HINT).asString(null);
+          return hint == null ? Optional.empty() : Optional.of(hint);
+        });
+  }
+
+  /** Returns retained files that share declarations with {@code file}. */
+  public Set<Path> getRetainedFilePathsSharingDefinitionsWith(Path file) {
+    return cypher.read(
+        Cypher.CYPHER_GET_RETAINED_FILES_SHARING_DEFINITIONS_WITH_FILE,
+        Map.of(Params.PATH, file.toString(), Params.PATHS, retainedSourcePaths),
+        result -> {
+          Set<Path> retained = new HashSet<>();
+          while (result.hasNext()) {
+            String path = result.next().get(Params.PATH).asString(null);
+            if (path != null) {
+              retained.add(Path.of(path));
+            }
+          }
+          return retained;
+        });
+  }
+
+  private void runInFileTransaction(Runnable action) {
+    beginFileTransaction();
+    try {
+      action.run();
+      commitFileTransaction();
+    } catch (RuntimeException e) {
+      rollbackFileTransaction();
+      throw e;
+    }
+  }
+
   private static String getFilesLastModifiedCypher(SourceLanguage language) {
     return switch (language) {
       case JAVA -> Cypher.CYPHER_GET_JAVA_FILES_LAST_MODIFIED;
       case JAVASCRIPT -> Cypher.CYPHER_GET_JAVASCRIPT_FILES_LAST_MODIFIED;
+    };
+  }
+
+  private static String getFilesInSourceRootCypher(SourceLanguage language) {
+    return switch (language) {
+      case JAVA -> Cypher.CYPHER_GET_JAVA_FILES_IN_SOURCE_ROOT;
+      case JAVASCRIPT -> Cypher.CYPHER_GET_JAVASCRIPT_FILES_IN_SOURCE_ROOT;
+    };
+  }
+
+  private static String getSourceRootHintCypher(SourceLanguage language) {
+    return switch (language) {
+      case JAVA -> Cypher.CYPHER_GET_JAVA_SOURCE_ROOT_HINT_FOR_FILE;
+      case JAVASCRIPT -> Cypher.CYPHER_GET_JAVASCRIPT_SOURCE_ROOT_HINT_FOR_FILE;
     };
   }
 
@@ -298,6 +519,7 @@ public final class GraphWriter {
         modulePath,
         "");
     upsertMethodNode(
+        file,
         new Method(
             fqn,
             fqn + "." + Labels.INIT + "()",
@@ -339,6 +561,7 @@ public final class GraphWriter {
         endLine);
     if (!hasDeclaredConstructor) {
       upsertMethodNode(
+          file,
           new Method(
               fqn,
               fqn + "." + Labels.INIT + "()",
@@ -444,10 +667,18 @@ public final class GraphWriter {
 
   /** Upserts a JavaScript/TypeScript property or top-level variable as a {@code :Field}. */
   public void upsertJavascriptField(
-      String ownerFqn, String fqn, String name, String type, boolean isStatic, String kind) {
+      Path file,
+      String ownerFqn,
+      String fqn,
+      String name,
+      String type,
+      boolean isStatic,
+      String kind) {
     cypher.run(
         Cypher.CYPHER_UPSERT_FIELD,
         Map.of(
+            Params.PATH,
+            file.toString(),
             Params.FQN,
             fqn,
             Params.NAME,
@@ -469,6 +700,7 @@ public final class GraphWriter {
   /** Upserts a JavaScript/TypeScript function or method as a {@code :Method}. */
   @SuppressWarnings("java:S107")
   public void upsertJavascriptMethod(
+      Path file,
       String ownerFqn,
       String signature,
       String name,
@@ -478,6 +710,7 @@ public final class GraphWriter {
       int endLine,
       String kind) {
     upsertMethodNode(
+        file,
         new Method(
             ownerFqn,
             signature,
@@ -687,10 +920,10 @@ public final class GraphWriter {
         true);
     upsertAnnotationsByFqn(fqn, decl);
     upsertImplementedTypes(fqn, decl);
-    decl.getEntries().forEach(entry -> upsertEnumConstant(fqn, entry));
-    decl.getFields().forEach(f -> upsertField(fqn, f));
-    decl.getMethods().forEach(m -> upsertMethod(fqn, m));
-    decl.getConstructors().forEach(c -> upsertConstructor(fqn, c));
+    decl.getEntries().forEach(entry -> upsertEnumConstant(file, fqn, entry));
+    decl.getFields().forEach(f -> upsertField(file, fqn, f));
+    decl.getMethods().forEach(m -> upsertMethod(file, fqn, m));
+    decl.getConstructors().forEach(c -> upsertConstructor(file, fqn, c));
     nestedClassDeclarationsOf(decl.getMembers())
         .forEach(nested -> upsertTypeInternal(file, pkg, fqn, nested));
   }
@@ -713,12 +946,12 @@ public final class GraphWriter {
         true);
     upsertAnnotationsByFqn(fqn, decl);
     upsertImplementedTypes(fqn, decl);
-    decl.getFields().forEach(f -> upsertField(fqn, f));
-    upsertRecordComponents(fqn, decl);
-    decl.getMethods().forEach(m -> upsertMethod(fqn, m));
-    decl.getConstructors().forEach(c -> upsertConstructor(fqn, c));
-    upsertRecordCanonicalConstructor(fqn, decl);
-    upsertRecordAccessors(fqn, decl);
+    decl.getFields().forEach(f -> upsertField(file, fqn, f));
+    upsertRecordComponents(file, fqn, decl);
+    decl.getMethods().forEach(m -> upsertMethod(file, fqn, m));
+    decl.getConstructors().forEach(c -> upsertConstructor(file, fqn, c));
+    upsertRecordCanonicalConstructor(file, fqn, decl);
+    upsertRecordAccessors(file, fqn, decl);
     nestedClassDeclarationsOf(decl.getMembers())
         .forEach(nested -> upsertTypeInternal(file, pkg, fqn, nested));
   }
@@ -815,11 +1048,11 @@ public final class GraphWriter {
     }
     upsertAnnotationsByFqn(fqn, decl);
     upsertInheritance(fqn, decl);
-    decl.getFields().forEach(f -> upsertField(fqn, f));
-    decl.getMethods().forEach(m -> upsertMethod(fqn, m));
-    decl.getConstructors().forEach(c -> upsertConstructor(fqn, c));
+    decl.getFields().forEach(f -> upsertField(file, fqn, f));
+    decl.getMethods().forEach(m -> upsertMethod(file, fqn, m));
+    decl.getConstructors().forEach(c -> upsertConstructor(file, fqn, c));
     if (!decl.isInterface() && decl.getConstructors().isEmpty()) {
-      upsertImplicitDefaultConstructor(fqn, decl);
+      upsertImplicitDefaultConstructor(file, fqn, decl);
     }
     // Recurse into directly nested class/interface declarations with correct FQN.
     nestedClassDeclarationsOf(decl.getMembers())
@@ -933,12 +1166,14 @@ public final class GraphWriter {
   }
 
   /** Upserts record components (parameters) as {@code :Field} nodes. */
-  private void upsertRecordComponents(String ownerFqn, RecordDeclaration decl) {
+  private void upsertRecordComponents(Path file, String ownerFqn, RecordDeclaration decl) {
     for (Parameter param : decl.getParameters()) {
       String fqn = ownerFqn + "#" + param.getNameAsString();
       cypher.run(
           Cypher.CYPHER_UPSERT_FIELD,
           Map.of(
+              Params.PATH,
+              file.toString(),
               Params.FQN,
               fqn,
               Params.NAME,
@@ -959,7 +1194,7 @@ public final class GraphWriter {
     }
   }
 
-  private void upsertField(String ownerFqn, FieldDeclaration field) {
+  private void upsertField(Path file, String ownerFqn, FieldDeclaration field) {
     field
         .getVariables()
         .forEach(
@@ -968,6 +1203,8 @@ public final class GraphWriter {
               cypher.run(
                   Cypher.CYPHER_UPSERT_FIELD,
                   Map.of(
+                      Params.PATH,
+                      file.toString(),
                       Params.FQN,
                       fqn,
                       Params.NAME,
@@ -988,10 +1225,12 @@ public final class GraphWriter {
             });
   }
 
-  private void upsertEnumConstant(String ownerFqn, EnumConstantDeclaration entry) {
+  private void upsertEnumConstant(Path file, String ownerFqn, EnumConstantDeclaration entry) {
     cypher.run(
         Cypher.CYPHER_UPSERT_FIELD,
         Map.of(
+            Params.PATH,
+            file.toString(),
             Params.FQN,
             ownerFqn + "#" + entry.getNameAsString(),
             Params.NAME,
@@ -1010,9 +1249,10 @@ public final class GraphWriter {
             ownerFqn));
   }
 
-  private void upsertMethod(String ownerFqn, MethodDeclaration method) {
+  private void upsertMethod(Path file, String ownerFqn, MethodDeclaration method) {
     String signature = JavaTypeNames.buildSignature(ownerFqn, method);
     upsertMethodNode(
+        file,
         new Method(
             ownerFqn,
             signature,
@@ -1026,9 +1266,10 @@ public final class GraphWriter {
     upsertAnnotationsBySig(signature, method);
   }
 
-  private void upsertConstructor(String ownerFqn, ConstructorDeclaration ctor) {
+  private void upsertConstructor(Path file, String ownerFqn, ConstructorDeclaration ctor) {
     String signature = JavaTypeNames.buildConstructorSignature(ownerFqn, ctor);
     upsertMethodNode(
+        file,
         new Method(
             ownerFqn,
             signature,
@@ -1043,10 +1284,11 @@ public final class GraphWriter {
   }
 
   /** Shared helper that creates or updates a {@code :Method} node with all properties. */
-  private void upsertMethodNode(Method method) {
+  private void upsertMethodNode(Path file, Method method) {
     cypher.run(
         Cypher.CYPHER_UPSERT_METHOD,
         Map.ofEntries(
+            Map.entry(Params.PATH, file.toString()),
             Map.entry(Params.SIG, method.signature()),
             Map.entry(Params.NAME, method.name()),
             Map.entry(Params.RET, method.returnType()),
@@ -1065,7 +1307,7 @@ public final class GraphWriter {
    * Synthesizes the canonical constructor for a record if no explicit canonical constructor is
    * declared. The canonical constructor has the same parameter list as the record components.
    */
-  private void upsertRecordCanonicalConstructor(String fqn, RecordDeclaration decl) {
+  private void upsertRecordCanonicalConstructor(Path file, String fqn, RecordDeclaration decl) {
     String canonicalParams =
         decl.getParameters().stream()
             .map(JavaTypeNames::resolveParamType)
@@ -1076,6 +1318,7 @@ public final class GraphWriter {
             .anyMatch(c -> JavaTypeNames.buildConstructorSignature(fqn, c).equals(canonicalSig));
     if (!hasCanonical) {
       upsertMethodNode(
+          file,
           new Method(
               fqn,
               canonicalSig,
@@ -1094,8 +1337,10 @@ public final class GraphWriter {
    * isSynthetic=true} so it is invisible to default method-count queries but exists as a valid
    * CALLS target — preventing phantom cleanup from erasing {@code new ClassName()} call edges.
    */
-  private void upsertImplicitDefaultConstructor(String fqn, ClassOrInterfaceDeclaration decl) {
+  private void upsertImplicitDefaultConstructor(
+      Path file, String fqn, ClassOrInterfaceDeclaration decl) {
     upsertMethodNode(
+        file,
         new Method(
             fqn,
             fqn + "." + Labels.INIT + "()",
@@ -1112,7 +1357,7 @@ public final class GraphWriter {
    * Synthesizes accessor methods for record components that don't have an explicit accessor
    * declared.
    */
-  private void upsertRecordAccessors(String fqn, RecordDeclaration decl) {
+  private void upsertRecordAccessors(Path file, String fqn, RecordDeclaration decl) {
     var explicitMethods =
         decl.getMethods().stream()
             .filter(m -> m.getParameters().isEmpty())
@@ -1124,6 +1369,7 @@ public final class GraphWriter {
       if (!explicitMethods.contains(accessorName)) {
         String sig = fqn + "." + accessorName + "()";
         upsertMethodNode(
+            file,
             new Method(
                 fqn,
                 sig,
