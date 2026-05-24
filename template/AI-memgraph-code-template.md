@@ -17,9 +17,10 @@ When Memgraph returns no relevant rows, fall back to text search and state why.
 ### Mandatory Triggers
 
 - **Status/pending-work requests:** query Memgraph staleness or relevant structure first, then check Git when local changes are relevant. Never answer from Git alone unless the user explicitly asks for Git-only status.
+- **No ritual Codebase Analysis:** do not run Codebase Analysis queries just to have context. Run them only when a trigger below applies or code structure/relationships are needed.
 - **Codebase orientation reuse:** Codebase Analysis queries are session-scoped. If they were already run for `{{PROJECT_NAME}}` in this assistant session, reuse those results for follow-up work unless the user asks for a refresh, source files changed, or the task scope is unrelated.
 - **Relationship refresh after edits:** if source files changed during the session, re-query Memgraph relationships before relying on earlier relationship results; live ingestion may make cached relationships stale.
-- **Code changes:** before any code-change task, run Codebase Analysis queries. Empty results are valid. Skip only if already run in this session and still fresh.
+- **Code changes:** before any source-code change task, run Codebase Analysis queries. Empty results are valid. Skip only if already run in this session and still fresh.
 - **Class/interface work:** before touching a class or interface, query its full hierarchy.
 - **Symbol work:** for investigations involving symbols, fields, methods, callers, implementations, inheritance, decorators/annotations, imports, exports, or type usages, query Memgraph before source inspection, filesystem search, IDE/LSP, or runtime introspection. JavaScript/TypeScript CALLS edges are best-effort.
 - **Method body reads:** first query `startLine` and `endLine`, then read only that source range.
@@ -67,9 +68,9 @@ echo "MATCH (n) RETURN n;" | mgconsole [options]
 
 `@`-tagged paths hint at scope only; they do not bypass Memgraph.
 
-Before reading any tagged file or directory:
+Before reading any tagged source file or directory for code work:
 
-1. Run Codebase Analysis queries.
+1. Run Codebase Analysis queries when code structure or relationships are relevant.
 2. Then open source files for line-level detail.
 
 ## Codebase Analysis Queries
