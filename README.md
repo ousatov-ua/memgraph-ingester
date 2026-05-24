@@ -15,6 +15,8 @@ Memgraph Ingester indexes **Java** and **JavaScript/TypeScript** source files in
 [Memgraph](https://memgraph.com/) so AI agents can query a real code graph instead of repeatedly
 scanning raw files.
 
+Optionally, it can also enable **memories** for durable project rules.
+
 Use it when you want your agent to quickly answer questions such as:
 
 - What classes, methods, files, and packages exist?
@@ -117,14 +119,14 @@ Memgraph Bolt listens on `bolt://localhost:7687`.
 
 ### 2. Download the Ingester
 
-Version in this repository: `10.0.2`.
+Version in this repository: `10.0.3`.
 
 | Platform | Download                                                                                                                                             |
 |---|------------------------------------------------------------------------------------------------------------------------------------------------------|
-| Java shaded JAR | [memgraph-ingester.jar](https://github.com/ousatov-ua/memgraph-ingester/releases/download/v10.0.2/memgraph-ingester.jar)                             |
-| Linux AMD64 | [memgraph-ingester-linux-amd64.zip](https://github.com/ousatov-ua/memgraph-ingester/releases/download/v10.0.2/memgraph-ingester-linux-amd64.zip)     |
-| macOS ARM64 | [memgraph-ingester-macos-arm64.zip](https://github.com/ousatov-ua/memgraph-ingester/releases/download/v10.0.2/memgraph-ingester-macos-arm64.zip)     |
-| Windows AMD64 | [memgraph-ingester-windows-amd64.zip](https://github.com/ousatov-ua/memgraph-ingester/releases/download/v10.0.2/memgraph-ingester-windows-amd64.zip) |
+| Java shaded JAR | [memgraph-ingester.jar](https://github.com/ousatov-ua/memgraph-ingester/releases/download/v10.0.3/memgraph-ingester.jar)                             |
+| Linux AMD64 | [memgraph-ingester-linux-amd64.zip](https://github.com/ousatov-ua/memgraph-ingester/releases/download/v10.0.3/memgraph-ingester-linux-amd64.zip)     |
+| macOS ARM64 | [memgraph-ingester-macos-arm64.zip](https://github.com/ousatov-ua/memgraph-ingester/releases/download/v10.0.3/memgraph-ingester-macos-arm64.zip)     |
+| Windows AMD64 | [memgraph-ingester-windows-amd64.zip](https://github.com/ousatov-ua/memgraph-ingester/releases/download/v10.0.3/memgraph-ingester-windows-amd64.zip) |
 
 For native downloads:
 
@@ -975,6 +977,6 @@ Use the profile that matches your operating system.
 <dependency>
   <groupId>io.github.ousatov-ua</groupId>
   <artifactId>memgraph-ingester</artifactId>
-  <version>10.0.2</version>
+  <version>10.0.3</version>
 </dependency>
 ```
