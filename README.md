@@ -236,9 +236,12 @@ You should see your project name and a fresh `lastIngested` timestamp.
 <ingester> \
   --source src/main/java \
   --bolt bolt://localhost:7687 \
-  --project my-java-project \
-  --wipe-project-code
+  --project my-java-project
 ```
+
+Regular re-ingestion prunes graph state for source files that were deleted and for declarations or
+file-local relationships removed from changed files. Use `--wipe-project-code` only when you want a
+fresh project code graph before ingestion starts.
 
 ### Faster re-runs
 
@@ -264,8 +267,8 @@ Use `--watch` to keep the graph fresh while editing:
   --watch
 ```
 
-Watch mode recursively watches the source tree, debounces rapid saves, and re-ingests changed
-files.
+Watch mode recursively watches the source tree, debounces rapid saves, re-ingests changed files,
+and removes graph state for deleted files.
 
 ### Fresh project code and memory
 
@@ -785,6 +788,9 @@ RETURN labels(memory), memory.id, memory.title;
   resolved in-file are stored as `:PendingCall` records and retried after the batch. Direct owner
   methods are preferred, then the nearest superclass with exactly one matching method. Pending calls
   for a reingested JS/TS file are cleared before the file's current calls are stored.
+- Re-ingestion refreshes file-local outgoing `CALLS`, `ANNOTATED_WITH`, `EXTENDS`, and `IMPLEMENTS`
+  relationships before writing the current file data, while preserving current method nodes so
+  incoming `CALLS` edges from unchanged files survive incremental runs.
 - Raw JS/TS `:Class` queries include synthetic module owners and TypeScript enums. Filter
   `language = "js"` and `kind = "class"` when you only want JavaScript/TypeScript classes.
 - Generated code is indexed only when its generated source directory is passed to `--source`.

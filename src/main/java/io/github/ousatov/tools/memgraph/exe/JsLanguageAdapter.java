@@ -1,6 +1,8 @@
 package io.github.ousatov.tools.memgraph.exe;
 
+import io.github.ousatov.tools.memgraph.def.Const.Labels;
 import java.nio.file.Path;
+import java.util.LinkedHashSet;
 import java.util.Locale;
 import java.util.Set;
 import org.slf4j.Logger;
@@ -47,8 +49,8 @@ public final class JsLanguageAdapter implements LanguageAdapter {
   public boolean ingestFile(GraphWriter writer, Path file) {
     try {
       JsAnalysis analysis = analyzer.analyze(file);
+      writer.deleteStaleDefinitionsForFile(file, collectDefinitions(analysis));
       writer.upsertFile(file, language());
-      writer.deletePendingCallsForFile(file);
       writer.deleteStaleJavascriptDefinitionsForFile(file, analysis.moduleFqn());
       writer.upsertPackage(analysis.packageName(), language());
       writer.upsertJavascriptModule(
@@ -73,6 +75,41 @@ public final class JsLanguageAdapter implements LanguageAdapter {
       log.warn("Failed to ingest {}: {}", file, e.getMessage());
       return false;
     }
+  }
+
+  private static SourceFileDefinitions collectDefinitions(JsAnalysis analysis) {
+    Set<String> classFqns = new LinkedHashSet<>();
+    Set<String> interfaceFqns = new LinkedHashSet<>();
+    Set<String> methodSignatures = new LinkedHashSet<>();
+    Set<String> fieldFqns = new LinkedHashSet<>();
+
+    classFqns.add(analysis.moduleFqn());
+    methodSignatures.add(analysis.moduleFqn() + "." + Labels.INIT + "()");
+    analysis
+        .types()
+        .forEach(
+            type -> {
+              if ("class".equals(type.kind()) || "enum".equals(type.kind())) {
+                classFqns.add(type.fqn());
+                if ("class".equals(type.kind()) && !type.hasConstructor()) {
+                  methodSignatures.add(type.fqn() + "." + Labels.INIT + "()");
+                }
+              } else {
+                interfaceFqns.add(type.fqn());
+              }
+            });
+    analysis
+        .members()
+        .forEach(
+            member -> {
+              if ("method".equals(member.memberType())) {
+                methodSignatures.add(member.key());
+              } else {
+                fieldFqns.add(member.key());
+              }
+            });
+    return SourceFileDefinitions.of(
+        classFqns, interfaceFqns, Set.of(), methodSignatures, fieldFqns);
   }
 
   private static void upsertType(

@@ -19,6 +19,7 @@ import io.github.ousatov.tools.memgraph.vo.Method;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -127,6 +128,65 @@ public final class GraphWriter {
   /** Removes stale deferred owner/name call records for methods declared by one source file. */
   public void deletePendingCallsForFile(Path file) {
     cypher.run(Cypher.CYPHER_DELETE_PENDING_CALLS_FOR_FILE, Map.of(Params.PATH, file.toString()));
+  }
+
+  /**
+   * Prunes graph state for declarations and file-local relationships that disappeared from a source
+   * file.
+   *
+   * <p>Current method nodes are kept so incoming {@code CALLS} edges from unchanged files survive
+   * incremental re-ingestion. Their outgoing edges are cleared and recreated from the current file
+   * body.
+   */
+  public void deleteStaleDefinitionsForFile(Path file, SourceFileDefinitions definitions) {
+    deletePendingCallsForFile(file);
+    Map<String, Object> params =
+        Map.ofEntries(
+            Map.entry(Params.PATH, file.toString()),
+            Map.entry(Params.CLASS_FQNS, definitions.classFqns()),
+            Map.entry(Params.INTERFACE_FQNS, definitions.interfaceFqns()),
+            Map.entry(Params.ANNOTATION_FQNS, definitions.annotationFqns()),
+            Map.entry(Params.METHOD_SIGNATURES, definitions.methodSignatures()),
+            Map.entry(Params.FIELD_FQNS, definitions.fieldFqns()));
+    List.of(
+            Cypher.CYPHER_DELETE_CALLS_FOR_FILE,
+            Cypher.CYPHER_DELETE_OWNER_ANNOTATIONS_FOR_FILE,
+            Cypher.CYPHER_DELETE_MEMBER_ANNOTATIONS_FOR_FILE,
+            Cypher.CYPHER_DELETE_TYPE_RELATIONS_FOR_FILE,
+            Cypher.CYPHER_DELETE_STALE_METHODS_FOR_FILE,
+            Cypher.CYPHER_DELETE_STALE_FIELDS_FOR_FILE,
+            Cypher.CYPHER_DELETE_STALE_OWNER_MEMBERS_FOR_FILE,
+            Cypher.CYPHER_DELETE_STALE_OWNERS_FOR_FILE)
+        .forEach(q -> cypher.run(q, params));
+    cypher.run(Cypher.CYPHER_DELETE_EMPTY_PACKAGES, Map.of());
+  }
+
+  /** Deletes all graph state owned by a source file that no longer exists. */
+  public void deleteSourceFile(Path file) {
+    deletePendingCallsForFile(file);
+    List.of(
+            Cypher.CYPHER_DELETE_MEMBERS_FOR_FILE,
+            Cypher.CYPHER_DELETE_OWNERS_FOR_FILE,
+            Cypher.CYPHER_DELETE_FILE)
+        .forEach(q -> cypher.run(q, Map.of(Params.PATH, file.toString())));
+    cypher.run(Cypher.CYPHER_DELETE_EMPTY_PACKAGES, Map.of());
+  }
+
+  /** Deletes file graph state for language-specific files absent from the current source tree. */
+  public void deleteFilesMissingFromSource(Collection<Path> files, SourceLanguage language) {
+    Map<String, Object> params =
+        Map.of(
+            Params.PATHS,
+            files.stream().map(Path::toString).toList(),
+            Params.LANGUAGE,
+            language.graphName());
+    List.of(
+            Cypher.CYPHER_DELETE_MISSING_FILE_PENDING_CALLS,
+            Cypher.CYPHER_DELETE_MISSING_FILE_MEMBERS,
+            Cypher.CYPHER_DELETE_MISSING_FILE_OWNERS,
+            Cypher.CYPHER_DELETE_MISSING_FILES)
+        .forEach(q -> cypher.run(q, params));
+    cypher.run(Cypher.CYPHER_DELETE_EMPTY_PACKAGES, Map.of());
   }
 
   /**

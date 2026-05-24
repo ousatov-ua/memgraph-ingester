@@ -155,6 +155,7 @@ public final class IngestionOrchestrator {
     }
 
     List<SourceFile> files = discoverSourceFiles();
+    deleteMissingSourceFiles(files);
     log.atInfo()
         .setMessage(
             "Found {} supported source files across {} adapter(s). Ingesting with {} thread(s).")
@@ -268,16 +269,20 @@ public final class IngestionOrchestrator {
   private void ingestChangedFiles(Set<Path> files) {
     try (Session session = driver.session()) {
       GraphWriter writer = new GraphWriter(session, project);
-      boolean anySuccess = false;
+      boolean changedGraph = false;
       for (Path file : files) {
         Optional<LanguageAdapter> adapter = adapterFor(file);
-        if (Files.exists(file)
-            && adapter.isPresent()
-            && ingestFile(writer, new SourceFile(file, adapter.get()))) {
-          anySuccess = true;
+        if (adapter.isEmpty()) {
+          continue;
+        }
+        if (Files.exists(file)) {
+          changedGraph |= ingestFile(writer, new SourceFile(file, adapter.get()));
+        } else {
+          writer.deleteSourceFile(file);
+          changedGraph = true;
         }
       }
-      if (anySuccess) {
+      if (changedGraph) {
         refreshDerivedGraphArtifacts(writer);
         log.info("Watch re-ingestion complete.");
       }
@@ -348,6 +353,22 @@ public final class IngestionOrchestrator {
         .sorted(Comparator.comparing(SourceFile::path))
         .forEach(sourceFile -> byPath.putIfAbsent(sourceFile.path(), sourceFile));
     return List.copyOf(byPath.values());
+  }
+
+  private void deleteMissingSourceFiles(List<SourceFile> files) {
+    Map<SourceLanguage, List<Path>> pathsByLanguage = new LinkedHashMap<>();
+    for (SourceFile file : files) {
+      pathsByLanguage
+          .computeIfAbsent(file.adapter().language(), ignored -> new ArrayList<>())
+          .add(file.path());
+    }
+    try (Session session = driver.session()) {
+      GraphWriter writer = new GraphWriter(session, project);
+      for (SourceLanguage language : languages()) {
+        List<Path> currentPaths = pathsByLanguage.getOrDefault(language, List.of());
+        writer.deleteFilesMissingFromSource(currentPaths, language);
+      }
+    }
   }
 
   private List<SourceLanguage> languages() {

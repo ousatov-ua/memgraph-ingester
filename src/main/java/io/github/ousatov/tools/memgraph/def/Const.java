@@ -125,6 +125,68 @@ public final class Const {
     public static final String CYPHER_DELETE_PENDING_CALLS_FOR_FILE =
         action("delete-pending-calls-for-file.cypher");
 
+    /** Clears outgoing {@code CALLS} edges from methods declared by one source file. */
+    public static final String CYPHER_DELETE_CALLS_FOR_FILE =
+        action("delete-calls-for-file.cypher");
+
+    /** Clears owner-level annotation edges for declarations in one source file. */
+    public static final String CYPHER_DELETE_OWNER_ANNOTATIONS_FOR_FILE =
+        action("delete-owner-annotations-for-file.cypher");
+
+    /** Clears member-level annotation edges for declarations in one source file. */
+    public static final String CYPHER_DELETE_MEMBER_ANNOTATIONS_FOR_FILE =
+        action("delete-member-annotations-for-file.cypher");
+
+    /** Clears inheritance and implementation edges for declarations in one source file. */
+    public static final String CYPHER_DELETE_TYPE_RELATIONS_FOR_FILE =
+        action("delete-type-relations-for-file.cypher");
+
+    /** Deletes method declarations that no longer exist in a source file. */
+    public static final String CYPHER_DELETE_STALE_METHODS_FOR_FILE =
+        action("delete-stale-methods-for-file.cypher");
+
+    /** Deletes field declarations that no longer exist in a source file. */
+    public static final String CYPHER_DELETE_STALE_FIELDS_FOR_FILE =
+        action("delete-stale-fields-for-file.cypher");
+
+    /** Deletes members of type declarations that no longer exist in a source file. */
+    public static final String CYPHER_DELETE_STALE_OWNER_MEMBERS_FOR_FILE =
+        action("delete-stale-owner-members-for-file.cypher");
+
+    /** Deletes type declarations that no longer exist in a source file. */
+    public static final String CYPHER_DELETE_STALE_OWNERS_FOR_FILE =
+        action("delete-stale-owners-for-file.cypher");
+
+    /** Deletes all member declarations for a removed source file. */
+    public static final String CYPHER_DELETE_MEMBERS_FOR_FILE =
+        action("delete-members-for-file.cypher");
+
+    /** Deletes all type declarations for a removed source file. */
+    public static final String CYPHER_DELETE_OWNERS_FOR_FILE =
+        action("delete-owners-for-file.cypher");
+
+    /** Deletes a removed source file node. */
+    public static final String CYPHER_DELETE_FILE = action("delete-file.cypher");
+
+    /** Deletes empty package nodes after source-file cleanup. */
+    public static final String CYPHER_DELETE_EMPTY_PACKAGES =
+        action("delete-empty-packages.cypher");
+
+    /** Deletes deferred owner/name calls for files no longer present in the source tree. */
+    public static final String CYPHER_DELETE_MISSING_FILE_PENDING_CALLS =
+        action("delete-missing-file-pending-calls.cypher");
+
+    /** Deletes member declarations for files no longer present in the source tree. */
+    public static final String CYPHER_DELETE_MISSING_FILE_MEMBERS =
+        action("delete-missing-file-members.cypher");
+
+    /** Deletes type declarations for files no longer present in the source tree. */
+    public static final String CYPHER_DELETE_MISSING_FILE_OWNERS =
+        action("delete-missing-file-owners.cypher");
+
+    /** Deletes file nodes no longer present in the source tree. */
+    public static final String CYPHER_DELETE_MISSING_FILES = action("delete-missing-files.cypher");
+
     /**
      * Deletes stale JavaScript/TypeScript method and field declarations whose owners were
      * previously written for the same file under an obsolete module FQN.
@@ -225,6 +287,12 @@ public final class Const {
     public static final String KIND = "kind";
     public static final String MODULE_PATH = "modulePath";
     public static final String MODULE_PREFIX = "modulePrefix";
+    public static final String PATHS = "paths";
+    public static final String CLASS_FQNS = "classFqns";
+    public static final String INTERFACE_FQNS = "interfaceFqns";
+    public static final String ANNOTATION_FQNS = "annotationFqns";
+    public static final String METHOD_SIGNATURES = "methodSignatures";
+    public static final String FIELD_FQNS = "fieldFqns";
     public static final String FRAMEWORK = "framework";
     public static final String END_LINE = "endLine";
     public static final String START_LINE = "startLine";

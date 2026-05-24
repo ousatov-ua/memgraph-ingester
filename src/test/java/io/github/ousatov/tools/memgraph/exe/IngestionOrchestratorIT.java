@@ -111,6 +111,56 @@ class IngestionOrchestratorIT {
     }
   }
 
+  private static boolean fileExistsInGraph(String project, Path file) {
+    try (Session s = driver.session()) {
+      return s.run(
+                  "MATCH (f:File {project: $p, path: $path}) RETURN count(f) AS n",
+                  Map.of("p", project, "path", file.toString()))
+              .single()
+              .get("n")
+              .asLong()
+          > 0;
+    }
+  }
+
+  private static boolean methodExists(String project, String signature) {
+    try (Session s = driver.session()) {
+      return s.run(
+                  "MATCH (m:Method {project: $p, signature: $sig}) RETURN count(m) AS n",
+                  Map.of("p", project, "sig", signature))
+              .single()
+              .get("n")
+              .asLong()
+          > 0;
+    }
+  }
+
+  private static boolean fieldExists(String project, String fqn) {
+    try (Session s = driver.session()) {
+      return s.run(
+                  "MATCH (f:Field {project: $p, fqn: $fqn}) RETURN count(f) AS n",
+                  Map.of("p", project, "fqn", fqn))
+              .single()
+              .get("n")
+              .asLong()
+          > 0;
+    }
+  }
+
+  private static boolean callEdgeExists(String project, String caller, String callee) {
+    try (Session s = driver.session()) {
+      return s.run(
+                  "MATCH (:Method {project: $p, signature: $caller})"
+                      + "-[:CALLS]->(:Method {project: $p, signature: $callee})"
+                      + " RETURN count(*) AS n",
+                  Map.of("p", project, "caller", caller, "callee", callee))
+              .single()
+              .get("n")
+              .asLong()
+          > 0;
+    }
+  }
+
   private static void createClassCodeRef(String project, String fqn) {
     try (Session s = driver.session()) {
       s.run(
@@ -416,6 +466,15 @@ class IngestionOrchestratorIT {
           .atMost(Duration.ofSeconds(10))
           .pollInterval(Duration.ofMillis(50))
           .until(() -> worker.getState() == Thread.State.WAITING);
+      Files.delete(watchedFile);
+      await()
+          .atMost(Duration.ofSeconds(10))
+          .pollInterval(Duration.ofMillis(250))
+          .untilAsserted(
+              () ->
+                  assertFalse(
+                      classExists(currentProject, "Watched"),
+                      "Watch mode must delete graph state for removed files"));
     } finally {
       worker.interrupt();
       worker.join(TimeUnit.SECONDS.toMillis(5));
@@ -710,6 +769,57 @@ class IngestionOrchestratorIT {
               .asLong();
       assertEquals(countAfterFirst, countAfterSecond, "MERGE-based upsert must be idempotent");
     }
+  }
+
+  @Test
+  void reingestionDeletesRemovedSourceFiles() throws Exception {
+    currentProject = PROJECT_BASE + "-removed-file";
+    sourceDir = buildSampleSourceTree();
+    IngestionOrchestrator orchestrator =
+        new IngestionOrchestrator(
+            sourceDir, currentProject, 1, driver, new ParseService(sourceDir));
+    Path widgetFile = sourceDir.resolve("com/example/Widget.java");
+
+    assertEquals(0, orchestrator.run(Settings.def()));
+    assertTrue(classExists(currentProject, "com.example.Widget"));
+    assertTrue(fileExistsInGraph(currentProject, widgetFile));
+
+    Files.delete(widgetFile);
+    assertEquals(0, orchestrator.run(Settings.def()));
+
+    assertFalse(classExists(currentProject, "com.example.Widget"));
+    assertFalse(fileExistsInGraph(currentProject, widgetFile));
+    assertFalse(methodExists(currentProject, "com.example.Widget.getName()"));
+    assertFalse(fieldExists(currentProject, "com.example.Widget#name"));
+  }
+
+  @Test
+  void reingestionDeletesRemovedDeclarationsFromChangedFile() throws Exception {
+    currentProject = PROJECT_BASE + "-removed-declarations";
+    sourceDir = buildSampleSourceTree();
+    IngestionOrchestrator orchestrator =
+        new IngestionOrchestrator(
+            sourceDir, currentProject, 1, driver, new ParseService(sourceDir));
+    Path widgetFile = sourceDir.resolve("com/example/Widget.java");
+
+    assertEquals(0, orchestrator.run(Settings.def()));
+    Files.writeString(
+        widgetFile,
+        """
+        package com.example;
+
+        public class Widget {
+          public String changed() {
+            return "changed";
+          }
+        }
+        """);
+
+    assertEquals(0, orchestrator.run(Settings.def()));
+
+    assertTrue(methodExists(currentProject, "com.example.Widget.changed()"));
+    assertFalse(methodExists(currentProject, "com.example.Widget.getName()"));
+    assertFalse(fieldExists(currentProject, "com.example.Widget#name"));
   }
 
   @Test
@@ -1048,6 +1158,66 @@ class IngestionOrchestratorIT {
       assertEquals(1, newThingCount);
       assertEquals(1, changedMethodCount);
     }
+  }
+
+  @Test
+  void incrementalRunPreservesIncomingCallEdgesWhenCalleeChanges() throws Exception {
+    currentProject = PROJECT_BASE + "-incremental-callee-change";
+    sourceDir = Files.createTempDirectory("orch-incremental-callee-src-");
+    Path pkgDir = sourceDir.resolve("com/example");
+    Files.createDirectories(pkgDir);
+    Files.writeString(
+        pkgDir.resolve("AAACaller.java"),
+        """
+        package com.example;
+
+        public class AAACaller {
+          public void doWork() {
+            new BBBService().serve();
+          }
+        }
+        """);
+    Path serviceFile = pkgDir.resolve("BBBService.java");
+    Files.writeString(
+        serviceFile,
+        """
+        package com.example;
+
+        public class BBBService {
+          public void serve() {}
+        }
+        """);
+    IngestionOrchestrator orchestrator =
+        new IngestionOrchestrator(
+            sourceDir, currentProject, 1, driver, new ParseService(sourceDir));
+    assertEquals(0, orchestrator.run(Settings.def()));
+    assertTrue(
+        callEdgeExists(
+            currentProject, "com.example.AAACaller.doWork()", "com.example.BBBService.serve()"));
+
+    Files.writeString(
+        serviceFile,
+        """
+        package com.example;
+
+        public class BBBService {
+          private int calls;
+
+          public void serve() {
+            calls++;
+          }
+        }
+        """);
+    Files.setLastModifiedTime(
+        serviceFile,
+        FileTime.fromMillis(System.currentTimeMillis() + TimeUnit.SECONDS.toMillis(5)));
+
+    assertEquals(0, orchestrator.run(new Settings(false, false, false, false, true, false)));
+
+    assertTrue(
+        callEdgeExists(
+            currentProject, "com.example.AAACaller.doWork()", "com.example.BBBService.serve()"));
+    assertTrue(fieldExists(currentProject, "com.example.BBBService#calls"));
   }
 
   @Test
