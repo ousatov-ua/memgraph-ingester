@@ -244,6 +244,8 @@ file-local relationships removed from changed files. Use `--wipe-project-code` o
 fresh project code graph before ingestion starts.
 Changed-file cleanup and replacement writes are committed per file, including with `--threads > 1`,
 and preserve retained files from other source roots.
+Watch re-ingestion snapshots source files once per batch and skips delete cleanup if file updates
+fail.
 
 ### Faster re-runs
 
@@ -795,6 +797,8 @@ RETURN labels(memory), memory.id, memory.title;
   incoming `CALLS` edges from unchanged files survive incremental runs.
 - Changed-file cleanup and replacement writes are per-file transactional and preserve retained files
   from other source roots.
+- Watch re-ingestion snapshots source files once per batch and skips delete cleanup if file updates
+  fail.
 - Raw JS/TS `:Class` queries include synthetic module owners and TypeScript enums. Filter
   `language = "js"` and `kind = "class"` when you only want JavaScript/TypeScript classes.
 - Generated code is indexed only when its generated source directory is passed to `--source`.

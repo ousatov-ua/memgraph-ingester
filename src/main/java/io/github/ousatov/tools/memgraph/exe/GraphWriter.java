@@ -325,6 +325,23 @@ public final class GraphWriter {
         });
   }
 
+  /** Returns retained files that share declarations with {@code file}. */
+  public Set<Path> getRetainedFilePathsSharingDefinitionsWith(Path file) {
+    return cypher.read(
+        Cypher.CYPHER_GET_RETAINED_FILES_SHARING_DEFINITIONS_WITH_FILE,
+        Map.of(Params.PATH, file.toString(), Params.PATHS, retainedSourcePaths),
+        result -> {
+          Set<Path> retained = new HashSet<>();
+          while (result.hasNext()) {
+            String path = result.next().get(Params.PATH).asString(null);
+            if (path != null) {
+              retained.add(Path.of(path));
+            }
+          }
+          return retained;
+        });
+  }
+
   private void runInFileTransaction(Runnable action) {
     beginFileTransaction();
     try {

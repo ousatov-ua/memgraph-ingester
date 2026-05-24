@@ -691,6 +691,91 @@ class IngestionOrchestratorIT {
   }
 
   @Test
+  void watchModeSkipsDeletedFilesWhenFileUpdateFails() throws Exception {
+    currentProject = PROJECT_BASE + "-watch-failed-update-skip-delete";
+    sourceDir = Files.createTempDirectory("orch-watch-failed-update-skip-delete-src-");
+    Path existingFile = sourceDir.resolve("Existing.java");
+    Path deletedFile = sourceDir.resolve("Deleted.java");
+    Files.writeString(existingFile, "class Existing {}");
+    try (Session s = driver.session()) {
+      s.run(
+              """
+              MERGE (f:File {path: $path, project: $p})
+              SET f.language = 'java'
+              MERGE (c:Class {fqn: 'Deleted', project: $p})
+              SET c.name = 'Deleted', c.language = 'java', c.isExternal = false
+              MERGE (f)-[:DEFINES]->(c)
+              """,
+              Map.of("p", currentProject, "path", deletedFile.toString()))
+          .consume();
+    }
+    IngestionOrchestrator orchestrator =
+        new IngestionOrchestrator(
+            sourceDir, currentProject, 1, driver, new CleanupThenFailingJavaAdapter());
+
+    orchestrator.ingestChangedFiles(Set.of(existingFile, deletedFile));
+
+    assertTrue(fileExistsInGraph(currentProject, deletedFile));
+  }
+
+  @Test
+  void watchModeRefreshesRetainedFileAfterDeletingMovedSharedMethod() throws Exception {
+    currentProject = PROJECT_BASE + "-watch-delete-moved-shared-method";
+    sourceDir = Files.createTempDirectory("orch-watch-delete-moved-shared-method-src-");
+    Path pkg = sourceDir.resolve("com/example");
+    Files.createDirectories(pkg);
+    Path helper = pkg.resolve("Helper.java");
+    Path oldShared = pkg.resolve("OldShared.java");
+    Path newShared = pkg.resolve("NewShared.java");
+    Files.writeString(
+        helper,
+        """
+        package com.example;
+
+        class Helper {
+          static void go() {}
+        }
+        """);
+    Files.writeString(
+        oldShared,
+        """
+        package com.example;
+
+        class Shared {
+          void serve() {
+            Helper.go();
+          }
+        }
+        """);
+    IngestionOrchestrator orchestrator =
+        new IngestionOrchestrator(
+            sourceDir, currentProject, 1, driver, new ParseService(sourceDir));
+    assertEquals(0, orchestrator.run(Settings.def()));
+    assertTrue(
+        callEdgeExists(currentProject, "com.example.Shared.serve()", "com.example.Helper.go()"));
+
+    Files.writeString(
+        newShared,
+        """
+        package com.example;
+
+        class Shared {
+          void serve() {}
+        }
+        """);
+    orchestrator.ingestChangedFiles(Set.of(newShared));
+    assertTrue(
+        callEdgeExists(currentProject, "com.example.Shared.serve()", "com.example.Helper.go()"));
+
+    Files.delete(oldShared);
+    orchestrator.ingestChangedFiles(Set.of(oldShared));
+
+    assertTrue(fileExistsInGraph(currentProject, newShared));
+    assertFalse(
+        callEdgeExists(currentProject, "com.example.Shared.serve()", "com.example.Helper.go()"));
+  }
+
+  @Test
   void ingestsSequentiallyWithZeroFailures() throws Exception {
     currentProject = PROJECT_BASE + "-seq";
     sourceDir = buildSampleSourceTree();

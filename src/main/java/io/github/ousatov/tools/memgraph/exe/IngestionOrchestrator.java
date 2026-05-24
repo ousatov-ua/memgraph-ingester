@@ -269,37 +269,62 @@ public final class IngestionOrchestrator {
     }
   }
 
-  private void ingestChangedFiles(Set<Path> files) {
+  void ingestChangedFiles(Set<Path> files) {
     try (Session session = driver.session()) {
       GraphWriter writer = new GraphWriter(session, project);
-      Optional<List<Path>> retainedSourcePaths = retainedSourcePathsForWatch(writer);
-      if (retainedSourcePaths.isEmpty()) {
+      Optional<WatchSourceSnapshot> sourceSnapshot = sourceSnapshotForWatch(writer);
+      if (sourceSnapshot.isEmpty()) {
         return;
       }
-      writer.setRetainedSourcePaths(retainedSourcePaths.get());
+      WatchSourceSnapshot snapshot = sourceSnapshot.get();
+      writer.setRetainedSourcePaths(snapshot.retainedPaths());
+      Map<Path, SourceFile> currentFilesByPath = new HashMap<>();
+      snapshot.files().forEach(sourceFile -> currentFilesByPath.put(sourceFile.path(), sourceFile));
       boolean changedGraph = false;
-      List<Path> existingFiles = files.stream().filter(Files::exists).sorted().toList();
+      int updateFailures = 0;
+      Set<Path> refreshAfterDelete = new LinkedHashSet<>();
+      List<SourceFile> existingFiles =
+          files.stream()
+              .map(currentFilesByPath::get)
+              .filter(sourceFile -> sourceFile != null)
+              .sorted(Comparator.comparing(SourceFile::path))
+              .toList();
       List<Path> deletedFiles =
-          files.stream().filter(file -> !Files.exists(file)).sorted().toList();
-      for (Path file : existingFiles) {
-        Optional<LanguageAdapter> adapter = adapterFor(file);
-        if (adapter.isEmpty()) {
-          continue;
-        }
+          files.stream().filter(file -> !currentFilesByPath.containsKey(file)).sorted().toList();
+      for (SourceFile file : existingFiles) {
         try {
-          changedGraph |=
-              ingestFileBatched(
-                  writer, new SourceFile(file, adapter.get()), StoredFileState.empty());
+          boolean updated = ingestFileBatched(writer, file, StoredFileState.empty());
+          changedGraph |= updated;
+          if (!updated) {
+            updateFailures++;
+          }
         } catch (RuntimeException e) {
-          log.warn("Failed to update graph for watch event on {}: {}", file, e.getMessage());
+          updateFailures++;
+          log.warn("Failed to update graph for watch event on {}: {}", file.path(), e.getMessage());
         }
       }
-      for (Path file : deletedFiles) {
-        if (adapterFor(file).isEmpty()) {
-          continue;
+      if (updateFailures == 0) {
+        for (Path file : deletedFiles) {
+          if (adapterFor(file).isEmpty()) {
+            continue;
+          }
+          Set<Path> sharedRetainedFiles = writer.getRetainedFilePathsSharingDefinitionsWith(file);
+          if (deleteSourceFileWithRetry(file, writer::deleteSourceFile)) {
+            changedGraph = true;
+            refreshAfterDelete.addAll(sharedRetainedFiles);
+          }
         }
-        if (deleteSourceFileWithRetry(file, writer::deleteSourceFile)) {
-          changedGraph = true;
+      } else if (!deletedFiles.isEmpty()) {
+        log.warn(
+            "Skipping watch delete cleanup for {} file(s) because {} file update(s) failed.",
+            deletedFiles.size(),
+            updateFailures);
+      }
+      for (Path path : refreshAfterDelete) {
+        SourceFile retainedFile = currentFilesByPath.get(path);
+        if (retainedFile != null
+            && !ingestFileBatched(writer, retainedFile, StoredFileState.empty())) {
+          log.warn("Failed to refresh retained file after watch delete: {}", path);
         }
       }
       if (changedGraph) {
@@ -309,9 +334,10 @@ public final class IngestionOrchestrator {
     }
   }
 
-  private Optional<List<Path>> retainedSourcePathsForWatch(GraphWriter writer) {
+  private Optional<WatchSourceSnapshot> sourceSnapshotForWatch(GraphWriter writer) {
     try {
-      return Optional.of(retainedSourcePaths(discoverSourceFiles(), writer));
+      List<SourceFile> files = discoverSourceFiles();
+      return Optional.of(new WatchSourceSnapshot(files, retainedSourcePaths(files, writer)));
     } catch (RuntimeException e) {
       log.warn("Skipping watch re-ingestion because source snapshot failed: {}", e.getMessage());
       return Optional.empty();
@@ -681,6 +707,11 @@ public final class IngestionOrchestrator {
 
   /** Source file paired with the adapter selected by extension. */
   private record SourceFile(Path path, LanguageAdapter adapter) {
+    // Record body intentionally empty.
+  }
+
+  /** Source files and retained paths captured from one watch-cycle snapshot. */
+  private record WatchSourceSnapshot(List<SourceFile> files, List<Path> retainedPaths) {
     // Record body intentionally empty.
   }
 }

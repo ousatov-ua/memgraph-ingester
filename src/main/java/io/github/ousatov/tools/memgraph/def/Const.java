@@ -59,6 +59,10 @@ public final class Const {
     public static final String CYPHER_GET_RETAINED_FILES_OUTSIDE_SOURCE_ROOT =
         action("get-retained-files-outside-source-root.cypher");
 
+    /** Fetches retained files that define declarations shared with one source file. */
+    public static final String CYPHER_GET_RETAINED_FILES_SHARING_DEFINITIONS_WITH_FILE =
+        action("get-retained-files-sharing-definitions-with-file.cypher");
+
     public static final String CYPHER_WIPE_PROJECT_MEMORIES =
         action("wipe-project-memories.cypher");
     public static final String CYPHER_CLEAR_CODE_PACKAGE_CODE_REF_RESOLUTIONS =
