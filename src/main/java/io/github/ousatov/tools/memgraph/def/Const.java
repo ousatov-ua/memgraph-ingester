@@ -61,6 +61,10 @@ public final class Const {
     /** Checks whether the project already has any stored file for a source language. */
     public static final String CYPHER_HAS_EXISTING_FILES = action("has-existing-files.cypher");
 
+    /** Checks whether any given source definition identities already exist. */
+    public static final String CYPHER_HAS_EXISTING_DEFINITIONS =
+        action("has-existing-definitions.cypher");
+
     public static final String CYPHER_WIPE_PROJECT_MEMORIES =
         action("wipe-project-memories.cypher");
     public static final String CYPHER_CLEAR_CODE_PACKAGE_CODE_REF_RESOLUTIONS =

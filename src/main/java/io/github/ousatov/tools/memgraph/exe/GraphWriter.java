@@ -311,6 +311,22 @@ public final class GraphWriter {
         result -> result.hasNext() && result.next().get("files").asLong() > 0);
   }
 
+  /** Returns whether any of the given source definition identities already exist in the graph. */
+  public boolean hasExistingDefinitions(SourceFileDefinitions definitions) {
+    if (definitions.isEmpty()) {
+      return false;
+    }
+    return cypher.read(
+        Cypher.CYPHER_HAS_EXISTING_DEFINITIONS,
+        Map.ofEntries(
+            Map.entry(Params.CLASS_FQNS, definitions.classFqns()),
+            Map.entry(Params.INTERFACE_FQNS, definitions.interfaceFqns()),
+            Map.entry(Params.ANNOTATION_FQNS, definitions.annotationFqns()),
+            Map.entry(Params.METHOD_SIGNATURES, definitions.methodSignatures()),
+            Map.entry(Params.FIELD_FQNS, definitions.fieldFqns())),
+        result -> result.hasNext() && result.next().get("definitions").asLong() > 0);
+  }
+
   private void runInFileTransaction(Runnable action) {
     beginFileTransaction();
     try {

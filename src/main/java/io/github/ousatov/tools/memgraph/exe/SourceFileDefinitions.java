@@ -36,4 +36,16 @@ record SourceFileDefinitions(
         List.copyOf(methodSignatures),
         List.copyOf(fieldFqns));
   }
+
+  static SourceFileDefinitions empty() {
+    return of(List.of(), List.of(), List.of(), List.of(), List.of());
+  }
+
+  boolean isEmpty() {
+    return classFqns.isEmpty()
+        && interfaceFqns.isEmpty()
+        && annotationFqns.isEmpty()
+        && methodSignatures.isEmpty()
+        && fieldFqns.isEmpty();
+  }
 }

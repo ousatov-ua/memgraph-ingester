@@ -31,6 +31,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
 import org.jspecify.annotations.NonNull;
 import org.neo4j.driver.Driver;
 import org.neo4j.driver.Session;
@@ -292,11 +293,8 @@ public final class IngestionOrchestrator {
         if (adapterFor(file).isEmpty()) {
           continue;
         }
-        try {
-          writer.deleteSourceFile(file);
+        if (deleteSourceFileWithRetry(file, writer::deleteSourceFile)) {
           changedGraph = true;
-        } catch (RuntimeException e) {
-          log.warn("Failed to update graph for watch event on {}: {}", file, e.getMessage());
         }
       }
       if (changedGraph) {
@@ -304,6 +302,23 @@ public final class IngestionOrchestrator {
         log.info("Watch re-ingestion complete.");
       }
     }
+  }
+
+  boolean deleteSourceFileWithRetry(Path file, Consumer<Path> deleteAction) {
+    long backoffMs = FILE_TX_INITIAL_BACKOFF_MS;
+    for (int attempt = 1; attempt <= FILE_TX_RETRY_ATTEMPTS; attempt++) {
+      try {
+        deleteAction.accept(file);
+        return true;
+      } catch (RuntimeException e) {
+        if (!GraphWriter.isRetryable(e) || attempt == FILE_TX_RETRY_ATTEMPTS) {
+          log.warn("Failed to update graph for watch delete on {}: {}", file, e.getMessage());
+          return false;
+        }
+        backoffMs = sleepBeforeFileRetry(file, attempt, e, backoffMs);
+      }
+    }
+    return false;
   }
 
   /** Refreshes graph artifacts that depend on all available code nodes being present. */
@@ -520,11 +535,14 @@ public final class IngestionOrchestrator {
       throws InterruptedException {
     List<SourceFile> transactionalFiles = new ArrayList<>();
     List<SourceFile> parallelFiles = new ArrayList<>();
-    for (SourceFile file : files) {
-      if (requiresFileTransaction(file, storedFiles)) {
-        transactionalFiles.add(file);
-      } else {
-        parallelFiles.add(file);
+    try (Session session = driver.session()) {
+      GraphWriter classifier = new GraphWriter(session, project);
+      for (SourceFile file : files) {
+        if (requiresFileTransaction(file, storedFiles, classifier)) {
+          transactionalFiles.add(file);
+        } else {
+          parallelFiles.add(file);
+        }
       }
     }
     int failures = ingestParallelAutocommit(parallelFiles, storedFiles, currentSourcePaths);
@@ -537,13 +555,28 @@ public final class IngestionOrchestrator {
     return failures;
   }
 
-  private boolean requiresFileTransaction(SourceFile file, StoredFileState storedFiles) {
+  private boolean requiresFileTransaction(
+      SourceFile file, StoredFileState storedFiles, GraphWriter classifier) {
     if (isFileUnchanged(file.path(), storedFiles)) {
       return false;
     }
-    return !storedFiles.reliableExistingPaths()
-        || storedFiles.existingPaths().contains(file.path().toString())
-        || storedFiles.hasExistingGraphFiles();
+    if (!storedFiles.reliableExistingPaths()
+        || storedFiles.existingPaths().contains(file.path().toString())) {
+      return true;
+    }
+    if (!storedFiles.hasExistingGraphFiles()) {
+      return false;
+    }
+    try {
+      Optional<SourceFileDefinitions> definitions = file.adapter().inspectDefinitions(file.path());
+      return definitions.isEmpty() || classifier.hasExistingDefinitions(definitions.get());
+    } catch (RuntimeException e) {
+      log.debug(
+          "Could not classify {} for parallel ingest; using transactional ingest: {}",
+          file.path(),
+          e.getMessage());
+      return true;
+    }
   }
 
   private int ingestParallelAutocommit(

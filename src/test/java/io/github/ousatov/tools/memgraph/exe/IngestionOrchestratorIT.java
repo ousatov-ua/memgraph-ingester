@@ -18,9 +18,11 @@ import java.time.Duration;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.AfterAll;
@@ -258,6 +260,11 @@ class IngestionOrchestratorIT {
     }
 
     @Override
+    public Optional<SourceFileDefinitions> inspectDefinitions(Path file) {
+      return Optional.of(definitions);
+    }
+
+    @Override
     public boolean ingestFile(GraphWriter writer, Path file) {
       writer.deleteStaleDefinitionsForFile(file, definitions);
       return false;
@@ -278,10 +285,65 @@ class IngestionOrchestratorIT {
     }
 
     @Override
+    public Optional<SourceFileDefinitions> inspectDefinitions(Path file) {
+      return Optional.of(SourceFileDefinitions.empty());
+    }
+
+    @Override
     public boolean ingestFile(GraphWriter writer, Path file) {
       writer.deleteStaleDefinitionsForFile(
           file, SourceFileDefinitions.of(Set.of(), Set.of(), Set.of(), Set.of(), Set.of()));
       return false;
+    }
+  }
+
+  /**
+   * Adapter that records whether new files can still use parallel autocommit ingest.
+   *
+   * @author Oleksii Usatov
+   */
+  private static final class ConcurrencyTrackingJavaAdapter implements LanguageAdapter {
+
+    private final AtomicInteger active = new AtomicInteger();
+    private final AtomicInteger maxActive = new AtomicInteger();
+
+    @Override
+    public SourceLanguage language() {
+      return SourceLanguage.JAVA;
+    }
+
+    @Override
+    public boolean accepts(Path file) {
+      return file.toString().endsWith(".java");
+    }
+
+    @Override
+    public Optional<SourceFileDefinitions> inspectDefinitions(Path file) {
+      String name = file.getFileName().toString().replace(".java", "");
+      return Optional.of(
+          SourceFileDefinitions.of(
+              Set.of("com.example." + name), Set.of(), Set.of(), Set.of(), Set.of()));
+    }
+
+    @Override
+    public boolean ingestFile(GraphWriter writer, Path file) {
+      int current = active.incrementAndGet();
+      maxActive.accumulateAndGet(current, Math::max);
+      try {
+        TimeUnit.MILLISECONDS.sleep(100);
+        writer.upsertFile(file, language());
+        writer.upsertPackage("com.example", language());
+        return true;
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+        return false;
+      } finally {
+        active.decrementAndGet();
+      }
+    }
+
+    private int maxActive() {
+      return maxActive.get();
     }
   }
 
@@ -541,6 +603,28 @@ class IngestionOrchestratorIT {
   }
 
   @Test
+  void watchDeleteRetriesTransientFailure() throws Exception {
+    currentProject = PROJECT_BASE + "-watch-delete-retry";
+    sourceDir = Files.createTempDirectory("orch-watch-delete-retry-src-");
+    IngestionOrchestrator orchestrator =
+        new IngestionOrchestrator(
+            sourceDir, currentProject, 1, driver, new ParseService(sourceDir));
+    AtomicInteger attempts = new AtomicInteger();
+
+    boolean deleted =
+        orchestrator.deleteSourceFileWithRetry(
+            sourceDir.resolve("Gone.java"),
+            file -> {
+              if (attempts.getAndIncrement() == 0) {
+                throw new RuntimeException("conflicting transactions");
+              }
+            });
+
+    assertTrue(deleted);
+    assertEquals(2, attempts.get());
+  }
+
+  @Test
   void ingestsSequentiallyWithZeroFailures() throws Exception {
     currentProject = PROJECT_BASE + "-seq";
     sourceDir = buildSampleSourceTree();
@@ -712,6 +796,47 @@ class IngestionOrchestratorIT {
       deleteDir(seqDir);
       deleteDir(parDir);
     }
+  }
+
+  @Test
+  void newFilesWithoutDefinitionOverlapStillIngestInParallel() throws Exception {
+    currentProject = PROJECT_BASE + "-new-files-parallel";
+    sourceDir = Files.createTempDirectory("orch-new-files-parallel-src-");
+    Path pkgDir = sourceDir.resolve("com/example");
+    Files.createDirectories(pkgDir);
+    Files.writeString(
+        pkgDir.resolve("Seed.java"),
+        """
+        package com.example;
+
+        public class Seed {}
+        """);
+    IngestionOrchestrator normal =
+        new IngestionOrchestrator(
+            sourceDir, currentProject, 1, driver, new ParseService(sourceDir));
+    assertEquals(0, normal.run(Settings.def()));
+
+    Files.writeString(
+        pkgDir.resolve("FreshOne.java"),
+        """
+        package com.example;
+
+        public class FreshOne {}
+        """);
+    Files.writeString(
+        pkgDir.resolve("FreshTwo.java"),
+        """
+        package com.example;
+
+        public class FreshTwo {}
+        """);
+    ConcurrencyTrackingJavaAdapter adapter = new ConcurrencyTrackingJavaAdapter();
+    IngestionOrchestrator parallel =
+        new IngestionOrchestrator(sourceDir, currentProject, 2, driver, adapter);
+
+    assertEquals(0, parallel.run(Settings.def()));
+
+    assertTrue(adapter.maxActive() > 1, "independent new files should use parallel ingest");
   }
 
   @Test

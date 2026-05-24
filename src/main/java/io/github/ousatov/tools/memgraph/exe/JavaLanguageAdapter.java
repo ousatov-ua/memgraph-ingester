@@ -14,6 +14,7 @@ import com.github.javaparser.ast.body.RecordDeclaration;
 import io.github.ousatov.tools.memgraph.def.Const.Labels;
 import java.nio.file.Path;
 import java.util.LinkedHashSet;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.slf4j.Logger;
@@ -42,6 +43,17 @@ public final class JavaLanguageAdapter implements LanguageAdapter {
   @Override
   public boolean accepts(Path file) {
     return file.toString().endsWith(".java");
+  }
+
+  @Override
+  public Optional<SourceFileDefinitions> inspectDefinitions(Path file) {
+    var cuOpt = parseService.parse(file);
+    if (cuOpt.isEmpty()) {
+      return Optional.of(SourceFileDefinitions.empty());
+    }
+    CompilationUnit cu = cuOpt.get();
+    String pkg = cu.getPackageDeclaration().map(pd -> pd.getName().asString()).orElse("");
+    return Optional.of(collectDefinitions(pkg, cu));
   }
 
   @Override

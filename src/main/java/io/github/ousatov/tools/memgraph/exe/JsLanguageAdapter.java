@@ -4,6 +4,7 @@ import io.github.ousatov.tools.memgraph.def.Const.Labels;
 import java.nio.file.Path;
 import java.util.LinkedHashSet;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -43,6 +44,11 @@ public final class JsLanguageAdapter implements LanguageAdapter {
   @Override
   public boolean shouldVisitDirectory(Path directory) {
     return !isInNodeModules(directory);
+  }
+
+  @Override
+  public Optional<SourceFileDefinitions> inspectDefinitions(Path file) {
+    return Optional.of(collectDefinitions(analyzer.analyze(file)));
   }
 
   @Override
