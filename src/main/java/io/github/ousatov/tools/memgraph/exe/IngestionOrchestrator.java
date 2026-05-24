@@ -158,7 +158,6 @@ public final class IngestionOrchestrator {
     }
 
     List<SourceFile> files = discoverSourceFiles();
-    deleteMissingSourceFiles(files);
     log.atInfo()
         .setMessage(
             "Found {} supported source files across {} adapter(s). Ingesting with {} thread(s).")
@@ -185,6 +184,8 @@ public final class IngestionOrchestrator {
         throw new ProcessingException("Interrupted during ingestion", e);
       }
     }
+
+    deleteMissingSourceFiles(files);
 
     try (Session session = driver.session()) {
       GraphWriter postWriter = new GraphWriter(session, project);
@@ -261,20 +262,29 @@ public final class IngestionOrchestrator {
     try (Session session = driver.session()) {
       GraphWriter writer = new GraphWriter(session, project);
       boolean changedGraph = false;
-      for (Path file : files) {
+      List<Path> existingFiles = files.stream().filter(Files::exists).sorted().toList();
+      List<Path> deletedFiles =
+          files.stream().filter(file -> !Files.exists(file)).sorted().toList();
+      for (Path file : existingFiles) {
         Optional<LanguageAdapter> adapter = adapterFor(file);
         if (adapter.isEmpty()) {
           continue;
         }
         try {
-          if (Files.exists(file)) {
-            changedGraph |=
-                ingestFileBatched(
-                    writer, new SourceFile(file, adapter.get()), StoredFileState.empty());
-          } else {
-            writer.deleteSourceFile(file);
-            changedGraph = true;
-          }
+          changedGraph |=
+              ingestFileBatched(
+                  writer, new SourceFile(file, adapter.get()), StoredFileState.empty());
+        } catch (RuntimeException e) {
+          log.warn("Failed to update graph for watch event on {}: {}", file, e.getMessage());
+        }
+      }
+      for (Path file : deletedFiles) {
+        if (adapterFor(file).isEmpty()) {
+          continue;
+        }
+        try {
+          writer.deleteSourceFile(file);
+          changedGraph = true;
         } catch (RuntimeException e) {
           log.warn("Failed to update graph for watch event on {}: {}", file, e.getMessage());
         }

@@ -1251,6 +1251,79 @@ class GraphWriterIT {
   }
 
   @Test
+  void deleteSourceFilePreservesOwnerDefinedByAnotherFile() {
+    Path oldFile = Path.of("/tmp/test-gw/src/com/example/OldMoved.java");
+    Path newFile = Path.of("/tmp/test-gw/src/com/example/NewMoved.java");
+    String ownerFqn = "com.example.Moved";
+    String targetSig = ownerFqn + ".target()";
+    String callerSig = "com.example.Caller.call()";
+    session
+        .run(
+            "MERGE (oldFile:File {path: $oldPath, project: $p}) "
+                + "SET oldFile.language = 'java' "
+                + "MERGE (newFile:File {path: $newPath, project: $p}) "
+                + "SET newFile.language = 'java' "
+                + "MERGE (owner:Class {fqn: $ownerFqn, project: $p}) "
+                + "SET owner.name = 'Moved', owner.isExternal = false "
+                + "MERGE (target:Method {signature: $targetSig, project: $p}) "
+                + "SET target.name = 'target', target.ownerFqn = $ownerFqn, "
+                + "target.ownerDisplayName = 'Moved' "
+                + "MERGE (caller:Method {signature: $callerSig, project: $p}) "
+                + "SET caller.name = 'call', caller.ownerFqn = 'com.example.Caller', "
+                + "caller.ownerDisplayName = 'Caller' "
+                + "MERGE (oldFile)-[:DEFINES]->(owner) "
+                + "MERGE (newFile)-[:DEFINES]->(owner) "
+                + "MERGE (owner)-[:DECLARES]->(target) "
+                + "MERGE (caller)-[:CALLS]->(target)",
+            Map.of(
+                "p",
+                PROJECT,
+                "oldPath",
+                oldFile.toString(),
+                "newPath",
+                newFile.toString(),
+                "ownerFqn",
+                ownerFqn,
+                "targetSig",
+                targetSig,
+                "callerSig",
+                callerSig))
+        .consume();
+
+    writer.deleteSourceFile(oldFile);
+
+    var row =
+        session
+            .run(
+                "MATCH (owner:Class {fqn: $ownerFqn, project: $p}) "
+                    + "MATCH (target:Method {signature: $targetSig, project: $p}) "
+                    + "MATCH (:Method {signature: $callerSig, project: $p})-[:CALLS]->(target) "
+                    + "MATCH (newFile:File {path: $newPath, project: $p})-[:DEFINES]->(owner) "
+                    + "OPTIONAL MATCH (oldFile:File {path: $oldPath, project: $p}) "
+                    + "RETURN count(oldFile) AS oldFiles, count(newFile) AS newFiles, "
+                    + "count(owner) AS owners, count(target) AS methods",
+                Map.of(
+                    "p",
+                    PROJECT,
+                    "oldPath",
+                    oldFile.toString(),
+                    "newPath",
+                    newFile.toString(),
+                    "ownerFqn",
+                    ownerFqn,
+                    "targetSig",
+                    targetSig,
+                    "callerSig",
+                    callerSig))
+            .single();
+
+    assertEquals(0, row.get("oldFiles").asLong());
+    assertEquals(1, row.get("newFiles").asLong());
+    assertEquals(1, row.get("owners").asLong());
+    assertEquals(1, row.get("methods").asLong());
+  }
+
+  @Test
   void extendsMarksExternalParentAsExternal() {
     writer.upsertFile(TEST_FILE);
     writer.upsertPackage(PKG);

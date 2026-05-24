@@ -978,6 +978,63 @@ class IngestionOrchestratorIT {
   }
 
   @Test
+  void reingestionPreservesInboundCallsWhenMovedFileIsDeleted() throws Exception {
+    currentProject = PROJECT_BASE + "-deleted-moved-owner";
+    sourceDir = Files.createTempDirectory("orch-deleted-moved-owner-src-");
+    Path pkgDir = sourceDir.resolve("com/example");
+    Files.createDirectories(pkgDir);
+    Path oldFile = pkgDir.resolve("ZMoved.java");
+    Path callerFile = pkgDir.resolve("Caller.java");
+    Path newFile = pkgDir.resolve("AMoved.java");
+    Files.writeString(
+        oldFile,
+        """
+        package com.example;
+
+        class Moved {
+          void target() {}
+        }
+        """);
+    Files.writeString(
+        callerFile,
+        """
+        package com.example;
+
+        class Caller {
+          void call() {
+            new Moved().target();
+          }
+        }
+        """);
+    IngestionOrchestrator orchestrator =
+        new IngestionOrchestrator(
+            sourceDir, currentProject, 1, driver, new ParseService(sourceDir));
+
+    assertEquals(0, orchestrator.run(Settings.def()));
+    assertTrue(
+        callEdgeExists(currentProject, "com.example.Caller.call()", "com.example.Moved.target()"));
+
+    Files.writeString(
+        newFile,
+        """
+        package com.example;
+
+        class Moved {
+          void target() {}
+        }
+        """);
+    Files.delete(oldFile);
+
+    assertEquals(0, orchestrator.run(new Settings(false, false, false, false, true, false)));
+
+    assertFalse(fileExistsInGraph(currentProject, oldFile));
+    assertTrue(fileExistsInGraph(currentProject, newFile));
+    assertTrue(methodExists(currentProject, "com.example.Moved.target()"));
+    assertTrue(
+        callEdgeExists(currentProject, "com.example.Caller.call()", "com.example.Moved.target()"));
+  }
+
+  @Test
   void ingestsConstructorNodes() throws Exception {
     currentProject = PROJECT_BASE + "-ctor";
     sourceDir = Files.createTempDirectory("orch-ctor-src-");
