@@ -364,13 +364,10 @@ class IngestionOrchestratorIT {
       int current = active.incrementAndGet();
       maxActive.accumulateAndGet(current, Math::max);
       try {
-        TimeUnit.MILLISECONDS.sleep(100);
+        await().during(Duration.ofMillis(100)).until(() -> active.get() >= current);
         writer.upsertFile(file, language());
         writer.upsertPackage("com.example", language());
         return true;
-      } catch (InterruptedException _) {
-        Thread.currentThread().interrupt();
-        return false;
       } finally {
         active.decrementAndGet();
       }
