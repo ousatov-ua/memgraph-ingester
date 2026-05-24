@@ -304,50 +304,25 @@ public final class GraphWriter {
     }
   }
 
-  /**
-   * Batch-fetches source file paths already present in the graph. Unlike {@link
-   * #getAllFileLastModified(List, SourceLanguage)}, this deliberately includes files whose prior
-   * ingest is incomplete so callers can keep destructive cleanup transactional.
-   */
-  public Set<String> getExistingFilePaths(List<Path> files, SourceLanguage language) {
-    List<String> paths = files.stream().map(Path::toString).toList();
+  /** Returns project file paths outside the active source root that must remain retained. */
+  public Set<Path> getRetainedFilePathsOutsideSourceRoot(Path sourceRoot) {
+    String sourceRootText = sourceRoot.toString();
+    String separator = sourceRoot.getFileSystem().getSeparator();
+    String sourceRootPrefix =
+        sourceRootText.endsWith(separator) ? sourceRootText : sourceRootText + separator;
     return cypher.read(
-        Cypher.CYPHER_GET_EXISTING_FILES,
-        Map.of(Params.PATHS, paths, Params.LANGUAGE, language.graphName()),
+        Cypher.CYPHER_GET_RETAINED_FILES_OUTSIDE_SOURCE_ROOT,
+        Map.of(Params.SOURCE_ROOT, sourceRootText, Params.SOURCE_ROOT_PREFIX, sourceRootPrefix),
         result -> {
-          Set<String> existing = new HashSet<>();
+          Set<Path> retained = new HashSet<>();
           while (result.hasNext()) {
             String path = result.next().get(Params.PATH).asString(null);
             if (path != null) {
-              existing.add(path);
+              retained.add(Path.of(path));
             }
           }
-          return existing;
+          return retained;
         });
-  }
-
-  /** Returns whether the project already contains any source file for {@code language}. */
-  public boolean hasExistingFiles(SourceLanguage language) {
-    return cypher.read(
-        Cypher.CYPHER_HAS_EXISTING_FILES,
-        Map.of(Params.LANGUAGE, language.graphName()),
-        result -> result.hasNext() && result.next().get("files").asLong() > 0);
-  }
-
-  /** Returns whether any of the given source definition identities already exist in the graph. */
-  public boolean hasExistingDefinitions(SourceFileDefinitions definitions) {
-    if (definitions.isEmpty()) {
-      return false;
-    }
-    return cypher.read(
-        Cypher.CYPHER_HAS_EXISTING_DEFINITIONS,
-        Map.ofEntries(
-            Map.entry(Params.CLASS_FQNS, definitions.classFqns()),
-            Map.entry(Params.INTERFACE_FQNS, definitions.interfaceFqns()),
-            Map.entry(Params.ANNOTATION_FQNS, definitions.annotationFqns()),
-            Map.entry(Params.METHOD_SIGNATURES, definitions.methodSignatures()),
-            Map.entry(Params.FIELD_FQNS, definitions.fieldFqns())),
-        result -> result.hasNext() && result.next().get("definitions").asLong() > 0);
   }
 
   private void runInFileTransaction(Runnable action) {

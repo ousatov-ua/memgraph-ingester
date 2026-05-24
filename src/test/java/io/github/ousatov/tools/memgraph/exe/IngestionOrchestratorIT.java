@@ -19,9 +19,9 @@ import java.time.Duration;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -294,11 +294,6 @@ class IngestionOrchestratorIT {
     }
 
     @Override
-    public Optional<SourceFileDefinitions> inspectDefinitions(Path file) {
-      return Optional.of(definitions);
-    }
-
-    @Override
     public boolean ingestFile(GraphWriter writer, Path file) {
       writer.deleteStaleDefinitionsForFile(file, definitions);
       return false;
@@ -319,11 +314,6 @@ class IngestionOrchestratorIT {
     }
 
     @Override
-    public Optional<SourceFileDefinitions> inspectDefinitions(Path file) {
-      return Optional.of(SourceFileDefinitions.empty());
-    }
-
-    @Override
     public boolean ingestFile(GraphWriter writer, Path file) {
       writer.deleteStaleDefinitionsForFile(
           file, SourceFileDefinitions.of(Set.of(), Set.of(), Set.of(), Set.of(), Set.of()));
@@ -332,7 +322,7 @@ class IngestionOrchestratorIT {
   }
 
   /**
-   * Adapter that records whether new files can still use parallel autocommit ingest.
+   * Adapter that records whether independent files still use parallel ingest.
    *
    * @author Oleksii Usatov
    */
@@ -340,6 +330,7 @@ class IngestionOrchestratorIT {
 
     private final AtomicInteger active = new AtomicInteger();
     private final AtomicInteger maxActive = new AtomicInteger();
+    private final CountDownLatch firstWorkers = new CountDownLatch(2);
 
     @Override
     public SourceLanguage language() {
@@ -352,19 +343,14 @@ class IngestionOrchestratorIT {
     }
 
     @Override
-    public Optional<SourceFileDefinitions> inspectDefinitions(Path file) {
-      String name = file.getFileName().toString().replace(".java", "");
-      return Optional.of(
-          SourceFileDefinitions.of(
-              Set.of("com.example." + name), Set.of(), Set.of(), Set.of(), Set.of()));
-    }
-
-    @Override
     public boolean ingestFile(GraphWriter writer, Path file) {
       int current = active.incrementAndGet();
       maxActive.accumulateAndGet(current, Math::max);
       try {
-        await().during(Duration.ofMillis(100)).until(() -> active.get() >= current);
+        firstWorkers.countDown();
+        if (current <= 2) {
+          await().until(() -> firstWorkers.getCount() == 0);
+        }
         writer.upsertFile(file, language());
         writer.upsertPackage("com.example", language());
         return true;
@@ -1291,6 +1277,48 @@ class IngestionOrchestratorIT {
       assertEquals(1, row.get("newParents").asLong());
       assertEquals(0, row.get("deprecated").asLong());
       assertEquals(0, row.get("oldFiles").asLong());
+    }
+  }
+
+  @Test
+  void missingFileCleanupPreservesDefinitionsFromOtherSourceRoots() throws Exception {
+    currentProject = PROJECT_BASE + "-missing-file-other-root";
+    sourceDir = Files.createTempDirectory("orch-missing-file-root-a-");
+    Path otherRoot = Files.createTempDirectory("orch-missing-file-root-b-");
+    try {
+      Path rootA = sourceDir.resolve("com/example");
+      Path rootB = otherRoot.resolve("com/example");
+      Files.createDirectories(rootA);
+      Files.createDirectories(rootB);
+      Path removedFile = rootA.resolve("Shared.java");
+      Path retainedFile = rootB.resolve("Shared.java");
+      String source =
+          """
+          package com.example;
+
+          public class Shared {}
+          """;
+      Files.writeString(removedFile, source);
+      Files.writeString(retainedFile, source);
+      IngestionOrchestrator rootAOrchestrator =
+          new IngestionOrchestrator(
+              sourceDir, currentProject, 1, driver, new ParseService(sourceDir));
+      IngestionOrchestrator rootBOrchestrator =
+          new IngestionOrchestrator(
+              otherRoot, currentProject, 1, driver, new ParseService(otherRoot));
+      assertEquals(0, rootAOrchestrator.run(Settings.def()));
+      assertEquals(0, rootBOrchestrator.run(Settings.def()));
+      assertTrue(classExists(currentProject, "com.example.Shared"));
+
+      Files.delete(removedFile);
+
+      assertEquals(0, rootAOrchestrator.run(Settings.def()));
+
+      assertFalse(fileExistsInGraph(currentProject, removedFile));
+      assertTrue(fileExistsInGraph(currentProject, retainedFile));
+      assertTrue(classExists(currentProject, "com.example.Shared"));
+    } finally {
+      deleteDir(otherRoot);
     }
   }
 

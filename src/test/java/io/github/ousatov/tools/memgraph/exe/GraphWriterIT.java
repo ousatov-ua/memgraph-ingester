@@ -1820,22 +1820,6 @@ class GraphWriterIT {
   }
 
   @Test
-  void hasExistingDefinitionsReturnsTrueWhenOnlyClassMatches() {
-    String ownerFqn = "com.example.OnlyClass";
-    session
-        .run(
-            "MERGE (owner:Class {fqn: $ownerFqn, project: $p}) "
-                + "SET owner.name = 'OnlyClass', owner.language = 'java', owner.isExternal = false",
-            Map.of("p", PROJECT, "ownerFqn", ownerFqn))
-        .consume();
-
-    SourceFileDefinitions definitions =
-        SourceFileDefinitions.of(List.of(ownerFqn), List.of(), List.of(), List.of(), List.of());
-
-    assertTrue(writer.hasExistingDefinitions(definitions));
-  }
-
-  @Test
   void deleteStaleDefinitionsForFilePreservesSharedOwnerRelationsFromRetainedFile() {
     Path changedFile = Path.of("/tmp/test-gw/src/app/changed.ts");
     Path retainedFile = Path.of("/tmp/test-gw/src/app/retained.ts");

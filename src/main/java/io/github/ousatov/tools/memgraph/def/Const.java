@@ -55,15 +55,9 @@ public final class Const {
     public static final String CYPHER_GET_JAVASCRIPT_FILES_LAST_MODIFIED =
         action("Js/get-files-last-modified.cypher");
 
-    /** Batch-fetches source file paths already present in the graph. */
-    public static final String CYPHER_GET_EXISTING_FILES = action("get-existing-files.cypher");
-
-    /** Checks whether the project already has any stored file for a source language. */
-    public static final String CYPHER_HAS_EXISTING_FILES = action("has-existing-files.cypher");
-
-    /** Checks whether any given source definition identities already exist. */
-    public static final String CYPHER_HAS_EXISTING_DEFINITIONS =
-        action("has-existing-definitions.cypher");
+    /** Fetches retained source file paths outside the active source root. */
+    public static final String CYPHER_GET_RETAINED_FILES_OUTSIDE_SOURCE_ROOT =
+        action("get-retained-files-outside-source-root.cypher");
 
     public static final String CYPHER_WIPE_PROJECT_MEMORIES =
         action("wipe-project-memories.cypher");

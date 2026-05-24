@@ -10,7 +10,6 @@ import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
-import java.util.Optional;
 
 /**
  * Parses source files for one supported language and writes their structure through {@link
@@ -25,11 +24,6 @@ public interface LanguageAdapter {
   boolean accepts(Path file);
 
   boolean ingestFile(GraphWriter writer, Path file);
-
-  /** Returns definition identities for scheduling decisions, or empty when the adapter cannot. */
-  default Optional<SourceFileDefinitions> inspectDefinitions(Path file) {
-    return Optional.empty();
-  }
 
   default boolean shouldVisitDirectory(Path directory) {
     Path fileName = directory.getFileName();

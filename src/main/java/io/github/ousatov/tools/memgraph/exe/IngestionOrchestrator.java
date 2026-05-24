@@ -52,9 +52,9 @@ public final class IngestionOrchestrator {
   private static final Logger log = LoggerFactory.getLogger(IngestionOrchestrator.class);
 
   private static final long SHUTDOWN_TIMEOUT_MINUTES = 10L;
-  private static final int FILE_TX_RETRY_ATTEMPTS = 8;
+  private static final int FILE_TX_RETRY_ATTEMPTS = 16;
   private static final long FILE_TX_INITIAL_BACKOFF_MS = 10L;
-  private static final long FILE_TX_MAX_BACKOFF_MS = 500L;
+  private static final long FILE_TX_MAX_BACKOFF_MS = 1_000L;
   private static final int PROGRESS_DIVISOR = 10;
 
   private final Path sourceRoot;
@@ -403,11 +403,12 @@ public final class IngestionOrchestrator {
   }
 
   private StoredFileState preloadStoredFileState(List<SourceFile> files) {
+    if (!incremental) {
+      return StoredFileState.empty();
+    }
     try (Session session = driver.session()) {
       GraphWriter writer = new GraphWriter(session, project);
       Map<String, Long> preloaded = new HashMap<>();
-      Set<String> existingPaths = new HashSet<>();
-      boolean hasExistingGraphFiles = false;
       Map<SourceLanguage, List<Path>> pathsByLanguage = new LinkedHashMap<>();
       for (SourceFile file : files) {
         pathsByLanguage
@@ -415,12 +416,9 @@ public final class IngestionOrchestrator {
             .add(file.path());
       }
       for (var entry : pathsByLanguage.entrySet()) {
-        hasExistingGraphFiles |= writer.hasExistingFiles(entry.getKey());
-        existingPaths.addAll(writer.getExistingFilePaths(entry.getValue(), entry.getKey()));
         preloaded.putAll(writer.getAllFileLastModified(entry.getValue(), entry.getKey()));
       }
-      return new StoredFileState(
-          Map.copyOf(preloaded), Set.copyOf(existingPaths), hasExistingGraphFiles, true);
+      return new StoredFileState(Map.copyOf(preloaded), true);
     } catch (RuntimeException e) {
       log.warn(
           "Could not batch-fetch stored source files; changed files will be ingested"
@@ -437,9 +435,10 @@ public final class IngestionOrchestrator {
           .computeIfAbsent(file.adapter().language(), ignored -> new ArrayList<>())
           .add(file.path());
     }
-    List<Path> retainedPaths = files.stream().map(SourceFile::path).toList();
     try (Session session = driver.session()) {
       GraphWriter writer = new GraphWriter(session, project);
+      Set<Path> retainedPaths = new HashSet<>(files.stream().map(SourceFile::path).toList());
+      retainedPaths.addAll(writer.getRetainedFilePathsOutsideSourceRoot(sourceRoot));
       for (SourceLanguage language : languages()) {
         List<Path> currentPaths = pathsByLanguage.getOrDefault(language, List.of());
         writer.deleteFilesMissingFromSource(sourceRoot, currentPaths, retainedPaths, language);
@@ -532,10 +531,16 @@ public final class IngestionOrchestrator {
   }
 
   private long sleepBeforeFileRetry(Path file, int attempt, RuntimeException e, long backoffMs) {
+    long jitterMs = Math.floorMod((long) file.hashCode() + attempt * 31L, backoffMs);
+    long delayMs = backoffMs + jitterMs;
     log.debug(
-        "Retrying {} after transaction conflict on attempt {}: {}", file, attempt, e.getMessage());
+        "Retrying {} after transaction conflict on attempt {} in {} ms: {}",
+        file,
+        attempt,
+        delayMs,
+        e.getMessage());
     try {
-      TimeUnit.MILLISECONDS.sleep(backoffMs);
+      TimeUnit.MILLISECONDS.sleep(delayMs);
     } catch (InterruptedException ie) {
       Thread.currentThread().interrupt();
       throw new ProcessingException("Interrupted during file retry", ie);
@@ -547,53 +552,10 @@ public final class IngestionOrchestrator {
   private int ingestParallel(
       List<SourceFile> files, StoredFileState storedFiles, Collection<Path> currentSourcePaths)
       throws InterruptedException {
-    List<SourceFile> transactionalFiles = new ArrayList<>();
-    List<SourceFile> parallelFiles = new ArrayList<>();
-    try (Session session = driver.session()) {
-      GraphWriter classifier = new GraphWriter(session, project);
-      for (SourceFile file : files) {
-        if (requiresFileTransaction(file, storedFiles, classifier)) {
-          transactionalFiles.add(file);
-        } else {
-          parallelFiles.add(file);
-        }
-      }
-    }
-    int failures = ingestParallelAutocommit(parallelFiles, storedFiles, currentSourcePaths);
-    if (!transactionalFiles.isEmpty()) {
-      log.info(
-          "Processing {} changed file(s) sequentially so stale cleanup remains atomic.",
-          transactionalFiles.size());
-      failures += ingestSequential(transactionalFiles, storedFiles, currentSourcePaths);
-    }
-    return failures;
+    return ingestParallelTransactional(files, storedFiles, currentSourcePaths);
   }
 
-  private boolean requiresFileTransaction(
-      SourceFile file, StoredFileState storedFiles, GraphWriter classifier) {
-    if (isFileUnchanged(file.path(), storedFiles)) {
-      return false;
-    }
-    if (!storedFiles.reliableExistingPaths()
-        || storedFiles.existingPaths().contains(file.path().toString())) {
-      return true;
-    }
-    if (!storedFiles.hasExistingGraphFiles()) {
-      return false;
-    }
-    try {
-      Optional<SourceFileDefinitions> definitions = file.adapter().inspectDefinitions(file.path());
-      return definitions.isEmpty() || classifier.hasExistingDefinitions(definitions.get());
-    } catch (RuntimeException e) {
-      log.debug(
-          "Could not classify {} for parallel ingest; using transactional ingest: {}",
-          file.path(),
-          e.getMessage());
-      return true;
-    }
-  }
-
-  private int ingestParallelAutocommit(
+  private int ingestParallelTransactional(
       List<SourceFile> files, StoredFileState storedFiles, Collection<Path> currentSourcePaths)
       throws InterruptedException {
     if (files.isEmpty()) {
@@ -632,7 +594,7 @@ public final class IngestionOrchestrator {
         pool.submit(
             () -> {
               try {
-                if (!ingestFileUnbatched(threadWriter.get(), file, storedFiles)) {
+                if (!ingestFileBatched(threadWriter.get(), file, storedFiles)) {
                   failures.incrementAndGet();
                 }
               } catch (Exception e) {
@@ -673,15 +635,6 @@ public final class IngestionOrchestrator {
     return failures.get();
   }
 
-  private boolean ingestFileUnbatched(
-      GraphWriter writer, SourceFile sourceFile, StoredFileState storedFiles) {
-    if (isFileUnchanged(sourceFile.path(), storedFiles)) {
-      log.debug("Skipping unchanged file: {}", sourceFile.path());
-      return true;
-    }
-    return ingestFile(writer, sourceFile);
-  }
-
   /**
    * Parses a single file through the selected language adapter and writes all structural nodes.
    * Fully resolved Java call edges may use placeholder callee nodes that are later upgraded or
@@ -701,17 +654,14 @@ public final class IngestionOrchestrator {
   }
 
   private record StoredFileState(
-      Map<String, Long> lastModifiedByPath,
-      Set<String> existingPaths,
-      boolean hasExistingGraphFiles,
-      boolean reliableExistingPaths) {
+      Map<String, Long> lastModifiedByPath, boolean reliableExistingPaths) {
 
     static StoredFileState empty() {
-      return new StoredFileState(Map.of(), Set.of(), false, true);
+      return new StoredFileState(Map.of(), true);
     }
 
     static StoredFileState unreliable() {
-      return new StoredFileState(Map.of(), Set.of(), true, false);
+      return new StoredFileState(Map.of(), false);
     }
   }
 

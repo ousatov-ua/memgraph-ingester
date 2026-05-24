@@ -111,19 +111,6 @@ class CypherResourceTest {
   }
 
   @Test
-  void hasExistingDefinitionsUsesLabelConstrainedLookups() {
-    String cypher = Const.Cypher.CYPHER_HAS_EXISTING_DEFINITIONS;
-
-    assertFalse(cypher.contains("MATCH (definition {project: $project})"));
-    assertTrue(cypher.contains("MATCH (classDefinition:Class {project: $project})"));
-    assertTrue(cypher.contains("MATCH (interfaceDefinition:Interface {project: $project})"));
-    assertTrue(cypher.contains("MATCH (annotationDefinition:Annotation {project: $project})"));
-    assertTrue(cypher.contains("MATCH (methodDefinition:Method {project: $project})"));
-    assertTrue(cypher.contains("MATCH (fieldDefinition:Field {project: $project})"));
-    assertTrue(cypher.contains("OPTIONAL MATCH"));
-  }
-
-  @Test
   void nativeImageResourceConfigIncludesCypherResources() {
     String config =
         resourceAt(
