@@ -134,7 +134,9 @@ public final class GraphWriter {
    *
    * <p>Current method nodes are kept so incoming {@code CALLS} edges from unchanged files survive
    * incremental re-ingestion. Their outgoing edges are cleared and recreated from the current file
-   * body.
+   * body. Current owners are refreshed by FQN before file-local stale-owner cleanup so a
+   * declaration moved from another file does not carry stale members, annotations, or type
+   * relations forward.
    */
   public void deleteStaleDefinitionsForFile(Path file, SourceFileDefinitions definitions) {
     deletePendingCallsForFile(file);
@@ -147,6 +149,11 @@ public final class GraphWriter {
             Map.entry(Params.METHOD_SIGNATURES, definitions.methodSignatures()),
             Map.entry(Params.FIELD_FQNS, definitions.fieldFqns()));
     List.of(
+            Cypher.CYPHER_DELETE_CURRENT_OWNER_CALLS_FOR_FILE,
+            Cypher.CYPHER_DELETE_CURRENT_OWNER_ANNOTATIONS_FOR_FILE,
+            Cypher.CYPHER_DELETE_CURRENT_MEMBER_ANNOTATIONS_FOR_FILE,
+            Cypher.CYPHER_DELETE_CURRENT_TYPE_RELATIONS_FOR_FILE,
+            Cypher.CYPHER_DELETE_STALE_CURRENT_OWNER_MEMBERS_FOR_FILE,
             Cypher.CYPHER_DELETE_STALE_OWNERS_FOR_FILE,
             Cypher.CYPHER_DELETE_CALLS_FOR_FILE,
             Cypher.CYPHER_DELETE_OWNER_ANNOTATIONS_FOR_FILE,

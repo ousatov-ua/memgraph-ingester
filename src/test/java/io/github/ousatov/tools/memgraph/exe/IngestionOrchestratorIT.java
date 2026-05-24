@@ -974,6 +974,7 @@ class IngestionOrchestratorIT {
 
     assertTrue(classExists(currentProject, "com.example.Moved"));
     assertTrue(methodExists(currentProject, "com.example.Moved.newMethod()"));
+    assertFalse(methodExists(currentProject, "com.example.Moved.oldMethod()"));
   }
 
   @Test

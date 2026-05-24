@@ -144,6 +144,36 @@ public final class Const {
     public static final String CYPHER_DELETE_TYPE_RELATIONS_FOR_FILE =
         action("delete-type-relations-for-file.cypher");
 
+    /**
+     * Clears outgoing {@code CALLS} edges from methods declared by the owners currently present in
+     * one source file.
+     */
+    public static final String CYPHER_DELETE_CURRENT_OWNER_CALLS_FOR_FILE =
+        action("delete-current-owner-calls-for-file.cypher");
+
+    /**
+     * Clears owner-level annotation edges for declarations currently present in one source file.
+     */
+    public static final String CYPHER_DELETE_CURRENT_OWNER_ANNOTATIONS_FOR_FILE =
+        action("delete-current-owner-annotations-for-file.cypher");
+
+    /**
+     * Clears member-level annotation edges for declarations currently present in one source file.
+     */
+    public static final String CYPHER_DELETE_CURRENT_MEMBER_ANNOTATIONS_FOR_FILE =
+        action("delete-current-member-annotations-for-file.cypher");
+
+    /**
+     * Clears inheritance and implementation edges for declarations currently present in one source
+     * file.
+     */
+    public static final String CYPHER_DELETE_CURRENT_TYPE_RELATIONS_FOR_FILE =
+        action("delete-current-type-relations-for-file.cypher");
+
+    /** Deletes member declarations absent from owners currently present in one source file. */
+    public static final String CYPHER_DELETE_STALE_CURRENT_OWNER_MEMBERS_FOR_FILE =
+        action("delete-stale-current-owner-members-for-file.cypher");
+
     /** Deletes method declarations that no longer exist in a source file. */
     public static final String CYPHER_DELETE_STALE_METHODS_FOR_FILE =
         action("delete-stale-methods-for-file.cypher");
