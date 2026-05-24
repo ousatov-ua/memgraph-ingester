@@ -154,14 +154,14 @@ public final class GraphWriter {
             Cypher.CYPHER_DELETE_CURRENT_MEMBER_ANNOTATIONS_FOR_FILE,
             Cypher.CYPHER_DELETE_CURRENT_TYPE_RELATIONS_FOR_FILE,
             Cypher.CYPHER_DELETE_STALE_CURRENT_OWNER_MEMBERS_FOR_FILE,
+            Cypher.CYPHER_DELETE_STALE_OWNER_MEMBERS_FOR_FILE,
             Cypher.CYPHER_DELETE_STALE_OWNERS_FOR_FILE,
             Cypher.CYPHER_DELETE_CALLS_FOR_FILE,
             Cypher.CYPHER_DELETE_OWNER_ANNOTATIONS_FOR_FILE,
             Cypher.CYPHER_DELETE_MEMBER_ANNOTATIONS_FOR_FILE,
             Cypher.CYPHER_DELETE_TYPE_RELATIONS_FOR_FILE,
             Cypher.CYPHER_DELETE_STALE_METHODS_FOR_FILE,
-            Cypher.CYPHER_DELETE_STALE_FIELDS_FOR_FILE,
-            Cypher.CYPHER_DELETE_STALE_OWNER_MEMBERS_FOR_FILE)
+            Cypher.CYPHER_DELETE_STALE_FIELDS_FOR_FILE)
         .forEach(q -> cypher.run(q, params));
   }
 
@@ -292,6 +292,14 @@ public final class GraphWriter {
           }
           return existing;
         });
+  }
+
+  /** Returns whether the project already contains any source file for {@code language}. */
+  public boolean hasExistingFiles(SourceLanguage language) {
+    return cypher.read(
+        Cypher.CYPHER_HAS_EXISTING_FILES,
+        Map.of(Params.LANGUAGE, language.graphName()),
+        result -> result.hasNext() && result.next().get("files").asLong() > 0);
   }
 
   private void runInFileTransaction(Runnable action) {

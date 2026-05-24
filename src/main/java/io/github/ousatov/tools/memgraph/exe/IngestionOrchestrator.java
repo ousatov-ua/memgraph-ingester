@@ -369,6 +369,7 @@ public final class IngestionOrchestrator {
       GraphWriter writer = new GraphWriter(session, project);
       Map<String, Long> preloaded = new HashMap<>();
       Set<String> existingPaths = new HashSet<>();
+      boolean hasExistingGraphFiles = false;
       Map<SourceLanguage, List<Path>> pathsByLanguage = new LinkedHashMap<>();
       for (SourceFile file : files) {
         pathsByLanguage
@@ -376,10 +377,12 @@ public final class IngestionOrchestrator {
             .add(file.path());
       }
       for (var entry : pathsByLanguage.entrySet()) {
+        hasExistingGraphFiles |= writer.hasExistingFiles(entry.getKey());
         existingPaths.addAll(writer.getExistingFilePaths(entry.getValue(), entry.getKey()));
         preloaded.putAll(writer.getAllFileLastModified(entry.getValue(), entry.getKey()));
       }
-      return new StoredFileState(Map.copyOf(preloaded), Set.copyOf(existingPaths), true);
+      return new StoredFileState(
+          Map.copyOf(preloaded), Set.copyOf(existingPaths), hasExistingGraphFiles, true);
     } catch (RuntimeException e) {
       log.warn(
           "Could not batch-fetch stored source files; changed files will be ingested"
@@ -502,14 +505,19 @@ public final class IngestionOrchestrator {
   @SuppressWarnings(value = {"java:S3776"})
   private int ingestParallel(List<SourceFile> files, StoredFileState storedFiles)
       throws InterruptedException {
-    List<SourceFile> transactionalFiles =
-        files.stream().filter(file -> requiresFileTransaction(file, storedFiles)).toList();
-    List<SourceFile> parallelFiles =
-        files.stream().filter(file -> !requiresFileTransaction(file, storedFiles)).toList();
+    List<SourceFile> transactionalFiles = new ArrayList<>();
+    List<SourceFile> parallelFiles = new ArrayList<>();
+    for (SourceFile file : files) {
+      if (requiresFileTransaction(file, storedFiles)) {
+        transactionalFiles.add(file);
+      } else {
+        parallelFiles.add(file);
+      }
+    }
     int failures = ingestParallelAutocommit(parallelFiles, storedFiles);
     if (!transactionalFiles.isEmpty()) {
       log.info(
-          "Processing {} existing file(s) sequentially so stale cleanup remains atomic.",
+          "Processing {} changed file(s) sequentially so stale cleanup remains atomic.",
           transactionalFiles.size());
       failures += ingestSequential(transactionalFiles, storedFiles);
     }
@@ -517,9 +525,12 @@ public final class IngestionOrchestrator {
   }
 
   private boolean requiresFileTransaction(SourceFile file, StoredFileState storedFiles) {
-    return !isFileUnchanged(file.path(), storedFiles)
-        && (!storedFiles.reliableExistingPaths()
-            || storedFiles.existingPaths().contains(file.path().toString()));
+    if (isFileUnchanged(file.path(), storedFiles)) {
+      return false;
+    }
+    return !storedFiles.reliableExistingPaths()
+        || storedFiles.existingPaths().contains(file.path().toString())
+        || storedFiles.hasExistingGraphFiles();
   }
 
   private int ingestParallelAutocommit(List<SourceFile> files, StoredFileState storedFiles)
@@ -620,14 +631,15 @@ public final class IngestionOrchestrator {
   private record StoredFileState(
       Map<String, Long> lastModifiedByPath,
       Set<String> existingPaths,
+      boolean hasExistingGraphFiles,
       boolean reliableExistingPaths) {
 
     static StoredFileState empty() {
-      return new StoredFileState(Map.of(), Set.of(), true);
+      return new StoredFileState(Map.of(), Set.of(), false, true);
     }
 
     static StoredFileState unreliable() {
-      return new StoredFileState(Map.of(), Set.of(), false);
+      return new StoredFileState(Map.of(), Set.of(), true, false);
     }
   }
 

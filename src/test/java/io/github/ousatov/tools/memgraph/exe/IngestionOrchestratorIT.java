@@ -237,6 +237,16 @@ class IngestionOrchestratorIT {
    */
   private static final class CleanupThenFailingJavaAdapter implements LanguageAdapter {
 
+    private final SourceFileDefinitions definitions;
+
+    private CleanupThenFailingJavaAdapter() {
+      this(SourceFileDefinitions.of(Set.of(), Set.of(), Set.of(), Set.of(), Set.of()));
+    }
+
+    private CleanupThenFailingJavaAdapter(SourceFileDefinitions definitions) {
+      this.definitions = definitions;
+    }
+
     @Override
     public SourceLanguage language() {
       return SourceLanguage.JAVA;
@@ -249,8 +259,7 @@ class IngestionOrchestratorIT {
 
     @Override
     public boolean ingestFile(GraphWriter writer, Path file) {
-      writer.deleteStaleDefinitionsForFile(
-          file, SourceFileDefinitions.of(Set.of(), Set.of(), Set.of(), Set.of(), Set.of()));
+      writer.deleteStaleDefinitionsForFile(file, definitions);
       return false;
     }
   }
@@ -870,6 +879,47 @@ class IngestionOrchestratorIT {
   }
 
   @Test
+  void reingestionDeletesOwnerRemovedFromChangedFile() throws Exception {
+    currentProject = PROJECT_BASE + "-removed-owner";
+    sourceDir = Files.createTempDirectory("orch-removed-owner-src-");
+    Path pkgDir = sourceDir.resolve("com/example");
+    Files.createDirectories(pkgDir);
+    Path file = pkgDir.resolve("Types.java");
+    Files.writeString(
+        file,
+        """
+        package com.example;
+
+        class Removed {
+          void gone() {}
+        }
+
+        class Kept {}
+        """);
+    IngestionOrchestrator orchestrator =
+        new IngestionOrchestrator(
+            sourceDir, currentProject, 1, driver, new ParseService(sourceDir));
+
+    assertEquals(0, orchestrator.run(Settings.def()));
+    assertTrue(classExists(currentProject, "com.example.Removed"));
+    assertTrue(methodExists(currentProject, "com.example.Removed.gone()"));
+
+    Files.writeString(
+        file,
+        """
+        package com.example;
+
+        class Kept {}
+        """);
+
+    assertEquals(0, orchestrator.run(Settings.def()));
+
+    assertFalse(classExists(currentProject, "com.example.Removed"));
+    assertFalse(methodExists(currentProject, "com.example.Removed.gone()"));
+    assertTrue(classExists(currentProject, "com.example.Kept"));
+  }
+
+  @Test
   void parallelFailedFileIngestRollsBackStaleCleanup() throws Exception {
     currentProject = PROJECT_BASE + "-parallel-atomic-failure";
     sourceDir = Files.createTempDirectory("orch-parallel-atomic-src-");
@@ -928,6 +978,58 @@ class IngestionOrchestratorIT {
 
     assertTrue(fileExistsInGraph(currentProject, file));
     assertTrue(classExists(currentProject, "js.test.App"));
+  }
+
+  @Test
+  void parallelFailedNewMovedOwnerFileRollsBackCurrentOwnerCleanup() throws Exception {
+    currentProject = PROJECT_BASE + "-parallel-new-moved-owner";
+    sourceDir = Files.createTempDirectory("orch-parallel-new-moved-owner-src-");
+    Path pkgDir = sourceDir.resolve("com/example");
+    Files.createDirectories(pkgDir);
+    Path oldFile = pkgDir.resolve("ZOld.java");
+    Path newFile = pkgDir.resolve("ANew.java");
+    Files.writeString(
+        oldFile,
+        """
+        package com.example;
+
+        public class Moved {
+          public void oldMethod() {}
+        }
+        """);
+    IngestionOrchestrator normal =
+        new IngestionOrchestrator(
+            sourceDir, currentProject, 1, driver, new ParseService(sourceDir));
+    assertEquals(0, normal.run(Settings.def()));
+    assertTrue(methodExists(currentProject, "com.example.Moved.oldMethod()"));
+
+    Files.writeString(
+        newFile,
+        """
+        package com.example;
+
+        public class Moved {
+          public void newMethod() {}
+        }
+        """);
+    IngestionOrchestrator failing =
+        new IngestionOrchestrator(
+            sourceDir,
+            currentProject,
+            2,
+            driver,
+            new CleanupThenFailingJavaAdapter(
+                SourceFileDefinitions.of(
+                    Set.of("com.example.Moved"),
+                    Set.of(),
+                    Set.of(),
+                    Set.of("com.example.Moved.newMethod()"),
+                    Set.of())));
+
+    assertEquals(2, failing.run(Settings.def()));
+
+    assertTrue(methodExists(currentProject, "com.example.Moved.oldMethod()"));
+    assertFalse(methodExists(currentProject, "com.example.Moved.newMethod()"));
   }
 
   @Test

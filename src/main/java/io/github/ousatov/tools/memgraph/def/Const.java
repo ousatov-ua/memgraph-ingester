@@ -58,6 +58,9 @@ public final class Const {
     /** Batch-fetches source file paths already present in the graph. */
     public static final String CYPHER_GET_EXISTING_FILES = action("get-existing-files.cypher");
 
+    /** Checks whether the project already has any stored file for a source language. */
+    public static final String CYPHER_HAS_EXISTING_FILES = action("has-existing-files.cypher");
+
     public static final String CYPHER_WIPE_PROJECT_MEMORIES =
         action("wipe-project-memories.cypher");
     public static final String CYPHER_CLEAR_CODE_PACKAGE_CODE_REF_RESOLUTIONS =

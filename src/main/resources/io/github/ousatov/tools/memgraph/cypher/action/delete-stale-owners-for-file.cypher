@@ -7,7 +7,7 @@ WHERE owner.project = $project
   )
 DELETE defines
 WITH owner
-OPTIONAL MATCH (:File {project: $project})-[:DEFINES]->(owner)
-WITH owner, count(*) AS remainingDefinitions
+OPTIONAL MATCH (definingFile:File {project: $project})-[:DEFINES]->(owner)
+WITH owner, count(definingFile) AS remainingDefinitions
 WHERE remainingDefinitions = 0
 DETACH DELETE owner

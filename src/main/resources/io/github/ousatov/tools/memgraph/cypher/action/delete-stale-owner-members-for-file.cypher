@@ -1,4 +1,4 @@
-MATCH (:File {path: $path, project: $project})-[:DEFINES]->(owner)-[:DECLARES]->(member)
+MATCH (sourceFile:File {path: $path, project: $project})-[:DEFINES]->(owner)-[:DECLARES]->(member)
 WHERE owner.project = $project
   AND (
     (owner:Class AND NOT owner.fqn IN $classFqns)
@@ -7,4 +7,8 @@ WHERE owner.project = $project
   )
   AND member.project = $project
   AND (member:Method OR member:Field)
+OPTIONAL MATCH (otherFile:File {project: $project})-[:DEFINES]->(owner)
+WHERE otherFile <> sourceFile
+WITH member, count(otherFile) AS retainedDefinitions
+WHERE retainedDefinitions = 0
 DETACH DELETE member
