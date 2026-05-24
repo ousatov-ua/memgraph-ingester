@@ -255,6 +255,27 @@ class IngestionOrchestratorIT {
     }
   }
 
+  /** Adapter that simulates a JS/TS file-level failure after stale cleanup has run. */
+  private static final class CleanupThenFailingJsAdapter implements LanguageAdapter {
+
+    @Override
+    public SourceLanguage language() {
+      return SourceLanguage.JAVASCRIPT;
+    }
+
+    @Override
+    public boolean accepts(Path file) {
+      return file.toString().endsWith(".ts");
+    }
+
+    @Override
+    public boolean ingestFile(GraphWriter writer, Path file) {
+      writer.deleteStaleDefinitionsForFile(
+          file, SourceFileDefinitions.of(Set.of(), Set.of(), Set.of(), Set.of(), Set.of()));
+      return false;
+    }
+  }
+
   private static void deleteDir(Path dir) throws IOException {
     if (dir != null && Files.exists(dir)) {
       try (Stream<Path> walk = Files.walk(dir)) {
@@ -879,6 +900,80 @@ class IngestionOrchestratorIT {
     assertTrue(fileExistsInGraph(currentProject, file));
     assertTrue(classExists(currentProject, "com.example.Atomic"));
     assertTrue(methodExists(currentProject, "com.example.Atomic.oldMethod()"));
+  }
+
+  @Test
+  void parallelFailedUncachedExistingJavascriptFileRollsBackStaleCleanup() throws Exception {
+    currentProject = PROJECT_BASE + "-parallel-js-uncached";
+    sourceDir = Files.createTempDirectory("orch-parallel-js-uncached-src-");
+    Path file = sourceDir.resolve("app.ts");
+    Files.writeString(file, "export class App {}\n");
+    try (Session s = driver.session()) {
+      s.run(
+              "MERGE (f:File {path: $path, project: $p})"
+                  + " SET f.language = 'js', f.lastModified = 1"
+                  + " MERGE (c:Class {fqn: 'js.test.App', project: $p})"
+                  + " SET c.name = 'App', c.language = 'js', c.kind = 'class',"
+                  + "     c.isExternal = false"
+                  + " MERGE (f)-[:DEFINES]->(c)",
+              Map.of("p", currentProject, "path", file.toString()))
+          .consume();
+    }
+    assertTrue(classExists(currentProject, "js.test.App"));
+
+    IngestionOrchestrator failing =
+        new IngestionOrchestrator(
+            sourceDir, currentProject, 2, driver, new CleanupThenFailingJsAdapter());
+    assertEquals(1, failing.run(Settings.def()));
+
+    assertTrue(fileExistsInGraph(currentProject, file));
+    assertTrue(classExists(currentProject, "js.test.App"));
+  }
+
+  @Test
+  void reingestionPreservesOwnerMovedToAnotherFileInSameRun() throws Exception {
+    currentProject = PROJECT_BASE + "-moved-owner";
+    sourceDir = Files.createTempDirectory("orch-moved-owner-src-");
+    Path pkgDir = sourceDir.resolve("com/example");
+    Files.createDirectories(pkgDir);
+    Path oldFile = pkgDir.resolve("ZOld.java");
+    Path newFile = pkgDir.resolve("ANew.java");
+    Files.writeString(
+        oldFile,
+        """
+        package com.example;
+
+        public class Moved {
+          public void oldMethod() {}
+        }
+        """);
+    IngestionOrchestrator orchestrator =
+        new IngestionOrchestrator(
+            sourceDir, currentProject, 1, driver, new ParseService(sourceDir));
+    assertEquals(0, orchestrator.run(Settings.def()));
+    assertTrue(classExists(currentProject, "com.example.Moved"));
+
+    Files.writeString(
+        newFile,
+        """
+        package com.example;
+
+        public class Moved {
+          public void newMethod() {}
+        }
+        """);
+    Files.writeString(
+        oldFile,
+        """
+        package com.example;
+
+        class ZOld {}
+        """);
+
+    assertEquals(0, orchestrator.run(Settings.def()));
+
+    assertTrue(classExists(currentProject, "com.example.Moved"));
+    assertTrue(methodExists(currentProject, "com.example.Moved.newMethod()"));
   }
 
   @Test

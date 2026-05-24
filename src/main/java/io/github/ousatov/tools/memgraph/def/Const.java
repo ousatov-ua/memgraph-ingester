@@ -55,6 +55,9 @@ public final class Const {
     public static final String CYPHER_GET_JAVASCRIPT_FILES_LAST_MODIFIED =
         action("Js/get-files-last-modified.cypher");
 
+    /** Batch-fetches source file paths already present in the graph. */
+    public static final String CYPHER_GET_EXISTING_FILES = action("get-existing-files.cypher");
+
     public static final String CYPHER_WIPE_PROJECT_MEMORIES =
         action("wipe-project-memories.cypher");
     public static final String CYPHER_CLEAR_CODE_PACKAGE_CODE_REF_RESOLUTIONS =

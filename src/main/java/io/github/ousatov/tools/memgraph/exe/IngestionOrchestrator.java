@@ -167,17 +167,19 @@ public final class IngestionOrchestrator {
         .addArgument(threads)
         .log();
 
-    Map<String, Long> mtimeCache = preloadFileTimestamps(files);
+    StoredFileState storedFiles = preloadStoredFileState(files);
     if (incremental) {
-      log.info("Pre-loaded {} stored file timestamps for incremental mode.", mtimeCache.size());
+      log.info(
+          "Pre-loaded {} stored file timestamps for incremental mode.",
+          storedFiles.lastModifiedByPath().size());
     }
 
     int failures;
     if (threads == 1) {
-      failures = ingestSequential(files, mtimeCache);
+      failures = ingestSequential(files, storedFiles);
     } else {
       try {
-        failures = ingestParallel(files, mtimeCache);
+        failures = ingestParallel(files, storedFiles);
       } catch (InterruptedException e) {
         Thread.currentThread().interrupt();
         throw new ProcessingException("Interrupted during ingestion", e);
@@ -267,7 +269,8 @@ public final class IngestionOrchestrator {
         try {
           if (Files.exists(file)) {
             changedGraph |=
-                ingestFileBatched(writer, new SourceFile(file, adapter.get()), Map.of());
+                ingestFileBatched(
+                    writer, new SourceFile(file, adapter.get()), StoredFileState.empty());
           } else {
             writer.deleteSourceFile(file);
             changedGraph = true;
@@ -351,10 +354,11 @@ public final class IngestionOrchestrator {
     return List.copyOf(byPath.values());
   }
 
-  private Map<String, Long> preloadFileTimestamps(List<SourceFile> files) {
+  private StoredFileState preloadStoredFileState(List<SourceFile> files) {
     try (Session session = driver.session()) {
       GraphWriter writer = new GraphWriter(session, project);
       Map<String, Long> preloaded = new HashMap<>();
+      Set<String> existingPaths = new HashSet<>();
       Map<SourceLanguage, List<Path>> pathsByLanguage = new LinkedHashMap<>();
       for (SourceFile file : files) {
         pathsByLanguage
@@ -362,9 +366,16 @@ public final class IngestionOrchestrator {
             .add(file.path());
       }
       for (var entry : pathsByLanguage.entrySet()) {
+        existingPaths.addAll(writer.getExistingFilePaths(entry.getValue(), entry.getKey()));
         preloaded.putAll(writer.getAllFileLastModified(entry.getValue(), entry.getKey()));
       }
-      return Map.copyOf(preloaded);
+      return new StoredFileState(Map.copyOf(preloaded), Set.copyOf(existingPaths), true);
+    } catch (RuntimeException e) {
+      log.warn(
+          "Could not batch-fetch stored source files; changed files will be ingested"
+              + " transactionally: {}",
+          e.getMessage());
+      return StoredFileState.unreliable();
     }
   }
 
@@ -392,7 +403,7 @@ public final class IngestionOrchestrator {
     return languageAdapters.stream().filter(adapter -> adapter.accepts(file)).findFirst();
   }
 
-  private int ingestSequential(List<SourceFile> files, Map<String, Long> mtimeCache) {
+  private int ingestSequential(List<SourceFile> files, StoredFileState storedFiles) {
     int failures = 0;
     int total = files.size();
     int step = Math.clamp(total / PROGRESS_DIVISOR, 1, 100);
@@ -400,7 +411,7 @@ public final class IngestionOrchestrator {
     try (Session session = driver.session()) {
       GraphWriter writer = new GraphWriter(session, project);
       for (SourceFile file : files) {
-        if (!ingestFileBatched(writer, file, mtimeCache)) {
+        if (!ingestFileBatched(writer, file, storedFiles)) {
           failures++;
         }
         done++;
@@ -416,11 +427,11 @@ public final class IngestionOrchestrator {
    * Returns {@code true} when incremental mode is active and the file's filesystem {@code
    * lastModified} matches the value stored in {@code mtimeCache}, meaning no re-ingest is needed.
    */
-  private boolean isFileUnchanged(Path file, Map<String, Long> mtimeCache) {
-    if (!incremental) {
+  private boolean isFileUnchanged(Path file, StoredFileState storedFiles) {
+    if (!incremental || !storedFiles.reliableExistingPaths()) {
       return false;
     }
-    Long storedModified = mtimeCache.get(file.toString());
+    Long storedModified = storedFiles.lastModifiedByPath().get(file.toString());
     if (storedModified == null || storedModified <= 0) {
       return false;
     }
@@ -438,8 +449,8 @@ public final class IngestionOrchestrator {
    * @return true on success (or skip), false if parsing or graph write fails
    */
   private boolean ingestFileBatched(
-      GraphWriter writer, SourceFile sourceFile, Map<String, Long> mtimeCache) {
-    if (isFileUnchanged(sourceFile.path(), mtimeCache)) {
+      GraphWriter writer, SourceFile sourceFile, StoredFileState storedFiles) {
+    if (isFileUnchanged(sourceFile.path(), storedFiles)) {
       log.debug("Skipping unchanged file: {}", sourceFile.path());
       return true;
     }
@@ -479,28 +490,29 @@ public final class IngestionOrchestrator {
   }
 
   @SuppressWarnings(value = {"java:S3776"})
-  private int ingestParallel(List<SourceFile> files, Map<String, Long> mtimeCache)
+  private int ingestParallel(List<SourceFile> files, StoredFileState storedFiles)
       throws InterruptedException {
     List<SourceFile> transactionalFiles =
-        files.stream().filter(file -> requiresFileTransaction(file, mtimeCache)).toList();
+        files.stream().filter(file -> requiresFileTransaction(file, storedFiles)).toList();
     List<SourceFile> parallelFiles =
-        files.stream().filter(file -> !requiresFileTransaction(file, mtimeCache)).toList();
-    int failures = ingestParallelAutocommit(parallelFiles, mtimeCache);
+        files.stream().filter(file -> !requiresFileTransaction(file, storedFiles)).toList();
+    int failures = ingestParallelAutocommit(parallelFiles, storedFiles);
     if (!transactionalFiles.isEmpty()) {
       log.info(
           "Processing {} existing file(s) sequentially so stale cleanup remains atomic.",
           transactionalFiles.size());
-      failures += ingestSequential(transactionalFiles, mtimeCache);
+      failures += ingestSequential(transactionalFiles, storedFiles);
     }
     return failures;
   }
 
-  private boolean requiresFileTransaction(SourceFile file, Map<String, Long> mtimeCache) {
-    return mtimeCache.containsKey(file.path().toString())
-        && !isFileUnchanged(file.path(), mtimeCache);
+  private boolean requiresFileTransaction(SourceFile file, StoredFileState storedFiles) {
+    return !isFileUnchanged(file.path(), storedFiles)
+        && (!storedFiles.reliableExistingPaths()
+            || storedFiles.existingPaths().contains(file.path().toString()));
   }
 
-  private int ingestParallelAutocommit(List<SourceFile> files, Map<String, Long> mtimeCache)
+  private int ingestParallelAutocommit(List<SourceFile> files, StoredFileState storedFiles)
       throws InterruptedException {
     if (files.isEmpty()) {
       return 0;
@@ -536,7 +548,7 @@ public final class IngestionOrchestrator {
         pool.submit(
             () -> {
               try {
-                if (!ingestFileUnbatched(threadWriter.get(), file, mtimeCache)) {
+                if (!ingestFileUnbatched(threadWriter.get(), file, storedFiles)) {
                   failures.incrementAndGet();
                 }
               } catch (Exception e) {
@@ -569,8 +581,8 @@ public final class IngestionOrchestrator {
   }
 
   private boolean ingestFileUnbatched(
-      GraphWriter writer, SourceFile sourceFile, Map<String, Long> mtimeCache) {
-    if (isFileUnchanged(sourceFile.path(), mtimeCache)) {
+      GraphWriter writer, SourceFile sourceFile, StoredFileState storedFiles) {
+    if (isFileUnchanged(sourceFile.path(), storedFiles)) {
       log.debug("Skipping unchanged file: {}", sourceFile.path());
       return true;
     }
@@ -593,6 +605,20 @@ public final class IngestionOrchestrator {
         .addArgument(sourceFile.adapter()::displayName)
         .log();
     return sourceFile.adapter().ingestFile(writer, sourceFile.path());
+  }
+
+  private record StoredFileState(
+      Map<String, Long> lastModifiedByPath,
+      Set<String> existingPaths,
+      boolean reliableExistingPaths) {
+
+    static StoredFileState empty() {
+      return new StoredFileState(Map.of(), Set.of(), true);
+    }
+
+    static StoredFileState unreliable() {
+      return new StoredFileState(Map.of(), Set.of(), false);
+    }
   }
 
   /** Source file paired with the adapter selected by extension. */

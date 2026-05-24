@@ -21,8 +21,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.neo4j.driver.Session;
@@ -145,26 +147,29 @@ public final class GraphWriter {
             Map.entry(Params.METHOD_SIGNATURES, definitions.methodSignatures()),
             Map.entry(Params.FIELD_FQNS, definitions.fieldFqns()));
     List.of(
+            Cypher.CYPHER_DELETE_STALE_OWNERS_FOR_FILE,
             Cypher.CYPHER_DELETE_CALLS_FOR_FILE,
             Cypher.CYPHER_DELETE_OWNER_ANNOTATIONS_FOR_FILE,
             Cypher.CYPHER_DELETE_MEMBER_ANNOTATIONS_FOR_FILE,
             Cypher.CYPHER_DELETE_TYPE_RELATIONS_FOR_FILE,
             Cypher.CYPHER_DELETE_STALE_METHODS_FOR_FILE,
             Cypher.CYPHER_DELETE_STALE_FIELDS_FOR_FILE,
-            Cypher.CYPHER_DELETE_STALE_OWNER_MEMBERS_FOR_FILE,
-            Cypher.CYPHER_DELETE_STALE_OWNERS_FOR_FILE)
+            Cypher.CYPHER_DELETE_STALE_OWNER_MEMBERS_FOR_FILE)
         .forEach(q -> cypher.run(q, params));
   }
 
   /** Deletes all graph state owned by a source file that no longer exists. */
   public void deleteSourceFile(Path file) {
-    deletePendingCallsForFile(file);
-    List.of(
-            Cypher.CYPHER_DELETE_MEMBERS_FOR_FILE,
-            Cypher.CYPHER_DELETE_OWNERS_FOR_FILE,
-            Cypher.CYPHER_DELETE_FILE)
-        .forEach(q -> cypher.run(q, Map.of(Params.PATH, file.toString())));
-    deleteEmptyPackages();
+    runInFileTransaction(
+        () -> {
+          deletePendingCallsForFile(file);
+          List.of(
+                  Cypher.CYPHER_DELETE_MEMBERS_FOR_FILE,
+                  Cypher.CYPHER_DELETE_OWNERS_FOR_FILE,
+                  Cypher.CYPHER_DELETE_FILE,
+                  Cypher.CYPHER_DELETE_EMPTY_PACKAGES)
+              .forEach(q -> cypher.run(q, Map.of(Params.PATH, file.toString())));
+        });
   }
 
   /** Deletes file graph state for language-specific files absent from the current source tree. */
@@ -175,13 +180,15 @@ public final class GraphWriter {
             files.stream().map(Path::toString).toList(),
             Params.LANGUAGE,
             language.graphName());
-    List.of(
-            Cypher.CYPHER_DELETE_MISSING_FILE_PENDING_CALLS,
-            Cypher.CYPHER_DELETE_MISSING_FILE_MEMBERS,
-            Cypher.CYPHER_DELETE_MISSING_FILE_OWNERS,
-            Cypher.CYPHER_DELETE_MISSING_FILES)
-        .forEach(q -> cypher.run(q, params));
-    deleteEmptyPackages();
+    runInFileTransaction(
+        () ->
+            List.of(
+                    Cypher.CYPHER_DELETE_MISSING_FILE_PENDING_CALLS,
+                    Cypher.CYPHER_DELETE_MISSING_FILE_MEMBERS,
+                    Cypher.CYPHER_DELETE_MISSING_FILE_OWNERS,
+                    Cypher.CYPHER_DELETE_MISSING_FILES,
+                    Cypher.CYPHER_DELETE_EMPTY_PACKAGES)
+                .forEach(q -> cypher.run(q, params)));
   }
 
   /** Deletes package nodes that no longer contain any code declarations. */
@@ -255,6 +262,39 @@ public final class GraphWriter {
               + " {}",
           e.getMessage());
       return Map.of();
+    }
+  }
+
+  /**
+   * Batch-fetches source file paths already present in the graph. Unlike {@link
+   * #getAllFileLastModified(List, SourceLanguage)}, this deliberately includes files whose prior
+   * ingest is incomplete so callers can keep destructive cleanup transactional.
+   */
+  public Set<String> getExistingFilePaths(List<Path> files, SourceLanguage language) {
+    List<String> paths = files.stream().map(Path::toString).toList();
+    return cypher.read(
+        Cypher.CYPHER_GET_EXISTING_FILES,
+        Map.of(Params.PATHS, paths, Params.LANGUAGE, language.graphName()),
+        result -> {
+          Set<String> existing = new HashSet<>();
+          while (result.hasNext()) {
+            String path = result.next().get(Params.PATH).asString(null);
+            if (path != null) {
+              existing.add(path);
+            }
+          }
+          return existing;
+        });
+  }
+
+  private void runInFileTransaction(Runnable action) {
+    beginFileTransaction();
+    try {
+      action.run();
+      commitFileTransaction();
+    } catch (RuntimeException e) {
+      rollbackFileTransaction();
+      throw e;
     }
   }
 
