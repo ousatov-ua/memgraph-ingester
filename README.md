@@ -242,7 +242,8 @@ You should see your project name and a fresh `lastIngested` timestamp.
 Regular re-ingestion prunes graph state for source files that were deleted and for declarations or
 file-local relationships removed from changed files. Use `--wipe-project-code` only when you want a
 fresh project code graph before ingestion starts.
-Changed-file cleanup and replacement writes are committed per file, including with `--threads > 1`.
+Changed-file cleanup and replacement writes are committed per file, including with `--threads > 1`,
+and preserve retained files from other source roots.
 
 ### Faster re-runs
 
@@ -792,7 +793,8 @@ RETURN labels(memory), memory.id, memory.title;
 - Re-ingestion refreshes file-local outgoing `CALLS`, `ANNOTATED_WITH`, `EXTENDS`, and `IMPLEMENTS`
   relationships before writing the current file data, while preserving current method nodes so
   incoming `CALLS` edges from unchanged files survive incremental runs.
-- Changed-file cleanup and replacement writes are per-file transactional.
+- Changed-file cleanup and replacement writes are per-file transactional and preserve retained files
+  from other source roots.
 - Raw JS/TS `:Class` queries include synthetic module owners and TypeScript enums. Filter
   `language = "js"` and `kind = "class"` when you only want JavaScript/TypeScript classes.
 - Generated code is indexed only when its generated source directory is passed to `--source`.

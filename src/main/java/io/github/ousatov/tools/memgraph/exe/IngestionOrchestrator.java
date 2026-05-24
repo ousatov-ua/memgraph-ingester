@@ -21,6 +21,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -160,7 +161,7 @@ public final class IngestionOrchestrator {
     }
 
     List<SourceFile> files = discoverSourceFiles();
-    List<Path> currentSourcePaths = files.stream().map(SourceFile::path).toList();
+    List<Path> retainedSourcePaths = retainedSourcePaths(files);
     log.atInfo()
         .setMessage(
             "Found {} supported source files across {} adapter(s). Ingesting with {} thread(s).")
@@ -178,10 +179,10 @@ public final class IngestionOrchestrator {
 
     int failures;
     if (threads == 1) {
-      failures = ingestSequential(files, storedFiles, currentSourcePaths);
+      failures = ingestSequential(files, storedFiles, retainedSourcePaths);
     } else {
       try {
-        failures = ingestParallel(files, storedFiles, currentSourcePaths);
+        failures = ingestParallel(files, storedFiles, retainedSourcePaths);
       } catch (InterruptedException e) {
         Thread.currentThread().interrupt();
         throw new ProcessingException("Interrupted during ingestion", e);
@@ -189,7 +190,7 @@ public final class IngestionOrchestrator {
     }
 
     if (failures == 0) {
-      deleteMissingSourceFiles(files);
+      deleteMissingSourceFiles(files, retainedSourcePaths);
     } else {
       log.warn(
           "Skipping missing-file cleanup because {} file(s) failed to ingest; existing graph"
@@ -271,11 +272,11 @@ public final class IngestionOrchestrator {
   private void ingestChangedFiles(Set<Path> files) {
     try (Session session = driver.session()) {
       GraphWriter writer = new GraphWriter(session, project);
-      Optional<List<Path>> currentSourcePaths = currentSourcePathsForWatch();
-      if (currentSourcePaths.isEmpty()) {
+      Optional<List<Path>> retainedSourcePaths = retainedSourcePathsForWatch(writer);
+      if (retainedSourcePaths.isEmpty()) {
         return;
       }
-      writer.setCurrentSourcePaths(currentSourcePaths.get());
+      writer.setRetainedSourcePaths(retainedSourcePaths.get());
       boolean changedGraph = false;
       List<Path> existingFiles = files.stream().filter(Files::exists).sorted().toList();
       List<Path> deletedFiles =
@@ -308,9 +309,9 @@ public final class IngestionOrchestrator {
     }
   }
 
-  private Optional<List<Path>> currentSourcePathsForWatch() {
+  private Optional<List<Path>> retainedSourcePathsForWatch(GraphWriter writer) {
     try {
-      return Optional.of(discoverSourceFiles().stream().map(SourceFile::path).toList());
+      return Optional.of(retainedSourcePaths(discoverSourceFiles(), writer));
     } catch (RuntimeException e) {
       log.warn("Skipping watch re-ingestion because source snapshot failed: {}", e.getMessage());
       return Optional.empty();
@@ -428,7 +429,22 @@ public final class IngestionOrchestrator {
     }
   }
 
-  private void deleteMissingSourceFiles(List<SourceFile> files) {
+  private List<Path> retainedSourcePaths(List<SourceFile> files) {
+    try (Session session = driver.session()) {
+      return retainedSourcePaths(files, new GraphWriter(session, project));
+    }
+  }
+
+  private List<Path> retainedSourcePaths(List<SourceFile> files, GraphWriter writer) {
+    Set<Path> retainedPaths = new LinkedHashSet<>();
+    files.stream().map(SourceFile::path).forEach(retainedPaths::add);
+    writer.getRetainedFilePathsOutsideSourceRoot(sourceRoot).stream()
+        .sorted()
+        .forEach(retainedPaths::add);
+    return List.copyOf(retainedPaths);
+  }
+
+  private void deleteMissingSourceFiles(List<SourceFile> files, Collection<Path> retainedPaths) {
     Map<SourceLanguage, List<Path>> pathsByLanguage = new LinkedHashMap<>();
     for (SourceFile file : files) {
       pathsByLanguage
@@ -437,8 +453,6 @@ public final class IngestionOrchestrator {
     }
     try (Session session = driver.session()) {
       GraphWriter writer = new GraphWriter(session, project);
-      Set<Path> retainedPaths = new HashSet<>(files.stream().map(SourceFile::path).toList());
-      retainedPaths.addAll(writer.getRetainedFilePathsOutsideSourceRoot(sourceRoot));
       for (SourceLanguage language : languages()) {
         List<Path> currentPaths = pathsByLanguage.getOrDefault(language, List.of());
         writer.deleteFilesMissingFromSource(sourceRoot, currentPaths, retainedPaths, language);
@@ -455,14 +469,14 @@ public final class IngestionOrchestrator {
   }
 
   private int ingestSequential(
-      List<SourceFile> files, StoredFileState storedFiles, Collection<Path> currentSourcePaths) {
+      List<SourceFile> files, StoredFileState storedFiles, Collection<Path> retainedSourcePaths) {
     int failures = 0;
     int total = files.size();
     int step = Math.clamp(total / PROGRESS_DIVISOR, 1, 100);
     int done = 0;
     try (Session session = driver.session()) {
       GraphWriter writer = new GraphWriter(session, project);
-      writer.setCurrentSourcePaths(currentSourcePaths);
+      writer.setRetainedSourcePaths(retainedSourcePaths);
       for (SourceFile file : files) {
         if (!ingestFileBatched(writer, file, storedFiles)) {
           failures++;
@@ -550,13 +564,13 @@ public final class IngestionOrchestrator {
 
   @SuppressWarnings(value = {"java:S3776"})
   private int ingestParallel(
-      List<SourceFile> files, StoredFileState storedFiles, Collection<Path> currentSourcePaths)
+      List<SourceFile> files, StoredFileState storedFiles, Collection<Path> retainedSourcePaths)
       throws InterruptedException {
-    return ingestParallelTransactional(files, storedFiles, currentSourcePaths);
+    return ingestParallelTransactional(files, storedFiles, retainedSourcePaths);
   }
 
   private int ingestParallelTransactional(
-      List<SourceFile> files, StoredFileState storedFiles, Collection<Path> currentSourcePaths)
+      List<SourceFile> files, StoredFileState storedFiles, Collection<Path> retainedSourcePaths)
       throws InterruptedException {
     if (files.isEmpty()) {
       return 0;
@@ -568,7 +582,7 @@ public final class IngestionOrchestrator {
               Session s = driver.session();
               sessions.add(s);
               GraphWriter writer = new GraphWriter(s, project);
-              writer.setCurrentSourcePaths(currentSourcePaths);
+              writer.setRetainedSourcePaths(retainedSourcePaths);
               return writer;
             });
 

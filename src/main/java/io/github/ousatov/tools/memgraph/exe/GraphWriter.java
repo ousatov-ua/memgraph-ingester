@@ -54,7 +54,7 @@ public final class GraphWriter {
 
   private final CypherExecutor cypher;
   private final CallEdgeWriter callEdges;
-  private List<String> currentSourcePaths = List.of();
+  private List<String> retainedSourcePaths = List.of();
 
   /**
    * @param session Bolt session — must not be shared with other threads
@@ -65,9 +65,9 @@ public final class GraphWriter {
     this.callEdges = new CallEdgeWriter(cypher);
   }
 
-  /** Sets the current source tree snapshot used when preserving shared definitions. */
-  public void setCurrentSourcePaths(Collection<Path> files) {
-    currentSourcePaths = files.stream().map(Path::toString).toList();
+  /** Sets project paths that should preserve shared definitions during file cleanup. */
+  public void setRetainedSourcePaths(Collection<Path> files) {
+    retainedSourcePaths = files.stream().map(Path::toString).toList();
   }
 
   /**
@@ -133,7 +133,7 @@ public final class GraphWriter {
   public void deletePendingCallsForFile(Path file) {
     cypher.run(
         Cypher.CYPHER_DELETE_PENDING_CALLS_FOR_FILE,
-        Map.of(Params.PATH, file.toString(), Params.PATHS, currentSourcePaths));
+        Map.of(Params.PATH, file.toString(), Params.PATHS, retainedSourcePaths));
   }
 
   /**
@@ -156,7 +156,7 @@ public final class GraphWriter {
             Map.entry(Params.ANNOTATION_FQNS, definitions.annotationFqns()),
             Map.entry(Params.METHOD_SIGNATURES, definitions.methodSignatures()),
             Map.entry(Params.FIELD_FQNS, definitions.fieldFqns()),
-            Map.entry(Params.PATHS, currentSourcePaths));
+            Map.entry(Params.PATHS, retainedSourcePaths));
     List.of(
             Cypher.CYPHER_DELETE_CURRENT_OWNER_CALLS_FOR_FILE,
             Cypher.CYPHER_DELETE_CURRENT_OWNER_ANNOTATIONS_FOR_FILE,

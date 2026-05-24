@@ -1323,6 +1323,71 @@ class IngestionOrchestratorIT {
   }
 
   @Test
+  void changedFileCleanupPreservesCallsFromOtherSourceRoots() throws Exception {
+    currentProject = PROJECT_BASE + "-changed-file-other-root";
+    sourceDir = Files.createTempDirectory("orch-changed-file-root-a-");
+    Path otherRoot = Files.createTempDirectory("orch-changed-file-root-b-");
+    try {
+      Path rootA = sourceDir.resolve("com/example");
+      Path rootB = otherRoot.resolve("com/example");
+      Files.createDirectories(rootA);
+      Files.createDirectories(rootB);
+      Path sharedA = rootA.resolve("Shared.java");
+      Path sharedB = rootB.resolve("Shared.java");
+      String helper =
+          """
+          package com.example;
+
+          public class Helper {
+            public static void go() {}
+          }
+          """;
+      String sharedWithCall =
+          """
+          package com.example;
+
+          public class Shared {
+            public void serve() {
+              Helper.go();
+            }
+          }
+          """;
+      Files.writeString(rootA.resolve("Helper.java"), helper);
+      Files.writeString(rootB.resolve("Helper.java"), helper);
+      Files.writeString(sharedA, sharedWithCall);
+      Files.writeString(sharedB, sharedWithCall);
+      IngestionOrchestrator rootAOrchestrator =
+          new IngestionOrchestrator(
+              sourceDir, currentProject, 1, driver, new ParseService(sourceDir));
+      IngestionOrchestrator rootBOrchestrator =
+          new IngestionOrchestrator(
+              otherRoot, currentProject, 1, driver, new ParseService(otherRoot));
+      assertEquals(0, rootAOrchestrator.run(Settings.def()));
+      assertEquals(0, rootBOrchestrator.run(Settings.def()));
+      assertTrue(
+          callEdgeExists(currentProject, "com.example.Shared.serve()", "com.example.Helper.go()"));
+
+      Files.writeString(
+          sharedA,
+          """
+          package com.example;
+
+          public class Shared {
+            public void serve() {}
+          }
+          """);
+
+      assertEquals(0, rootAOrchestrator.run(Settings.def()));
+
+      assertTrue(fileExistsInGraph(currentProject, sharedB));
+      assertTrue(
+          callEdgeExists(currentProject, "com.example.Shared.serve()", "com.example.Helper.go()"));
+    } finally {
+      deleteDir(otherRoot);
+    }
+  }
+
+  @Test
   void failedMovedFileIngestSkipsMissingFileCleanup() throws Exception {
     currentProject = PROJECT_BASE + "-failed-moved-file-missing-cleanup";
     sourceDir = Files.createTempDirectory("orch-failed-moved-file-src-");
