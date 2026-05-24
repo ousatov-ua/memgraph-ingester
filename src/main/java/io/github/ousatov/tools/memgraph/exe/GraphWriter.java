@@ -325,6 +325,27 @@ public final class GraphWriter {
         });
   }
 
+  /** Returns project file paths under the active source root. */
+  public Set<Path> getFilePathsInSourceRoot(Path sourceRoot) {
+    String sourceRootText = sourceRoot.toString();
+    String separator = sourceRoot.getFileSystem().getSeparator();
+    String sourceRootPrefix =
+        sourceRootText.endsWith(separator) ? sourceRootText : sourceRootText + separator;
+    return cypher.read(
+        Cypher.CYPHER_GET_FILES_IN_SOURCE_ROOT,
+        Map.of(Params.SOURCE_ROOT, sourceRootText, Params.SOURCE_ROOT_PREFIX, sourceRootPrefix),
+        result -> {
+          Set<Path> paths = new HashSet<>();
+          while (result.hasNext()) {
+            String path = result.next().get(Params.PATH).asString(null);
+            if (path != null) {
+              paths.add(Path.of(path));
+            }
+          }
+          return paths;
+        });
+  }
+
   /** Returns retained files that share declarations with {@code file}. */
   public Set<Path> getRetainedFilePathsSharingDefinitionsWith(Path file) {
     return cypher.read(

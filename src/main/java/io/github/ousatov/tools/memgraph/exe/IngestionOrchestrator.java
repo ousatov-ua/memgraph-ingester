@@ -321,10 +321,17 @@ public final class IngestionOrchestrator {
             updateFailures);
       }
       for (Path path : refreshAfterDelete) {
-        SourceFile retainedFile = currentFilesByPath.get(path);
-        if (retainedFile != null
-            && !ingestFileBatched(writer, retainedFile, StoredFileState.empty())) {
-          log.warn("Failed to refresh retained file after watch delete: {}", path);
+        Optional<SourceFile> retainedFile = sourceFileFor(path, currentFilesByPath);
+        if (retainedFile.isEmpty()) {
+          continue;
+        }
+        try {
+          if (!ingestFileBatched(writer, retainedFile.get(), StoredFileState.empty())) {
+            log.warn("Failed to refresh retained file after watch delete: {}", path);
+          }
+        } catch (RuntimeException e) {
+          log.warn(
+              "Failed to refresh retained file after watch delete on {}: {}", path, e.getMessage());
         }
       }
       if (changedGraph) {
@@ -464,6 +471,11 @@ public final class IngestionOrchestrator {
   private List<Path> retainedSourcePaths(List<SourceFile> files, GraphWriter writer) {
     Set<Path> retainedPaths = new LinkedHashSet<>();
     files.stream().map(SourceFile::path).forEach(retainedPaths::add);
+    writer.getFilePathsInSourceRoot(sourceRoot).stream()
+        .filter(path -> !retainedPaths.contains(path))
+        .filter(Files::exists)
+        .sorted()
+        .forEach(retainedPaths::add);
     writer.getRetainedFilePathsOutsideSourceRoot(sourceRoot).stream()
         .sorted()
         .forEach(retainedPaths::add);
@@ -492,6 +504,14 @@ public final class IngestionOrchestrator {
 
   private Optional<LanguageAdapter> adapterFor(Path file) {
     return languageAdapters.stream().filter(adapter -> adapter.accepts(file)).findFirst();
+  }
+
+  private Optional<SourceFile> sourceFileFor(Path file, Map<Path, SourceFile> currentFilesByPath) {
+    SourceFile currentFile = currentFilesByPath.get(file);
+    if (currentFile != null) {
+      return Optional.of(currentFile);
+    }
+    return adapterFor(file).map(adapter -> new SourceFile(file, adapter));
   }
 
   private int ingestSequential(

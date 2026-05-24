@@ -207,6 +207,42 @@ class IngestionOrchestratorIT {
     }
   }
 
+  private static String helperSource() {
+    return """
+    package com.example;
+
+    class Helper {
+      static void go() {
+        // Test helper body is intentionally empty.
+      }
+    }
+    """;
+  }
+
+  private static String sharedWithHelperCallSource() {
+    return """
+    package com.example;
+
+    class Shared {
+      void serve() {
+        Helper.go();
+      }
+    }
+    """;
+  }
+
+  private static String sharedWithoutHelperCallSource() {
+    return """
+    package com.example;
+
+    class Shared {
+      void serve() {
+        // Test source intentionally has no calls.
+      }
+    }
+    """;
+  }
+
   /**
    * Minimal JS/TS adapter used to verify multi-adapter orchestration without invoking Node.js.
    *
@@ -773,6 +809,46 @@ class IngestionOrchestratorIT {
     assertTrue(fileExistsInGraph(currentProject, newShared));
     assertFalse(
         callEdgeExists(currentProject, "com.example.Shared.serve()", "com.example.Helper.go()"));
+  }
+
+  @Test
+  void watchModeRefreshesRetainedFileFromOtherSourceRootAfterDelete() throws Exception {
+    currentProject = PROJECT_BASE + "-watch-delete-moved-shared-other-root";
+    sourceDir = Files.createTempDirectory("orch-watch-delete-moved-shared-root-a-");
+    Path otherRoot = Files.createTempDirectory("orch-watch-delete-moved-shared-root-b-");
+    try {
+      Path rootA = sourceDir.resolve("com/example");
+      Path rootB = otherRoot.resolve("com/example");
+      Files.createDirectories(rootA);
+      Files.createDirectories(rootB);
+      Path oldShared = rootA.resolve("OldShared.java");
+      Path newShared = rootB.resolve("NewShared.java");
+      Files.writeString(rootA.resolve("Helper.java"), helperSource());
+      Files.writeString(rootB.resolve("Helper.java"), helperSource());
+      Files.writeString(oldShared, sharedWithHelperCallSource());
+      Files.writeString(newShared, sharedWithoutHelperCallSource());
+      IngestionOrchestrator rootAOrchestrator =
+          new IngestionOrchestrator(
+              sourceDir, currentProject, 1, driver, new ParseService(sourceDir));
+      IngestionOrchestrator rootBOrchestrator =
+          new IngestionOrchestrator(
+              otherRoot, currentProject, 1, driver, new ParseService(otherRoot));
+      assertEquals(0, rootAOrchestrator.run(Settings.def()));
+      assertTrue(
+          callEdgeExists(currentProject, "com.example.Shared.serve()", "com.example.Helper.go()"));
+      assertEquals(0, rootBOrchestrator.run(Settings.def()));
+      assertTrue(
+          callEdgeExists(currentProject, "com.example.Shared.serve()", "com.example.Helper.go()"));
+
+      Files.delete(oldShared);
+      rootAOrchestrator.ingestChangedFiles(Set.of(oldShared));
+
+      assertTrue(fileExistsInGraph(currentProject, newShared));
+      assertFalse(
+          callEdgeExists(currentProject, "com.example.Shared.serve()", "com.example.Helper.go()"));
+    } finally {
+      deleteDir(otherRoot);
+    }
   }
 
   @Test
@@ -1470,6 +1546,45 @@ class IngestionOrchestratorIT {
     } finally {
       deleteDir(otherRoot);
     }
+  }
+
+  @Test
+  void changedFileCleanupRetainsSameRootFilesOutsideConfiguredAdapters() throws Exception {
+    currentProject = PROJECT_BASE + "-same-root-retained-unconfigured";
+    sourceDir = Files.createTempDirectory("orch-same-root-retained-unconfigured-src-");
+    Path pkgDir = sourceDir.resolve("com/example");
+    Files.createDirectories(pkgDir);
+    Path helper = pkgDir.resolve("Helper.java");
+    Path shared = pkgDir.resolve("Shared.java");
+    Path retainedTs = sourceDir.resolve("retained.ts");
+    Files.writeString(helper, helperSource());
+    Files.writeString(shared, sharedWithHelperCallSource());
+    Files.writeString(retainedTs, "export const retained = true;\n");
+    IngestionOrchestrator orchestrator =
+        new IngestionOrchestrator(
+            sourceDir, currentProject, 1, driver, new ParseService(sourceDir));
+    assertEquals(0, orchestrator.run(Settings.def()));
+    assertTrue(
+        callEdgeExists(currentProject, "com.example.Shared.serve()", "com.example.Helper.go()"));
+    try (Session s = driver.session()) {
+      s.run(
+              """
+              MATCH (caller:Method {project: $p, signature: 'com.example.Shared.serve()'})
+              MERGE (f:File {path: $path, project: $p})
+              SET f.language = 'js', f.lastModified = 1
+              MERGE (f)-[:DEFINES]->(caller)
+              """,
+              Map.of("p", currentProject, "path", retainedTs.toString()))
+          .consume();
+    }
+
+    Files.writeString(shared, sharedWithoutHelperCallSource());
+
+    assertEquals(0, orchestrator.run(Settings.def()));
+
+    assertTrue(fileExistsInGraph(currentProject, retainedTs));
+    assertTrue(
+        callEdgeExists(currentProject, "com.example.Shared.serve()", "com.example.Helper.go()"));
   }
 
   @Test

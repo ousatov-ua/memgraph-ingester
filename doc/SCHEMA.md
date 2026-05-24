@@ -138,9 +138,10 @@ Common memory-to-memory links:
   repository root as `--source` when root-level config or support files should be code nodes.
   `node_modules` is still skipped.
 - Regular and watch re-ingestion prune deleted files and removed declarations. Changed-file
-  cleanup and replacement writes are per-file transactional and preserve retained files from other
-  source roots. Watch re-ingestion snapshots source files once per batch and skips delete cleanup
-  if file updates fail.
+  cleanup and replacement writes are per-file transactional. Retained snapshots include
+  active-source files, same-root graph files, and files from other source roots. Watch
+  re-ingestion skips delete cleanup after update failures and refreshes retained files after
+  deletes.
 - JavaScript/TypeScript class and interface heritage is represented with the shared `EXTENDS` and
   `IMPLEMENTS` relationships. Relative imports and `tsconfig.json` path aliases, including aliases
   inherited through extended configs, that resolve under the ingested source root can point
