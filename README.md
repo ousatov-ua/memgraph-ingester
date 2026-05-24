@@ -245,8 +245,8 @@ fresh project code graph before ingestion starts.
 Changed-file cleanup and replacement writes are committed per file, including with `--threads > 1`.
 Retained snapshots include active-source files, existing same-root graph files, and existing files
 from other source roots. Watch re-ingestion skips delete cleanup after update failures, retries
-snapshot-failed batches, reconciles missing changed files, and refreshes retained files after
-deletes.
+snapshot-failed batches, reconciles delete-only snapshot failures, and refreshes retained files
+after deletes.
 
 ### Faster re-runs
 
@@ -799,7 +799,7 @@ RETURN labels(memory), memory.id, memory.title;
 - Changed-file cleanup and replacement writes are per-file transactional. Retained snapshots include
   active-source files, existing same-root graph files, and existing files from other source roots.
 - Watch re-ingestion skips delete cleanup after update failures, retries snapshot-failed batches,
-  reconciles missing changed files, and refreshes retained files after deletes.
+  reconciles delete-only snapshot failures, and refreshes retained files after deletes.
 - Raw JS/TS `:Class` queries include synthetic module owners and TypeScript enums. Filter
   `language = "js"` and `kind = "class"` when you only want JavaScript/TypeScript classes.
 - Generated code is indexed only when its generated source directory is passed to `--source`.

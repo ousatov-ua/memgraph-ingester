@@ -330,20 +330,7 @@ public final class IngestionOrchestrator {
             deletedFiles.size(),
             updateFailures);
       }
-      for (Path path : refreshAfterDelete) {
-        Optional<SourceFile> retainedFile = sourceFileFor(path, currentFilesByPath);
-        if (retainedFile.isEmpty()) {
-          continue;
-        }
-        try {
-          if (!ingestFileBatched(writer, retainedFile.get(), StoredFileState.empty())) {
-            log.warn("Failed to refresh retained file after watch delete: {}", path);
-          }
-        } catch (RuntimeException e) {
-          log.warn(
-              "Failed to refresh retained file after watch delete on {}: {}", path, e.getMessage());
-        }
-      }
+      refreshRetainedFilesAfterWatchDelete(writer, refreshAfterDelete, currentFilesByPath);
       if (changedGraph) {
         refreshDerivedGraphArtifacts(writer);
         log.info("Watch re-ingestion complete.");
@@ -375,18 +362,48 @@ public final class IngestionOrchestrator {
               .flatMap(
                   file -> adapterFor(file).map(adapter -> new SourceFile(file, adapter)).stream())
               .toList();
+      if (!existingFiles.isEmpty()) {
+        log.warn(
+            "Skipping watch delete fallback because {} changed file(s) still exist.",
+            existingFiles.size());
+        return false;
+      }
       writer.setRetainedSourcePaths(retainedSourcePaths(existingFiles, writer));
       boolean changedGraph = false;
+      Set<Path> refreshAfterDelete = new LinkedHashSet<>();
       for (Path file : files.stream().filter(file -> !Files.exists(file)).sorted().toList()) {
-        if (adapterFor(file).isPresent()
-            && deleteSourceFileWithRetry(file, writer::deleteSourceFile)) {
+        if (adapterFor(file).isEmpty()) {
+          continue;
+        }
+        Set<Path> sharedRetainedFiles = writer.getRetainedFilePathsSharingDefinitionsWith(file);
+        if (deleteSourceFileWithRetry(file, writer::deleteSourceFile)) {
           changedGraph = true;
+          refreshAfterDelete.addAll(sharedRetainedFiles);
         }
       }
+      refreshRetainedFilesAfterWatchDelete(writer, refreshAfterDelete, Map.of());
       return changedGraph;
     } catch (RuntimeException e) {
       log.warn("Could not reconcile watch delete fallback: {}", e.getMessage());
       return false;
+    }
+  }
+
+  private void refreshRetainedFilesAfterWatchDelete(
+      GraphWriter writer, Collection<Path> paths, Map<Path, SourceFile> currentFilesByPath) {
+    for (Path path : paths.stream().sorted().toList()) {
+      Optional<SourceFile> retainedFile = sourceFileFor(path, currentFilesByPath);
+      if (retainedFile.isEmpty()) {
+        continue;
+      }
+      try {
+        if (!ingestFileBatched(writer, retainedFile.get(), StoredFileState.empty())) {
+          log.warn("Failed to refresh retained file after watch delete: {}", path);
+        }
+      } catch (RuntimeException e) {
+        log.warn(
+            "Failed to refresh retained file after watch delete on {}: {}", path, e.getMessage());
+      }
     }
   }
 

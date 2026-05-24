@@ -269,9 +269,23 @@ class IngestionOrchestratorIT {
     }
   }
 
+  /**
+   * Adapter that fails watch source snapshot discovery after an optional priming call.
+   *
+   * @author Oleksii Usatov
+   */
   private static final class SnapshotFailingWatchAdapter implements LanguageAdapter {
 
+    private final LanguageAdapter delegate;
     private final AtomicInteger discoveries = new AtomicInteger();
+
+    private SnapshotFailingWatchAdapter() {
+      this(null);
+    }
+
+    private SnapshotFailingWatchAdapter(LanguageAdapter delegate) {
+      this.delegate = delegate;
+    }
 
     @Override
     public SourceLanguage language() {
@@ -293,6 +307,9 @@ class IngestionOrchestratorIT {
 
     @Override
     public boolean ingestFile(GraphWriter writer, Path file) {
+      if (delegate != null) {
+        return delegate.ingestFile(writer, file);
+      }
       writer.upsertFile(file, language());
       return true;
     }
@@ -773,6 +790,72 @@ class IngestionOrchestratorIT {
 
     assertFalse(fileExistsInGraph(currentProject, deletedFile));
     assertFalse(classExists(currentProject, "Deleted"));
+  }
+
+  @Test
+  void watchModeKeepsDeletedFilesWhenSnapshotFailsWithExistingChanges() throws Exception {
+    currentProject = PROJECT_BASE + "-watch-snapshot-failure-mixed";
+    sourceDir = Files.createTempDirectory("orch-watch-snapshot-failure-mixed-src-");
+    Path deletedFile = sourceDir.resolve("OldShared.java");
+    Path existingFile = sourceDir.resolve("NewShared.java");
+    Files.writeString(existingFile, "class Shared { int value; }");
+    try (Session s = driver.session()) {
+      s.run(
+              """
+              MERGE (f:File {path: $path, project: $p})
+              SET f.language = 'java'
+              MERGE (c:Class {fqn: 'Shared', project: $p})
+              SET c.name = 'Shared', c.language = 'java', c.isExternal = false
+              MERGE (f)-[:DEFINES]->(c)
+              """,
+              Map.of("p", currentProject, "path", deletedFile.toString()))
+          .consume();
+    }
+    SnapshotFailingWatchAdapter adapter = new SnapshotFailingWatchAdapter();
+    adapter.discoverFiles(sourceDir);
+    IngestionOrchestrator orchestrator =
+        new IngestionOrchestrator(sourceDir, currentProject, 1, driver, adapter);
+
+    orchestrator.ingestChangedFiles(Set.of(deletedFile, existingFile));
+
+    assertTrue(fileExistsInGraph(currentProject, deletedFile));
+    assertFalse(fileExistsInGraph(currentProject, existingFile));
+  }
+
+  @Test
+  void watchModeRefreshesRetainedFileAfterFallbackDelete() throws Exception {
+    currentProject = PROJECT_BASE + "-watch-snapshot-fallback-refresh";
+    sourceDir = Files.createTempDirectory("orch-watch-snapshot-fallback-refresh-src-");
+    Path pkg = sourceDir.resolve("com/example");
+    Files.createDirectories(pkg);
+    Path oldShared = pkg.resolve("OldShared.java");
+    Path newShared = pkg.resolve("NewShared.java");
+    Files.writeString(pkg.resolve("Helper.java"), helperSource());
+    Files.writeString(oldShared, sharedWithHelperCallSource());
+    IngestionOrchestrator normal =
+        new IngestionOrchestrator(
+            sourceDir, currentProject, 1, driver, new ParseService(sourceDir));
+    assertEquals(0, normal.run(Settings.def()));
+    assertTrue(
+        callEdgeExists(currentProject, "com.example.Shared.serve()", "com.example.Helper.go()"));
+
+    Files.writeString(newShared, sharedWithoutHelperCallSource());
+    normal.ingestChangedFiles(Set.of(newShared));
+    assertTrue(
+        callEdgeExists(currentProject, "com.example.Shared.serve()", "com.example.Helper.go()"));
+
+    Files.delete(oldShared);
+    SnapshotFailingWatchAdapter adapter =
+        new SnapshotFailingWatchAdapter(new JavaLanguageAdapter(new ParseService(sourceDir)));
+    adapter.discoverFiles(sourceDir);
+    IngestionOrchestrator failingSnapshot =
+        new IngestionOrchestrator(sourceDir, currentProject, 1, driver, adapter);
+
+    failingSnapshot.ingestChangedFiles(Set.of(oldShared));
+
+    assertTrue(fileExistsInGraph(currentProject, newShared));
+    assertFalse(
+        callEdgeExists(currentProject, "com.example.Shared.serve()", "com.example.Helper.go()"));
   }
 
   @Test
