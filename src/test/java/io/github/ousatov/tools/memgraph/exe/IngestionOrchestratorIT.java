@@ -368,7 +368,7 @@ class IngestionOrchestratorIT {
         writer.upsertFile(file, language());
         writer.upsertPackage("com.example", language());
         return true;
-      } catch (InterruptedException e) {
+      } catch (InterruptedException _) {
         Thread.currentThread().interrupt();
         return false;
       } finally {
