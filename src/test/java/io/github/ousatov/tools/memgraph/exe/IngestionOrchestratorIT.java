@@ -1739,6 +1739,45 @@ class IngestionOrchestratorIT {
   }
 
   @Test
+  void missingFileCleanupRefreshesRetainedJavaFileWithStoredSourceRoot() throws Exception {
+    currentProject = PROJECT_BASE + "-missing-file-refresh-java-root";
+    sourceDir = Files.createTempDirectory("orch-missing-file-refresh-java-root-a-");
+    Path otherRoot = Files.createTempDirectory("orch-missing-file-refresh-java-root-b-");
+    try {
+      Path rootA = sourceDir.resolve("com/example");
+      Path rootB = otherRoot.resolve("com/example");
+      Files.createDirectories(rootA);
+      Files.createDirectories(rootB);
+      Path removedFile = rootA.resolve("Shared.java");
+      Path retainedFile = rootB.resolve("Shared.java");
+      Files.writeString(removedFile, sharedWithoutHelperCallSource());
+      Files.writeString(rootB.resolve("Helper.java"), helperSource());
+      Files.writeString(retainedFile, sharedWithHelperCallSource());
+      IngestionOrchestrator rootAOrchestrator =
+          new IngestionOrchestrator(
+              sourceDir, currentProject, 1, driver, new ParseService(sourceDir));
+      IngestionOrchestrator rootBOrchestrator =
+          new IngestionOrchestrator(
+              otherRoot, currentProject, 1, driver, new ParseService(otherRoot));
+      assertEquals(0, rootAOrchestrator.run(Settings.def()));
+      assertFalse(
+          callEdgeExists(currentProject, "com.example.Shared.serve()", "com.example.Helper.go()"));
+      assertEquals(0, rootBOrchestrator.run(Settings.def()));
+      assertTrue(
+          callEdgeExists(currentProject, "com.example.Shared.serve()", "com.example.Helper.go()"));
+
+      Files.delete(removedFile);
+      assertEquals(0, rootAOrchestrator.run(Settings.def()));
+
+      assertTrue(fileExistsInGraph(currentProject, retainedFile));
+      assertTrue(
+          callEdgeExists(currentProject, "com.example.Shared.serve()", "com.example.Helper.go()"));
+    } finally {
+      deleteDir(otherRoot);
+    }
+  }
+
+  @Test
   void changedFileCleanupPreservesCallsFromOtherSourceRoots() throws Exception {
     currentProject = PROJECT_BASE + "-changed-file-other-root";
     sourceDir = Files.createTempDirectory("orch-changed-file-root-a-");

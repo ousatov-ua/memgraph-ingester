@@ -363,19 +363,17 @@ public final class GraphWriter {
         });
   }
 
-  /** Returns the stored module path for {@code file}, when available. */
-  public Optional<String> getModulePath(Path file, SourceLanguage language) {
+  /** Returns the stored source-root reconstruction hint for {@code file}, when available. */
+  public Optional<String> getSourceRootHint(Path file, SourceLanguage language) {
     return cypher.read(
-        getModulePathCypher(language),
+        getSourceRootHintCypher(language),
         Map.of(Params.PATH, file.toString()),
         result -> {
           if (!result.hasNext()) {
             return Optional.empty();
           }
-          String modulePath = result.next().get(Params.MODULE_PATH).asString(null);
-          return modulePath == null || modulePath.isBlank()
-              ? Optional.empty()
-              : Optional.of(modulePath);
+          String hint = result.next().get(Params.SOURCE_ROOT_HINT).asString(null);
+          return hint == null ? Optional.empty() : Optional.of(hint);
         });
   }
 
@@ -421,10 +419,10 @@ public final class GraphWriter {
     };
   }
 
-  private static String getModulePathCypher(SourceLanguage language) {
+  private static String getSourceRootHintCypher(SourceLanguage language) {
     return switch (language) {
-      case JAVA -> Cypher.CYPHER_GET_JAVA_MODULE_PATH_FOR_FILE;
-      case JAVASCRIPT -> Cypher.CYPHER_GET_JAVASCRIPT_MODULE_PATH_FOR_FILE;
+      case JAVA -> Cypher.CYPHER_GET_JAVA_SOURCE_ROOT_HINT_FOR_FILE;
+      case JAVASCRIPT -> Cypher.CYPHER_GET_JAVASCRIPT_SOURCE_ROOT_HINT_FOR_FILE;
     };
   }
 

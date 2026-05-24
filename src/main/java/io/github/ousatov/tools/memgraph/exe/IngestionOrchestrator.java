@@ -550,13 +550,14 @@ public final class IngestionOrchestrator {
     try (Session session = driver.session()) {
       GraphWriter writer = new GraphWriter(session, project);
       writer.setRetainedSourcePaths(retainedPaths);
+      Set<Path> retainedPathSet = new HashSet<>(retainedPaths);
       Set<Path> refreshAfterDelete = new LinkedHashSet<>();
       for (SourceLanguage language : languages()) {
         List<Path> currentPaths = pathsByLanguage.getOrDefault(language, List.of());
         Set<Path> currentPathSet = new HashSet<>(currentPaths);
         writer.getFilePathsInSourceRoot(sourceRoot, language).stream()
             .filter(path -> !currentPathSet.contains(path))
-            .filter(path -> !Files.exists(path))
+            .filter(path -> !retainedPathSet.contains(path))
             .sorted()
             .forEach(
                 missingFile ->
@@ -611,19 +612,49 @@ public final class IngestionOrchestrator {
   private LanguageAdapter adapterForRetainedFile(
       Path file, LanguageAdapter adapter, GraphWriter writer) {
     return writer
-        .getModulePath(file, adapter.language())
-        .flatMap(modulePath -> sourceRootFromModulePath(file, modulePath))
+        .getSourceRootHint(file, adapter.language())
+        .flatMap(hint -> sourceRootFromHint(file, adapter.language(), hint))
         .map(adapter::forSourceRoot)
         .orElse(adapter);
   }
 
-  private static Optional<Path> sourceRootFromModulePath(Path file, String modulePathText) {
-    Path modulePath = Path.of(modulePathText).normalize();
-    Path normalizedFile = file.normalize();
-    if (!normalizedFile.endsWith(modulePath)) {
+  private static Optional<Path> sourceRootFromHint(
+      Path file, SourceLanguage language, String sourceRootHint) {
+    return switch (language) {
+      case JAVA ->
+          relativePathFromPackageName(file, sourceRootHint)
+              .flatMap(relativePath -> sourceRootFromRelativePath(file, relativePath));
+      case JAVASCRIPT ->
+          sourceRootHint.isBlank()
+              ? Optional.empty()
+              : sourceRootFromRelativePath(file, Path.of(sourceRootHint).normalize());
+    };
+  }
+
+  private static Optional<Path> relativePathFromPackageName(Path file, String packageName) {
+    Path fileName = file.getFileName();
+    if (fileName == null) {
       return Optional.empty();
     }
-    int rootNameCount = normalizedFile.getNameCount() - modulePath.getNameCount();
+    Path relativePath = fileName;
+    if (!packageName.isBlank()) {
+      String[] packageParts = packageName.split("\\.");
+      for (int index = packageParts.length - 1; index >= 0; index--) {
+        if (packageParts[index].isBlank()) {
+          return Optional.empty();
+        }
+        relativePath = Path.of(packageParts[index]).resolve(relativePath);
+      }
+    }
+    return Optional.of(relativePath);
+  }
+
+  private static Optional<Path> sourceRootFromRelativePath(Path file, Path relativePath) {
+    Path normalizedFile = file.normalize();
+    if (!normalizedFile.endsWith(relativePath)) {
+      return Optional.empty();
+    }
+    int rootNameCount = normalizedFile.getNameCount() - relativePath.getNameCount();
     if (rootNameCount < 0) {
       return Optional.empty();
     }

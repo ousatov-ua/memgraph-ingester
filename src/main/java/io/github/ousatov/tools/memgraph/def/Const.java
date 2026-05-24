@@ -52,9 +52,9 @@ public final class Const {
     public static final String CYPHER_GET_JAVA_FILES_IN_SOURCE_ROOT =
         action("Java/get-files-in-source-root.cypher");
 
-    /** Fetches the stored module path for one Java source file. */
-    public static final String CYPHER_GET_JAVA_MODULE_PATH_FOR_FILE =
-        action("Java/get-module-path-for-file.cypher");
+    /** Fetches source-root reconstruction metadata for one Java source file. */
+    public static final String CYPHER_GET_JAVA_SOURCE_ROOT_HINT_FOR_FILE =
+        action("Java/get-source-root-hint-for-file.cypher");
 
     /**
      * Batch-fetches JS/TS {@code lastModified} values for files whose module owner is already
@@ -67,9 +67,9 @@ public final class Const {
     public static final String CYPHER_GET_JAVASCRIPT_FILES_IN_SOURCE_ROOT =
         action("Js/get-files-in-source-root.cypher");
 
-    /** Fetches the stored module path for one JS/TS source file. */
-    public static final String CYPHER_GET_JAVASCRIPT_MODULE_PATH_FOR_FILE =
-        action("Js/get-module-path-for-file.cypher");
+    /** Fetches source-root reconstruction metadata for one JS/TS source file. */
+    public static final String CYPHER_GET_JAVASCRIPT_SOURCE_ROOT_HINT_FOR_FILE =
+        action("Js/get-source-root-hint-for-file.cypher");
 
     /** Fetches retained source file paths outside the active source root. */
     public static final String CYPHER_GET_RETAINED_FILES_OUTSIDE_SOURCE_ROOT =
@@ -348,6 +348,7 @@ public final class Const {
     public static final String PATHS = "paths";
     public static final String RETAINED_PATHS = "retainedPaths";
     public static final String SOURCE_ROOT = "sourceRoot";
+    public static final String SOURCE_ROOT_HINT = "sourceRootHint";
     public static final String SOURCE_ROOT_PREFIX = "sourceRootPrefix";
     public static final String CLASS_FQNS = "classFqns";
     public static final String INTERFACE_FQNS = "interfaceFqns";
