@@ -2,19 +2,16 @@ package io.github.ousatov.tools.memgraph.exe;
 
 import com.github.javaparser.ast.body.AnnotationDeclaration;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
-import com.github.javaparser.ast.body.ConstructorDeclaration;
-import com.github.javaparser.ast.body.EnumConstantDeclaration;
 import com.github.javaparser.ast.body.EnumDeclaration;
-import com.github.javaparser.ast.body.FieldDeclaration;
-import com.github.javaparser.ast.body.MethodDeclaration;
-import com.github.javaparser.ast.body.Parameter;
 import com.github.javaparser.ast.body.RecordDeclaration;
-import com.github.javaparser.ast.nodeTypes.NodeWithAnnotations;
-import com.github.javaparser.ast.nodeTypes.NodeWithImplements;
-import com.github.javaparser.ast.type.ClassOrInterfaceType;
 import io.github.ousatov.tools.memgraph.def.Const.Cypher;
-import io.github.ousatov.tools.memgraph.def.Const.Labels;
 import io.github.ousatov.tools.memgraph.def.Const.Params;
+import io.github.ousatov.tools.memgraph.exe.GraphWrite.AnnotationWrite;
+import io.github.ousatov.tools.memgraph.exe.GraphWrite.CallWrite;
+import io.github.ousatov.tools.memgraph.exe.GraphWrite.FieldWrite;
+import io.github.ousatov.tools.memgraph.exe.GraphWrite.PendingCallWrite;
+import io.github.ousatov.tools.memgraph.exe.java.JavaGraphWriter;
+import io.github.ousatov.tools.memgraph.exe.js.JsGraphWriter;
 import io.github.ousatov.tools.memgraph.vo.Method;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -26,8 +23,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
 import org.neo4j.driver.Session;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -55,6 +50,10 @@ public final class GraphWriter {
 
   private final CypherExecutor cypher;
   private final CallEdgeWriter callEdges;
+  private final GraphNodeWriter nodes;
+  private final JavaGraphWriter javaWriter;
+  private final JsGraphWriter jsWriter;
+  private final IngestionRunStats stats;
   private List<String> retainedSourcePaths = List.of();
 
   /**
@@ -62,8 +61,22 @@ public final class GraphWriter {
    * @param project project name used to scope all Cypher operations
    */
   public GraphWriter(Session session, String project) {
-    this.cypher = new CypherExecutor(session, project);
-    this.callEdges = new CallEdgeWriter(cypher);
+    this(session, project, new IngestionRunStats(0));
+  }
+
+  /**
+   * @param session Bolt session — must not be shared with other threads
+   * @param project project name used to scope all Cypher operations
+   * @param stats optional run-level counters shared by the orchestrator
+   */
+  GraphWriter(Session session, String project, IngestionRunStats stats) {
+    this.cypher = new CypherExecutor(session, project, stats);
+    this.nodes = new GraphNodeWriter(cypher);
+    this.callEdges = new CallEdgeWriter(cypher, nodes);
+    var languageWriters = new CommonGraphWriter.Dependencies(cypher, callEdges, nodes);
+    this.javaWriter = new JavaGraphWriter(languageWriters);
+    this.jsWriter = new JsGraphWriter(languageWriters);
+    this.stats = stats;
   }
 
   /** Sets project paths that should preserve shared definitions during file cleanup. */
@@ -100,6 +113,18 @@ public final class GraphWriter {
 
   static boolean isRetryable(RuntimeException e) {
     return CypherExecutor.isRetryable(e);
+  }
+
+  void recordIngestedFile() {
+    stats.recordIngestedFile();
+  }
+
+  void recordSkippedFile() {
+    stats.recordSkippedFile();
+  }
+
+  void recordFailedFile() {
+    stats.recordFailedFile();
   }
 
   /** Deletes the project-scoped {@code :Code} graph in batches, keeping the {@code :Project}. */
@@ -504,34 +529,7 @@ public final class GraphWriter {
       String modulePath,
       int startLine,
       int endLine) {
-    upsertClassNode(
-        file,
-        pkg,
-        fqn,
-        name,
-        false,
-        "",
-        false,
-        false,
-        false,
-        JAVASCRIPT_LANGUAGE,
-        "module",
-        modulePath,
-        "");
-    upsertMethodNode(
-        file,
-        new Method(
-            fqn,
-            fqn + "." + Labels.INIT + "()",
-            Labels.INIT,
-            Labels.VOID,
-            true,
-            "",
-            startLine,
-            endLine,
-            true,
-            JAVASCRIPT_LANGUAGE,
-            "module"));
+    jsWriter.upsertModule(file, pkg, fqn, name, modulePath, startLine, endLine);
   }
 
   /** Upserts a JavaScript/TypeScript class declaration using the existing {@code :Class} label. */
@@ -547,34 +545,17 @@ public final class GraphWriter {
       boolean hasDeclaredConstructor,
       int startLine,
       int endLine) {
-    upsertJavascriptTypeClass(
+    jsWriter.upsertClass(
         file,
         pkg,
         fqn,
         name,
         modulePath,
         framework,
-        false,
         isAbstract,
-        "class",
+        hasDeclaredConstructor,
         startLine,
         endLine);
-    if (!hasDeclaredConstructor) {
-      upsertMethodNode(
-          file,
-          new Method(
-              fqn,
-              fqn + "." + Labels.INIT + "()",
-              Labels.INIT,
-              Labels.VOID,
-              false,
-              "",
-              startLine,
-              endLine,
-              true,
-              JAVASCRIPT_LANGUAGE,
-              "constructor"));
-    }
   }
 
   /** Upserts a TypeScript enum using the existing {@code :Class} label and enum metadata. */
@@ -586,70 +567,22 @@ public final class GraphWriter {
       String modulePath,
       int startLine,
       int endLine) {
-    upsertJavascriptTypeClass(
-        file, pkg, fqn, name, modulePath, "", true, false, "enum", startLine, endLine);
-  }
-
-  @SuppressWarnings("java:S107")
-  private void upsertJavascriptTypeClass(
-      Path file,
-      String pkg,
-      String fqn,
-      String name,
-      String modulePath,
-      String framework,
-      boolean isEnum,
-      boolean isAbstract,
-      String kind,
-      int startLine,
-      int endLine) {
-    upsertClassNode(
-        file,
-        pkg,
-        fqn,
-        name,
-        isAbstract,
-        "",
-        isEnum,
-        false,
-        false,
-        JAVASCRIPT_LANGUAGE,
-        kind,
-        modulePath,
-        framework);
+    jsWriter.upsertEnum(file, pkg, fqn, name, modulePath, startLine, endLine);
   }
 
   /** Writes a JavaScript/TypeScript class {@code EXTENDS} relation. */
   public void upsertJavascriptExtendsClass(String childFqn, String parentFqn) {
-    upsertTypeRelation(
-        Cypher.CYPHER_UPSERT_EXTENDS_CLASS,
-        childFqn,
-        parentFqn,
-        Params.PARENT,
-        Params.PARENT_NAME,
-        Params.PARENT_PKG);
+    jsWriter.upsertExtendsClass(childFqn, parentFqn);
   }
 
   /** Writes a JavaScript/TypeScript interface {@code EXTENDS} relation. */
   public void upsertJavascriptInterfaceExtends(String childFqn, String parentFqn) {
-    upsertTypeRelation(
-        Cypher.CYPHER_UPSERT_INTERFACE_EXTENDS,
-        childFqn,
-        parentFqn,
-        Params.PARENT,
-        Params.PARENT_NAME,
-        Params.PARENT_PKG);
+    jsWriter.upsertInterfaceExtends(childFqn, parentFqn);
   }
 
   /** Writes a JavaScript/TypeScript class {@code IMPLEMENTS} relation. */
   public void upsertJavascriptImplements(String childFqn, String interfaceFqn) {
-    upsertTypeRelation(
-        Cypher.CYPHER_UPSERT_IMPLEMENTS,
-        childFqn,
-        interfaceFqn,
-        Params.IFACE,
-        Params.IFACE_NAME,
-        Params.IFACE_PKG);
+    jsWriter.upsertImplements(childFqn, interfaceFqn);
   }
 
   /** Upserts a TypeScript interface or type alias using the compatible {@code :Interface} label. */
@@ -661,8 +594,7 @@ public final class GraphWriter {
       String kind,
       String modulePath,
       String framework) {
-    upsertInterfaceNode(
-        file, pkg, fqn, name, true, "", JAVASCRIPT_LANGUAGE, kind, modulePath, framework);
+    jsWriter.upsertInterface(file, pkg, fqn, name, kind, modulePath, framework);
   }
 
   /** Upserts a JavaScript/TypeScript property or top-level variable as a {@code :Field}. */
@@ -674,27 +606,7 @@ public final class GraphWriter {
       String type,
       boolean isStatic,
       String kind) {
-    cypher.run(
-        Cypher.CYPHER_UPSERT_FIELD,
-        Map.of(
-            Params.PATH,
-            file.toString(),
-            Params.FQN,
-            fqn,
-            Params.NAME,
-            name,
-            Params.TYPE,
-            type,
-            Params.IS_STATIC,
-            isStatic,
-            Params.VISIBILITY,
-            "",
-            Params.LANGUAGE,
-            JAVASCRIPT_LANGUAGE,
-            Params.KIND,
-            kind,
-            Params.OWNER,
-            ownerFqn));
+    jsWriter.upsertField(file, ownerFqn, fqn, name, type, isStatic, kind);
   }
 
   /** Upserts a JavaScript/TypeScript function or method as a {@code :Method}. */
@@ -709,20 +621,13 @@ public final class GraphWriter {
       int startLine,
       int endLine,
       String kind) {
-    upsertMethodNode(
-        file,
-        new Method(
-            ownerFqn,
-            signature,
-            name,
-            returnType,
-            isStatic,
-            "",
-            startLine,
-            endLine,
-            false,
-            JAVASCRIPT_LANGUAGE,
-            kind));
+    jsWriter.upsertMethod(
+        file, ownerFqn, signature, name, returnType, isStatic, startLine, endLine, kind);
+  }
+
+  void upsertJavascriptMembers(
+      Path file, Collection<FieldWrite> fields, Collection<Method> methods) {
+    jsWriter.upsertMembers(file, fields, methods);
   }
 
   /** Adds an annotation/decorator edge for a type or field identified by FQN. */
@@ -733,165 +638,42 @@ public final class GraphWriter {
   /** Adds an annotation/decorator edge for a type or field identified by FQN. */
   public void upsertAnnotationReferenceByFqn(
       String ownerFqn, String annotationFqn, String name, String language, String kind) {
-    cypher.run(
-        Cypher.CYPHER_UPSERT_ANNOTATED_WITH_BY_FQN,
-        Map.of(
-            Params.OWNER,
-            ownerFqn,
-            Params.ANNOT_FQN,
-            annotationFqn,
-            Params.ANNOT_NAME,
-            name,
-            Params.LANGUAGE,
-            language,
-            Params.KIND,
-            kind));
+    nodes.upsertAnnotationReferencesByFqn(
+        List.of(new AnnotationWrite(ownerFqn, annotationFqn, name, language, kind)));
   }
 
   /** Adds an annotation/decorator edge for a method identified by signature. */
   public void upsertAnnotationReferenceBySig(
       String signature, String annotationFqn, String name, String language, String kind) {
-    cypher.run(
-        Cypher.CYPHER_UPSERT_ANNOTATED_WITH_BY_SIG,
-        Map.of(
-            Params.SIG,
-            signature,
-            Params.ANNOT_FQN,
-            annotationFqn,
-            Params.ANNOT_NAME,
-            name,
-            Params.LANGUAGE,
-            language,
-            Params.KIND,
-            kind));
+    nodes.upsertAnnotationReferencesBySig(
+        List.of(new AnnotationWrite(signature, annotationFqn, name, language, kind)));
   }
 
   /** Upserts a resolved in-project call edge. */
   public void upsertCall(String callerSignature, String calleeSignature) {
-    cypher.run(
-        Cypher.CYPHER_UPSERT_CALL,
-        Map.of(Params.CALLER, callerSignature, Params.CALLEE, calleeSignature));
+    nodes.upsertCalls(List.of(new CallWrite(callerSignature, calleeSignature)));
   }
 
   /** Stores a deferred owner/name call for post-ingestion resolution. */
   public void upsertPendingCallByName(String callerSignature, String ownerFqn, String calleeName) {
-    cypher.run(
-        Cypher.CYPHER_UPSERT_PENDING_CALL_BY_NAME,
-        Map.of(
-            Params.CALLER,
-            callerSignature,
-            Params.OWNER_FQN,
-            ownerFqn,
-            Params.CALLEE_NAME,
-            calleeName));
+    nodes.upsertPendingCallsByName(
+        List.of(new PendingCallWrite(callerSignature, ownerFqn, calleeName)));
   }
 
-  private static String typeFqn(String pkg, String outerFqn, String simpleName) {
-    return outerFqn != null ? outerFqn + "$" + simpleName : JavaTypeNames.buildFqn(pkg, simpleName);
+  void upsertAnnotationReferencesByFqn(Collection<AnnotationWrite> annotations) {
+    nodes.upsertAnnotationReferencesByFqn(annotations);
   }
 
-  @SuppressWarnings("java:S107")
-  private void upsertClassNode(
-      Path file,
-      String pkg,
-      String fqn,
-      String name,
-      boolean isAbstract,
-      String visibility,
-      boolean isEnum,
-      boolean isRecord,
-      boolean isFinal) {
-    upsertClassNode(
-        file,
-        pkg,
-        fqn,
-        name,
-        isAbstract,
-        visibility,
-        isEnum,
-        isRecord,
-        isFinal,
-        JAVA_LANGUAGE,
-        classKind(isEnum, isRecord),
-        "",
-        "");
+  void upsertAnnotationReferencesBySig(Collection<AnnotationWrite> annotations) {
+    nodes.upsertAnnotationReferencesBySig(annotations);
   }
 
-  @SuppressWarnings("java:S107")
-  private void upsertClassNode(
-      Path file,
-      String pkg,
-      String fqn,
-      String name,
-      boolean isAbstract,
-      String visibility,
-      boolean isEnum,
-      boolean isRecord,
-      boolean isFinal,
-      String language,
-      String kind,
-      String modulePath,
-      String framework) {
-    cypher.run(
-        Cypher.CYPHER_UPSERT_CLASS,
-        Map.ofEntries(
-            Map.entry(Params.FQN, fqn),
-            Map.entry(Params.NAME, name),
-            Map.entry(Params.PKG, pkg),
-            Map.entry(Params.PATH, file.toString()),
-            Map.entry(Params.IS_ABSTRACT, isAbstract),
-            Map.entry(Params.VISIBILITY, visibility),
-            Map.entry(Params.IS_ENUM, isEnum),
-            Map.entry(Params.IS_RECORD, isRecord),
-            Map.entry(Params.IS_FINAL, isFinal),
-            Map.entry(Params.LANGUAGE, language),
-            Map.entry(Params.KIND, kind),
-            Map.entry(Params.MODULE_PATH, modulePath),
-            Map.entry(Params.FRAMEWORK, framework)));
+  void upsertCalls(Collection<CallWrite> calls) {
+    nodes.upsertCalls(calls);
   }
 
-  private void upsertInterfaceNode(
-      Path file, String pkg, String fqn, String name, boolean isAbstract, String visibility) {
-    upsertInterfaceNode(
-        file, pkg, fqn, name, isAbstract, visibility, JAVA_LANGUAGE, "interface", "", "");
-  }
-
-  @SuppressWarnings("java:S107")
-  private void upsertInterfaceNode(
-      Path file,
-      String pkg,
-      String fqn,
-      String name,
-      boolean isAbstract,
-      String visibility,
-      String language,
-      String kind,
-      String modulePath,
-      String framework) {
-    cypher.run(
-        Cypher.CYPHER_UPSERT_INTERFACE,
-        Map.ofEntries(
-            Map.entry(Params.FQN, fqn),
-            Map.entry(Params.NAME, name),
-            Map.entry(Params.PKG, pkg),
-            Map.entry(Params.PATH, file.toString()),
-            Map.entry(Params.IS_ABSTRACT, isAbstract),
-            Map.entry(Params.VISIBILITY, visibility),
-            Map.entry(Params.IS_FINAL, false),
-            Map.entry(Params.LANGUAGE, language),
-            Map.entry(Params.KIND, kind),
-            Map.entry(Params.MODULE_PATH, modulePath),
-            Map.entry(Params.FRAMEWORK, framework)));
-  }
-
-  private static String classKind(boolean isEnum, boolean isRecord) {
-    if (isEnum) {
-      return "enum";
-    }
-    if (isRecord) {
-      return "record";
-    }
-    return "class";
+  void upsertPendingCallsByName(Collection<PendingCallWrite> calls) {
+    nodes.upsertPendingCallsByName(calls);
   }
 
   /**
@@ -899,7 +681,7 @@ public final class GraphWriter {
    * types with their correct {@code $}-separated FQN.
    */
   public void upsertType(Path file, String pkg, ClassOrInterfaceDeclaration decl) {
-    upsertTypeInternal(file, pkg, null, decl);
+    javaWriter.upsertType(file, pkg, decl);
   }
 
   /**
@@ -907,25 +689,7 @@ public final class GraphWriter {
    * constants, fields, methods, constructors, implemented interfaces, and nested types.
    */
   public void upsertEnum(Path file, String pkg, EnumDeclaration decl) {
-    String fqn = JavaTypeNames.buildFqn(pkg, decl.getNameAsString());
-    upsertClassNode(
-        file,
-        pkg,
-        fqn,
-        decl.getNameAsString(),
-        false,
-        decl.getAccessSpecifier().asString(),
-        true,
-        false,
-        true);
-    upsertAnnotationsByFqn(fqn, decl);
-    upsertImplementedTypes(fqn, decl);
-    decl.getEntries().forEach(entry -> upsertEnumConstant(file, fqn, entry));
-    decl.getFields().forEach(f -> upsertField(file, fqn, f));
-    decl.getMethods().forEach(m -> upsertMethod(file, fqn, m));
-    decl.getConstructors().forEach(c -> upsertConstructor(file, fqn, c));
-    nestedClassDeclarationsOf(decl.getMembers())
-        .forEach(nested -> upsertTypeInternal(file, pkg, fqn, nested));
+    javaWriter.upsertEnum(file, pkg, decl);
   }
 
   /**
@@ -933,27 +697,7 @@ public final class GraphWriter {
    * fields, methods, constructors, implemented interfaces, and nested types.
    */
   public void upsertRecord(Path file, String pkg, RecordDeclaration decl) {
-    String fqn = JavaTypeNames.buildFqn(pkg, decl.getNameAsString());
-    upsertClassNode(
-        file,
-        pkg,
-        fqn,
-        decl.getNameAsString(),
-        false,
-        decl.getAccessSpecifier().asString(),
-        false,
-        true,
-        true);
-    upsertAnnotationsByFqn(fqn, decl);
-    upsertImplementedTypes(fqn, decl);
-    decl.getFields().forEach(f -> upsertField(file, fqn, f));
-    upsertRecordComponents(file, fqn, decl);
-    decl.getMethods().forEach(m -> upsertMethod(file, fqn, m));
-    decl.getConstructors().forEach(c -> upsertConstructor(file, fqn, c));
-    upsertRecordCanonicalConstructor(file, fqn, decl);
-    upsertRecordAccessors(file, fqn, decl);
-    nestedClassDeclarationsOf(decl.getMembers())
-        .forEach(nested -> upsertTypeInternal(file, pkg, fqn, nested));
+    javaWriter.upsertRecord(file, pkg, decl);
   }
 
   /**
@@ -961,29 +705,7 @@ public final class GraphWriter {
    * ANNOTATED_WITH} edges for any meta-annotations applied to it.
    */
   public void upsertAnnotation(Path file, String pkg, AnnotationDeclaration decl) {
-    String fqn = JavaTypeNames.buildFqn(pkg, decl.getNameAsString());
-    cypher.run(
-        Cypher.CYPHER_UPSERT_ANNOTATION,
-        Map.of(
-            Params.FQN,
-            fqn,
-            Params.NAME,
-            decl.getNameAsString(),
-            Params.PKG,
-            pkg,
-            Params.PATH,
-            file.toString(),
-            Params.VISIBILITY,
-            decl.getAccessSpecifier().asString(),
-            Params.LANGUAGE,
-            JAVA_LANGUAGE,
-            Params.KIND,
-            Params.ANNOTATION,
-            Params.MODULE_PATH,
-            "",
-            Params.FRAMEWORK,
-            ""));
-    upsertAnnotationsByFqn(fqn, decl);
+    javaWriter.upsertAnnotation(file, pkg, decl);
   }
 
   /**
@@ -992,7 +714,7 @@ public final class GraphWriter {
    * every callee node already exists.
    */
   public void upsertTypeCallEdges(String pkg, ClassOrInterfaceDeclaration decl) {
-    upsertTypeCallEdgesInternal(pkg, null, decl);
+    javaWriter.upsertTypeCallEdges(pkg, decl);
   }
 
   /**
@@ -1000,8 +722,7 @@ public final class GraphWriter {
    * types. Call this after all structural upserts for the file are complete.
    */
   public void upsertEnumCallEdges(String pkg, EnumDeclaration decl) {
-    String fqn = JavaTypeNames.buildFqn(pkg, decl.getNameAsString());
-    upsertCallEdgesForDecl(pkg, fqn, decl.getMethods(), decl.getConstructors(), decl.getMembers());
+    javaWriter.upsertEnumCallEdges(pkg, decl);
   }
 
   /**
@@ -1009,423 +730,6 @@ public final class GraphWriter {
    * types. Call this after all structural upserts for the file are complete.
    */
   public void upsertRecordCallEdges(String pkg, RecordDeclaration decl) {
-    String fqn = JavaTypeNames.buildFqn(pkg, decl.getNameAsString());
-    upsertCallEdgesForDecl(pkg, fqn, decl.getMethods(), decl.getConstructors(), decl.getMembers());
-  }
-
-  private void upsertTypeCallEdgesInternal(
-      String pkg, String outerFqn, ClassOrInterfaceDeclaration decl) {
-    String fqn = typeFqn(pkg, outerFqn, decl.getNameAsString());
-    decl.getMethods().forEach(m -> callEdges.upsert(JavaTypeNames.buildSignature(fqn, m), fqn, m));
-    decl.getConstructors()
-        .forEach(c -> callEdges.upsert(JavaTypeNames.buildConstructorSignature(fqn, c), fqn, c));
-    nestedClassDeclarationsOf(decl.getMembers())
-        .forEach(nested -> upsertTypeCallEdgesInternal(pkg, fqn, nested));
-  }
-
-  private void upsertTypeInternal(
-      Path file, String pkg, String outerFqn, ClassOrInterfaceDeclaration decl) {
-    String fqn = typeFqn(pkg, outerFqn, decl.getNameAsString());
-    if (decl.isInterface()) {
-      upsertInterfaceNode(
-          file,
-          pkg,
-          fqn,
-          decl.getNameAsString(),
-          decl.isAbstract(),
-          decl.getAccessSpecifier().asString());
-    } else {
-      upsertClassNode(
-          file,
-          pkg,
-          fqn,
-          decl.getNameAsString(),
-          decl.isAbstract(),
-          decl.getAccessSpecifier().asString(),
-          false,
-          false,
-          decl.isFinal());
-    }
-    upsertAnnotationsByFqn(fqn, decl);
-    upsertInheritance(fqn, decl);
-    decl.getFields().forEach(f -> upsertField(file, fqn, f));
-    decl.getMethods().forEach(m -> upsertMethod(file, fqn, m));
-    decl.getConstructors().forEach(c -> upsertConstructor(file, fqn, c));
-    if (!decl.isInterface() && decl.getConstructors().isEmpty()) {
-      upsertImplicitDefaultConstructor(file, fqn, decl);
-    }
-    // Recurse into directly nested class/interface declarations with correct FQN.
-    nestedClassDeclarationsOf(decl.getMembers())
-        .forEach(nested -> upsertTypeInternal(file, pkg, fqn, nested));
-  }
-
-  /**
-   * Returns a stream of directly nested {@link ClassOrInterfaceDeclaration} nodes from {@code
-   * members}. Only handles class and interface declarations; nested enums, records, and annotation
-   * types are excluded (pre-existing limitation).
-   */
-  private static Stream<ClassOrInterfaceDeclaration> nestedClassDeclarationsOf(List<?> members) {
-    return members.stream()
-        .filter(ClassOrInterfaceDeclaration.class::isInstance)
-        .map(ClassOrInterfaceDeclaration.class::cast);
-  }
-
-  /**
-   * Upserts {@code CALLS} edges for methods, constructors, and directly nested class declarations
-   * of a type body. Used by {@link #upsertEnumCallEdges} and {@link #upsertRecordCallEdges}.
-   */
-  private void upsertCallEdgesForDecl(
-      String pkg,
-      String fqn,
-      List<MethodDeclaration> methods,
-      List<ConstructorDeclaration> constructors,
-      List<?> members) {
-    methods.forEach(m -> callEdges.upsert(JavaTypeNames.buildSignature(fqn, m), fqn, m));
-    constructors.forEach(
-        c -> callEdges.upsert(JavaTypeNames.buildConstructorSignature(fqn, c), fqn, c));
-    nestedClassDeclarationsOf(members)
-        .forEach(nested -> upsertTypeCallEdgesInternal(pkg, fqn, nested));
-  }
-
-  private void upsertInheritance(String fqn, ClassOrInterfaceDeclaration decl) {
-    String extendsCypher =
-        decl.isInterface()
-            ? Cypher.CYPHER_UPSERT_INTERFACE_EXTENDS
-            : Cypher.CYPHER_UPSERT_EXTENDS_CLASS;
-    decl.getExtendedTypes()
-        .forEach(
-            ext ->
-                upsertTypeRelation(
-                    extendsCypher, fqn, ext, Params.PARENT, Params.PARENT_NAME, Params.PARENT_PKG));
-    decl.getImplementedTypes().forEach(impl -> upsertImplementedType(fqn, impl));
-  }
-
-  /** Writes {@code IMPLEMENTS} edges for enums and records that implement interfaces. */
-  private void upsertImplementedTypes(String fqn, NodeWithImplements<?> decl) {
-    decl.getImplementedTypes().forEach(impl -> upsertImplementedType(fqn, impl));
-  }
-
-  private void upsertImplementedType(String fqn, ClassOrInterfaceType iface) {
-    upsertTypeRelation(
-        Cypher.CYPHER_UPSERT_IMPLEMENTS,
-        fqn,
-        iface,
-        Params.IFACE,
-        Params.IFACE_NAME,
-        Params.IFACE_PKG);
-  }
-
-  private void upsertTypeRelation(
-      String query,
-      String childFqn,
-      String targetFqn,
-      String targetParam,
-      String targetNameParam,
-      String targetPkgParam) {
-    if (targetFqn == null || targetFqn.isBlank()) {
-      return;
-    }
-    cypher.run(
-        query,
-        Map.of(
-            Params.CHILD,
-            childFqn,
-            targetParam,
-            targetFqn,
-            targetNameParam,
-            JavaTypeNames.nameFromFqn(targetFqn),
-            targetPkgParam,
-            JavaTypeNames.packageFromFqn(targetFqn),
-            Params.LANGUAGE,
-            JAVASCRIPT_LANGUAGE));
-  }
-
-  private void upsertTypeRelation(
-      String query,
-      String childFqn,
-      ClassOrInterfaceType target,
-      String targetParam,
-      String targetNameParam,
-      String targetPkgParam) {
-    JavaTypeNames.withResolvedType(
-        target,
-        targetFqn ->
-            cypher.run(
-                query,
-                Map.of(
-                    Params.CHILD,
-                    childFqn,
-                    targetParam,
-                    targetFqn,
-                    targetNameParam,
-                    JavaTypeNames.nameFromFqn(targetFqn),
-                    targetPkgParam,
-                    JavaTypeNames.packageFromFqn(targetFqn),
-                    Params.LANGUAGE,
-                    JAVA_LANGUAGE)));
-  }
-
-  /** Upserts record components (parameters) as {@code :Field} nodes. */
-  private void upsertRecordComponents(Path file, String ownerFqn, RecordDeclaration decl) {
-    for (Parameter param : decl.getParameters()) {
-      String fqn = ownerFqn + "#" + param.getNameAsString();
-      cypher.run(
-          Cypher.CYPHER_UPSERT_FIELD,
-          Map.of(
-              Params.PATH,
-              file.toString(),
-              Params.FQN,
-              fqn,
-              Params.NAME,
-              param.getNameAsString(),
-              Params.TYPE,
-              JavaTypeNames.resolveType(param.getType()),
-              Params.IS_STATIC,
-              false,
-              Params.VISIBILITY,
-              "private",
-              Params.LANGUAGE,
-              JAVA_LANGUAGE,
-              Params.KIND,
-              "record-component",
-              Params.OWNER,
-              ownerFqn));
-      upsertAnnotationsByFqn(fqn, param);
-    }
-  }
-
-  private void upsertField(Path file, String ownerFqn, FieldDeclaration field) {
-    field
-        .getVariables()
-        .forEach(
-            v -> {
-              String fqn = ownerFqn + "#" + v.getNameAsString();
-              cypher.run(
-                  Cypher.CYPHER_UPSERT_FIELD,
-                  Map.of(
-                      Params.PATH,
-                      file.toString(),
-                      Params.FQN,
-                      fqn,
-                      Params.NAME,
-                      v.getNameAsString(),
-                      Params.TYPE,
-                      JavaTypeNames.resolveType(v.getType()),
-                      Params.IS_STATIC,
-                      field.isStatic(),
-                      Params.VISIBILITY,
-                      field.getAccessSpecifier().asString(),
-                      Params.LANGUAGE,
-                      JAVA_LANGUAGE,
-                      Params.KIND,
-                      "field",
-                      Params.OWNER,
-                      ownerFqn));
-              upsertAnnotationsByFqn(fqn, field);
-            });
-  }
-
-  private void upsertEnumConstant(Path file, String ownerFqn, EnumConstantDeclaration entry) {
-    cypher.run(
-        Cypher.CYPHER_UPSERT_FIELD,
-        Map.of(
-            Params.PATH,
-            file.toString(),
-            Params.FQN,
-            ownerFqn + "#" + entry.getNameAsString(),
-            Params.NAME,
-            entry.getNameAsString(),
-            Params.TYPE,
-            ownerFqn,
-            Params.IS_STATIC,
-            true,
-            Params.VISIBILITY,
-            "public",
-            Params.LANGUAGE,
-            JAVA_LANGUAGE,
-            Params.KIND,
-            "enum-member",
-            Params.OWNER,
-            ownerFqn));
-  }
-
-  private void upsertMethod(Path file, String ownerFqn, MethodDeclaration method) {
-    String signature = JavaTypeNames.buildSignature(ownerFqn, method);
-    upsertMethodNode(
-        file,
-        new Method(
-            ownerFqn,
-            signature,
-            method.getNameAsString(),
-            JavaTypeNames.resolveType(method.getType()),
-            method.isStatic(),
-            method.getAccessSpecifier().asString(),
-            method.getBegin().map(p -> p.line).orElse(0),
-            method.getEnd().map(p -> p.line).orElse(0),
-            false));
-    upsertAnnotationsBySig(signature, method);
-  }
-
-  private void upsertConstructor(Path file, String ownerFqn, ConstructorDeclaration ctor) {
-    String signature = JavaTypeNames.buildConstructorSignature(ownerFqn, ctor);
-    upsertMethodNode(
-        file,
-        new Method(
-            ownerFqn,
-            signature,
-            Labels.INIT,
-            Labels.VOID,
-            false,
-            ctor.getAccessSpecifier().asString(),
-            ctor.getBegin().map(p -> p.line).orElse(0),
-            ctor.getEnd().map(p -> p.line).orElse(0),
-            false));
-    upsertAnnotationsBySig(signature, ctor);
-  }
-
-  /** Shared helper that creates or updates a {@code :Method} node with all properties. */
-  private void upsertMethodNode(Path file, Method method) {
-    cypher.run(
-        Cypher.CYPHER_UPSERT_METHOD,
-        Map.ofEntries(
-            Map.entry(Params.PATH, file.toString()),
-            Map.entry(Params.SIG, method.signature()),
-            Map.entry(Params.NAME, method.name()),
-            Map.entry(Params.RET, method.returnType()),
-            Map.entry(Params.IS_STATIC, method.isStatic()),
-            Map.entry(Params.VISIBILITY, method.visibility()),
-            Map.entry(Params.START, method.startLine()),
-            Map.entry(Params.END, method.endLine()),
-            Map.entry(Params.OWNER, method.ownerFqn()),
-            Map.entry(Params.OWNER_DISPLAY_NAME, JavaTypeNames.nameFromFqn(method.ownerFqn())),
-            Map.entry(Params.LANGUAGE, method.language()),
-            Map.entry(Params.KIND, method.kind()),
-            Map.entry(Params.IS_SYNTHETIC, method.isSynthetic())));
-  }
-
-  /**
-   * Synthesizes the canonical constructor for a record if no explicit canonical constructor is
-   * declared. The canonical constructor has the same parameter list as the record components.
-   */
-  private void upsertRecordCanonicalConstructor(Path file, String fqn, RecordDeclaration decl) {
-    String canonicalParams =
-        decl.getParameters().stream()
-            .map(JavaTypeNames::resolveParamType)
-            .collect(Collectors.joining(", "));
-    String canonicalSig = fqn + "." + Labels.INIT + "(" + canonicalParams + ")";
-    boolean hasCanonical =
-        decl.getConstructors().stream()
-            .anyMatch(c -> JavaTypeNames.buildConstructorSignature(fqn, c).equals(canonicalSig));
-    if (!hasCanonical) {
-      upsertMethodNode(
-          file,
-          new Method(
-              fqn,
-              canonicalSig,
-              Labels.INIT,
-              Labels.VOID,
-              false,
-              decl.getAccessSpecifier().asString(),
-              0,
-              0,
-              true));
-    }
-  }
-
-  /**
-   * Synthesizes the implicit no-arg constructor for a class that declares none. Stored with {@code
-   * isSynthetic=true} so it is invisible to default method-count queries but exists as a valid
-   * CALLS target — preventing phantom cleanup from erasing {@code new ClassName()} call edges.
-   */
-  private void upsertImplicitDefaultConstructor(
-      Path file, String fqn, ClassOrInterfaceDeclaration decl) {
-    upsertMethodNode(
-        file,
-        new Method(
-            fqn,
-            fqn + "." + Labels.INIT + "()",
-            Labels.INIT,
-            Labels.VOID,
-            false,
-            decl.getAccessSpecifier().asString(),
-            0,
-            0,
-            true));
-  }
-
-  /**
-   * Synthesizes accessor methods for record components that don't have an explicit accessor
-   * declared.
-   */
-  private void upsertRecordAccessors(Path file, String fqn, RecordDeclaration decl) {
-    var explicitMethods =
-        decl.getMethods().stream()
-            .filter(m -> m.getParameters().isEmpty())
-            .map(MethodDeclaration::getNameAsString)
-            .collect(Collectors.toSet());
-
-    for (Parameter param : decl.getParameters()) {
-      String accessorName = param.getNameAsString();
-      if (!explicitMethods.contains(accessorName)) {
-        String sig = fqn + "." + accessorName + "()";
-        upsertMethodNode(
-            file,
-            new Method(
-                fqn,
-                sig,
-                accessorName,
-                JavaTypeNames.resolveType(param.getType()),
-                false,
-                "public",
-                0,
-                0,
-                true));
-      }
-    }
-  }
-
-  /**
-   * Resolves each annotation on {@code node} and writes an {@code ANNOTATED_WITH} edge from the
-   * element identified by {@code ownerFqn}. Falls back to the simple annotation name when the
-   * symbol resolver cannot determine the FQN.
-   */
-  private void upsertAnnotationsByFqn(String ownerFqn, NodeWithAnnotations<?> node) {
-    upsertAnnotations(Params.OWNER, ownerFqn, node, Cypher.CYPHER_UPSERT_ANNOTATED_WITH_BY_FQN);
-  }
-
-  /**
-   * Resolves each annotation on {@code node} and writes an {@code ANNOTATED_WITH} edge from the
-   * method identified by {@code sig}. Falls back to the simple annotation name when the symbol
-   * resolver cannot determine the FQN.
-   */
-  private void upsertAnnotationsBySig(String sig, NodeWithAnnotations<?> node) {
-    upsertAnnotations(Params.SIG, sig, node, Cypher.CYPHER_UPSERT_ANNOTATED_WITH_BY_SIG);
-  }
-
-  private void upsertAnnotations(
-      String paramKey, String paramValue, NodeWithAnnotations<?> node, String query) {
-    node.getAnnotations()
-        .forEach(
-            ann -> {
-              String annotFqn;
-              try {
-                annotFqn = JavaTypeNames.normalizeNestedFqn(ann.resolve().getQualifiedName());
-              } catch (Exception _) {
-                annotFqn = ann.getNameAsString();
-              }
-              cypher.run(
-                  query,
-                  Map.of(
-                      paramKey,
-                      paramValue,
-                      Params.ANNOT_FQN,
-                      annotFqn,
-                      Params.ANNOT_NAME,
-                      JavaTypeNames.nameFromFqn(annotFqn),
-                      Params.LANGUAGE,
-                      JAVA_LANGUAGE,
-                      Params.KIND,
-                      Params.ANNOTATION));
-            });
+    javaWriter.upsertRecordCallEdges(pkg, decl);
   }
 }

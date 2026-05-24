@@ -1,8 +1,16 @@
 package io.github.ousatov.tools.memgraph.exe;
 
 import io.github.ousatov.tools.memgraph.def.Const.Labels;
+import io.github.ousatov.tools.memgraph.exe.GraphWrite.AnnotationWrite;
+import io.github.ousatov.tools.memgraph.exe.GraphWrite.CallWrite;
+import io.github.ousatov.tools.memgraph.exe.GraphWrite.FieldWrite;
+import io.github.ousatov.tools.memgraph.exe.GraphWrite.PendingCallWrite;
+import io.github.ousatov.tools.memgraph.vo.Method;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import org.slf4j.Logger;
@@ -72,9 +80,9 @@ public final class JsLanguageAdapter implements LanguageAdapter {
               type ->
                   upsertType(writer, file, analysis.packageName(), analysis.modulePath(), type));
       analysis.relations().forEach(relation -> upsertRelation(writer, relation));
-      analysis.members().forEach(member -> upsertMember(writer, file, member));
-      analysis.annotations().forEach(annotation -> upsertAnnotation(writer, annotation));
-      analysis.calls().forEach(call -> upsertCall(writer, call));
+      upsertMembers(writer, file, analysis.members());
+      upsertAnnotations(writer, analysis.annotations());
+      upsertCalls(writer, analysis.calls());
       return true;
     } catch (RuntimeException e) {
       if (GraphWriter.isRetryable(e)) {
@@ -159,55 +167,76 @@ public final class JsLanguageAdapter implements LanguageAdapter {
     }
   }
 
-  private static void upsertMember(GraphWriter writer, Path file, JsAnalysis.MemberDecl member) {
-    if ("method".equals(member.memberType())) {
-      writer.upsertJavascriptMethod(
-          file,
-          member.ownerFqn(),
-          member.key(),
-          member.name(),
-          member.dataType(),
-          member.isStatic(),
-          member.startLine(),
-          member.endLine(),
-          member.kind());
-    } else {
-      writer.upsertJavascriptField(
-          file,
-          member.ownerFqn(),
-          member.key(),
-          member.name(),
-          member.dataType(),
-          member.isStatic(),
-          member.kind());
+  private static void upsertMembers(
+      GraphWriter writer, Path file, Collection<JsAnalysis.MemberDecl> members) {
+    List<FieldWrite> fields = new ArrayList<>();
+    List<Method> methods = new ArrayList<>();
+    for (JsAnalysis.MemberDecl member : members) {
+      if ("method".equals(member.memberType())) {
+        methods.add(
+            new Method(
+                member.ownerFqn(),
+                member.key(),
+                member.name(),
+                member.dataType(),
+                member.isStatic(),
+                "",
+                member.startLine(),
+                member.endLine(),
+                false,
+                SourceLanguage.JAVASCRIPT.graphName(),
+                member.kind()));
+      } else {
+        fields.add(
+            new FieldWrite(
+                member.ownerFqn(),
+                member.key(),
+                member.name(),
+                member.dataType(),
+                member.isStatic(),
+                "",
+                SourceLanguage.JAVASCRIPT.graphName(),
+                member.kind()));
+      }
     }
+    writer.upsertJavascriptMembers(file, fields, methods);
   }
 
-  private static void upsertAnnotation(GraphWriter writer, JsAnalysis.AnnotationDecl annotation) {
-    if ("sig".equals(annotation.ownerKind())) {
-      writer.upsertAnnotationReferenceBySig(
-          annotation.ownerKey(),
-          annotation.fqn(),
-          annotation.name(),
-          SourceLanguage.JAVASCRIPT.graphName(),
-          "decorator");
-    } else {
-      writer.upsertAnnotationReferenceByFqn(
-          annotation.ownerKey(),
-          annotation.fqn(),
-          annotation.name(),
-          SourceLanguage.JAVASCRIPT.graphName(),
-          "decorator");
+  private static void upsertAnnotations(
+      GraphWriter writer, Collection<JsAnalysis.AnnotationDecl> annotations) {
+    List<AnnotationWrite> ownerAnnotations = new ArrayList<>();
+    List<AnnotationWrite> methodAnnotations = new ArrayList<>();
+    for (JsAnalysis.AnnotationDecl annotation : annotations) {
+      AnnotationWrite write =
+          new AnnotationWrite(
+              annotation.ownerKey(),
+              annotation.fqn(),
+              annotation.name(),
+              SourceLanguage.JAVASCRIPT.graphName(),
+              "decorator");
+      if ("sig".equals(annotation.ownerKind())) {
+        methodAnnotations.add(write);
+      } else {
+        ownerAnnotations.add(write);
+      }
     }
+    writer.upsertAnnotationReferencesByFqn(ownerAnnotations);
+    writer.upsertAnnotationReferencesBySig(methodAnnotations);
   }
 
-  private static void upsertCall(GraphWriter writer, JsAnalysis.CallDecl call) {
-    if (!call.calleeSignature().isBlank()) {
-      writer.upsertCall(call.callerSignature(), call.calleeSignature());
-      return;
+  private static void upsertCalls(GraphWriter writer, Collection<JsAnalysis.CallDecl> calls) {
+    List<CallWrite> resolvedCalls = new ArrayList<>();
+    List<PendingCallWrite> pendingCalls = new ArrayList<>();
+    for (JsAnalysis.CallDecl call : calls) {
+      if (!call.calleeSignature().isBlank()) {
+        resolvedCalls.add(new CallWrite(call.callerSignature(), call.calleeSignature()));
+      } else {
+        pendingCalls.add(
+            new PendingCallWrite(call.callerSignature(), call.calleeOwnerFqn(), call.calleeName()));
+      }
     }
-    writer.upsertPendingCallByName(
-        call.callerSignature(), call.calleeOwnerFqn(), call.calleeName());
+    writer.upsertCalls(resolvedCalls);
+    writer.upsertPendingCallsByName(pendingCalls);
   }
 
   private static boolean isInNodeModules(Path path) {

@@ -127,6 +127,7 @@ public final class IngestionOrchestrator {
   public int run(Settings settings) {
     log.info("Proceeding with ingestion, settings: {}", settings);
     this.incremental = settings.incremental();
+    IngestionRunStats stats = new IngestionRunStats(threads);
     if (incremental && (settings.wipeAllData() || settings.wipeProjectCode())) {
       log.info(
           "--incremental is incompatible with --wipe-all / --wipe-project-code: wiping removes"
@@ -134,7 +135,7 @@ public final class IngestionOrchestrator {
       incremental = false;
     }
     try (Session bootstrap = driver.session()) {
-      GraphWriter bootstrapWriter = new GraphWriter(bootstrap, project);
+      GraphWriter bootstrapWriter = new GraphWriter(bootstrap, project, stats);
       if (settings.wipeAllData()) {
         Memgraph.wipeAllData(bootstrap);
         log.info("Wiped all data from Memgraph");
@@ -163,7 +164,8 @@ public final class IngestionOrchestrator {
     }
 
     List<SourceFile> files = discoverSourceFiles();
-    List<Path> retainedSourcePaths = retainedSourcePaths(files);
+    stats.setTotalFiles(files.size());
+    List<Path> retainedSourcePaths = retainedSourcePaths(files, stats);
     log.atInfo()
         .setMessage(
             "Found {} supported source files across {} adapter(s). Ingesting with {} thread(s).")
@@ -181,10 +183,10 @@ public final class IngestionOrchestrator {
 
     int failures;
     if (threads == 1) {
-      failures = ingestSequential(files, storedFiles, retainedSourcePaths);
+      failures = ingestSequential(files, storedFiles, retainedSourcePaths, stats);
     } else {
       try {
-        failures = ingestParallel(files, storedFiles, retainedSourcePaths);
+        failures = ingestParallel(files, storedFiles, retainedSourcePaths, stats);
       } catch (InterruptedException e) {
         Thread.currentThread().interrupt();
         throw new ProcessingException("Interrupted during ingestion", e);
@@ -192,7 +194,7 @@ public final class IngestionOrchestrator {
     }
 
     if (failures == 0) {
-      deleteMissingSourceFiles(files, retainedSourcePaths);
+      deleteMissingSourceFiles(files, retainedSourcePaths, stats);
     } else {
       log.warn(
           "Skipping missing-file cleanup because {} file(s) failed to ingest; existing graph"
@@ -201,9 +203,10 @@ public final class IngestionOrchestrator {
     }
 
     try (Session session = driver.session()) {
-      GraphWriter postWriter = new GraphWriter(session, project);
+      GraphWriter postWriter = new GraphWriter(session, project, stats);
       refreshDerivedGraphArtifacts(postWriter);
       printMetrics(session);
+      printPerformance(stats);
     }
 
     if (settings.watch()) {
@@ -475,6 +478,15 @@ public final class IngestionOrchestrator {
     }
   }
 
+  @SuppressWarnings({"java:S106", "java:S1181"})
+  private void printPerformance(IngestionRunStats stats) {
+    try {
+      System.out.print(stats.snapshot().toMarkdownTable());
+    } catch (RuntimeException | LinkageError e) {
+      log.warn("Could not print ingestion performance for '{}': {}", project, e.getMessage());
+    }
+  }
+
   private void registerRecursive(Path start, WatchService watcher, Map<WatchKey, Path> keys)
       throws IOException {
     Files.walkFileTree(
@@ -549,8 +561,12 @@ public final class IngestionOrchestrator {
   }
 
   private List<Path> retainedSourcePaths(List<SourceFile> files) {
+    return retainedSourcePaths(files, new IngestionRunStats(threads));
+  }
+
+  private List<Path> retainedSourcePaths(List<SourceFile> files, IngestionRunStats stats) {
     try (Session session = driver.session()) {
-      return retainedSourcePaths(files, new GraphWriter(session, project));
+      return retainedSourcePaths(files, new GraphWriter(session, project, stats));
     }
   }
 
@@ -569,7 +585,8 @@ public final class IngestionOrchestrator {
     return List.copyOf(retainedPaths);
   }
 
-  private void deleteMissingSourceFiles(List<SourceFile> files, Collection<Path> retainedPaths) {
+  private void deleteMissingSourceFiles(
+      List<SourceFile> files, Collection<Path> retainedPaths, IngestionRunStats stats) {
     Map<SourceLanguage, List<Path>> pathsByLanguage = new LinkedHashMap<>();
     Map<Path, SourceFile> currentFilesByPath = new LinkedHashMap<>();
     for (SourceFile file : files) {
@@ -579,7 +596,7 @@ public final class IngestionOrchestrator {
           .add(file.path());
     }
     try (Session session = driver.session()) {
-      GraphWriter writer = new GraphWriter(session, project);
+      GraphWriter writer = new GraphWriter(session, project, stats);
       writer.setRetainedSourcePaths(retainedPaths);
       Set<Path> retainedPathSet = new HashSet<>(retainedPaths);
       Set<Path> refreshAfterDelete = new LinkedHashSet<>();
@@ -700,13 +717,16 @@ public final class IngestionOrchestrator {
   }
 
   private int ingestSequential(
-      List<SourceFile> files, StoredFileState storedFiles, Collection<Path> retainedSourcePaths) {
+      List<SourceFile> files,
+      StoredFileState storedFiles,
+      Collection<Path> retainedSourcePaths,
+      IngestionRunStats stats) {
     int failures = 0;
     int total = files.size();
     int step = Math.clamp(total / PROGRESS_DIVISOR, 1, 100);
     int done = 0;
     try (Session session = driver.session()) {
-      GraphWriter writer = new GraphWriter(session, project);
+      GraphWriter writer = new GraphWriter(session, project, stats);
       writer.setRetainedSourcePaths(retainedSourcePaths);
       for (SourceFile file : files) {
         if (!ingestFileBatched(writer, file, storedFiles)) {
@@ -750,6 +770,7 @@ public final class IngestionOrchestrator {
       GraphWriter writer, SourceFile sourceFile, StoredFileState storedFiles) {
     if (isFileUnchanged(sourceFile.path(), storedFiles)) {
       log.debug("Skipping unchanged file: {}", sourceFile.path());
+      writer.recordSkippedFile();
       return true;
     }
     long backoffMs = FILE_TX_INITIAL_BACKOFF_MS;
@@ -759,7 +780,9 @@ public final class IngestionOrchestrator {
         boolean success = ingestFile(writer, sourceFile);
         if (success) {
           writer.commitFileTransaction();
+          writer.recordIngestedFile();
         } else {
+          writer.recordFailedFile();
           writer.rollbackFileTransaction();
         }
         return success;
@@ -767,6 +790,7 @@ public final class IngestionOrchestrator {
         writer.rollbackFileTransaction();
         if (!GraphWriter.isRetryable(e) || attempt == FILE_TX_RETRY_ATTEMPTS) {
           log.warn("Failed to ingest {}: {}", sourceFile.path(), e.getMessage());
+          writer.recordFailedFile();
           return false;
         }
         backoffMs = sleepBeforeFileRetry(sourceFile.path(), attempt, e, backoffMs);
@@ -795,13 +819,19 @@ public final class IngestionOrchestrator {
 
   @SuppressWarnings(value = {"java:S3776"})
   private int ingestParallel(
-      List<SourceFile> files, StoredFileState storedFiles, Collection<Path> retainedSourcePaths)
+      List<SourceFile> files,
+      StoredFileState storedFiles,
+      Collection<Path> retainedSourcePaths,
+      IngestionRunStats stats)
       throws InterruptedException {
-    return ingestParallelTransactional(files, storedFiles, retainedSourcePaths);
+    return ingestParallelTransactional(files, storedFiles, retainedSourcePaths, stats);
   }
 
   private int ingestParallelTransactional(
-      List<SourceFile> files, StoredFileState storedFiles, Collection<Path> retainedSourcePaths)
+      List<SourceFile> files,
+      StoredFileState storedFiles,
+      Collection<Path> retainedSourcePaths,
+      IngestionRunStats stats)
       throws InterruptedException {
     if (files.isEmpty()) {
       return 0;
@@ -812,7 +842,7 @@ public final class IngestionOrchestrator {
             () -> {
               Session s = driver.session();
               sessions.add(s);
-              GraphWriter writer = new GraphWriter(s, project);
+              GraphWriter writer = new GraphWriter(s, project, stats);
               writer.setRetainedSourcePaths(retainedSourcePaths);
               return writer;
             });

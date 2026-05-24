@@ -26,19 +26,11 @@ public final class Const {
     /** Upserts an {@code @interface} declaration as an {@code :Annotation} node. */
     public static final String CYPHER_UPSERT_ANNOTATION = action("upsert-annotation.cypher");
 
-    /**
-     * Merges an {@code [:ANNOTATED_WITH]} edge from an element identified by {@code fqn} (Class,
-     * Interface, Annotation, or Field) to an {@code :Annotation} node.
-     */
-    public static final String CYPHER_UPSERT_ANNOTATED_WITH_BY_FQN =
-        action("upsert-annotated-with-by-fqn.cypher");
+    public static final String CYPHER_UPSERT_ANNOTATED_WITH_BY_FQN_BATCH =
+        action("upsert-annotated-with-by-fqn-batch.cypher");
 
-    /**
-     * Merges an {@code [:ANNOTATED_WITH]} edge from a {@code :Method} identified by {@code
-     * signature} to an {@code :Annotation} node.
-     */
-    public static final String CYPHER_UPSERT_ANNOTATED_WITH_BY_SIG =
-        action("upsert-annotated-with-by-sig.cypher");
+    public static final String CYPHER_UPSERT_ANNOTATED_WITH_BY_SIG_BATCH =
+        action("upsert-annotated-with-by-sig-batch.cypher");
 
     public static final String CYPHER_WIPE_PROJECT_CODE = action("wipe-project-code.cypher");
     public static final String CYPHER_WIPE_PROJECT_CODE_BATCH =
@@ -125,17 +117,17 @@ public final class Const {
 
     public static final String CYPHER_UPSERT_IMPLEMENTS = action("upsert-implements.cypher");
     public static final String CYPHER_UPSERT_FIELD = action("upsert-field.cypher");
-    public static final String CYPHER_UPSERT_METHOD = action("upsert-method.cypher");
+    public static final String CYPHER_UPSERT_METHODS_BATCH = action("upsert-methods-batch.cypher");
     public static final String CYPHER_BACKFILL_METHOD_OWNER_METADATA =
         action("backfill-method-owner-metadata.cypher");
 
     /**
      * Callee is merged (not matched), creating a thin placeholder node if the callee file has not
-     * been ingested yet. Placeholder nodes are later upgraded by {@code upsert-method.cypher} when
-     * the callee file is processed; external/JDK callee nodes that are never upgraded are removed
-     * by {@link #CYPHER_DELETE_PHANTOM_METHODS}.
+     * been ingested yet. Placeholder nodes are later upgraded by the method upsert batch when the
+     * callee file is processed; external/JDK callee nodes that are never upgraded are removed by
+     * {@link #CYPHER_DELETE_PHANTOM_METHODS}.
      */
-    public static final String CYPHER_UPSERT_CALL = action("upsert-call.cypher");
+    public static final String CYPHER_UPSERT_CALLS_BATCH = action("upsert-calls-batch.cypher");
 
     /**
      * Fallback for unresolved same-class calls. Matches the callee by name within the owner type;
@@ -143,9 +135,8 @@ public final class Const {
      */
     public static final String CYPHER_UPSERT_CALL_BY_NAME = action("upsert-call-by-name.cypher");
 
-    /** Stores unresolved owner/name calls until a post-ingestion resolution pass can match them. */
-    public static final String CYPHER_UPSERT_PENDING_CALL_BY_NAME =
-        action("upsert-pending-call-by-name.cypher");
+    public static final String CYPHER_UPSERT_PENDING_CALLS_BY_NAME_BATCH =
+        action("upsert-pending-calls-by-name-batch.cypher");
 
     /**
      * Deletes deferred owner/name calls for methods declared by a source file before re-ingestion.
@@ -268,8 +259,8 @@ public final class Const {
         action("resolve-pending-calls.cypher");
 
     /**
-     * Removes placeholder {@code :Method} nodes that were created by {@link #CYPHER_UPSERT_CALL}
-     * but never fully ingested (i.e. external/JDK callees).
+     * Removes placeholder {@code :Method} nodes that were created by {@link
+     * #CYPHER_UPSERT_CALLS_BATCH} but never fully ingested (i.e. external/JDK callees).
      */
     public static final String CYPHER_DELETE_PHANTOM_METHODS =
         action("delete-phantom-methods.cypher");

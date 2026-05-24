@@ -19,7 +19,7 @@ import java.util.stream.Collectors;
  *
  * @author Oleksii Usatov
  */
-final class JavaTypeNames {
+public final class JavaTypeNames {
 
   private JavaTypeNames() {
 
@@ -30,7 +30,7 @@ final class JavaTypeNames {
    * Resolves a class/interface reference to its FQN. Returns empty for unresolvable types (e.g.
    * generics, missing classpath entries).
    */
-  static Optional<String> resolveQualifiedName(ClassOrInterfaceType type) {
+  public static Optional<String> resolveQualifiedName(ClassOrInterfaceType type) {
     try {
       ResolvedReferenceType resolved = type.resolve().asReferenceType();
       return resolved
@@ -46,7 +46,7 @@ final class JavaTypeNames {
    * Builds the method signature using symbol resolution when available, falling back to
    * per-parameter resolution.
    */
-  static String buildSignature(String ownerFqn, MethodDeclaration method) {
+  public static String buildSignature(String ownerFqn, MethodDeclaration method) {
     try {
       return buildMethodSignature(
           ownerFqn, method.getNameAsString(), method.resolve().getQualifiedSignature());
@@ -60,14 +60,14 @@ final class JavaTypeNames {
   }
 
   /** Builds {@code ownerFqn.methodName(params)} from a resolved qualified signature. */
-  static String buildMethodSignature(
+  public static String buildMethodSignature(
       String ownerFqn, String methodName, String qualifiedSignature) {
     int parenIdx = qualifiedSignature.indexOf('(');
     return ownerFqn + "." + methodName + qualifiedSignature.substring(parenIdx);
   }
 
   /** Builds a graph method signature from a resolved JavaParser method declaration. */
-  static String buildResolvedMethodSignature(ResolvedMethodDeclaration resolved) {
+  public static String buildResolvedMethodSignature(ResolvedMethodDeclaration resolved) {
     return buildMethodSignature(
         normalizeNestedFqn(resolved.declaringType().getQualifiedName()),
         resolved.getName(),
@@ -75,7 +75,7 @@ final class JavaTypeNames {
   }
 
   /** Builds the constructor signature using the graph's {@code <init>} convention. */
-  static String buildConstructorSignature(String ownerFqn, ConstructorDeclaration ctor) {
+  public static String buildConstructorSignature(String ownerFqn, ConstructorDeclaration ctor) {
     try {
       return buildInitCallSig(ownerFqn, ctor.resolve().getQualifiedSignature());
     } catch (Exception _) {
@@ -88,14 +88,14 @@ final class JavaTypeNames {
   }
 
   /** Converts a resolved constructor's qualified signature to {@code ownerFqn.<init>(params)}. */
-  static String buildInitCallSig(String ownerFqn, String qualifiedSignature) {
+  public static String buildInitCallSig(String ownerFqn, String qualifiedSignature) {
     int parenIdx = qualifiedSignature.indexOf('(');
     String params = qualifiedSignature.substring(parenIdx + 1, qualifiedSignature.length() - 1);
     return ownerFqn + "." + Labels.INIT + "(" + params + ")";
   }
 
   /** Resolves a single parameter type, falling back to the source-level type name. */
-  static String resolveParamType(Parameter parameter) {
+  public static String resolveParamType(Parameter parameter) {
     try {
       return parameter.getType().resolve().describe();
     } catch (Exception _) {
@@ -104,24 +104,24 @@ final class JavaTypeNames {
   }
 
   /** Constructs a fully qualified name from {@code pkg} and {@code simpleName}. */
-  static String buildFqn(String pkg, String simpleName) {
+  public static String buildFqn(String pkg, String simpleName) {
     return pkg.isEmpty() ? simpleName : pkg + "." + simpleName;
   }
 
   /** Extracts the simple name from a fully qualified name. */
-  static String nameFromFqn(String fqn) {
+  public static String nameFromFqn(String fqn) {
     int dot = fqn.lastIndexOf('.');
     return dot < 0 ? fqn : fqn.substring(dot + 1);
   }
 
   /** Extracts the package name from a fully qualified name. */
-  static String packageFromFqn(String fqn) {
+  public static String packageFromFqn(String fqn) {
     int dot = fqn.lastIndexOf('.');
     return dot < 0 ? "" : fqn.substring(0, dot);
   }
 
   /** Converts dot-separated nested class FQNs to the graph's {@code $}-separated convention. */
-  static String normalizeNestedFqn(String fqn) {
+  public static String normalizeNestedFqn(String fqn) {
     if (fqn == null || !fqn.contains(".")) {
       return fqn;
     }
@@ -140,7 +140,7 @@ final class JavaTypeNames {
   }
 
   /** Resolves a type to its FQN, falling back to the source-level type name. */
-  static String resolveType(com.github.javaparser.ast.type.Type type) {
+  public static String resolveType(com.github.javaparser.ast.type.Type type) {
     try {
       return type.resolve().describe();
     } catch (Exception _) {
@@ -149,7 +149,7 @@ final class JavaTypeNames {
   }
 
   /** Resolves a type to its FQN via the symbol solver, falling back to import-based inference. */
-  static Optional<String> resolveOrInferFqn(ClassOrInterfaceType type) {
+  public static Optional<String> resolveOrInferFqn(ClassOrInterfaceType type) {
     Optional<String> resolved = resolveQualifiedName(type);
     if (resolved.isPresent()) {
       return resolved;
@@ -159,13 +159,13 @@ final class JavaTypeNames {
   }
 
   /** Resolves {@code type} and invokes {@code action} with the best available FQN. */
-  static void withResolvedType(ClassOrInterfaceType type, Consumer<String> action) {
+  public static void withResolvedType(ClassOrInterfaceType type, Consumer<String> action) {
     Optional<String> resolved = resolveQualifiedName(type);
     resolved.or(() -> Optional.ofNullable(inferFqnFromImports(type))).ifPresent(action);
   }
 
   /** Attempts to determine the FQN of the type targeted by a scoped method call. */
-  static Optional<String> resolveScopeTypeFqn(MethodCallExpr call) {
+  public static Optional<String> resolveScopeTypeFqn(MethodCallExpr call) {
     var scope = call.getScope().orElse(null);
     if (scope == null) {
       return Optional.empty();
@@ -190,7 +190,7 @@ final class JavaTypeNames {
   /**
    * Infers a type FQN from compilation-unit imports, falling back to the source-level type name.
    */
-  static String inferFqnFromImports(ClassOrInterfaceType type) {
+  public static String inferFqnFromImports(ClassOrInterfaceType type) {
     String simpleName = type.getNameAsString();
     String result = importedTypeFqn(type, simpleName).orElseGet(() -> inferNestedImport(type));
     return normalizeNestedFqn(result);

@@ -49,6 +49,30 @@ class IngestionMetricsTest {
   }
 
   @Test
+  void rendersStablePerformanceMarkdownTable() {
+    IngestionPerformanceMetrics metrics =
+        new IngestionPerformanceMetrics(
+            List.of(
+                new IngestionPerformanceMetrics.Row("files.total", "51"),
+                new IngestionPerformanceMetrics.Row("duration.ms", "1234"),
+                new IngestionPerformanceMetrics.Row("cypher.statements", "987")));
+
+    String table = metrics.toMarkdownTable();
+
+    assertEquals(
+        """
+        # Ingestion Performance
+
+        | metric            | value |
+        |-------------------|------:|
+        | files.total       |    51 |
+        | duration.ms       |  1234 |
+        | cypher.statements |   987 |
+        """,
+        table);
+  }
+
+  @Test
   void validatesMatchingSnapshot() throws IOException {
     String actualMetrics =
         new IngestionMetrics(List.of(new IngestionMetrics.Row("methods", 3))).toMarkdownTable();

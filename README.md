@@ -828,11 +828,16 @@ RETURN labels(memory), memory.id, memory.title;
 │   │   └── ProcessingException.java            # Domain-level processing failure
 │   ├── exe/
 │   │   ├── CallEdgeWriter.java                 # Java call-edge extraction/writes
+│   │   ├── CommonGraphWriter.java              # Shared graph writer helpers for language writers
 │   │   ├── CypherExecutor.java                 # Cypher execution and retry handling
-│   │   ├── GraphWriter.java                    # Memgraph node/relationship writes
+│   │   ├── GraphNodeWriter.java                # Batched low-level graph node/edge writes
+│   │   ├── GraphWrite.java                     # Shared graph write payload records
+│   │   ├── GraphWriter.java                    # Stable writer facade over language-specific writers
 │   │   ├── IngestionMetrics.java               # Metrics snapshot model
 │   │   ├── IngestionMetricsCollector.java      # Metrics collection from graph queries
+│   │   ├── IngestionPerformanceMetrics.java    # Performance metrics table model
 │   │   ├── IngestionOrchestrator.java          # Ingestion, wipe, incremental, and watch workflow
+│   │   ├── IngestionRunStats.java              # Per-run ingestion counters
 │   │   ├── JavaLanguageAdapter.java            # JavaParser-backed Java ingestion adapter
 │   │   ├── JavaTypeNames.java                  # Java type-name helpers
 │   │   ├── JsAnalysis.java                     # Neutral JS analyzer records
@@ -845,7 +850,11 @@ RETURN labels(memory), memory.id, memory.title;
 │   │   ├── MetricsValidationCli.java           # CLI for validating metrics snapshots
 │   │   ├── ParseService.java                   # JavaParser setup and parsing
 │   │   ├── RuntimeMode.java                    # JS runtime mode values
-│   │   └── SourceLanguage.java                 # Supported source-language values
+│   │   ├── SourceLanguage.java                 # Supported source-language values
+│   │   ├── java/
+│   │   │   └── JavaGraphWriter.java            # Java-specific graph writes
+│   │   └── js/
+│   │       └── JsGraphWriter.java              # JavaScript/TypeScript-specific graph writes
 │   ├── schema/
 │   │   └── Memgraph.java                       # Schema loader and global wipe helpers
 │   └── vo/
@@ -926,9 +935,11 @@ java -jar target/memgraph-ingester.jar --help
 
 ### Validate a metrics snapshot
 
-The metrics validator is opt-in. It is not bound to the normal build, test, release, or native
-profiles. Run it after ingesting a project when you want to compare the current metrics table with
-an expected snapshot file:
+After each ingestion run, the CLI prints Markdown tables for graph counts and performance counters
+such as elapsed milliseconds, file outcomes, and Cypher statement batching. The metrics validator is
+opt-in and compares only the graph-count table. It is not bound to the normal build, test, release,
+or native profiles. Run it after ingesting a project when you want to compare the current metrics
+table with an expected snapshot file:
 
 ```bash
 mvn compile exec:java@validate-metrics \

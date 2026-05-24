@@ -3,6 +3,7 @@ package io.github.ousatov.tools.memgraph.exe;
 import io.github.ousatov.tools.memgraph.def.Const.Labels;
 import io.github.ousatov.tools.memgraph.exception.ProcessingException;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ThreadLocalRandom;
@@ -29,11 +30,17 @@ final class CypherExecutor {
 
   private final Session session;
   private final String project;
+  private final IngestionRunStats stats;
   private Transaction currentTx;
 
   CypherExecutor(Session session, String project) {
+    this(session, project, new IngestionRunStats(0));
+  }
+
+  CypherExecutor(Session session, String project, IngestionRunStats stats) {
     this.session = session;
     this.project = project;
+    this.stats = stats;
   }
 
   /** Opens an explicit transaction for one file ingest. */
@@ -73,6 +80,32 @@ final class CypherExecutor {
         } else {
           session.run(cypher, allParams).consume();
         }
+        stats.recordCypherStatement();
+        return;
+      } catch (RuntimeException e) {
+        if (currentTx != null) {
+          throw e;
+        }
+        backoffMs = proceedException(cypher, e, attempt, backoffMs);
+      }
+    }
+  }
+
+  /** Runs one write statement for multiple homogeneous parameter rows. */
+  void runBatch(String cypher, List<Map<String, Object>> rows) {
+    if (rows.isEmpty()) {
+      return;
+    }
+    Map<String, Object> allParams = paramsWithProject(Map.of("rows", rows));
+    long backoffMs = INITIAL_BACKOFF_MS;
+    for (int attempt = 1; attempt <= MAX_RETRY_ATTEMPTS; attempt++) {
+      try {
+        if (currentTx != null) {
+          currentTx.run(cypher, allParams).consume();
+        } else {
+          session.run(cypher, allParams).consume();
+        }
+        stats.recordCypherBatch(rows.size());
         return;
       } catch (RuntimeException e) {
         if (currentTx != null) {
@@ -89,7 +122,9 @@ final class CypherExecutor {
     long backoffMs = INITIAL_BACKOFF_MS;
     for (int attempt = 1; attempt <= MAX_RETRY_ATTEMPTS; attempt++) {
       try {
-        return session.run(cypher, allParams).single().get(resultKey).asLong();
+        long value = session.run(cypher, allParams).single().get(resultKey).asLong();
+        stats.recordCypherStatement();
+        return value;
       } catch (RuntimeException e) {
         backoffMs = proceedException(cypher, e, attempt, backoffMs);
       }
@@ -99,7 +134,9 @@ final class CypherExecutor {
 
   /** Runs a read query and maps its result, injecting the project parameter. */
   <T> T read(String cypher, Map<String, Object> params, Function<Result, T> mapper) {
-    return mapper.apply(session.run(cypher, paramsWithProject(params)));
+    T value = mapper.apply(session.run(cypher, paramsWithProject(params)));
+    stats.recordCypherStatement();
+    return value;
   }
 
   static boolean isRetryable(RuntimeException e) {
@@ -107,6 +144,9 @@ final class CypherExecutor {
     return msg.contains("conflicting transactions")
         || msg.contains("deadlock")
         || msg.contains("serializationerror")
+        || msg.contains("cannot run more queries in this transaction")
+        || msg.contains("fatal error")
+        || msg.contains("explicitly terminated")
         || msg.contains("unique constraint violation");
   }
 
