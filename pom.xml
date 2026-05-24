@@ -319,7 +319,7 @@
               <goal>java</goal>
             </goals>
             <configuration>
-              <mainClass>io.github.ousatov.tools.memgraph.exe.MetricsValidationCli</mainClass>
+              <mainClass>io.github.ousatov.tools.memgraph.exe.metrics.MetricsValidationCli</mainClass>
               <classpathScope>runtime</classpathScope>
               <arguments>
                 <argument>${metrics.expected}</argument>
