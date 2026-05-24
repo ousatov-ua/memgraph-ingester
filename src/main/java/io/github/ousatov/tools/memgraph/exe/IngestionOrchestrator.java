@@ -33,6 +33,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
+import java.util.function.Function;
 import org.jspecify.annotations.NonNull;
 import org.neo4j.driver.Driver;
 import org.neo4j.driver.Session;
@@ -318,10 +319,15 @@ public final class IngestionOrchestrator {
           if (adapterFor(file).isEmpty()) {
             continue;
           }
-          Set<Path> sharedRetainedFiles = writer.getRetainedFilePathsSharingDefinitionsWith(file);
+          Optional<Set<Path>> sharedRetainedFiles =
+              retainedFilesSharingDefinitionsWithRetry(
+                  file, writer::getRetainedFilePathsSharingDefinitionsWith);
+          if (sharedRetainedFiles.isEmpty()) {
+            continue;
+          }
           if (deleteSourceFileWithRetry(file, writer::deleteSourceFile)) {
             changedGraph = true;
-            refreshAfterDelete.addAll(sharedRetainedFiles);
+            refreshAfterDelete.addAll(sharedRetainedFiles.get());
           }
         }
       } else if (!deletedFiles.isEmpty()) {
@@ -375,10 +381,15 @@ public final class IngestionOrchestrator {
         if (adapterFor(file).isEmpty()) {
           continue;
         }
-        Set<Path> sharedRetainedFiles = writer.getRetainedFilePathsSharingDefinitionsWith(file);
+        Optional<Set<Path>> sharedRetainedFiles =
+            retainedFilesSharingDefinitionsWithRetry(
+                file, writer::getRetainedFilePathsSharingDefinitionsWith);
+        if (sharedRetainedFiles.isEmpty()) {
+          continue;
+        }
         if (deleteSourceFileWithRetry(file, writer::deleteSourceFile)) {
           changedGraph = true;
-          refreshAfterDelete.addAll(sharedRetainedFiles);
+          refreshAfterDelete.addAll(sharedRetainedFiles.get());
         }
       }
       refreshRetainedFilesAfterDelete(writer, refreshAfterDelete, Map.of());
@@ -389,14 +400,14 @@ public final class IngestionOrchestrator {
     }
   }
 
-  private void refreshRetainedFilesAfterDelete(
+  void refreshRetainedFilesAfterDelete(
       GraphWriter writer, Collection<Path> paths, Map<Path, SourceFile> currentFilesByPath) {
     for (Path path : paths.stream().sorted().toList()) {
-      Optional<SourceFile> retainedFile = sourceFileFor(path, currentFilesByPath, writer);
-      if (retainedFile.isEmpty()) {
-        continue;
-      }
       try {
+        Optional<SourceFile> retainedFile = sourceFileFor(path, currentFilesByPath, writer);
+        if (retainedFile.isEmpty()) {
+          continue;
+        }
         if (!ingestFileBatched(writer, retainedFile.get(), StoredFileState.empty())) {
           log.warn("Failed to refresh retained file after delete: {}", path);
         }
@@ -421,6 +432,26 @@ public final class IngestionOrchestrator {
       }
     }
     return false;
+  }
+
+  Optional<Set<Path>> retainedFilesSharingDefinitionsWithRetry(
+      Path file, Function<Path, Set<Path>> retainedFilesLookup) {
+    long backoffMs = FILE_TX_INITIAL_BACKOFF_MS;
+    for (int attempt = 1; attempt <= FILE_TX_RETRY_ATTEMPTS; attempt++) {
+      try {
+        return Optional.of(retainedFilesLookup.apply(file));
+      } catch (RuntimeException e) {
+        if (!GraphWriter.isRetryable(e) || attempt == FILE_TX_RETRY_ATTEMPTS) {
+          log.warn(
+              "Failed to read retained files sharing definitions with {}: {}",
+              file,
+              e.getMessage());
+          return Optional.empty();
+        }
+        backoffMs = sleepBeforeFileRetry(file, attempt, e, backoffMs);
+      }
+    }
+    return Optional.empty();
   }
 
   /** Refreshes graph artifacts that depend on all available code nodes being present. */

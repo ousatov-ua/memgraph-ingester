@@ -749,6 +749,48 @@ class IngestionOrchestratorIT {
   }
 
   @Test
+  void retainedFileLookupRetriesTransientFailure() throws Exception {
+    currentProject = PROJECT_BASE + "-retained-lookup-retry";
+    sourceDir = Files.createTempDirectory("orch-retained-lookup-retry-src-");
+    Path deletedFile = sourceDir.resolve("Gone.java");
+    Path retainedFile = sourceDir.resolve("Retained.java");
+    IngestionOrchestrator orchestrator =
+        new IngestionOrchestrator(
+            sourceDir, currentProject, 1, driver, new ParseService(sourceDir));
+    AtomicInteger attempts = new AtomicInteger();
+
+    var retainedFiles =
+        orchestrator.retainedFilesSharingDefinitionsWithRetry(
+            deletedFile,
+            file -> {
+              if (attempts.getAndIncrement() == 0) {
+                throw new RuntimeException("deadlock detected");
+              }
+              return Set.of(retainedFile);
+            });
+
+    assertTrue(retainedFiles.isPresent());
+    assertEquals(Set.of(retainedFile), retainedFiles.get());
+    assertEquals(2, attempts.get());
+  }
+
+  @Test
+  void retainedRefreshCatchesSourceRootLookupFailure() throws Exception {
+    currentProject = PROJECT_BASE + "-retained-refresh-lookup-failure";
+    sourceDir = Files.createTempDirectory("orch-retained-refresh-lookup-failure-src-");
+    IngestionOrchestrator orchestrator =
+        new IngestionOrchestrator(
+            sourceDir, currentProject, 1, driver, new ParseService(sourceDir));
+
+    Session closedSession = driver.session();
+    GraphWriter writer = new GraphWriter(closedSession, currentProject);
+    closedSession.close();
+
+    orchestrator.refreshRetainedFilesAfterDelete(
+        writer, Set.of(sourceDir.resolve("Retained.java")), Map.of());
+  }
+
+  @Test
   void missingFileCleanupRetriesTransientFailure() throws Exception {
     currentProject = PROJECT_BASE + "-missing-cleanup-retry";
     sourceDir = Files.createTempDirectory("orch-missing-cleanup-retry-src-");
