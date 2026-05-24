@@ -1033,6 +1033,63 @@ class IngestionOrchestratorIT {
   }
 
   @Test
+  void reingestionIgnoresDeletedFilesWhenRefreshingRetainedOwnerRelations() throws Exception {
+    currentProject = PROJECT_BASE + "-deleted-file-retained-relations";
+    sourceDir = Files.createTempDirectory("orch-deleted-file-relations-src-");
+    Path pkgDir = sourceDir.resolve("com/example");
+    Files.createDirectories(pkgDir);
+    Path oldFile = pkgDir.resolve("OldMoved.java");
+    Path newFile = pkgDir.resolve("NewMoved.java");
+    Files.writeString(
+        oldFile,
+        """
+        package com.example;
+
+        @Deprecated
+        class Moved extends OldBase {}
+        """);
+    IngestionOrchestrator orchestrator =
+        new IngestionOrchestrator(
+            sourceDir, currentProject, 1, driver, new ParseService(sourceDir));
+
+    assertEquals(0, orchestrator.run(Settings.def()));
+
+    Files.writeString(
+        newFile,
+        """
+        package com.example;
+
+        class Moved extends NewBase {}
+        """);
+    Files.delete(oldFile);
+
+    assertEquals(0, orchestrator.run(Settings.def()));
+
+    try (Session s = driver.session()) {
+      var row =
+          s.run(
+                  """
+                  MATCH (moved:Class {project: $p, fqn: 'com.example.Moved'})
+                  OPTIONAL MATCH (moved)-[:EXTENDS]->(oldParent:Class {project: $p, name: 'OldBase'})
+                  OPTIONAL MATCH (moved)-[:EXTENDS]->(newParent:Class {project: $p, name: 'NewBase'})
+                  OPTIONAL MATCH (moved)-[:ANNOTATED_WITH]->(deprecated:Annotation {project: $p, name: 'Deprecated'})
+                  OPTIONAL MATCH (oldFile:File {project: $p, path: $oldPath})
+                  RETURN count(DISTINCT oldParent) AS oldParents,
+                         count(DISTINCT newParent) AS newParents,
+                         count(DISTINCT deprecated) AS deprecated,
+                         count(DISTINCT oldFile) AS oldFiles
+                  """,
+                  Map.of("p", currentProject, "oldPath", oldFile.toString()))
+              .single();
+
+      assertEquals(0, row.get("oldParents").asLong());
+      assertEquals(1, row.get("newParents").asLong());
+      assertEquals(0, row.get("deprecated").asLong());
+      assertEquals(0, row.get("oldFiles").asLong());
+    }
+  }
+
+  @Test
   void failedMovedFileIngestSkipsMissingFileCleanup() throws Exception {
     currentProject = PROJECT_BASE + "-failed-moved-file-missing-cleanup";
     sourceDir = Files.createTempDirectory("orch-failed-moved-file-src-");

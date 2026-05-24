@@ -16,6 +16,7 @@ import java.nio.file.WatchKey;
 import java.nio.file.WatchService;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -158,6 +159,7 @@ public final class IngestionOrchestrator {
     }
 
     List<SourceFile> files = discoverSourceFiles();
+    List<Path> currentSourcePaths = files.stream().map(SourceFile::path).toList();
     log.atInfo()
         .setMessage(
             "Found {} supported source files across {} adapter(s). Ingesting with {} thread(s).")
@@ -175,10 +177,10 @@ public final class IngestionOrchestrator {
 
     int failures;
     if (threads == 1) {
-      failures = ingestSequential(files, storedFiles);
+      failures = ingestSequential(files, storedFiles, currentSourcePaths);
     } else {
       try {
-        failures = ingestParallel(files, storedFiles);
+        failures = ingestParallel(files, storedFiles, currentSourcePaths);
       } catch (InterruptedException e) {
         Thread.currentThread().interrupt();
         throw new ProcessingException("Interrupted during ingestion", e);
@@ -268,6 +270,7 @@ public final class IngestionOrchestrator {
   private void ingestChangedFiles(Set<Path> files) {
     try (Session session = driver.session()) {
       GraphWriter writer = new GraphWriter(session, project);
+      writer.setCurrentSourcePaths(discoverSourceFiles().stream().map(SourceFile::path).toList());
       boolean changedGraph = false;
       List<Path> existingFiles = files.stream().filter(Files::exists).sorted().toList();
       List<Path> deletedFiles =
@@ -423,13 +426,15 @@ public final class IngestionOrchestrator {
     return languageAdapters.stream().filter(adapter -> adapter.accepts(file)).findFirst();
   }
 
-  private int ingestSequential(List<SourceFile> files, StoredFileState storedFiles) {
+  private int ingestSequential(
+      List<SourceFile> files, StoredFileState storedFiles, Collection<Path> currentSourcePaths) {
     int failures = 0;
     int total = files.size();
     int step = Math.clamp(total / PROGRESS_DIVISOR, 1, 100);
     int done = 0;
     try (Session session = driver.session()) {
       GraphWriter writer = new GraphWriter(session, project);
+      writer.setCurrentSourcePaths(currentSourcePaths);
       for (SourceFile file : files) {
         if (!ingestFileBatched(writer, file, storedFiles)) {
           failures++;
@@ -510,7 +515,8 @@ public final class IngestionOrchestrator {
   }
 
   @SuppressWarnings(value = {"java:S3776"})
-  private int ingestParallel(List<SourceFile> files, StoredFileState storedFiles)
+  private int ingestParallel(
+      List<SourceFile> files, StoredFileState storedFiles, Collection<Path> currentSourcePaths)
       throws InterruptedException {
     List<SourceFile> transactionalFiles = new ArrayList<>();
     List<SourceFile> parallelFiles = new ArrayList<>();
@@ -521,12 +527,12 @@ public final class IngestionOrchestrator {
         parallelFiles.add(file);
       }
     }
-    int failures = ingestParallelAutocommit(parallelFiles, storedFiles);
+    int failures = ingestParallelAutocommit(parallelFiles, storedFiles, currentSourcePaths);
     if (!transactionalFiles.isEmpty()) {
       log.info(
           "Processing {} changed file(s) sequentially so stale cleanup remains atomic.",
           transactionalFiles.size());
-      failures += ingestSequential(transactionalFiles, storedFiles);
+      failures += ingestSequential(transactionalFiles, storedFiles, currentSourcePaths);
     }
     return failures;
   }
@@ -540,7 +546,8 @@ public final class IngestionOrchestrator {
         || storedFiles.hasExistingGraphFiles();
   }
 
-  private int ingestParallelAutocommit(List<SourceFile> files, StoredFileState storedFiles)
+  private int ingestParallelAutocommit(
+      List<SourceFile> files, StoredFileState storedFiles, Collection<Path> currentSourcePaths)
       throws InterruptedException {
     if (files.isEmpty()) {
       return 0;
@@ -551,7 +558,9 @@ public final class IngestionOrchestrator {
             () -> {
               Session s = driver.session();
               sessions.add(s);
-              return new GraphWriter(s, project);
+              GraphWriter writer = new GraphWriter(s, project);
+              writer.setCurrentSourcePaths(currentSourcePaths);
+              return writer;
             });
 
     AtomicInteger threadCounter = new AtomicInteger();

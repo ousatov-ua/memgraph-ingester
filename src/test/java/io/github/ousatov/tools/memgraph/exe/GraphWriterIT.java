@@ -1764,6 +1764,85 @@ class GraphWriterIT {
   }
 
   @Test
+  void deleteStaleDefinitionsForFilePreservesSharedMemberCallsAndAnnotationsFromRetainedFile() {
+    Path changedFile = Path.of("/tmp/test-gw/src/app/changed.ts");
+    Path retainedFile = Path.of("/tmp/test-gw/src/app/retained.ts");
+    String ownerFqn = "js.app.shared.Owner";
+    String callerSig = ownerFqn + ".sharedCaller()";
+    String calleeSig = "js.app.shared.Helper.assist()";
+    String annotationFqn = "js.app.shared.Trace";
+    session
+        .run(
+            """
+            MERGE (changedFile:File {path: $changedPath, project: $p})
+            SET changedFile.language = 'js'
+            MERGE (retainedFile:File {path: $retainedPath, project: $p})
+            SET retainedFile.language = 'js'
+            MERGE (owner:Class {fqn: $ownerFqn, project: $p})
+            SET owner.name = 'Owner', owner.language = 'js', owner.isExternal = false
+            MERGE (caller:Method {signature: $callerSig, project: $p})
+            SET caller.name = 'sharedCaller', caller.ownerFqn = $ownerFqn,
+                caller.ownerDisplayName = 'Owner'
+            MERGE (callee:Method {signature: $calleeSig, project: $p})
+            SET callee.name = 'assist', callee.ownerFqn = 'js.app.shared.Helper',
+                callee.ownerDisplayName = 'Helper'
+            MERGE (trace:Annotation {fqn: $annotationFqn, project: $p})
+            SET trace.name = 'Trace', trace.language = 'js'
+            MERGE (changedFile)-[:DEFINES]->(owner)
+            MERGE (retainedFile)-[:DEFINES]->(owner)
+            MERGE (changedFile)-[:DEFINES]->(caller)
+            MERGE (retainedFile)-[:DEFINES]->(caller)
+            MERGE (owner)-[:DECLARES]->(caller)
+            MERGE (caller)-[:CALLS]->(callee)
+            MERGE (caller)-[:ANNOTATED_WITH]->(trace)
+            """,
+            Map.of(
+                "p",
+                PROJECT,
+                "changedPath",
+                changedFile.toString(),
+                "retainedPath",
+                retainedFile.toString(),
+                "ownerFqn",
+                ownerFqn,
+                "callerSig",
+                callerSig,
+                "calleeSig",
+                calleeSig,
+                "annotationFqn",
+                annotationFqn))
+        .consume();
+    SourceFileDefinitions definitions =
+        SourceFileDefinitions.of(
+            List.of(ownerFqn), List.of(), List.of(), List.of(callerSig), List.of());
+
+    writer.deleteStaleDefinitionsForFile(changedFile, definitions);
+
+    var row =
+        session
+            .run(
+                """
+                MATCH (caller:Method {signature: $callerSig, project: $p})
+                OPTIONAL MATCH (caller)-[:CALLS]->(callee:Method {signature: $calleeSig, project: $p})
+                OPTIONAL MATCH (caller)-[:ANNOTATED_WITH]->(trace:Annotation {fqn: $annotationFqn, project: $p})
+                RETURN count(DISTINCT callee) AS callees, count(DISTINCT trace) AS annotations
+                """,
+                Map.of(
+                    "p",
+                    PROJECT,
+                    "callerSig",
+                    callerSig,
+                    "calleeSig",
+                    calleeSig,
+                    "annotationFqn",
+                    annotationFqn))
+            .single();
+
+    assertEquals(1, row.get("callees").asLong());
+    assertEquals(1, row.get("annotations").asLong());
+  }
+
+  @Test
   void extendsMarksExternalParentAsExternal() {
     writer.upsertFile(TEST_FILE);
     writer.upsertPackage(PKG);
