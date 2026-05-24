@@ -36,12 +36,9 @@ import org.slf4j.LoggerFactory;
  * one instance; in parallel mode each worker thread creates its own, ensuring no session is shared
  * across threads.
  *
- * <p>In sequential mode, callers may open an explicit per-file transaction via {@link
- * #beginFileTransaction()} / {@link #commitFileTransaction()} / {@link #rollbackFileTransaction()}
- * to batch all writes for a file into a single Bolt round-trip, which eliminates 50–100 autocommit
- * transactions per file. This is safe only when there is exactly one writer (sequential mode),
- * because Memgraph MVCC will abort concurrent transactions that MERGE the same shared nodes (e.g.,
- * {@code :Package}, parent {@code :Class}/{@code :Interface}, {@code :Annotation}).
+ * <p>Callers may open an explicit per-file transaction via {@link #beginFileTransaction()} / {@link
+ * #commitFileTransaction()} / {@link #rollbackFileTransaction()} so destructive cleanup and
+ * replacement writes commit atomically for one source file.
  *
  * @author Oleksii Usatov
  */
@@ -66,9 +63,8 @@ public final class GraphWriter {
   }
 
   /**
-   * Opens an explicit Bolt transaction so that all subsequent Cypher writes are batched into a
-   * single round-trip. Must only be called in sequential (single-writer) mode; concurrent writers
-   * sharing the same nodes will trigger Memgraph MVCC conflicts.
+   * Opens an explicit Bolt transaction so that all subsequent Cypher writes for a source file
+   * commit or roll back together.
    *
    * <p>Call {@link #commitFileTransaction()} when all writes succeed, or {@link
    * #rollbackFileTransaction()} on any failure.
@@ -158,7 +154,6 @@ public final class GraphWriter {
             Cypher.CYPHER_DELETE_STALE_OWNER_MEMBERS_FOR_FILE,
             Cypher.CYPHER_DELETE_STALE_OWNERS_FOR_FILE)
         .forEach(q -> cypher.run(q, params));
-    cypher.run(Cypher.CYPHER_DELETE_EMPTY_PACKAGES, Map.of());
   }
 
   /** Deletes all graph state owned by a source file that no longer exists. */
@@ -169,7 +164,7 @@ public final class GraphWriter {
             Cypher.CYPHER_DELETE_OWNERS_FOR_FILE,
             Cypher.CYPHER_DELETE_FILE)
         .forEach(q -> cypher.run(q, Map.of(Params.PATH, file.toString())));
-    cypher.run(Cypher.CYPHER_DELETE_EMPTY_PACKAGES, Map.of());
+    deleteEmptyPackages();
   }
 
   /** Deletes file graph state for language-specific files absent from the current source tree. */
@@ -186,6 +181,11 @@ public final class GraphWriter {
             Cypher.CYPHER_DELETE_MISSING_FILE_OWNERS,
             Cypher.CYPHER_DELETE_MISSING_FILES)
         .forEach(q -> cypher.run(q, params));
+    deleteEmptyPackages();
+  }
+
+  /** Deletes package nodes that no longer contain any code declarations. */
+  public void deleteEmptyPackages() {
     cypher.run(Cypher.CYPHER_DELETE_EMPTY_PACKAGES, Map.of());
   }
 

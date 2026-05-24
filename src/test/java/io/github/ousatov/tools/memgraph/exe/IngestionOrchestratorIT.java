@@ -18,6 +18,7 @@ import java.time.Duration;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -226,6 +227,31 @@ class IngestionOrchestratorIT {
       writer.upsertPackage("js.test", language());
       writer.upsertJavascriptModule(file, "js.test", "js.test.App", "App", "app.ts", 1, 1);
       return true;
+    }
+  }
+
+  /**
+   * Adapter that simulates a file-level failure after stale cleanup has run.
+   *
+   * @author Oleksii Usatov
+   */
+  private static final class CleanupThenFailingJavaAdapter implements LanguageAdapter {
+
+    @Override
+    public SourceLanguage language() {
+      return SourceLanguage.JAVA;
+    }
+
+    @Override
+    public boolean accepts(Path file) {
+      return file.toString().endsWith(".java");
+    }
+
+    @Override
+    public boolean ingestFile(GraphWriter writer, Path file) {
+      writer.deleteStaleDefinitionsForFile(
+          file, SourceFileDefinitions.of(Set.of(), Set.of(), Set.of(), Set.of(), Set.of()));
+      return false;
     }
   }
 
@@ -820,6 +846,39 @@ class IngestionOrchestratorIT {
     assertTrue(methodExists(currentProject, "com.example.Widget.changed()"));
     assertFalse(methodExists(currentProject, "com.example.Widget.getName()"));
     assertFalse(fieldExists(currentProject, "com.example.Widget#name"));
+  }
+
+  @Test
+  void parallelFailedFileIngestRollsBackStaleCleanup() throws Exception {
+    currentProject = PROJECT_BASE + "-parallel-atomic-failure";
+    sourceDir = Files.createTempDirectory("orch-parallel-atomic-src-");
+    Path pkgDir = sourceDir.resolve("com/example");
+    Files.createDirectories(pkgDir);
+    Path file = pkgDir.resolve("Atomic.java");
+    Files.writeString(
+        file,
+        """
+        package com.example;
+
+        public class Atomic {
+          public void oldMethod() {}
+        }
+        """);
+    IngestionOrchestrator normal =
+        new IngestionOrchestrator(
+            sourceDir, currentProject, 1, driver, new ParseService(sourceDir));
+    assertEquals(0, normal.run(Settings.def()));
+    assertTrue(classExists(currentProject, "com.example.Atomic"));
+    assertTrue(methodExists(currentProject, "com.example.Atomic.oldMethod()"));
+
+    IngestionOrchestrator failing =
+        new IngestionOrchestrator(
+            sourceDir, currentProject, 2, driver, new CleanupThenFailingJavaAdapter());
+    assertEquals(1, failing.run(Settings.def()));
+
+    assertTrue(fileExistsInGraph(currentProject, file));
+    assertTrue(classExists(currentProject, "com.example.Atomic"));
+    assertTrue(methodExists(currentProject, "com.example.Atomic.oldMethod()"));
   }
 
   @Test

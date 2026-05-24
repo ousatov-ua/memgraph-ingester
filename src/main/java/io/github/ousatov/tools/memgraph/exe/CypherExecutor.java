@@ -36,7 +36,7 @@ final class CypherExecutor {
     this.project = project;
   }
 
-  /** Opens an explicit transaction for batching a sequential file ingest. */
+  /** Opens an explicit transaction for one file ingest. */
   void beginTransaction() {
     currentTx = session.beginTransaction();
   }
@@ -75,6 +75,9 @@ final class CypherExecutor {
         }
         return;
       } catch (RuntimeException e) {
+        if (currentTx != null) {
+          throw e;
+        }
         backoffMs = proceedException(cypher, e, attempt, backoffMs);
       }
     }

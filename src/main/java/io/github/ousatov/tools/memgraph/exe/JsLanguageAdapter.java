@@ -72,6 +72,9 @@ public final class JsLanguageAdapter implements LanguageAdapter {
       analysis.calls().forEach(call -> upsertCall(writer, call));
       return true;
     } catch (RuntimeException e) {
+      if (GraphWriter.isRetryable(e)) {
+        throw e;
+      }
       log.warn("Failed to ingest {}: {}", file, e.getMessage());
       return false;
     }

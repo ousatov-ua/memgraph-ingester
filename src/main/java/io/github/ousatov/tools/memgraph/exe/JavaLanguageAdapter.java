@@ -81,7 +81,10 @@ public final class JavaLanguageAdapter implements LanguageAdapter {
                 }
               });
       return true;
-    } catch (Exception e) {
+    } catch (RuntimeException e) {
+      if (GraphWriter.isRetryable(e)) {
+        throw e;
+      }
       log.warn("Failed to ingest {}: {}", file, e.getMessage());
       return false;
     }

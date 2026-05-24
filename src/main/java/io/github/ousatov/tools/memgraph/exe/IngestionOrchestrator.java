@@ -50,6 +50,9 @@ public final class IngestionOrchestrator {
   private static final Logger log = LoggerFactory.getLogger(IngestionOrchestrator.class);
 
   private static final long SHUTDOWN_TIMEOUT_MINUTES = 10L;
+  private static final int FILE_TX_RETRY_ATTEMPTS = 8;
+  private static final long FILE_TX_INITIAL_BACKOFF_MS = 10L;
+  private static final long FILE_TX_MAX_BACKOFF_MS = 500L;
   private static final int PROGRESS_DIVISOR = 10;
 
   private final Path sourceRoot;
@@ -164,23 +167,9 @@ public final class IngestionOrchestrator {
         .addArgument(threads)
         .log();
 
-    Map<String, Long> mtimeCache = Map.of();
+    Map<String, Long> mtimeCache = preloadFileTimestamps(files);
     if (incremental) {
-      try (Session session = driver.session()) {
-        GraphWriter writer = new GraphWriter(session, project);
-        Map<String, Long> preloaded = new HashMap<>();
-        Map<SourceLanguage, List<Path>> pathsByLanguage = new LinkedHashMap<>();
-        for (SourceFile file : files) {
-          pathsByLanguage
-              .computeIfAbsent(file.adapter().language(), ignored -> new ArrayList<>())
-              .add(file.path());
-        }
-        for (var entry : pathsByLanguage.entrySet()) {
-          preloaded.putAll(writer.getAllFileLastModified(entry.getValue(), entry.getKey()));
-        }
-        mtimeCache = Map.copyOf(preloaded);
-        log.info("Pre-loaded {} stored file timestamps for incremental mode.", mtimeCache.size());
-      }
+      log.info("Pre-loaded {} stored file timestamps for incremental mode.", mtimeCache.size());
     }
 
     int failures;
@@ -275,11 +264,16 @@ public final class IngestionOrchestrator {
         if (adapter.isEmpty()) {
           continue;
         }
-        if (Files.exists(file)) {
-          changedGraph |= ingestFile(writer, new SourceFile(file, adapter.get()));
-        } else {
-          writer.deleteSourceFile(file);
-          changedGraph = true;
+        try {
+          if (Files.exists(file)) {
+            changedGraph |=
+                ingestFileBatched(writer, new SourceFile(file, adapter.get()), Map.of());
+          } else {
+            writer.deleteSourceFile(file);
+            changedGraph = true;
+          }
+        } catch (RuntimeException e) {
+          log.warn("Failed to update graph for watch event on {}: {}", file, e.getMessage());
         }
       }
       if (changedGraph) {
@@ -295,6 +289,8 @@ public final class IngestionOrchestrator {
     log.info("Resolved pending owner/name CALLS edges for '{}'", project);
     writer.deletePhantomMethods();
     log.info("Removed phantom external Method nodes for '{}'", project);
+    writer.deleteEmptyPackages();
+    log.info("Removed empty Package nodes for '{}'", project);
     writer.resolveCodeRefs();
     log.info("Refreshed :CodeRef resolution edges for '{}'", project);
   }
@@ -353,6 +349,23 @@ public final class IngestionOrchestrator {
         .sorted(Comparator.comparing(SourceFile::path))
         .forEach(sourceFile -> byPath.putIfAbsent(sourceFile.path(), sourceFile));
     return List.copyOf(byPath.values());
+  }
+
+  private Map<String, Long> preloadFileTimestamps(List<SourceFile> files) {
+    try (Session session = driver.session()) {
+      GraphWriter writer = new GraphWriter(session, project);
+      Map<String, Long> preloaded = new HashMap<>();
+      Map<SourceLanguage, List<Path>> pathsByLanguage = new LinkedHashMap<>();
+      for (SourceFile file : files) {
+        pathsByLanguage
+            .computeIfAbsent(file.adapter().language(), ignored -> new ArrayList<>())
+            .add(file.path());
+      }
+      for (var entry : pathsByLanguage.entrySet()) {
+        preloaded.putAll(writer.getAllFileLastModified(entry.getValue(), entry.getKey()));
+      }
+      return Map.copyOf(preloaded);
+    }
   }
 
   private void deleteMissingSourceFiles(List<SourceFile> files) {
@@ -419,9 +432,8 @@ public final class IngestionOrchestrator {
   }
 
   /**
-   * Wraps {@link #ingestFile} in an explicit per-file transaction so all writes for the file are
-   * committed in a single Bolt round-trip. Safe only in sequential mode where there is exactly one
-   * concurrent writer — no Memgraph MVCC conflicts are possible.
+   * Wraps {@link #ingestFile} in an explicit per-file transaction so cleanup and replacement writes
+   * are committed atomically.
    *
    * @return true on success (or skip), false if parsing or graph write fails
    */
@@ -431,25 +443,68 @@ public final class IngestionOrchestrator {
       log.debug("Skipping unchanged file: {}", sourceFile.path());
       return true;
     }
-    writer.beginFileTransaction();
-    try {
-      boolean success = ingestFile(writer, sourceFile);
-      if (success) {
-        writer.commitFileTransaction();
-      } else {
+    long backoffMs = FILE_TX_INITIAL_BACKOFF_MS;
+    for (int attempt = 1; attempt <= FILE_TX_RETRY_ATTEMPTS; attempt++) {
+      writer.beginFileTransaction();
+      try {
+        boolean success = ingestFile(writer, sourceFile);
+        if (success) {
+          writer.commitFileTransaction();
+        } else {
+          writer.rollbackFileTransaction();
+        }
+        return success;
+      } catch (RuntimeException e) {
         writer.rollbackFileTransaction();
+        if (!GraphWriter.isRetryable(e) || attempt == FILE_TX_RETRY_ATTEMPTS) {
+          log.warn("Failed to ingest {}: {}", sourceFile.path(), e.getMessage());
+          return false;
+        }
+        backoffMs = sleepBeforeFileRetry(sourceFile.path(), attempt, e, backoffMs);
       }
-      return success;
-    } catch (Exception e) {
-      writer.rollbackFileTransaction();
-      log.warn("Failed to ingest {}: {}", sourceFile.path(), e.getMessage());
-      return false;
     }
+    return false;
+  }
+
+  private long sleepBeforeFileRetry(Path file, int attempt, RuntimeException e, long backoffMs) {
+    log.debug(
+        "Retrying {} after transaction conflict on attempt {}: {}", file, attempt, e.getMessage());
+    try {
+      TimeUnit.MILLISECONDS.sleep(backoffMs);
+    } catch (InterruptedException ie) {
+      Thread.currentThread().interrupt();
+      throw new ProcessingException("Interrupted during file retry", ie);
+    }
+    return Math.min(backoffMs * 2, FILE_TX_MAX_BACKOFF_MS);
   }
 
   @SuppressWarnings(value = {"java:S3776"})
   private int ingestParallel(List<SourceFile> files, Map<String, Long> mtimeCache)
       throws InterruptedException {
+    List<SourceFile> transactionalFiles =
+        files.stream().filter(file -> requiresFileTransaction(file, mtimeCache)).toList();
+    List<SourceFile> parallelFiles =
+        files.stream().filter(file -> !requiresFileTransaction(file, mtimeCache)).toList();
+    int failures = ingestParallelAutocommit(parallelFiles, mtimeCache);
+    if (!transactionalFiles.isEmpty()) {
+      log.info(
+          "Processing {} existing file(s) sequentially so stale cleanup remains atomic.",
+          transactionalFiles.size());
+      failures += ingestSequential(transactionalFiles, mtimeCache);
+    }
+    return failures;
+  }
+
+  private boolean requiresFileTransaction(SourceFile file, Map<String, Long> mtimeCache) {
+    return mtimeCache.containsKey(file.path().toString())
+        && !isFileUnchanged(file.path(), mtimeCache);
+  }
+
+  private int ingestParallelAutocommit(List<SourceFile> files, Map<String, Long> mtimeCache)
+      throws InterruptedException {
+    if (files.isEmpty()) {
+      return 0;
+    }
     CopyOnWriteArrayList<Session> sessions = new CopyOnWriteArrayList<>();
     ThreadLocal<GraphWriter> threadWriter =
         ThreadLocal.withInitial(
@@ -481,7 +536,7 @@ public final class IngestionOrchestrator {
         pool.submit(
             () -> {
               try {
-                if (!ingestFileChecked(threadWriter.get(), file, mtimeCache)) {
+                if (!ingestFileUnbatched(threadWriter.get(), file, mtimeCache)) {
                   failures.incrementAndGet();
                 }
               } catch (Exception e) {
@@ -513,15 +568,7 @@ public final class IngestionOrchestrator {
     return failures.get();
   }
 
-  /**
-   * Parses and ingests a single file. In incremental mode, skips files whose filesystem {@code
-   * lastModified} matches the value stored in {@code mtimeCache}.
-   *
-   * @param mtimeCache pre-loaded map of path → stored lastModified (populated at run-start when
-   *     incremental is true, otherwise empty)
-   * @return true on success (or skip), false if parsing or graph write fails
-   */
-  private boolean ingestFileChecked(
+  private boolean ingestFileUnbatched(
       GraphWriter writer, SourceFile sourceFile, Map<String, Long> mtimeCache) {
     if (isFileUnchanged(sourceFile.path(), mtimeCache)) {
       log.debug("Skipping unchanged file: {}", sourceFile.path());
