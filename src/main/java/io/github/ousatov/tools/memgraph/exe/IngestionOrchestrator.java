@@ -271,7 +271,11 @@ public final class IngestionOrchestrator {
   private void ingestChangedFiles(Set<Path> files) {
     try (Session session = driver.session()) {
       GraphWriter writer = new GraphWriter(session, project);
-      writer.setCurrentSourcePaths(discoverSourceFiles().stream().map(SourceFile::path).toList());
+      Optional<List<Path>> currentSourcePaths = currentSourcePathsForWatch();
+      if (currentSourcePaths.isEmpty()) {
+        return;
+      }
+      writer.setCurrentSourcePaths(currentSourcePaths.get());
       boolean changedGraph = false;
       List<Path> existingFiles = files.stream().filter(Files::exists).sorted().toList();
       List<Path> deletedFiles =
@@ -301,6 +305,15 @@ public final class IngestionOrchestrator {
         refreshDerivedGraphArtifacts(writer);
         log.info("Watch re-ingestion complete.");
       }
+    }
+  }
+
+  private Optional<List<Path>> currentSourcePathsForWatch() {
+    try {
+      return Optional.of(discoverSourceFiles().stream().map(SourceFile::path).toList());
+    } catch (RuntimeException e) {
+      log.warn("Skipping watch re-ingestion because source snapshot failed: {}", e.getMessage());
+      return Optional.empty();
     }
   }
 
@@ -428,7 +441,7 @@ public final class IngestionOrchestrator {
       GraphWriter writer = new GraphWriter(session, project);
       for (SourceLanguage language : languages()) {
         List<Path> currentPaths = pathsByLanguage.getOrDefault(language, List.of());
-        writer.deleteFilesMissingFromSource(currentPaths, language);
+        writer.deleteFilesMissingFromSource(sourceRoot, currentPaths, language);
       }
     }
   }

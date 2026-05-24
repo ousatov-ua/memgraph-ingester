@@ -189,11 +189,20 @@ public final class GraphWriter {
   }
 
   /** Deletes file graph state for language-specific files absent from the current source tree. */
-  public void deleteFilesMissingFromSource(Collection<Path> files, SourceLanguage language) {
+  public void deleteFilesMissingFromSource(
+      Path sourceRoot, Collection<Path> files, SourceLanguage language) {
+    String sourceRootText = sourceRoot.toString();
+    String separator = sourceRoot.getFileSystem().getSeparator();
+    String sourceRootPrefix =
+        sourceRootText.endsWith(separator) ? sourceRootText : sourceRootText + separator;
     Map<String, Object> params =
         Map.of(
             Params.PATHS,
             files.stream().map(Path::toString).toList(),
+            Params.SOURCE_ROOT,
+            sourceRootText,
+            Params.SOURCE_ROOT_PREFIX,
+            sourceRootPrefix,
             Params.LANGUAGE,
             language.graphName());
     runInFileTransaction(

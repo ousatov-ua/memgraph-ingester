@@ -1535,7 +1535,7 @@ class GraphWriterIT {
                 sharedSig))
         .consume();
 
-    writer.deleteFilesMissingFromSource(List.of(retainedFile), SourceLanguage.JAVASCRIPT);
+    writer.deleteFilesMissingFromSource(SRC_ROOT, List.of(retainedFile), SourceLanguage.JAVASCRIPT);
 
     var row =
         session
@@ -1614,7 +1614,7 @@ class GraphWriterIT {
     writer.upsertPendingCallByName(missingCallerSig, "js.app.shared.Helper", "assist");
     writer.upsertPendingCallByName(retainedCallerSig, "js.app.shared.Helper", "assist");
 
-    writer.deleteFilesMissingFromSource(List.of(retainedFile), SourceLanguage.JAVASCRIPT);
+    writer.deleteFilesMissingFromSource(SRC_ROOT, List.of(retainedFile), SourceLanguage.JAVASCRIPT);
 
     var row =
         session
@@ -1674,7 +1674,7 @@ class GraphWriterIT {
         .consume();
     writer.upsertPendingCallByName(sharedCallerSig, "js.app.shared.Helper", "assist");
 
-    writer.deleteFilesMissingFromSource(List.of(retainedFile), SourceLanguage.JAVASCRIPT);
+    writer.deleteFilesMissingFromSource(SRC_ROOT, List.of(retainedFile), SourceLanguage.JAVASCRIPT);
 
     var row =
         session
@@ -1698,6 +1698,67 @@ class GraphWriterIT {
 
     assertEquals(1, row.get("pending").asLong());
     assertEquals(0, row.get("missingFiles").asLong());
+  }
+
+  @Test
+  void deleteFilesMissingFromSourceIgnoresFilesOutsideCurrentSourceRoot() {
+    Path currentMissingFile = SRC_ROOT.resolve("app/missing.ts");
+    Path currentRetainedFile = SRC_ROOT.resolve("app/retained.ts");
+    Path otherRoot = Path.of("/tmp/test-gw-other/src");
+    Path otherRootFile = otherRoot.resolve("app/other.ts");
+    writer.upsertProject(otherRoot);
+    session
+        .run(
+            "MERGE (currentMissingFile:File {path: $currentMissingPath, project: $p}) "
+                + "SET currentMissingFile.language = 'js' "
+                + "MERGE (currentRetainedFile:File {path: $currentRetainedPath, project: $p}) "
+                + "SET currentRetainedFile.language = 'js' "
+                + "MERGE (otherRootFile:File {path: $otherRootPath, project: $p}) "
+                + "SET otherRootFile.language = 'js' "
+                + "MERGE (currentOwner:Class {fqn: 'js.current.Owner', project: $p}) "
+                + "SET currentOwner.name = 'Owner', currentOwner.language = 'js', "
+                + "currentOwner.isExternal = false "
+                + "MERGE (otherOwner:Class {fqn: 'js.other.Owner', project: $p}) "
+                + "SET otherOwner.name = 'Owner', otherOwner.language = 'js', "
+                + "otherOwner.isExternal = false "
+                + "MERGE (currentMissingFile)-[:DEFINES]->(currentOwner) "
+                + "MERGE (otherRootFile)-[:DEFINES]->(otherOwner)",
+            Map.of(
+                "p",
+                PROJECT,
+                "currentMissingPath",
+                currentMissingFile.toString(),
+                "currentRetainedPath",
+                currentRetainedFile.toString(),
+                "otherRootPath",
+                otherRootFile.toString()))
+        .consume();
+
+    writer.deleteFilesMissingFromSource(
+        SRC_ROOT, List.of(currentRetainedFile), SourceLanguage.JAVASCRIPT);
+
+    var row =
+        session
+            .run(
+                "OPTIONAL MATCH (currentMissingFile:File {path: $currentMissingPath, "
+                    + "project: $p}) "
+                    + "OPTIONAL MATCH (otherRootFile:File {path: $otherRootPath, project: $p}) "
+                    + "OPTIONAL MATCH (otherOwner:Class {fqn: 'js.other.Owner', project: $p}) "
+                    + "RETURN count(DISTINCT currentMissingFile) AS currentMissingFiles, "
+                    + "count(DISTINCT otherRootFile) AS otherRootFiles, "
+                    + "count(DISTINCT otherOwner) AS otherOwners",
+                Map.of(
+                    "p",
+                    PROJECT,
+                    "currentMissingPath",
+                    currentMissingFile.toString(),
+                    "otherRootPath",
+                    otherRootFile.toString()))
+            .single();
+
+    assertEquals(0, row.get("currentMissingFiles").asLong());
+    assertEquals(1, row.get("otherRootFiles").asLong());
+    assertEquals(1, row.get("otherOwners").asLong());
   }
 
   @Test

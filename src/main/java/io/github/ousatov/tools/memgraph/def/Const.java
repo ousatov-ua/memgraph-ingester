@@ -328,6 +328,8 @@ public final class Const {
     public static final String MODULE_PATH = "modulePath";
     public static final String MODULE_PREFIX = "modulePrefix";
     public static final String PATHS = "paths";
+    public static final String SOURCE_ROOT = "sourceRoot";
+    public static final String SOURCE_ROOT_PREFIX = "sourceRootPrefix";
     public static final String CLASS_FQNS = "classFqns";
     public static final String INTERFACE_FQNS = "interfaceFqns";
     public static final String ANNOTATION_FQNS = "annotationFqns";

@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import io.github.ousatov.tools.memgraph.exception.ProcessingException;
 import io.github.ousatov.tools.memgraph.extension.MemgraphExtension;
 import io.github.ousatov.tools.memgraph.extension.MemgraphInstance;
 import io.github.ousatov.tools.memgraph.schema.Memgraph;
@@ -229,6 +230,39 @@ class IngestionOrchestratorIT {
       writer.upsertPackage("js.test", language());
       writer.upsertJavascriptModule(file, "js.test", "js.test.App", "App", "app.ts", 1, 1);
       return true;
+    }
+  }
+
+  private static final class SnapshotFailingWatchAdapter implements LanguageAdapter {
+
+    private final AtomicInteger discoveries = new AtomicInteger();
+
+    @Override
+    public SourceLanguage language() {
+      return SourceLanguage.JAVA;
+    }
+
+    @Override
+    public boolean accepts(Path file) {
+      return file.toString().endsWith(".java");
+    }
+
+    @Override
+    public List<Path> discoverFiles(Path sourceRoot) {
+      if (discoveries.incrementAndGet() == 1) {
+        return List.of();
+      }
+      throw new ProcessingException("snapshot failed");
+    }
+
+    @Override
+    public boolean ingestFile(GraphWriter writer, Path file) {
+      writer.upsertFile(file, language());
+      return true;
+    }
+
+    private int discoveries() {
+      return discoveries.get();
     }
   }
 
@@ -622,6 +656,55 @@ class IngestionOrchestratorIT {
 
     assertTrue(deleted);
     assertEquals(2, attempts.get());
+  }
+
+  @Test
+  void watchModeSkipsCycleWhenSourceSnapshotFails() throws Exception {
+    currentProject = PROJECT_BASE + "-watch-snapshot-failure";
+    sourceDir = Files.createTempDirectory("orch-watch-snapshot-failure-src-");
+    SnapshotFailingWatchAdapter adapter = new SnapshotFailingWatchAdapter();
+    IngestionOrchestrator orchestrator =
+        new IngestionOrchestrator(sourceDir, currentProject, 1, driver, adapter);
+    AtomicReference<Throwable> failure = new AtomicReference<>();
+    Thread worker =
+        new Thread(
+            () -> {
+              try {
+                orchestrator.run(new Settings(false, true, false, false, false, true));
+              } catch (Throwable t) {
+                failure.set(t);
+              }
+            },
+            "watch-snapshot-failure-test");
+    worker.start();
+
+    try {
+      await()
+          .atMost(Duration.ofSeconds(10))
+          .pollInterval(Duration.ofMillis(50))
+          .until(() -> worker.getState() == Thread.State.WAITING);
+      await().pollDelay(Duration.ofMillis(300)).atMost(Duration.ofSeconds(1)).until(() -> true);
+      Path flakyFile = sourceDir.resolve("Flaky.java");
+      await()
+          .atMost(Duration.ofSeconds(10))
+          .pollInterval(Duration.ofMillis(250))
+          .untilAsserted(
+              () -> {
+                Files.writeString(
+                    flakyFile, "public class Flaky { int value = " + adapter.discoveries() + "; }");
+                assertTrue(adapter.discoveries() >= 2);
+              });
+      await()
+          .atMost(Duration.ofSeconds(5))
+          .pollInterval(Duration.ofMillis(50))
+          .until(() -> worker.isAlive() && failure.get() == null);
+    } finally {
+      worker.interrupt();
+      worker.join(TimeUnit.SECONDS.toMillis(5));
+    }
+
+    assertFalse(worker.isAlive(), "Watch mode must exit after interruption");
+    assertNull(failure.get(), () -> "Watch mode failed: " + failure.get());
   }
 
   @Test
