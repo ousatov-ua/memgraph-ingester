@@ -1431,6 +1431,68 @@ class GraphWriterIT {
   }
 
   @Test
+  void deleteSourceFilePreservesPendingCallForMethodDefinedByAnotherFile() {
+    Path oldFile = Path.of("/tmp/test-gw/src/app/old.ts");
+    Path retainedFile = Path.of("/tmp/test-gw/src/app/retained.ts");
+    String ownerFqn = "js.app.shared.Owner";
+    String sharedCallerSig = ownerFqn + ".sharedCaller()";
+    session
+        .run(
+            "MERGE (oldFile:File {path: $oldPath, project: $p}) "
+                + "SET oldFile.language = 'js' "
+                + "MERGE (retainedFile:File {path: $retainedPath, project: $p}) "
+                + "SET retainedFile.language = 'js' "
+                + "MERGE (owner:Class {fqn: $ownerFqn, project: $p}) "
+                + "SET owner.name = 'Owner', owner.language = 'js', owner.isExternal = false "
+                + "MERGE (caller:Method {signature: $sharedCallerSig, project: $p}) "
+                + "SET caller.name = 'sharedCaller', caller.ownerFqn = $ownerFqn, "
+                + "caller.ownerDisplayName = 'Owner' "
+                + "MERGE (oldFile)-[:DEFINES]->(owner) "
+                + "MERGE (retainedFile)-[:DEFINES]->(owner) "
+                + "MERGE (owner)-[:DECLARES]->(caller) "
+                + "MERGE (oldFile)-[:DEFINES]->(caller) "
+                + "MERGE (retainedFile)-[:DEFINES]->(caller)",
+            Map.of(
+                "p",
+                PROJECT,
+                "oldPath",
+                oldFile.toString(),
+                "retainedPath",
+                retainedFile.toString(),
+                "ownerFqn",
+                ownerFqn,
+                "sharedCallerSig",
+                sharedCallerSig))
+        .consume();
+    writer.upsertPendingCallByName(sharedCallerSig, "js.app.shared.Helper", "assist");
+
+    writer.deleteSourceFile(oldFile);
+
+    var row =
+        session
+            .run(
+                "MATCH (pending:PendingCall {callerSignature: $sharedCallerSig, project: $p}) "
+                    + "MATCH (:File {path: $retainedPath, project: $p})-[:DEFINES]->"
+                    + "(:Method {signature: $sharedCallerSig, project: $p}) "
+                    + "OPTIONAL MATCH (oldFile:File {path: $oldPath, project: $p}) "
+                    + "RETURN count(DISTINCT pending) AS pending, "
+                    + "count(DISTINCT oldFile) AS oldFiles",
+                Map.of(
+                    "p",
+                    PROJECT,
+                    "oldPath",
+                    oldFile.toString(),
+                    "retainedPath",
+                    retainedFile.toString(),
+                    "sharedCallerSig",
+                    sharedCallerSig))
+            .single();
+
+    assertEquals(1, row.get("pending").asLong());
+    assertEquals(0, row.get("oldFiles").asLong());
+  }
+
+  @Test
   void deleteFilesMissingFromSourceDeletesOnlyMembersOwnedByMissingFiles() {
     Path missingFile = Path.of("/tmp/test-gw/src/app/missing.ts");
     Path retainedFile = Path.of("/tmp/test-gw/src/app/retained.ts");
@@ -1574,6 +1636,131 @@ class GraphWriterIT {
 
     assertEquals(0, row.get("missingPending").asLong());
     assertEquals(1, row.get("retainedPending").asLong());
+  }
+
+  @Test
+  void deleteFilesMissingFromSourcePreservesPendingCallForMethodDefinedByRetainedFile() {
+    Path missingFile = Path.of("/tmp/test-gw/src/app/missing.ts");
+    Path retainedFile = Path.of("/tmp/test-gw/src/app/retained.ts");
+    String ownerFqn = "js.app.shared.Owner";
+    String sharedCallerSig = ownerFqn + ".sharedCaller()";
+    session
+        .run(
+            "MERGE (missingFile:File {path: $missingPath, project: $p}) "
+                + "SET missingFile.language = 'js' "
+                + "MERGE (retainedFile:File {path: $retainedPath, project: $p}) "
+                + "SET retainedFile.language = 'js' "
+                + "MERGE (owner:Class {fqn: $ownerFqn, project: $p}) "
+                + "SET owner.name = 'Owner', owner.language = 'js', owner.isExternal = false "
+                + "MERGE (caller:Method {signature: $sharedCallerSig, project: $p}) "
+                + "SET caller.name = 'sharedCaller', caller.ownerFqn = $ownerFqn, "
+                + "caller.ownerDisplayName = 'Owner' "
+                + "MERGE (missingFile)-[:DEFINES]->(owner) "
+                + "MERGE (retainedFile)-[:DEFINES]->(owner) "
+                + "MERGE (owner)-[:DECLARES]->(caller) "
+                + "MERGE (missingFile)-[:DEFINES]->(caller) "
+                + "MERGE (retainedFile)-[:DEFINES]->(caller)",
+            Map.of(
+                "p",
+                PROJECT,
+                "missingPath",
+                missingFile.toString(),
+                "retainedPath",
+                retainedFile.toString(),
+                "ownerFqn",
+                ownerFqn,
+                "sharedCallerSig",
+                sharedCallerSig))
+        .consume();
+    writer.upsertPendingCallByName(sharedCallerSig, "js.app.shared.Helper", "assist");
+
+    writer.deleteFilesMissingFromSource(List.of(retainedFile), SourceLanguage.JAVASCRIPT);
+
+    var row =
+        session
+            .run(
+                "MATCH (pending:PendingCall {callerSignature: $sharedCallerSig, project: $p}) "
+                    + "MATCH (:File {path: $retainedPath, project: $p})-[:DEFINES]->"
+                    + "(:Method {signature: $sharedCallerSig, project: $p}) "
+                    + "OPTIONAL MATCH (missingFile:File {path: $missingPath, project: $p}) "
+                    + "RETURN count(DISTINCT pending) AS pending, "
+                    + "count(DISTINCT missingFile) AS missingFiles",
+                Map.of(
+                    "p",
+                    PROJECT,
+                    "missingPath",
+                    missingFile.toString(),
+                    "retainedPath",
+                    retainedFile.toString(),
+                    "sharedCallerSig",
+                    sharedCallerSig))
+            .single();
+
+    assertEquals(1, row.get("pending").asLong());
+    assertEquals(0, row.get("missingFiles").asLong());
+  }
+
+  @Test
+  void deleteStaleDefinitionsForFilePreservesSharedOwnerRelationsFromRetainedFile() {
+    Path changedFile = Path.of("/tmp/test-gw/src/app/changed.ts");
+    Path retainedFile = Path.of("/tmp/test-gw/src/app/retained.ts");
+    String ownerFqn = "js.app.shared.Owner";
+    String parentFqn = "js.app.shared.BaseOwner";
+    String annotationFqn = "js.app.shared.Decorator";
+    session
+        .run(
+            "MERGE (changedFile:File {path: $changedPath, project: $p}) SET changedFile.language ="
+                + " 'js' MERGE (retainedFile:File {path: $retainedPath, project: $p}) SET"
+                + " retainedFile.language = 'js' MERGE (owner:Class {fqn: $ownerFqn, project: $p})"
+                + " SET owner.name = 'Owner', owner.language = 'js', owner.isExternal = false MERGE"
+                + " (parent:Class {fqn: $parentFqn, project: $p}) SET parent.name = 'BaseOwner',"
+                + " parent.language = 'js', parent.isExternal = false MERGE (decorator:Annotation"
+                + " {fqn: $annotationFqn, project: $p}) SET decorator.name = 'Decorator',"
+                + " decorator.language = 'js' MERGE (changedFile)-[:DEFINES]->(owner) MERGE"
+                + " (retainedFile)-[:DEFINES]->(owner) MERGE (owner)-[:EXTENDS]->(parent) MERGE"
+                + " (owner)-[:ANNOTATED_WITH]->(decorator)",
+            Map.of(
+                "p",
+                PROJECT,
+                "changedPath",
+                changedFile.toString(),
+                "retainedPath",
+                retainedFile.toString(),
+                "ownerFqn",
+                ownerFqn,
+                "parentFqn",
+                parentFqn,
+                "annotationFqn",
+                annotationFqn))
+        .consume();
+    SourceFileDefinitions definitions =
+        SourceFileDefinitions.of(List.of(ownerFqn), List.of(), List.of(), List.of(), List.of());
+
+    writer.deleteStaleDefinitionsForFile(changedFile, definitions);
+
+    var row =
+        session
+            .run(
+                "MATCH (owner:Class {fqn: $ownerFqn, project: $p}) "
+                    + "OPTIONAL MATCH (owner)-[:EXTENDS]->(parent:Class {fqn: $parentFqn, "
+                    + "project: $p}) "
+                    + "OPTIONAL MATCH (owner)-[:ANNOTATED_WITH]->"
+                    + "(decorator:Annotation {fqn: $annotationFqn, project: $p}) "
+                    + "RETURN count(DISTINCT parent) AS parents, "
+                    + "count(DISTINCT decorator) AS decorators",
+                Map.of(
+                    "p",
+                    PROJECT,
+                    "ownerFqn",
+                    ownerFqn,
+                    "parentFqn",
+                    parentFqn,
+                    "annotationFqn",
+                    annotationFqn))
+            .single();
+
+    assertEquals(1, row.get("parents").asLong());
+    assertEquals(1, row.get("decorators").asLong());
   }
 
   @Test

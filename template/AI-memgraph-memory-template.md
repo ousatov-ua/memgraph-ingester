@@ -26,7 +26,8 @@ WHERE f.status = 'open'
 RETURN f.id, f.type, f.summary;
 
 MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_CONTEXT]->(c:Context)
-RETURN c.id, c.content, c.source;
+RETURN c.id, c.title, c.topic, c.source
+ORDER BY c.topic, c.id;
 
 MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_TASK]->(t:Task)
 WHERE t.status IN ['todo', 'doing', 'blocked']
@@ -40,6 +41,16 @@ RETURN q.id, q.title;
 MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_RISK]->(r:Risk)
 WHERE r.status = 'open'
 RETURN r.id, r.title, r.severity;
+```
+
+Context orientation is index-first: fetch `content` only for relevant Context IDs, topics, or
+keywords. Fetch all Context content only for broad or ambiguous memory work.
+
+```cypher
+MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_CONTEXT]->(c:Context)
+WHERE c.id IN ['CTX-<id>'] OR c.topic IN ['<topic>']
+RETURN c.id, c.title, c.topic, c.content, c.source
+ORDER BY c.id;
 ```
 
 ## Memory Schema

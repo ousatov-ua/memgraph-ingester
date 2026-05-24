@@ -1,4 +1,4 @@
-MATCH (owner)-[r]->()
+MATCH (file:File {path: $path, project: $project})-[:DEFINES]->(owner)-[r]->()
 WHERE owner.project = $project
   AND (
     (owner:Class AND owner.fqn IN $classFqns)
@@ -6,4 +6,8 @@ WHERE owner.project = $project
     OR (owner:Annotation AND owner.fqn IN $annotationFqns)
   )
   AND type(r) IN ['EXTENDS', 'IMPLEMENTS']
+OPTIONAL MATCH (retainedFile:File {project: $project})-[:DEFINES]->(owner)
+WHERE retainedFile.path <> file.path
+WITH r, count(retainedFile) AS retainedDefinitions
+WHERE retainedDefinitions = 0
 DELETE r
