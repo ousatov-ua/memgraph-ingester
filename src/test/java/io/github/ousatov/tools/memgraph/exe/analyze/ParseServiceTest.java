@@ -1,0 +1,232 @@
+package io.github.ousatov.tools.memgraph.exe.analyze;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
+
+import com.github.javaparser.ast.CompilationUnit;
+import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Optional;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.stream.Stream;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
+import javax.tools.ToolProvider;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+
+/**
+ * Unit tests for {@link ParseService}. These tests use only the filesystem — no Memgraph required.
+ *
+ * @author Oleksii Usatov
+ */
+class ParseServiceTest {
+
+  private Path tempDir;
+  private ParseService parseService;
+
+  @BeforeEach
+  void setup() throws IOException {
+    tempDir = Files.createTempDirectory("parse-test-");
+    parseService = new ParseService(tempDir);
+  }
+
+  @AfterEach
+  void cleanup() throws IOException {
+    try (Stream<Path> walk = Files.walk(tempDir)) {
+      walk.sorted(Comparator.reverseOrder())
+          .forEach(
+              p -> {
+                var _ = p.toFile().delete();
+              });
+    }
+  }
+
+  @Test
+  void parsesValidClass() throws IOException {
+    Path file = tempDir.resolve("Hello.java");
+    Files.writeString(file, "public class Hello {}");
+
+    Optional<CompilationUnit> result = parseService.parse(file);
+
+    assertTrue(result.isPresent());
+    ClassOrInterfaceDeclaration decl =
+        result.get().findFirst(ClassOrInterfaceDeclaration.class).orElseThrow();
+    assertEquals("Hello", decl.getNameAsString());
+  }
+
+  @Test
+  void parsesValidInterface() throws IOException {
+    Path file = tempDir.resolve("Greetable.java");
+    Files.writeString(file, "public interface Greetable { String greet(); }");
+
+    Optional<CompilationUnit> result = parseService.parse(file);
+
+    assertTrue(result.isPresent());
+    ClassOrInterfaceDeclaration decl =
+        result.get().findFirst(ClassOrInterfaceDeclaration.class).orElseThrow();
+    assertTrue(decl.isInterface());
+    assertEquals("Greetable", decl.getNameAsString());
+  }
+
+  @Test
+  void returnsEmptyOnSyntaxError() throws IOException {
+    Path file = tempDir.resolve("Bad.java");
+    Files.writeString(file, "this is {{ not valid java");
+
+    Optional<CompilationUnit> result = parseService.parse(file);
+
+    assertTrue(result.isEmpty());
+  }
+
+  @Test
+  void returnsEmptyForMissingFile() {
+    Optional<CompilationUnit> result = parseService.parse(tempDir.resolve("Missing.java"));
+
+    assertTrue(result.isEmpty());
+  }
+
+  @Test
+  void survivesUnreadableClasspathEntries() throws IOException {
+    Path badJar = tempDir.resolve("corrupt.jar");
+    Files.writeString(badJar, "not-a-jar");
+
+    var svc = new ParseService(tempDir, List.of(badJar));
+
+    Path file = tempDir.resolve("Okay.java");
+    Files.writeString(file, "public class Okay {}");
+    assertTrue(
+        svc.parse(file).isPresent(), "ParseService must work even when a classpath JAR fails");
+  }
+
+  @Test
+  void autoDetectsNestedMavenSourceRoots() throws IOException {
+    Path mainJava = tempDir.resolve("main/java/com/example");
+    Files.createDirectories(mainJava);
+    Files.writeString(
+        mainJava.resolve("Foo.java"),
+        """
+        package com.example;
+        public class Foo { public void hello() {} }
+        """);
+    Files.writeString(
+        mainJava.resolve("Bar.java"),
+        """
+        package com.example;
+        public class Bar { public void use(Foo f) {} }
+        """);
+
+    var svc = new ParseService(tempDir);
+    var cu = svc.parse(mainJava.resolve("Bar.java")).orElseThrow();
+    var barDecl = cu.findFirst(ClassOrInterfaceDeclaration.class).orElseThrow();
+    var useMethod = barDecl.getMethodsByName("use").getFirst();
+    String sig = useMethod.resolve().getQualifiedSignature();
+
+    assertEquals("com.example.Bar.use(com.example.Foo)", sig);
+  }
+
+  @Test
+  void addsJarWithModuleInfoViaFilteredFallback() throws Exception {
+    var compiler = ToolProvider.getSystemJavaCompiler();
+    assumeTrue(compiler != null, "JDK compiler required for this test");
+
+    Path moduleDir = Files.createTempDirectory("module-info-compile-");
+    try {
+      Path src = moduleDir.resolve("module-info.java");
+      Files.writeString(src, "module test.memgraph.ingester {}");
+      int rc = compiler.run(null, null, null, "-d", moduleDir.toString(), src.toString());
+      assumeTrue(rc == 0, "module-info.java compilation failed");
+
+      Path jarPath = tempDir.resolve("module-only.jar");
+      try (ZipOutputStream zos = new ZipOutputStream(Files.newOutputStream(jarPath))) {
+        zos.putNextEntry(new ZipEntry("module-info.class"));
+        Files.copy(moduleDir.resolve("module-info.class"), zos);
+        zos.closeEntry();
+      }
+
+      var svc = new ParseService(tempDir, List.of(jarPath));
+      Path file = tempDir.resolve("ModTest.java");
+      Files.writeString(file, "public class ModTest {}");
+      assertTrue(
+          svc.parse(file).isPresent(),
+          "ParseService must work even when JAR contains module-info.class");
+    } finally {
+      try (Stream<Path> walk = Files.walk(moduleDir)) {
+        walk.sorted(Comparator.reverseOrder()).forEach(p -> p.toFile().delete());
+      }
+    }
+  }
+
+  @Test
+  void createFilteredJarStripsModuleInfo() throws Exception {
+    var compiler = ToolProvider.getSystemJavaCompiler();
+    assumeTrue(compiler != null, "JDK compiler required for this test");
+
+    Path moduleDir = Files.createTempDirectory("module-info-filter-");
+    try {
+      Path src = moduleDir.resolve("module-info.java");
+      Files.writeString(src, "module test.filter.check {}");
+      int rc = compiler.run(null, null, null, "-d", moduleDir.toString(), src.toString());
+      assumeTrue(rc == 0, "module-info.java compilation failed");
+
+      Path jarPath = tempDir.resolve("to-filter.jar");
+      try (ZipOutputStream zos = new ZipOutputStream(Files.newOutputStream(jarPath))) {
+        zos.putNextEntry(new ZipEntry("module-info.class"));
+        Files.copy(moduleDir.resolve("module-info.class"), zos);
+        zos.closeEntry();
+        zos.putNextEntry(new ZipEntry("com/example/Dummy.class"));
+        zos.write(new byte[] {0x00});
+        zos.closeEntry();
+      }
+
+      Path filtered = ParseService.createFilteredJar(jarPath);
+      try (var zf = new java.util.zip.ZipFile(filtered.toFile())) {
+        var names = zf.stream().map(ZipEntry::getName).toList();
+        assertTrue(names.stream().noneMatch(n -> n.equals("module-info.class")));
+        assertTrue(names.contains("com/example/Dummy.class"));
+      }
+    } finally {
+      try (Stream<Path> walk = Files.walk(moduleDir)) {
+        walk.sorted(Comparator.reverseOrder()).forEach(p -> p.toFile().delete());
+      }
+    }
+  }
+
+  @Test
+  void isThreadSafe() throws Exception {
+    Path file = tempDir.resolve("Shared.java");
+    Files.writeString(
+        file,
+        """
+        public class Shared {
+          private int value;
+          public int getValue() { return value; }
+        }
+        """);
+
+    int threadCount = 8;
+    Callable<Optional<CompilationUnit>> task = () -> parseService.parse(file);
+    List<Callable<Optional<CompilationUnit>>> tasks = new ArrayList<>();
+    for (int i = 0; i < threadCount; i++) {
+      tasks.add(task);
+    }
+
+    ExecutorService pool = Executors.newFixedThreadPool(threadCount);
+    List<Future<Optional<CompilationUnit>>> futures = pool.invokeAll(tasks);
+    pool.shutdown();
+
+    for (Future<Optional<CompilationUnit>> f : futures) {
+      assertTrue(f.get().isPresent(), "Each thread must successfully parse the file");
+    }
+  }
+}

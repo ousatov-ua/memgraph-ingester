@@ -1,16 +1,16 @@
 package io.github.ousatov.tools.memgraph;
 
 import io.github.ousatov.tools.memgraph.exception.ProcessingException;
-import io.github.ousatov.tools.memgraph.exe.IngestionOrchestrator;
-import io.github.ousatov.tools.memgraph.exe.JavaLanguageAdapter;
-import io.github.ousatov.tools.memgraph.exe.JsAnalysis;
-import io.github.ousatov.tools.memgraph.exe.JsAnalyzer;
-import io.github.ousatov.tools.memgraph.exe.JsLanguageAdapter;
-import io.github.ousatov.tools.memgraph.exe.LanguageAdapter;
-import io.github.ousatov.tools.memgraph.exe.ManagedNodeRuntime;
-import io.github.ousatov.tools.memgraph.exe.ManagedTypescriptPackage;
-import io.github.ousatov.tools.memgraph.exe.ParseService;
-import io.github.ousatov.tools.memgraph.exe.RuntimeMode;
+import io.github.ousatov.tools.memgraph.exe.adapter.JavaLanguageAdapter;
+import io.github.ousatov.tools.memgraph.exe.adapter.JsLanguageAdapter;
+import io.github.ousatov.tools.memgraph.exe.adapter.LanguageAdapter;
+import io.github.ousatov.tools.memgraph.exe.analyze.JsAnalysis;
+import io.github.ousatov.tools.memgraph.exe.analyze.JsAnalyzer;
+import io.github.ousatov.tools.memgraph.exe.analyze.ManagedNodeRuntime;
+import io.github.ousatov.tools.memgraph.exe.analyze.ManagedTypescriptPackage;
+import io.github.ousatov.tools.memgraph.exe.analyze.ParseService;
+import io.github.ousatov.tools.memgraph.exe.analyze.RuntimeMode;
+import io.github.ousatov.tools.memgraph.exe.ingestion.IngestionOrchestrator;
 import io.github.ousatov.tools.memgraph.vo.Settings;
 import java.io.File;
 import java.io.IOException;
