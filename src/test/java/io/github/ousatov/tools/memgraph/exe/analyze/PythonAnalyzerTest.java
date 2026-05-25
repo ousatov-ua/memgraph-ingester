@@ -252,6 +252,102 @@ class PythonAnalyzerTest {
   }
 
   @Test
+  void resolvesImportedClassCallAsConstructor() throws IOException {
+    Path packageDir = tempDir.resolve("pkg");
+    Files.createDirectories(packageDir);
+    Files.writeString(packageDir.resolve("mod.py"), "class Factory:\n    pass\n");
+    Path appFile = tempDir.resolve("app.py");
+    Files.writeString(
+        appFile,
+        """
+        from pkg.mod import Factory
+
+        def run():
+            Factory()
+        """);
+
+    PythonAnalysis analysis = analyzer().analyze(appFile);
+
+    assertTrue(
+        hasCallByName(analysis, "python.app$2e$py.run()", "python.pkg.mod$2e$py.Factory", "<init>"),
+        () -> "Calls: " + analysis.calls());
+    assertFalse(
+        hasCallByName(analysis, "python.app$2e$py.run()", "python.pkg.mod$2e$py", "Factory"),
+        () -> "Calls: " + analysis.calls());
+  }
+
+  @Test
+  void resolvesModuleQualifiedClassCallAsConstructor() throws IOException {
+    Path packageDir = tempDir.resolve("pkg");
+    Files.createDirectories(packageDir);
+    Files.writeString(
+        packageDir.resolve("mod.py"),
+        """
+        class Factory:
+            @staticmethod
+            def build():
+                return 1
+
+        def helper():
+            return 1
+        """);
+    Path appFile = tempDir.resolve("app.py");
+    Files.writeString(
+        appFile,
+        """
+        import pkg.mod
+
+        def run():
+            pkg.mod.Factory()
+            pkg.mod.Factory.build()
+            pkg.mod.helper()
+        """);
+
+    PythonAnalysis analysis = analyzer().analyze(appFile);
+
+    assertTrue(
+        hasCallByName(analysis, "python.app$2e$py.run()", "python.pkg.mod$2e$py.Factory", "<init>"),
+        () -> "Calls: " + analysis.calls());
+    assertTrue(
+        hasCallByName(analysis, "python.app$2e$py.run()", "python.pkg.mod$2e$py.Factory", "build"),
+        () -> "Calls: " + analysis.calls());
+    assertTrue(
+        hasCallByName(analysis, "python.app$2e$py.run()", "python.pkg.mod$2e$py", "helper"),
+        () -> "Calls: " + analysis.calls());
+  }
+
+  @Test
+  void resolvesPackageQualifiedSubmoduleClassCallAsConstructor() throws IOException {
+    Path packageDir = tempDir.resolve("pkg");
+    Files.createDirectories(packageDir);
+    Files.writeString(packageDir.resolve("__init__.py"), "");
+    Files.writeString(
+        packageDir.resolve("mod.py"),
+        """
+        class Factory:
+            pass
+
+        def helper():
+            return 1
+        """);
+    Path appFile = tempDir.resolve("app.py");
+    Files.writeString(
+        appFile,
+        """
+        import pkg
+
+        def run():
+            pkg.mod.Factory()
+        """);
+
+    PythonAnalysis analysis = analyzer().analyze(appFile);
+
+    assertTrue(
+        hasCallByName(analysis, "python.app$2e$py.run()", "python.pkg.mod$2e$py.Factory", "<init>"),
+        () -> "Calls: " + analysis.calls());
+  }
+
+  @Test
   void resolvesSubmoduleCallsThroughImportedPackageQualifier() throws IOException {
     Path packageDir = tempDir.resolve("pkg");
     Files.createDirectories(packageDir);
@@ -322,6 +418,33 @@ class PythonAnalyzerTest {
             "python.app$2e$py.run()",
             "python.pkg.util._$5f$$5f$init$5f$$5f$$2e$py",
             "helper"),
+        () -> "Calls: " + analysis.calls());
+    assertFalse(
+        hasCallByName(analysis, "python.app$2e$py.run()", "python.pkg.util.helper$2e$py", "<init>"),
+        () -> "Calls: " + analysis.calls());
+  }
+
+  @Test
+  void resolvesPackageReexportedImportNameBeforeSameNamedSubmodule() throws IOException {
+    Path utilDir = tempDir.resolve("pkg").resolve("util");
+    Files.createDirectories(utilDir);
+    Files.writeString(utilDir.resolve("__init__.py"), "from .core import helper\n");
+    Files.writeString(utilDir.resolve("core.py"), "def helper():\n    return 1\n");
+    Files.writeString(utilDir.resolve("helper.py"), "def other():\n    return 2\n");
+    Path appFile = tempDir.resolve("app.py");
+    Files.writeString(
+        appFile,
+        """
+        from pkg.util import helper
+
+        def run():
+            helper()
+        """);
+
+    PythonAnalysis analysis = analyzer().analyze(appFile);
+
+    assertTrue(
+        hasCallByName(analysis, "python.app$2e$py.run()", "python.pkg.util.core$2e$py", "helper"),
         () -> "Calls: " + analysis.calls());
     assertFalse(
         hasCallByName(analysis, "python.app$2e$py.run()", "python.pkg.util.helper$2e$py", "<init>"),
