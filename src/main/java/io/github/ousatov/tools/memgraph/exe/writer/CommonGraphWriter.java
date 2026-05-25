@@ -26,6 +26,7 @@ public class CommonGraphWriter {
 
   protected static final String JAVA_LANGUAGE = SourceLanguage.JAVA.graphName();
   protected static final String JAVASCRIPT_LANGUAGE = SourceLanguage.JAVASCRIPT.graphName();
+  protected static final String PYTHON_LANGUAGE = SourceLanguage.PYTHON.graphName();
 
   private final CypherExecutor cypher;
   private final CallEdgeWriter callEdges;

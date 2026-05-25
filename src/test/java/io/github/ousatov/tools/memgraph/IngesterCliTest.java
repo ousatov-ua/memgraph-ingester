@@ -128,6 +128,28 @@ class IngesterCliTest {
   }
 
   @Test
+  void rejectsUnsupportedPythonRuntimeModeBeforeOpeningDriver() throws IOException {
+    Path sourceDir = Files.createTempDirectory("cli-invalid-python-runtime-");
+    try {
+      int exitCode =
+          new CommandLine(new IngesterCli())
+              .execute(
+                  "-s",
+                  sourceDir.toString(),
+                  "-b",
+                  "bolt://127.0.0.1:1",
+                  "-P",
+                  "cli-invalid-python-runtime",
+                  "--python-runtime-mode",
+                  "manual");
+
+      assertEquals(1, exitCode);
+    } finally {
+      deleteDir(sourceDir);
+    }
+  }
+
+  @Test
   void returnsZeroForSuccessfulIngestionWithClasspath(MemgraphInstance mg) throws IOException {
     Path sourceDir = Files.createTempDirectory("cli-success-");
     String project = "cli-success-" + UUID.randomUUID();

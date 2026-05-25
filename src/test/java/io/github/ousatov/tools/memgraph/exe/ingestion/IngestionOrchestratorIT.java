@@ -5,13 +5,18 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import io.github.ousatov.tools.memgraph.exception.ProcessingException;
 import io.github.ousatov.tools.memgraph.exe.adapter.JavaLanguageAdapter;
 import io.github.ousatov.tools.memgraph.exe.adapter.LanguageAdapter;
+import io.github.ousatov.tools.memgraph.exe.adapter.PythonLanguageAdapter;
 import io.github.ousatov.tools.memgraph.exe.adapter.SourceFileDefinitions;
 import io.github.ousatov.tools.memgraph.exe.adapter.SourceLanguage;
+import io.github.ousatov.tools.memgraph.exe.analyze.ManagedPythonRuntime;
 import io.github.ousatov.tools.memgraph.exe.analyze.ParseService;
+import io.github.ousatov.tools.memgraph.exe.analyze.PythonAnalyzer;
+import io.github.ousatov.tools.memgraph.exe.analyze.RuntimeMode;
 import io.github.ousatov.tools.memgraph.exe.writer.GraphWriter;
 import io.github.ousatov.tools.memgraph.extension.MemgraphExtension;
 import io.github.ousatov.tools.memgraph.extension.MemgraphInstance;
@@ -169,6 +174,36 @@ class IngestionOrchestratorIT {
               .get("n")
               .asLong()
           > 0;
+    }
+  }
+
+  private static boolean classExtendsEdgeExists(String project, String childFqn, String parentFqn) {
+    try (Session s = driver.session()) {
+      return s.run(
+                  "MATCH (:Class {project: $p, fqn: $child})"
+                      + "-[:EXTENDS]->(:Class {project: $p, fqn: $parent})"
+                      + " RETURN count(*) AS n",
+                  Map.of("p", project, "child", childFqn, "parent", parentFqn))
+              .single()
+              .get("n")
+              .asLong()
+          > 0;
+    }
+  }
+
+  private static boolean systemPythonAvailable() {
+    try {
+      Process process =
+          new ProcessBuilder(ManagedPythonRuntime.systemPythonExecutable(), "--version")
+              .redirectOutput(ProcessBuilder.Redirect.DISCARD)
+              .redirectError(ProcessBuilder.Redirect.DISCARD)
+              .start();
+      return process.waitFor(10, TimeUnit.SECONDS) && process.exitValue() == 0;
+    } catch (IOException _) {
+      return false;
+    } catch (InterruptedException _) {
+      Thread.currentThread().interrupt();
+      return false;
     }
   }
 
@@ -657,6 +692,63 @@ class IngestionOrchestratorIT {
       assertEquals(1, javaFiles);
       assertEquals(1, jsFiles);
     }
+  }
+
+  @Test
+  void ingestsPythonSourceWithClassesFieldsAndCalls() throws Exception {
+    assumeTrue(systemPythonAvailable(), "Python ingestion IT requires python3");
+    currentProject = PROJECT_BASE + "-python";
+    sourceDir = Files.createTempDirectory("orch-python-src-");
+    Path appDir = sourceDir.resolve("app");
+    Files.createDirectories(appDir);
+    Files.writeString(
+        appDir.resolve("base.py"),
+        """
+        class Base:
+            pass
+        """);
+    Files.writeString(
+        appDir.resolve("service.py"),
+        """
+        from .base import Base
+
+        class Service(Base):
+            def __init__(self):
+                self.name: str = "service"
+
+            def run(self):
+                helper()
+
+        def helper():
+            return 1
+        """);
+
+    int failures =
+        new IngestionOrchestrator(
+                sourceDir,
+                currentProject,
+                1,
+                driver,
+                new PythonLanguageAdapter(
+                    new PythonAnalyzer(
+                        sourceDir,
+                        new ManagedPythonRuntime(
+                            sourceDir.resolve(".runtime-cache"),
+                            ManagedPythonRuntime.DEFAULT_PYTHON_VERSION,
+                            ManagedPythonRuntime.DEFAULT_PYTHON_BUILD,
+                            RuntimeMode.SYSTEM))))
+            .run(Settings.applySchemaOnly());
+
+    String baseFqn = "python.app.base$2e$py.Base";
+    String serviceFqn = "python.app.service$2e$py.Service";
+    assertEquals(0, failures);
+    assertTrue(classExists(currentProject, serviceFqn));
+    assertTrue(methodExists(currentProject, serviceFqn + ".run()"));
+    assertTrue(fieldExists(currentProject, serviceFqn + "#name"));
+    assertTrue(classExtendsEdgeExists(currentProject, serviceFqn, baseFqn));
+    assertTrue(
+        callEdgeExists(
+            currentProject, serviceFqn + ".run()", "python.app.service$2e$py.helper()"));
   }
 
   @Test

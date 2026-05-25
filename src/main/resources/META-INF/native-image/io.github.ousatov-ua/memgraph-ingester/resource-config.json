@@ -14,6 +14,9 @@
         "pattern": "io/github/ousatov/tools/memgraph/js/js-(.*)[.]cjs$"
       },
       {
+        "pattern": "io/github/ousatov/tools/memgraph/python/python-analyzer[.]py$"
+      },
+      {
         "pattern": "AI-memgraph-(code|memory)-template[.]md$"
       }
     ]

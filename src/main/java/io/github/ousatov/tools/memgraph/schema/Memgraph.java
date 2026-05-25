@@ -44,6 +44,7 @@ public final class Memgraph {
     return List.of(
         cypher("migrate-schema-legacy-constraints.cypher"),
         cypher("Js/migrate-schema.cypher"),
+        cypher("Python/migrate-schema.cypher"),
         cypher("Java/migrate-schema.cypher"),
         cypher("migrate-schema-cleanup.cypher"));
   }

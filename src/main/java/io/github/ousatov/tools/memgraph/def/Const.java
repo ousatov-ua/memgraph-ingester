@@ -63,6 +63,18 @@ public final class Const {
     public static final String CYPHER_GET_JAVASCRIPT_SOURCE_ROOT_HINT_FOR_FILE =
         action("Js/get-source-root-hint-for-file.cypher");
 
+    /** Batch-fetches Python {@code lastModified} values for fully ingested files. */
+    public static final String CYPHER_GET_PYTHON_FILES_LAST_MODIFIED =
+        action("Python/get-files-last-modified.cypher");
+
+    /** Fetches Python project file paths under the active source root. */
+    public static final String CYPHER_GET_PYTHON_FILES_IN_SOURCE_ROOT =
+        action("Python/get-files-in-source-root.cypher");
+
+    /** Fetches source-root reconstruction metadata for one Python source file. */
+    public static final String CYPHER_GET_PYTHON_SOURCE_ROOT_HINT_FOR_FILE =
+        action("Python/get-source-root-hint-for-file.cypher");
+
     /** Fetches retained source file paths outside the active source root. */
     public static final String CYPHER_GET_RETAINED_FILES_OUTSIDE_SOURCE_ROOT =
         action("get-retained-files-outside-source-root.cypher");
@@ -87,6 +99,10 @@ public final class Const {
         action("Js/resolve-code-refs-code.cypher");
     public static final String CYPHER_RESOLVE_JAVASCRIPT_CODE_REFS_PACKAGE =
         action("Js/resolve-code-refs-package.cypher");
+    public static final String CYPHER_RESOLVE_PYTHON_CODE_REFS_CODE =
+        action("Python/resolve-code-refs-code.cypher");
+    public static final String CYPHER_RESOLVE_PYTHON_CODE_REFS_PACKAGE =
+        action("Python/resolve-code-refs-package.cypher");
     public static final String CYPHER_RESOLVE_CODE_REFS_FILE =
         action("resolve-code-refs-file.cypher");
     public static final String CYPHER_RESOLVE_CODE_REFS_CLASS =
@@ -250,6 +266,18 @@ public final class Const {
     /** Deletes empty JavaScript/TypeScript package nodes left after stale owner cleanup. */
     public static final String CYPHER_DELETE_EMPTY_JAVASCRIPT_PACKAGES =
         action("Js/delete-empty-packages.cypher");
+
+    /** Deletes stale Python method and field declarations written under obsolete module FQNs. */
+    public static final String CYPHER_DELETE_STALE_PYTHON_MEMBERS_FOR_FILE =
+        action("Python/delete-stale-members-for-file.cypher");
+
+    /** Deletes stale Python owners left behind by older module FQN schemes. */
+    public static final String CYPHER_DELETE_STALE_PYTHON_OWNERS_FOR_FILE =
+        action("Python/delete-stale-owners-for-file.cypher");
+
+    /** Deletes empty Python package nodes left after stale owner cleanup. */
+    public static final String CYPHER_DELETE_EMPTY_PYTHON_PACKAGES =
+        action("Python/delete-empty-packages.cypher");
 
     /**
      * Resolves pending owner/name calls once all candidate owners and methods have been ingested.

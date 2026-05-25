@@ -15,6 +15,7 @@ import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.FieldWrite;
 import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.PendingCallWrite;
 import io.github.ousatov.tools.memgraph.exe.writer.java.JavaGraphWriter;
 import io.github.ousatov.tools.memgraph.exe.writer.js.JsGraphWriter;
+import io.github.ousatov.tools.memgraph.exe.writer.python.PythonGraphWriter;
 import io.github.ousatov.tools.memgraph.vo.Method;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -55,6 +56,7 @@ public final class GraphWriter {
   private final GraphNodeWriter nodes;
   private final JavaGraphWriter javaWriter;
   private final JsGraphWriter jsWriter;
+  private final PythonGraphWriter pythonWriter;
   private final IngestionRunStats stats;
   private List<String> retainedSourcePaths = List.of();
 
@@ -78,6 +80,7 @@ public final class GraphWriter {
     var languageWriters = new CommonGraphWriter.Dependencies(cypher, callEdges, nodes);
     this.javaWriter = new JavaGraphWriter(languageWriters);
     this.jsWriter = new JsGraphWriter(languageWriters);
+    this.pythonWriter = new PythonGraphWriter(languageWriters);
     this.stats = stats;
   }
 
@@ -280,6 +283,21 @@ public final class GraphWriter {
     cypher.run(Cypher.CYPHER_DELETE_EMPTY_JAVASCRIPT_PACKAGES, Map.of());
   }
 
+  /** Removes Python definitions for {@code file} that were written under older module FQN schemes. */
+  public void deleteStalePythonDefinitionsForFile(Path file, String currentModuleFqn) {
+    Map<String, Object> params =
+        Map.of(
+            Params.PATH,
+            file.toString(),
+            Params.FQN,
+            currentModuleFqn,
+            Params.MODULE_PREFIX,
+            currentModuleFqn + ".");
+    cypher.run(Cypher.CYPHER_DELETE_STALE_PYTHON_MEMBERS_FOR_FILE, params);
+    cypher.run(Cypher.CYPHER_DELETE_STALE_PYTHON_OWNERS_FOR_FILE, params);
+    cypher.run(Cypher.CYPHER_DELETE_EMPTY_PYTHON_PACKAGES, Map.of());
+  }
+
   /** Refreshes {@code :CodeRef} resolution edges to the current project-scoped code graph. */
   public void resolveCodeRefs() {
     List.of(
@@ -288,6 +306,8 @@ public final class GraphWriter {
             Cypher.CYPHER_RESOLVE_JAVA_CODE_REFS_PACKAGE,
             Cypher.CYPHER_RESOLVE_JAVASCRIPT_CODE_REFS_CODE,
             Cypher.CYPHER_RESOLVE_JAVASCRIPT_CODE_REFS_PACKAGE,
+            Cypher.CYPHER_RESOLVE_PYTHON_CODE_REFS_CODE,
+            Cypher.CYPHER_RESOLVE_PYTHON_CODE_REFS_PACKAGE,
             Cypher.CYPHER_RESOLVE_CODE_REFS_FILE,
             Cypher.CYPHER_RESOLVE_CODE_REFS_CLASS,
             Cypher.CYPHER_RESOLVE_CODE_REFS_INTERFACE,
@@ -436,6 +456,7 @@ public final class GraphWriter {
     return switch (language) {
       case JAVA -> Cypher.CYPHER_GET_JAVA_FILES_LAST_MODIFIED;
       case JAVASCRIPT -> Cypher.CYPHER_GET_JAVASCRIPT_FILES_LAST_MODIFIED;
+      case PYTHON -> Cypher.CYPHER_GET_PYTHON_FILES_LAST_MODIFIED;
     };
   }
 
@@ -443,6 +464,7 @@ public final class GraphWriter {
     return switch (language) {
       case JAVA -> Cypher.CYPHER_GET_JAVA_FILES_IN_SOURCE_ROOT;
       case JAVASCRIPT -> Cypher.CYPHER_GET_JAVASCRIPT_FILES_IN_SOURCE_ROOT;
+      case PYTHON -> Cypher.CYPHER_GET_PYTHON_FILES_IN_SOURCE_ROOT;
     };
   }
 
@@ -450,6 +472,7 @@ public final class GraphWriter {
     return switch (language) {
       case JAVA -> Cypher.CYPHER_GET_JAVA_SOURCE_ROOT_HINT_FOR_FILE;
       case JAVASCRIPT -> Cypher.CYPHER_GET_JAVASCRIPT_SOURCE_ROOT_HINT_FOR_FILE;
+      case PYTHON -> Cypher.CYPHER_GET_PYTHON_SOURCE_ROOT_HINT_FOR_FILE;
     };
   }
 
@@ -630,6 +653,82 @@ public final class GraphWriter {
   public void upsertJavascriptMembers(
       Path file, Collection<FieldWrite> fields, Collection<Method> methods) {
     jsWriter.upsertMembers(file, fields, methods);
+  }
+
+  /** Upserts the synthetic module owner used for top-level Python declarations. */
+  public void upsertPythonModule(
+      Path file,
+      String pkg,
+      String fqn,
+      String name,
+      String modulePath,
+      int startLine,
+      int endLine) {
+    pythonWriter.upsertModule(file, pkg, fqn, name, modulePath, startLine, endLine);
+  }
+
+  /** Upserts a Python class declaration using the existing {@code :Class} label. */
+  @SuppressWarnings("java:S107")
+  public void upsertPythonClass(
+      Path file,
+      String pkg,
+      String fqn,
+      String name,
+      String modulePath,
+      String framework,
+      boolean isAbstract,
+      boolean hasDeclaredConstructor,
+      int startLine,
+      int endLine) {
+    pythonWriter.upsertClass(
+        file,
+        pkg,
+        fqn,
+        name,
+        modulePath,
+        framework,
+        isAbstract,
+        hasDeclaredConstructor,
+        startLine,
+        endLine);
+  }
+
+  /** Writes a Python class {@code EXTENDS} relation. */
+  public void upsertPythonExtendsClass(String childFqn, String parentFqn) {
+    pythonWriter.upsertExtendsClass(childFqn, parentFqn);
+  }
+
+  /** Upserts a Python field. */
+  public void upsertPythonField(
+      Path file,
+      String ownerFqn,
+      String fqn,
+      String name,
+      String type,
+      boolean isStatic,
+      String kind) {
+    pythonWriter.upsertField(file, ownerFqn, fqn, name, type, isStatic, kind);
+  }
+
+  /** Upserts a Python function or method. */
+  @SuppressWarnings("java:S107")
+  public void upsertPythonMethod(
+      Path file,
+      String ownerFqn,
+      String signature,
+      String name,
+      String returnType,
+      boolean isStatic,
+      int startLine,
+      int endLine,
+      String kind) {
+    pythonWriter.upsertMethod(
+        file, ownerFqn, signature, name, returnType, isStatic, startLine, endLine, kind);
+  }
+
+  public void upsertPythonMembers(
+      Path file, Collection<FieldWrite> fields, Collection<Method> methods) {
+    pythonWriter.upsertMembers(file, fields, methods);
   }
 
   /** Adds an annotation/decorator edge for a type or field identified by FQN. */

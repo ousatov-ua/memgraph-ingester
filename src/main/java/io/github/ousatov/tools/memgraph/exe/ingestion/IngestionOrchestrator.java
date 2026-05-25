@@ -685,6 +685,10 @@ public final class IngestionOrchestrator {
           sourceRootHint.isBlank()
               ? Optional.empty()
               : sourceRootFromRelativePath(file, Path.of(sourceRootHint).normalize());
+      case PYTHON ->
+          sourceRootHint.isBlank()
+              ? Optional.empty()
+              : sourceRootFromRelativePath(file, Path.of(sourceRootHint).normalize());
     };
   }
 
