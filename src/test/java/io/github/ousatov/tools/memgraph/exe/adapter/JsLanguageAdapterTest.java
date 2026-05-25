@@ -55,7 +55,7 @@ class JsLanguageAdapterTest {
   }
 
   @Test
-  void returnsFalseWhenRuntimeFailureEscapesAnalyzer() {
-    assertFalse(adapter.ingestFile(null, Path.of("src/broken.js")));
+  void returnsEmptyWhenRuntimeFailureEscapesAnalyzer() {
+    assertTrue(adapter.parse(Path.of("src/broken.js")).isEmpty());
   }
 }

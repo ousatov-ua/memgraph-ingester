@@ -11,6 +11,8 @@ import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Optional;
+import org.jspecify.annotations.NonNull;
 
 /**
  * Parses source files for one supported language and writes their structure through {@link
@@ -18,24 +20,35 @@ import java.util.List;
  *
  * @author Oleksii Usatov
  */
-public interface LanguageAdapter {
+public interface LanguageAdapter<T> {
 
+  /** Returns the source language represented by this adapter. */
   SourceLanguage language();
 
+  /** Returns true when this adapter can parse {@code file}. */
   boolean accepts(Path file);
 
-  boolean ingestFile(GraphWriter writer, Path file);
+  /** Parses {@code file} into an adapter-specific source model. */
+  Optional<T> parse(Path file);
+
+  /** Collects graph identities emitted when the parsed model is written. */
+  SourceFileDefinitions collectDefinitions(T parsed);
+
+  /** Writes the parsed source model to the graph. */
+  boolean write(GraphWriter writer, Path file, T parsed);
 
   /** Returns an equivalent adapter configured for {@code sourceRoot}. */
-  default LanguageAdapter forSourceRoot(Path sourceRoot) {
+  default LanguageAdapter<T> forSourceRoot(Path sourceRoot) {
     return this;
   }
 
+  /** Returns true when discovery should descend into {@code directory}. */
   default boolean shouldVisitDirectory(Path directory) {
     Path fileName = directory.getFileName();
     return fileName == null || !"node_modules".equals(fileName.toString());
   }
 
+  /** Finds matching source files beneath {@code sourceRoot} in stable order. */
   default List<Path> discoverFiles(Path sourceRoot) {
     List<Path> files = new ArrayList<>();
     try {
@@ -43,14 +56,16 @@ public interface LanguageAdapter {
           sourceRoot,
           new SimpleFileVisitor<>() {
             @Override
-            public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) {
+            public @NonNull FileVisitResult preVisitDirectory(
+                @NonNull Path dir, @NonNull BasicFileAttributes attrs) {
               return shouldVisitDirectory(dir)
                   ? FileVisitResult.CONTINUE
                   : FileVisitResult.SKIP_SUBTREE;
             }
 
             @Override
-            public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
+            public @NonNull FileVisitResult visitFile(
+                @NonNull Path file, @NonNull BasicFileAttributes attrs) {
               if (attrs.isRegularFile() && accepts(file)) {
                 files.add(file);
               }
@@ -64,6 +79,7 @@ public interface LanguageAdapter {
     }
   }
 
+  /** Returns the human-readable adapter name used in logs. */
   default String displayName() {
     return language().nodeName();
   }

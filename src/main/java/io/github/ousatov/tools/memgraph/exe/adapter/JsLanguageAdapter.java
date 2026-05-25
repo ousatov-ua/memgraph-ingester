@@ -1,6 +1,7 @@
 package io.github.ousatov.tools.memgraph.exe.adapter;
 
 import io.github.ousatov.tools.memgraph.def.Const.Labels;
+import io.github.ousatov.tools.memgraph.def.Const.Params;
 import io.github.ousatov.tools.memgraph.exe.analyze.JsAnalysis;
 import io.github.ousatov.tools.memgraph.exe.analyze.JsAnalyzer;
 import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.AnnotationWrite;
@@ -15,6 +16,7 @@ import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -24,7 +26,7 @@ import org.slf4j.LoggerFactory;
  *
  * @author Oleksii Usatov
  */
-public final class JsLanguageAdapter implements LanguageAdapter {
+public final class JsLanguageAdapter implements LanguageAdapter<JsAnalysis> {
 
   private static final Logger log = LoggerFactory.getLogger(JsLanguageAdapter.class);
   private static final Set<String> EXTENSIONS =
@@ -57,15 +59,28 @@ public final class JsLanguageAdapter implements LanguageAdapter {
   }
 
   @Override
-  public LanguageAdapter forSourceRoot(Path sourceRoot) {
+  public LanguageAdapter<JsAnalysis> forSourceRoot(Path sourceRoot) {
     return new JsLanguageAdapter(analyzer.withSourceRoot(sourceRoot));
   }
 
   @Override
-  public boolean ingestFile(GraphWriter writer, Path file) {
+  public Optional<JsAnalysis> parse(Path file) {
     try {
-      JsAnalysis analysis = analyzer.analyze(file);
-      writer.deleteStaleDefinitionsForFile(file, collectDefinitions(analysis));
+      return Optional.of(analyzer.analyze(file));
+    } catch (Exception e) {
+      log.warn("Failed to parse {}: {}", file, e.getMessage());
+      return Optional.empty();
+    }
+  }
+
+  @Override
+  public SourceFileDefinitions collectDefinitions(JsAnalysis analysis) {
+    return buildDefinitions(analysis);
+  }
+
+  @Override
+  public boolean write(GraphWriter writer, Path file, JsAnalysis analysis) {
+    try {
       writer.upsertFile(file, language());
       writer.deleteStaleJavascriptDefinitionsForFile(file, analysis.moduleFqn());
       writer.upsertPackage(analysis.packageName(), language());
@@ -96,7 +111,7 @@ public final class JsLanguageAdapter implements LanguageAdapter {
     }
   }
 
-  private static SourceFileDefinitions collectDefinitions(JsAnalysis analysis) {
+  private static SourceFileDefinitions buildDefinitions(JsAnalysis analysis) {
     Set<String> classFqns = new LinkedHashSet<>();
     Set<String> interfaceFqns = new LinkedHashSet<>();
     Set<String> methodSignatures = new LinkedHashSet<>();
@@ -108,9 +123,9 @@ public final class JsLanguageAdapter implements LanguageAdapter {
         .types()
         .forEach(
             type -> {
-              if ("class".equals(type.kind()) || "enum".equals(type.kind())) {
+              if (Params.CLASS.equals(type.kind()) || "enum".equals(type.kind())) {
                 classFqns.add(type.fqn());
-                if ("class".equals(type.kind()) && !type.hasConstructor()) {
+                if (Params.CLASS.equals(type.kind()) && !type.hasConstructor()) {
                   methodSignatures.add(type.fqn() + "." + Labels.INIT + "()");
                 }
               } else {
@@ -137,7 +152,7 @@ public final class JsLanguageAdapter implements LanguageAdapter {
       String packageName,
       String modulePath,
       JsAnalysis.TypeDecl type) {
-    if ("class".equals(type.kind())) {
+    if (Params.CLASS.equals(type.kind())) {
       writer.upsertJavascriptClass(
           file,
           packageName,
