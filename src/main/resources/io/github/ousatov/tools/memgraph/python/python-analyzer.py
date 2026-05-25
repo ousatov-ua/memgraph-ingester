@@ -10,7 +10,7 @@ import keyword
 from pathlib import Path
 import re
 import sys
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 
 CLASS = "class"
@@ -50,6 +50,7 @@ class PythonSourceAnalyzer:
         self.local_functions = {}  # type: Dict[str, str]
         self.imported_modules = {}  # type: Dict[str, ImportedModule]
         self.imported_symbols = {}  # type: Dict[str, ImportedSymbol]
+        self.module_definition_cache = {}  # type: Dict[str, Set[str]]
         self.class_stack = []  # type: List[str]
 
     def analyze(self) -> None:
@@ -64,39 +65,88 @@ class PythonSourceAnalyzer:
             startLine=1,
             endLine=max(1, len(source.splitlines())),
         )
-        self.collect_imports(self.tree)
+        self.collect_imports(self.tree.body)
         self.predeclare_module_declarations(self.tree.body)
         self.collect_module_declarations(self.tree.body)
         self.collect_module_members(self.tree.body)
         self.collect_calls(self.tree.body, self.module_signature, self.module_fqn)
 
-    def collect_imports(self, tree: ast.Module) -> None:
-        for node in tree.body:
-            if isinstance(node, ast.Import):
-                for alias in node.names:
-                    local_name = alias.asname or alias.name
-                    module_fqn = self.resolve_import_module(alias.name)
-                    if module_fqn:
-                        self.imported_modules[local_name] = ImportedModule(module_fqn, alias.name.replace(".", "/"))
-            elif isinstance(node, ast.ImportFrom):
-                base_module = self.resolve_import_from_module(node)
-                for alias in node.names:
-                    if alias.name == "*":
-                        continue
-                    local_name = alias.asname or alias.name
-                    submodule = self.resolve_imported_submodule(node, alias.name)
-                    target_module = submodule or base_module
-                    if not target_module:
-                        continue
-                    self.imported_symbols[local_name] = ImportedSymbol(
-                        module_fqn=target_module,
-                        name=alias.name,
-                        is_module=bool(submodule),
-                    )
-                    if submodule:
-                        self.imported_modules[local_name] = ImportedModule(
-                            submodule, self.import_from_relative_path(node, alias.name)
-                        )
+    def collect_imports(self, body: List[ast.stmt]) -> None:
+        imported_modules, imported_symbols = self.import_bindings(body)
+        self.imported_modules.update(imported_modules)
+        self.imported_symbols.update(imported_symbols)
+
+    def import_bindings(self, body: List[ast.stmt]) -> Tuple[Dict[str, "ImportedModule"], Dict[str, "ImportedSymbol"]]:
+        imported_modules = {}  # type: Dict[str, ImportedModule]
+        imported_symbols = {}  # type: Dict[str, ImportedSymbol]
+        for node in body:
+            if isinstance(node, SKIPPED_CALL_SCOPES):
+                continue
+            for current in walk_without_nested_scopes(node):
+                if isinstance(current, ast.Import):
+                    self.add_import_bindings(current, imported_modules)
+                elif isinstance(current, ast.ImportFrom):
+                    self.add_import_from_bindings(current, imported_modules, imported_symbols)
+        return imported_modules, imported_symbols
+
+    def add_import_bindings(self, node: ast.Import, imported_modules: Dict[str, "ImportedModule"]) -> None:
+        for alias in node.names:
+            local_name = alias.asname or alias.name
+            relative = alias.name.replace(".", "/")
+            module_fqn = self.resolve_import_module(alias.name)
+            if module_fqn:
+                imported_modules[local_name] = ImportedModule(module_fqn, relative)
+            if alias.asname or "." not in alias.name:
+                continue
+            package_name = alias.name.split(".", 1)[0]
+            package_fqn = self.resolve_import_module(package_name)
+            if package_fqn:
+                imported_modules.setdefault(package_name, ImportedModule(package_fqn, package_name))
+
+    def add_import_from_bindings(
+        self,
+        node: ast.ImportFrom,
+        imported_modules: Dict[str, "ImportedModule"],
+        imported_symbols: Dict[str, "ImportedSymbol"],
+    ) -> None:
+        base_relative = self.import_from_relative_path(node, None)
+        base_module = self.module_fqn_for_import_relative_path(base_relative) if base_relative else ""
+        for alias in node.names:
+            if alias.name == "*":
+                continue
+            local_name = alias.asname or alias.name
+            submodule = ""
+            if not (base_module and self.module_defines_name(base_relative, alias.name)):
+                submodule = self.resolve_imported_submodule(node, alias.name)
+            target_module = submodule or base_module
+            if not target_module:
+                continue
+            imported_symbols[local_name] = ImportedSymbol(
+                module_fqn=target_module,
+                name=alias.name,
+                is_module=bool(submodule),
+            )
+            if submodule:
+                imported_modules[local_name] = ImportedModule(
+                    submodule, self.import_from_relative_path(node, alias.name)
+                )
+
+    def collect_calls_with_local_imports(
+        self, body: List[ast.stmt], caller_signature: str, caller_owner_fqn: str
+    ) -> None:
+        local_modules, local_symbols = self.import_bindings(body)
+        if not local_modules and not local_symbols:
+            self.collect_calls(body, caller_signature, caller_owner_fqn)
+            return
+        imported_modules = self.imported_modules
+        imported_symbols = self.imported_symbols
+        self.imported_modules = {**imported_modules, **local_modules}
+        self.imported_symbols = {**imported_symbols, **local_symbols}
+        try:
+            self.collect_calls(body, caller_signature, caller_owner_fqn)
+        finally:
+            self.imported_modules = imported_modules
+            self.imported_symbols = imported_symbols
 
     def predeclare_module_declarations(self, body: List[ast.stmt]) -> None:
         for node in body:
@@ -175,7 +225,7 @@ class PythonSourceAnalyzer:
         )
         for decorator in node.decorator_list:
             self.write_annotation("sig", signature, decorator)
-        self.collect_calls(node.body, signature, owner_fqn)
+        self.collect_calls_with_local_imports(node.body, signature, owner_fqn)
         return signature
 
     def collect_method(
@@ -201,7 +251,7 @@ class PythonSourceAnalyzer:
             self.write_annotation("sig", signature, decorator)
         for field_name, data_type in instance_fields(node):
             self.write_field(owner_fqn, field_name, data_type, False, "instance-field", node)
-        self.collect_calls(node.body, signature, owner_fqn)
+        self.collect_calls_with_local_imports(node.body, signature, owner_fqn)
 
     def collect_calls(self, body: List[ast.stmt], caller_signature: str, caller_owner_fqn: str) -> None:
         for node in body:
@@ -323,6 +373,16 @@ class PythonSourceAnalyzer:
         return "/".join(part for part in parts if part)
 
     def module_fqn_for_import_relative_path(self, relative: str) -> str:
+        module_path = self.module_path_for_import_relative_path(relative)
+        return module_fqn_for_module_path(module_path) if module_path else ""
+
+    def module_path_for_import_relative_path(self, relative: str) -> str:
+        for module_path in self.module_path_candidates(relative):
+            if (self.root / module_path).is_file():
+                return module_path
+        return ""
+
+    def module_path_candidates(self, relative: str) -> List[str]:
         candidates = []
         if not relative:
             candidates.extend(["__init__.py", "__init__.pyi"])
@@ -330,10 +390,31 @@ class PythonSourceAnalyzer:
             candidates.extend(
                 [f"{relative}.py", f"{relative}.pyi", f"{relative}/__init__.py", f"{relative}/__init__.pyi"]
             )
-        for module_path in candidates:
-            if (self.root / module_path).is_file():
-                return module_fqn_for_module_path(module_path)
-        return ""
+        return candidates
+
+    def module_defines_name(self, relative: str, name: str) -> bool:
+        module_path = self.module_path_for_import_relative_path(relative)
+        return bool(module_path) and name in self.module_defined_names(module_path)
+
+    def module_defined_names(self, module_path: str) -> Set[str]:
+        cached = self.module_definition_cache.get(module_path)
+        if cached is not None:
+            return cached
+        names = set()  # type: Set[str]
+        path = self.root / module_path
+        try:
+            tree = parse_python(path.read_text(encoding="utf-8"), path)
+        except (OSError, SyntaxError):
+            self.module_definition_cache[module_path] = names
+            return names
+        for node in tree.body:
+            if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+                names.add(node.name)
+            elif isinstance(node, (ast.Assign, ast.AnnAssign)):
+                for name, _ in assigned_names(node):
+                    names.add(name)
+        self.module_definition_cache[module_path] = names
+        return names
 
     def write_field(
         self,
@@ -358,7 +439,7 @@ class PythonSourceAnalyzer:
         )
 
     def write_annotation(self, owner_kind: str, owner_key: str, decorator: ast.expr) -> None:
-        fqn = expression_text(decorator)
+        fqn = decorator_fqn(decorator)
         if not fqn:
             return
         write(record="annotation", ownerKind=owner_kind, ownerKey=owner_key, fqn=fqn, name=fqn.split(".")[-1])
@@ -498,7 +579,7 @@ def target_names(target: ast.AST) -> List[str]:
 
 def instance_fields(node) -> List[Tuple[str, str]]:
     fields = {}  # type: Dict[str, str]
-    for current in ast.walk(node):
+    for current in walk_without_nested_scopes(node):
         if isinstance(current, ast.AnnAssign) and is_self_attribute(current.target):
             fields[current.target.attr] = annotation_text(current.annotation)
         elif isinstance(current, ast.Assign):
@@ -528,6 +609,12 @@ def decorator_name(decorator: ast.expr) -> str:
     if isinstance(decorator, ast.Call):
         return decorator_name(decorator.func)
     return ""
+
+
+def decorator_fqn(decorator: ast.expr) -> str:
+    if isinstance(decorator, ast.Call):
+        return decorator_fqn(decorator.func)
+    return expression_text(decorator)
 
 
 def is_abstract_class(node: ast.ClassDef) -> bool:

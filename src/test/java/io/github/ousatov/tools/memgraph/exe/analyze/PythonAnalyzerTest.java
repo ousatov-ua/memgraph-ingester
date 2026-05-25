@@ -1,6 +1,7 @@
 package io.github.ousatov.tools.memgraph.exe.analyze;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
@@ -271,6 +272,131 @@ class PythonAnalyzerTest {
     assertTrue(
         hasCallByName(analysis, "python.app$2e$py.run()", "python.pkg.util$2e$py", "helper"),
         () -> "Calls: " + analysis.calls());
+  }
+
+  @Test
+  void bindsTopLevelPackageNameForDottedImports() throws IOException {
+    Path packageDir = tempDir.resolve("pkg");
+    Files.createDirectories(packageDir);
+    Files.writeString(packageDir.resolve("__init__.py"), "def helper():\n    return 1\n");
+    Files.writeString(packageDir.resolve("util.py"), "def utility():\n    return 2\n");
+    Path appFile = tempDir.resolve("app.py");
+    Files.writeString(
+        appFile,
+        """
+        import pkg.util
+
+        def run():
+            pkg.helper()
+        """);
+
+    PythonAnalysis analysis = analyzer().analyze(appFile);
+
+    assertTrue(
+        hasCallByName(
+            analysis, "python.app$2e$py.run()", "python.pkg._$5f$$5f$init$5f$$5f$$2e$py", "helper"),
+        () -> "Calls: " + analysis.calls());
+  }
+
+  @Test
+  void prefersImportedPackageSymbolOverSameNamedSubmodule() throws IOException {
+    Path utilDir = tempDir.resolve("pkg").resolve("util");
+    Files.createDirectories(utilDir);
+    Files.writeString(utilDir.resolve("__init__.py"), "def helper():\n    return 1\n");
+    Files.writeString(utilDir.resolve("helper.py"), "def other():\n    return 2\n");
+    Path appFile = tempDir.resolve("app.py");
+    Files.writeString(
+        appFile,
+        """
+        from pkg.util import helper
+
+        def run():
+            helper()
+        """);
+
+    PythonAnalysis analysis = analyzer().analyze(appFile);
+
+    assertTrue(
+        hasCallByName(
+            analysis,
+            "python.app$2e$py.run()",
+            "python.pkg.util._$5f$$5f$init$5f$$5f$$2e$py",
+            "helper"),
+        () -> "Calls: " + analysis.calls());
+    assertFalse(
+        hasCallByName(analysis, "python.app$2e$py.run()", "python.pkg.util.helper$2e$py", "<init>"),
+        () -> "Calls: " + analysis.calls());
+  }
+
+  @Test
+  void resolvesFunctionLocalImportsForCalls() throws IOException {
+    Path packageDir = tempDir.resolve("pkg");
+    Files.createDirectories(packageDir);
+    Files.writeString(packageDir.resolve("util.py"), "def helper():\n    return 1\n");
+    Path appFile = tempDir.resolve("app.py");
+    Files.writeString(
+        appFile,
+        """
+        def run():
+            import pkg.util
+            pkg.util.helper()
+        """);
+
+    PythonAnalysis analysis = analyzer().analyze(appFile);
+
+    assertTrue(
+        hasCallByName(analysis, "python.app$2e$py.run()", "python.pkg.util$2e$py", "helper"),
+        () -> "Calls: " + analysis.calls());
+  }
+
+  @Test
+  void ignoresNestedClassSelfAssignmentsAsOuterInstanceFields() throws IOException {
+    PythonAnalysis analysis =
+        analyzeSource(
+            "fields.py",
+            """
+            class Outer:
+                def build(self):
+                    self.name = "outer"
+
+                    class Inner:
+                        def __init__(self):
+                            self.leaked = "inner"
+            """);
+
+    assertTrue(
+        analysis.members().stream()
+            .anyMatch(member -> "python.fields$2e$py.Outer#name".equals(member.key())),
+        () -> "Members: " + analysis.members());
+    assertFalse(
+        analysis.members().stream()
+            .anyMatch(member -> "python.fields$2e$py.Outer#leaked".equals(member.key())),
+        () -> "Members: " + analysis.members());
+  }
+
+  @Test
+  void stripsDecoratorCallSyntaxFromAnnotations() throws IOException {
+    PythonAnalysis analysis =
+        analyzeSource(
+            "decorators.py",
+            """
+            @cache()
+            class Service:
+                @pkg.trace("run")
+                def run(self):
+                    return None
+            """);
+
+    assertTrue(
+        analysis.annotations().stream().anyMatch(annotation -> "cache".equals(annotation.fqn())),
+        () -> "Annotations: " + analysis.annotations());
+    assertTrue(
+        analysis.annotations().stream()
+            .anyMatch(annotation -> "pkg.trace".equals(annotation.fqn())),
+        () -> "Annotations: " + analysis.annotations());
+    assertFalse(
+        analysis.annotations().stream().anyMatch(annotation -> annotation.fqn().contains("(")),
+        () -> "Annotations: " + analysis.annotations());
   }
 
   private static boolean hasCallByName(
