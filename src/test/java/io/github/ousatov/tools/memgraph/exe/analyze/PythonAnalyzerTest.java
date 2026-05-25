@@ -109,6 +109,95 @@ class PythonAnalyzerTest {
                         && "save".equals(call.calleeName())));
   }
 
+  @Test
+  void resolvesDottedImportCallsWithoutDuplicatingModulePath() throws IOException {
+    Path packageDir = tempDir.resolve("pkg");
+    Files.createDirectories(packageDir);
+    Files.writeString(
+        packageDir.resolve("util.py"),
+        """
+        def helper():
+            return 1
+        """);
+    Path appFile = tempDir.resolve("app.py");
+    Files.writeString(
+        appFile,
+        """
+        import pkg.util
+
+        def run():
+            pkg.util.helper()
+        """);
+
+    PythonAnalysis analysis = analyzer().analyze(appFile);
+
+    assertTrue(
+        hasCallByName(analysis, "python.app$2e$py.run()", "python.pkg.util$2e$py", "helper"),
+        () -> "Calls: " + analysis.calls());
+  }
+
+  @Test
+  void preservesDistinctDottedImportsUnderSameTopLevelPackage() throws IOException {
+    Path packageDir = tempDir.resolve("pkg");
+    Files.createDirectories(packageDir);
+    Files.writeString(packageDir.resolve("util.py"), "def helper():\n    return 1\n");
+    Files.writeString(packageDir.resolve("other.py"), "def helper():\n    return 2\n");
+    Path appFile = tempDir.resolve("app.py");
+    Files.writeString(
+        appFile,
+        """
+        import pkg.util
+        import pkg.other
+
+        def run():
+            pkg.util.helper()
+            pkg.other.helper()
+        """);
+
+    PythonAnalysis analysis = analyzer().analyze(appFile);
+
+    assertTrue(
+        hasCallByName(analysis, "python.app$2e$py.run()", "python.pkg.util$2e$py", "helper"),
+        () -> "Calls: " + analysis.calls());
+    assertTrue(
+        hasCallByName(analysis, "python.app$2e$py.run()", "python.pkg.other$2e$py", "helper"),
+        () -> "Calls: " + analysis.calls());
+  }
+
+  @Test
+  void resolvesRelativeNamespaceImportSubmoduleCalls() throws IOException {
+    Path packageDir = tempDir.resolve("pkg");
+    Files.createDirectories(packageDir);
+    Files.writeString(packageDir.resolve("base.py"), "def helper():\n    return 1\n");
+    Path serviceFile = packageDir.resolve("service.py");
+    Files.writeString(
+        serviceFile,
+        """
+        from . import base
+
+        def run():
+            base.helper()
+        """);
+
+    PythonAnalysis analysis = analyzer().analyze(serviceFile);
+
+    assertTrue(
+        hasCallByName(
+            analysis, "python.pkg.service$2e$py.run()", "python.pkg.base$2e$py", "helper"),
+        () -> "Calls: " + analysis.calls());
+  }
+
+  private static boolean hasCallByName(
+      PythonAnalysis analysis, String callerSignature, String calleeOwnerFqn, String calleeName) {
+    return analysis.calls().stream()
+        .anyMatch(
+            call ->
+                callerSignature.equals(call.callerSignature())
+                    && call.calleeSignature().isBlank()
+                    && calleeOwnerFqn.equals(call.calleeOwnerFqn())
+                    && calleeName.equals(call.calleeName()));
+  }
+
   private PythonAnalysis analyzeSource(String fileName, String source) throws IOException {
     Path sourceFile = tempDir.resolve(fileName);
     Files.writeString(sourceFile, source);

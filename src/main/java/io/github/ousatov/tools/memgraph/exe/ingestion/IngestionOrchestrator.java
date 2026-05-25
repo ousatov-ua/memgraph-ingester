@@ -524,8 +524,9 @@ public final class IngestionOrchestrator {
   }
 
   private boolean shouldVisitDirectory(Path dir) {
-    return !isNodeModulesDirectory(dir)
-        && languageAdapters.stream().anyMatch(adapter -> adapter.shouldVisitDirectory(dir));
+    Path localDir = LanguageAdapter.localPath(sourceRoot, dir);
+    return !isNodeModulesDirectory(localDir)
+        && languageAdapters.stream().anyMatch(adapter -> adapter.shouldVisitDirectory(localDir));
   }
 
   private List<SourceFile> discoverSourceFiles() {
@@ -648,7 +649,8 @@ public final class IngestionOrchestrator {
   }
 
   private Optional<LanguageAdapter<?>> adapterFor(Path file) {
-    return languageAdapters.stream().filter(adapter -> adapter.accepts(file)).findFirst();
+    Path localFile = LanguageAdapter.localPath(sourceRoot, file);
+    return languageAdapters.stream().filter(adapter -> adapter.accepts(localFile)).findFirst();
   }
 
   private Optional<SourceFile> sourceFileFor(

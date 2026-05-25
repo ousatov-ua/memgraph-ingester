@@ -74,21 +74,22 @@ class PythonSourceAnalyzer:
         for node in tree.body:
             if isinstance(node, ast.Import):
                 for alias in node.names:
-                    local_name = alias.asname or alias.name.split(".")[0]
+                    local_name = alias.asname or alias.name
                     module_fqn = self.resolve_import_module(alias.name)
                     if module_fqn:
                         self.imported_modules[local_name] = module_fqn
             elif isinstance(node, ast.ImportFrom):
                 base_module = self.resolve_import_from_module(node)
-                if not base_module:
-                    continue
                 for alias in node.names:
                     if alias.name == "*":
                         continue
                     local_name = alias.asname or alias.name
                     submodule = self.resolve_imported_submodule(node, alias.name)
+                    target_module = submodule or base_module
+                    if not target_module:
+                        continue
                     self.imported_symbols[local_name] = ImportedSymbol(
-                        module_fqn=submodule or base_module,
+                        module_fqn=target_module,
                         name=alias.name,
                         is_module=bool(submodule),
                     )
@@ -272,8 +273,9 @@ class PythonSourceAnalyzer:
             parts = attribute_parts(expr)
             if not parts:
                 return ""
-            if parts[0] in self.imported_modules:
-                return ".".join([self.imported_modules[parts[0]], *parts[1:]])
+            module_fqn, consumed = self.resolve_imported_module_parts(parts)
+            if module_fqn:
+                return ".".join([module_fqn, *parts[consumed:]])
             imported = self.imported_symbols.get(parts[0])
             if imported:
                 base = imported.module_fqn if imported.is_module else f"{imported.module_fqn}.{imported.name}"
@@ -282,6 +284,13 @@ class PythonSourceAnalyzer:
         if isinstance(expr, ast.Subscript):
             return self.resolve_type_expr(expr.value)
         return ""
+
+    def resolve_imported_module_parts(self, parts: List[str]) -> Tuple[str, int]:
+        for end in range(len(parts), 0, -1):
+            module_fqn = self.imported_modules.get(".".join(parts[:end]))
+            if module_fqn:
+                return module_fqn, end
+        return "", 0
 
     def resolve_import_module(self, module_name: str) -> str:
         relative = module_name.replace(".", "/")

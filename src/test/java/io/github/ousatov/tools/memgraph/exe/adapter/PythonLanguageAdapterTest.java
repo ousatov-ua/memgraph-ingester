@@ -56,6 +56,19 @@ class PythonLanguageAdapterTest {
   }
 
   @Test
+  void discoverFilesIgnoresSkippedNamesOutsideSourceRoot() throws IOException {
+    Path sourceRoot = tempDir.resolve("build/project");
+    Path appFile = sourceRoot.resolve("src/app.py");
+    Path cacheFile = sourceRoot.resolve("src/__pycache__/app.py");
+    Files.createDirectories(appFile.getParent());
+    Files.createDirectories(cacheFile.getParent());
+    Files.writeString(appFile, "value = 1\n");
+    Files.writeString(cacheFile, "value = 2\n");
+
+    assertIterableEquals(List.of(appFile), adapter.discoverFiles(sourceRoot));
+  }
+
+  @Test
   void returnsEmptyWhenRuntimeFailureEscapesAnalyzer() throws IOException {
     assumeTrue(systemPythonAvailable(), "Python adapter parse-failure test requires python3");
     Path brokenSource = tempDir.resolve("broken.py");

@@ -48,6 +48,15 @@ public interface LanguageAdapter<T> {
     return fileName == null || !"node_modules".equals(fileName.toString());
   }
 
+  /** Returns {@code path} as a source-root-local path when both paths are compatible. */
+  static Path localPath(Path sourceRoot, Path path) {
+    try {
+      return sourceRoot.relativize(path);
+    } catch (IllegalArgumentException _) {
+      return path;
+    }
+  }
+
   /** Finds matching source files beneath {@code sourceRoot} in stable order. */
   default List<Path> discoverFiles(Path sourceRoot) {
     List<Path> files = new ArrayList<>();
@@ -58,7 +67,7 @@ public interface LanguageAdapter<T> {
             @Override
             public @NonNull FileVisitResult preVisitDirectory(
                 @NonNull Path dir, @NonNull BasicFileAttributes attrs) {
-              return shouldVisitDirectory(dir)
+              return shouldVisitDirectory(localPath(sourceRoot, dir))
                   ? FileVisitResult.CONTINUE
                   : FileVisitResult.SKIP_SUBTREE;
             }
@@ -66,7 +75,7 @@ public interface LanguageAdapter<T> {
             @Override
             public @NonNull FileVisitResult visitFile(
                 @NonNull Path file, @NonNull BasicFileAttributes attrs) {
-              if (attrs.isRegularFile() && accepts(file)) {
+              if (attrs.isRegularFile() && accepts(localPath(sourceRoot, file))) {
                 files.add(file);
               }
               return FileVisitResult.CONTINUE;
