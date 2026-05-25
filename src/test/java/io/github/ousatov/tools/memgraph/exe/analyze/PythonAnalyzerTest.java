@@ -74,6 +74,10 @@ class PythonAnalyzerTest {
         analysis.members().stream()
             .anyMatch(member -> "python.pkg.service$2e$py.Service#name".equals(member.key())));
     assertTrue(
+        analysis.members().stream()
+            .anyMatch(member -> "python.pkg.service$2e$py.Service.run()".equals(member.key())),
+        () -> "Members: " + analysis.members());
+    assertTrue(
         analysis.calls().stream()
             .anyMatch(
                 call ->

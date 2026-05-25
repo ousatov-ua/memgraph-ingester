@@ -151,6 +151,15 @@ class IngestionOrchestratorIT {
     }
   }
 
+  private static List<String> methodSignatures(String project) {
+    try (Session s = driver.session()) {
+      return s.run(
+              "MATCH (m:Method {project: $p}) RETURN m.signature AS sig ORDER BY sig",
+              Map.of("p", project))
+          .list(theRecord -> theRecord.get("sig").asString());
+    }
+  }
+
   private static boolean fieldExists(String project, String fqn) {
     try (Session s = driver.session()) {
       return s.run(
@@ -743,7 +752,9 @@ class IngestionOrchestratorIT {
     String serviceFqn = "python.app.service$2e$py.Service";
     assertEquals(0, failures);
     assertTrue(classExists(currentProject, serviceFqn));
-    assertTrue(methodExists(currentProject, serviceFqn + ".run()"));
+    assertTrue(
+        methodExists(currentProject, serviceFqn + ".run()"),
+        () -> "Method signatures: " + methodSignatures(currentProject));
     assertTrue(fieldExists(currentProject, serviceFqn + "#name"));
     assertTrue(classExtendsEdgeExists(currentProject, serviceFqn, baseFqn));
     assertTrue(

@@ -143,6 +143,16 @@ class MemoryGraphIT {
     session
         .run(
             "MATCH (m:Memory {project: $p})"
+                + " MERGE (d:Decision {id: 'DEC-test-refers-to-python-code', project: $p})"
+                + " SET d.title = 'Document Python code root', d.status = 'accepted'"
+                + " MERGE (ref:CodeRef {project: $p, targetType: 'Code', key: 'python'})"
+                + " MERGE (m)-[:HAS_DECISION]->(d)"
+                + " MERGE (d)-[:REFERS_TO]->(ref)",
+            Map.of("p", PROJECT))
+        .consume();
+    session
+        .run(
+            "MATCH (m:Memory {project: $p})"
                 + " MERGE (d:Decision {id: 'DEC-test-refers-to-js-code', project: $p})"
                 + " SET d.title = 'Document JS code root', d.status = 'accepted'"
                 + " MERGE (ref:CodeRef {project: $p, targetType: 'Code', key: 'js'})"
@@ -162,6 +172,16 @@ class MemoryGraphIT {
             .single()
             .get("n")
             .asLong();
+    long pythonCount =
+        session
+            .run(
+                "MATCH (:CodeRef {project: $p, targetType: 'Code', key: 'python'})"
+                    + "-[:RESOLVES_TO]->(:Code {project: $p, language: 'python'})"
+                    + " RETURN count(*) AS n",
+                Map.of("p", PROJECT))
+            .single()
+            .get("n")
+            .asLong();
     long jsCount =
         session
             .run(
@@ -174,6 +194,7 @@ class MemoryGraphIT {
             .asLong();
 
     assertEquals(1, javaCount);
+    assertEquals(1, pythonCount);
     assertEquals(1, jsCount);
   }
 
@@ -215,11 +236,11 @@ class MemoryGraphIT {
   void resolveCodeRefsClearsUnsupportedCodeAndPackageEdges() {
     session
         .run(
-            "CREATE (code:Code {project: $p, language: 'python'})"
-                + " CREATE (pkg:Package {project: $p, name: 'shared', language: 'python'})"
-                + " CREATE (codeRef:CodeRef {project: $p, targetType: 'Code', key: 'python'})"
+            "CREATE (code:Code {project: $p, language: 'ruby'})"
+                + " CREATE (pkg:Package {project: $p, name: 'shared', language: 'ruby'})"
+                + " CREATE (codeRef:CodeRef {project: $p, targetType: 'Code', key: 'ruby'})"
                 + " CREATE (pkgRef:CodeRef {project: $p,"
-                + " targetType: 'Package', key: 'python:shared'})"
+                + " targetType: 'Package', key: 'ruby:shared'})"
                 + " CREATE (codeRef)-[:RESOLVES_TO]->(code)"
                 + " CREATE (pkgRef)-[:RESOLVES_TO]->(pkg)",
             Map.of("p", PROJECT))
@@ -231,7 +252,7 @@ class MemoryGraphIT {
         session
             .run(
                 "MATCH (ref:CodeRef {project: $p})-[rel:RESOLVES_TO]->()"
-                    + " WHERE ref.key IN ['python', 'python:shared']"
+                    + " WHERE ref.key IN ['ruby', 'ruby:shared']"
                     + " RETURN count(rel) AS n",
                 Map.of("p", PROJECT))
             .single()
