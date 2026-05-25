@@ -155,7 +155,8 @@ public final class Memgraph {
       List<String> properties = theRecord.get("properties").asList(Value::asString);
       if ("Language".equals(label) && hasSameProperties(properties, Labels.PROJECT, "name")) {
         languageConstraint = true;
-      } else if ("Code".equals(label) && hasSameProperties(properties, Labels.PROJECT, "language")) {
+      } else if ("Code".equals(label)
+          && hasSameProperties(properties, Labels.PROJECT, "language")) {
         codeConstraint = true;
       } else if ("Package".equals(label)
           && hasSameProperties(properties, Labels.PROJECT, "name", "language")) {
