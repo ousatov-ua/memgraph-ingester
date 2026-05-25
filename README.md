@@ -910,7 +910,7 @@ MIT. See [`LICENSE`](LICENSE).
 
 ## Acknowledgements
 
-- [Evgeniy Voronyuk](https://github.com/brunneng) - testing support
+- [Evgeniy Voronyuk](https://github.com/brunneng) – testing support, propositions of use scenarios.
 
 ## For Enthusiasts: Build It Yourself
 
