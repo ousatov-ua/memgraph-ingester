@@ -350,6 +350,7 @@ public final class Const {
     public static final String END_LINE = "endLine";
     public static final String START_LINE = "startLine";
     public static final String ANNOTATION = "annotation";
+    public static final String CLASS = "class";
 
     private Params() {
 

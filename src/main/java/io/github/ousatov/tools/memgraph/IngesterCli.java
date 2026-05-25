@@ -1,22 +1,18 @@
 package io.github.ousatov.tools.memgraph;
 
 import io.github.ousatov.tools.memgraph.exception.ProcessingException;
-import io.github.ousatov.tools.memgraph.exe.adapter.JavaLanguageAdapter;
-import io.github.ousatov.tools.memgraph.exe.adapter.JsLanguageAdapter;
 import io.github.ousatov.tools.memgraph.exe.adapter.LanguageAdapter;
+import io.github.ousatov.tools.memgraph.exe.adapter.LanguageAdapterFactory;
 import io.github.ousatov.tools.memgraph.exe.analyze.JsAnalysis;
 import io.github.ousatov.tools.memgraph.exe.analyze.JsAnalyzer;
 import io.github.ousatov.tools.memgraph.exe.analyze.ManagedNodeRuntime;
 import io.github.ousatov.tools.memgraph.exe.analyze.ManagedTypescriptPackage;
-import io.github.ousatov.tools.memgraph.exe.analyze.ParseService;
 import io.github.ousatov.tools.memgraph.exe.analyze.RuntimeMode;
 import io.github.ousatov.tools.memgraph.exe.ingestion.IngestionOrchestrator;
 import io.github.ousatov.tools.memgraph.vo.Settings;
-import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.Callable;
@@ -252,7 +248,7 @@ public final class IngesterCli implements Callable<Integer> {
     }
     log.info("Using next classpath entries: {}", classpath);
     try (Driver driver = GraphDatabase.driver(boltUrl, AuthTokens.basic(user, pass))) {
-      List<LanguageAdapter> languageAdapters = createLanguageAdapters(selectedRuntimeMode);
+      List<LanguageAdapter<?>> languageAdapters = createLanguageAdapters(selectedRuntimeMode);
       log.info(
           "Enabled source language adapters: {}",
           languageAdapters.stream().map(LanguageAdapter::displayName).toList());
@@ -543,23 +539,13 @@ public final class IngesterCli implements Callable<Integer> {
     }
   }
 
-  private List<LanguageAdapter> createLanguageAdapters(RuntimeMode selectedRuntimeMode) {
-    List<Path> cpEntries =
-        (classpath == null || classpath.isBlank())
-            ? List.of()
-            : Arrays.stream(classpath.split(File.pathSeparator))
-                .map(Path::of)
-                .filter(Files::isRegularFile)
-                .toList();
-    ParseService parseService = new ParseService(sourceRoot, cpEntries);
-    Path cacheRoot =
-        jsRuntimeCache == null ? ManagedNodeRuntime.defaultCacheRoot() : jsRuntimeCache;
-    ManagedNodeRuntime nodeRuntime =
-        new ManagedNodeRuntime(cacheRoot, jsNodeVersion, selectedRuntimeMode);
-    ManagedTypescriptPackage typescriptPackage =
-        new ManagedTypescriptPackage(cacheRoot, jsTypescriptVersion, selectedRuntimeMode);
-    return List.of(
-        new JavaLanguageAdapter(parseService),
-        new JsLanguageAdapter(new JsAnalyzer(sourceRoot, nodeRuntime, typescriptPackage)));
+  private List<LanguageAdapter<?>> createLanguageAdapters(RuntimeMode selectedRuntimeMode) {
+    return LanguageAdapterFactory.create(
+        sourceRoot,
+        classpath,
+        jsRuntimeCache,
+        jsNodeVersion,
+        jsTypescriptVersion,
+        selectedRuntimeMode);
   }
 }

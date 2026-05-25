@@ -25,6 +25,7 @@ import java.time.Duration;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
@@ -268,7 +269,7 @@ class IngestionOrchestratorIT {
    *
    * @author Oleksii Usatov
    */
-  private static final class StubJsLanguageAdapter implements LanguageAdapter {
+  private static final class StubJsLanguageAdapter implements LanguageAdapter<Path> {
 
     @Override
     public SourceLanguage language() {
@@ -281,7 +282,18 @@ class IngestionOrchestratorIT {
     }
 
     @Override
-    public boolean ingestFile(GraphWriter writer, Path file) {
+    public Optional<Path> parse(Path file) {
+      return Optional.of(file);
+    }
+
+    @Override
+    public SourceFileDefinitions collectDefinitions(Path parsed) {
+      return SourceFileDefinitions.of(
+          List.of("js.test.App"), List.of(), List.of(), List.of("js.test.App.<init>()"), List.of());
+    }
+
+    @Override
+    public boolean write(GraphWriter writer, Path file, Path parsed) {
       writer.upsertFile(file, language());
       writer.upsertPackage("js.test", language());
       writer.upsertJavascriptModule(file, "js.test", "js.test.App", "App", "app.ts", 1, 1);
@@ -294,7 +306,7 @@ class IngestionOrchestratorIT {
    *
    * @author Oleksii Usatov
    */
-  private static final class RootAwareStubLanguageAdapter implements LanguageAdapter {
+  private static final class RootAwareStubLanguageAdapter implements LanguageAdapter<Path> {
 
     private final Path sourceRoot;
 
@@ -313,12 +325,26 @@ class IngestionOrchestratorIT {
     }
 
     @Override
-    public LanguageAdapter forSourceRoot(Path sourceRoot) {
+    public LanguageAdapter<Path> forSourceRoot(Path sourceRoot) {
       return new RootAwareStubLanguageAdapter(sourceRoot);
     }
 
     @Override
-    public boolean ingestFile(GraphWriter writer, Path file) {
+    public Optional<Path> parse(Path file) {
+      return Optional.of(file);
+    }
+
+    @Override
+    public SourceFileDefinitions collectDefinitions(Path parsed) {
+      String modulePath = sourceRoot.relativize(parsed).toString().replace('\\', '/');
+      String moduleName = modulePath.replaceAll("[^A-Za-z0-9]", "_");
+      String moduleFqn = "js.test." + moduleName;
+      return SourceFileDefinitions.of(
+          List.of(moduleFqn), List.of(), List.of(), List.of(moduleFqn + ".<init>()"), List.of());
+    }
+
+    @Override
+    public boolean write(GraphWriter writer, Path file, Path parsed) {
       String modulePath = sourceRoot.relativize(file).toString().replace('\\', '/');
       String moduleName = modulePath.replaceAll("[^A-Za-z0-9]", "_");
       String moduleFqn = "js.test." + moduleName;
@@ -334,16 +360,16 @@ class IngestionOrchestratorIT {
    *
    * @author Oleksii Usatov
    */
-  private static final class SnapshotFailingWatchAdapter implements LanguageAdapter {
+  private static final class SnapshotFailingWatchAdapter implements LanguageAdapter<Object> {
 
-    private final LanguageAdapter delegate;
+    private final LanguageAdapter<?> delegate;
     private final AtomicInteger discoveries = new AtomicInteger();
 
     private SnapshotFailingWatchAdapter() {
       this(null);
     }
 
-    private SnapshotFailingWatchAdapter(LanguageAdapter delegate) {
+    private SnapshotFailingWatchAdapter(LanguageAdapter<?> delegate) {
       this.delegate = delegate;
     }
 
@@ -366,9 +392,28 @@ class IngestionOrchestratorIT {
     }
 
     @Override
-    public boolean ingestFile(GraphWriter writer, Path file) {
+    @SuppressWarnings("unchecked")
+    public Optional<Object> parse(Path file) {
       if (delegate != null) {
-        return delegate.ingestFile(writer, file);
+        return (Optional<Object>) delegate.parse(file);
+      }
+      return Optional.of(file);
+    }
+
+    @SuppressWarnings("unchecked")
+    @Override
+    public SourceFileDefinitions collectDefinitions(Object parsed) {
+      if (delegate != null) {
+        return ((LanguageAdapter<Object>) delegate).collectDefinitions(parsed);
+      }
+      return SourceFileDefinitions.empty();
+    }
+
+    @SuppressWarnings("unchecked")
+    @Override
+    public boolean write(GraphWriter writer, Path file, Object parsed) {
+      if (delegate != null) {
+        return ((LanguageAdapter<Object>) delegate).write(writer, file, parsed);
       }
       writer.upsertFile(file, language());
       return true;
@@ -384,7 +429,7 @@ class IngestionOrchestratorIT {
    *
    * @author Oleksii Usatov
    */
-  private static final class CleanupThenFailingJavaAdapter implements LanguageAdapter {
+  private static final class CleanupThenFailingJavaAdapter implements LanguageAdapter<Object> {
 
     private final SourceFileDefinitions definitions;
 
@@ -407,14 +452,60 @@ class IngestionOrchestratorIT {
     }
 
     @Override
-    public boolean ingestFile(GraphWriter writer, Path file) {
-      writer.deleteStaleDefinitionsForFile(file, definitions);
+    public Optional<Object> parse(Path file) {
+      return Optional.of(file);
+    }
+
+    @Override
+    public SourceFileDefinitions collectDefinitions(Object parsed) {
+      return definitions;
+    }
+
+    @Override
+    public boolean write(GraphWriter writer, Path file, Object parsed) {
       return false;
     }
   }
 
-  /** Adapter that simulates a JS/TS file-level failure after stale cleanup has run. */
-  private static final class CleanupThenFailingJsAdapter implements LanguageAdapter {
+  /**
+   * Adapter that simulates parse failure before stale cleanup can begin.
+   *
+   * @author Oleksii Usatov
+   */
+  private static final class ParseFailingJavaAdapter implements LanguageAdapter<Object> {
+
+    @Override
+    public SourceLanguage language() {
+      return SourceLanguage.JAVA;
+    }
+
+    @Override
+    public boolean accepts(Path file) {
+      return file.toString().endsWith(".java");
+    }
+
+    @Override
+    public Optional<Object> parse(Path file) {
+      return Optional.empty();
+    }
+
+    @Override
+    public SourceFileDefinitions collectDefinitions(Object parsed) {
+      throw new AssertionError("Definition collection must not run after parse failure");
+    }
+
+    @Override
+    public boolean write(GraphWriter writer, Path file, Object parsed) {
+      throw new AssertionError("Graph writes must not run after parse failure");
+    }
+  }
+
+  /**
+   * Adapter that simulates a JS/TS file-level failure after stale cleanup has run.
+   *
+   * @author Oleksii Usatov
+   */
+  private static final class CleanupThenFailingJsAdapter implements LanguageAdapter<Object> {
 
     @Override
     public SourceLanguage language() {
@@ -427,9 +518,17 @@ class IngestionOrchestratorIT {
     }
 
     @Override
-    public boolean ingestFile(GraphWriter writer, Path file) {
-      writer.deleteStaleDefinitionsForFile(
-          file, SourceFileDefinitions.of(Set.of(), Set.of(), Set.of(), Set.of(), Set.of()));
+    public Optional<Object> parse(Path file) {
+      return Optional.of(file);
+    }
+
+    @Override
+    public SourceFileDefinitions collectDefinitions(Object parsed) {
+      return SourceFileDefinitions.of(Set.of(), Set.of(), Set.of(), Set.of(), Set.of());
+    }
+
+    @Override
+    public boolean write(GraphWriter writer, Path file, Object parsed) {
       return false;
     }
   }
@@ -439,7 +538,7 @@ class IngestionOrchestratorIT {
    *
    * @author Oleksii Usatov
    */
-  private static final class ConcurrencyTrackingJavaAdapter implements LanguageAdapter {
+  private static final class ConcurrencyTrackingJavaAdapter implements LanguageAdapter<Object> {
 
     private final AtomicInteger active = new AtomicInteger();
     private final AtomicInteger maxActive = new AtomicInteger();
@@ -456,7 +555,7 @@ class IngestionOrchestratorIT {
     }
 
     @Override
-    public boolean ingestFile(GraphWriter writer, Path file) {
+    public Optional<Object> parse(Path file) {
       int current = active.incrementAndGet();
       maxActive.accumulateAndGet(current, Math::max);
       try {
@@ -464,12 +563,22 @@ class IngestionOrchestratorIT {
         if (current <= 2) {
           await().until(() -> firstWorkers.getCount() == 0);
         }
-        writer.upsertFile(file, language());
-        writer.upsertPackage("com.example", language());
-        return true;
+        return Optional.of(file);
       } finally {
         active.decrementAndGet();
       }
+    }
+
+    @Override
+    public SourceFileDefinitions collectDefinitions(Object parsed) {
+      return SourceFileDefinitions.empty();
+    }
+
+    @Override
+    public boolean write(GraphWriter writer, Path file, Object parsed) {
+      writer.upsertFile(file, language());
+      writer.upsertPackage("com.example", language());
+      return true;
     }
 
     private int maxActive() {
@@ -781,6 +890,7 @@ class IngestionOrchestratorIT {
   }
 
   @Test
+  @SuppressWarnings("java:S2699")
   void retainedRefreshCatchesSourceRootLookupFailure() throws Exception {
     currentProject = PROJECT_BASE + "-retained-refresh-lookup-failure";
     sourceDir = Files.createTempDirectory("orch-retained-refresh-lookup-failure-src-");
@@ -1565,6 +1675,47 @@ class IngestionOrchestratorIT {
     assertTrue(fileExistsInGraph(currentProject, file));
     assertTrue(classExists(currentProject, "com.example.Atomic"));
     assertTrue(methodExists(currentProject, "com.example.Atomic.oldMethod()"));
+  }
+
+  @Test
+  void parseFailurePreservesExistingGraphStateBeforeCleanup() throws Exception {
+    currentProject = PROJECT_BASE + "-parse-failure-before-cleanup";
+    sourceDir = Files.createTempDirectory("orch-parse-failure-before-cleanup-src-");
+    Path pkgDir = sourceDir.resolve("com/example");
+    Files.createDirectories(pkgDir);
+    Path file = pkgDir.resolve("Atomic.java");
+    Files.writeString(
+        file,
+        """
+        package com.example;
+
+        public class Atomic {
+          public void oldMethod() {}
+        }
+        """);
+    IngestionOrchestrator normal =
+        new IngestionOrchestrator(
+            sourceDir, currentProject, 1, driver, new ParseService(sourceDir));
+    assertEquals(0, normal.run(Settings.def()));
+    assertTrue(methodExists(currentProject, "com.example.Atomic.oldMethod()"));
+
+    Files.writeString(
+        file,
+        """
+        package com.example;
+
+        public class Atomic {
+          public void newMethod() {}
+        }
+        """);
+    IngestionOrchestrator failing =
+        new IngestionOrchestrator(
+            sourceDir, currentProject, 1, driver, new ParseFailingJavaAdapter());
+    assertEquals(1, failing.run(Settings.def()));
+
+    assertTrue(fileExistsInGraph(currentProject, file));
+    assertTrue(methodExists(currentProject, "com.example.Atomic.oldMethod()"));
+    assertFalse(methodExists(currentProject, "com.example.Atomic.newMethod()"));
   }
 
   @Test

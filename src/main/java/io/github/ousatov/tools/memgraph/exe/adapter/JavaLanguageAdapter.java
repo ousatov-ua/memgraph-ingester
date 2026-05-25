@@ -17,6 +17,7 @@ import io.github.ousatov.tools.memgraph.exe.analyze.ParseService;
 import io.github.ousatov.tools.memgraph.exe.writer.GraphWriter;
 import java.nio.file.Path;
 import java.util.LinkedHashSet;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.slf4j.Logger;
@@ -27,7 +28,7 @@ import org.slf4j.LoggerFactory;
  *
  * @author Oleksii Usatov
  */
-public final class JavaLanguageAdapter implements LanguageAdapter {
+public final class JavaLanguageAdapter implements LanguageAdapter<CompilationUnit> {
 
   private static final Logger log = LoggerFactory.getLogger(JavaLanguageAdapter.class);
 
@@ -48,20 +49,25 @@ public final class JavaLanguageAdapter implements LanguageAdapter {
   }
 
   @Override
-  public LanguageAdapter forSourceRoot(Path sourceRoot) {
+  public LanguageAdapter<CompilationUnit> forSourceRoot(Path sourceRoot) {
     return new JavaLanguageAdapter(new ParseService(sourceRoot));
   }
 
   @Override
-  public boolean ingestFile(GraphWriter writer, Path file) {
-    var cuOpt = parseService.parse(file);
-    if (cuOpt.isEmpty()) {
-      return false;
-    }
-    CompilationUnit cu = cuOpt.get();
+  public Optional<CompilationUnit> parse(Path file) {
+    return parseService.parse(file);
+  }
+
+  @Override
+  public SourceFileDefinitions collectDefinitions(CompilationUnit cu) {
+    String pkg = cu.getPackageDeclaration().map(pd -> pd.getName().asString()).orElse("");
+    return collectDefinitions(pkg, cu);
+  }
+
+  @Override
+  public boolean write(GraphWriter writer, Path file, CompilationUnit cu) {
     String pkg = cu.getPackageDeclaration().map(pd -> pd.getName().asString()).orElse("");
     try {
-      writer.deleteStaleDefinitionsForFile(file, collectDefinitions(pkg, cu));
       writer.upsertFile(file, language());
       writer.upsertPackage(pkg, language());
       cu.getTypes()
