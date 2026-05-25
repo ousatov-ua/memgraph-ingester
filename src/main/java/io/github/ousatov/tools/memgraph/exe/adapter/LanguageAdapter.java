@@ -57,6 +57,11 @@ public interface LanguageAdapter<T> {
     }
   }
 
+  /** Returns true when this adapter provides its own discovery implementation. */
+  default boolean usesCustomFileDiscovery() {
+    return false;
+  }
+
   /** Finds matching source files beneath {@code sourceRoot} in stable order. */
   default List<Path> discoverFiles(Path sourceRoot) {
     List<Path> files = new ArrayList<>();

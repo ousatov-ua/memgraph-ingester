@@ -531,16 +531,50 @@ public final class IngestionOrchestrator {
 
   private List<SourceFile> discoverSourceFiles() {
     Map<Path, SourceFile> byPath = new LinkedHashMap<>();
-    List<SourceFile> discovered = new ArrayList<>();
+    List<LanguageAdapter<?>> defaultDiscoveryAdapters = new ArrayList<>();
     for (LanguageAdapter<?> adapter : languageAdapters) {
-      adapter
-          .discoverFiles(sourceRoot)
-          .forEach(file -> discovered.add(new SourceFile(file, adapter)));
+      if (adapter.usesCustomFileDiscovery()) {
+        adapter
+            .discoverFiles(sourceRoot)
+            .forEach(file -> byPath.putIfAbsent(file, new SourceFile(file, adapter)));
+      } else {
+        defaultDiscoveryAdapters.add(adapter);
+      }
     }
-    discovered.stream()
-        .sorted(Comparator.comparing(SourceFile::path))
-        .forEach(sourceFile -> byPath.putIfAbsent(sourceFile.path(), sourceFile));
-    return List.copyOf(byPath.values());
+    discoverSourceFiles(defaultDiscoveryAdapters, byPath);
+    return byPath.values().stream().sorted(Comparator.comparing(SourceFile::path)).toList();
+  }
+
+  private void discoverSourceFiles(
+      List<LanguageAdapter<?>> adapters, Map<Path, SourceFile> byPath) {
+    if (adapters.isEmpty()) {
+      return;
+    }
+    try {
+      Files.walkFileTree(
+          sourceRoot,
+          new SimpleFileVisitor<>() {
+            @Override
+            public @NonNull FileVisitResult preVisitDirectory(
+                @NonNull Path dir, @NonNull BasicFileAttributes attrs) {
+              return shouldVisitDirectory(dir)
+                  ? FileVisitResult.CONTINUE
+                  : FileVisitResult.SKIP_SUBTREE;
+            }
+
+            @Override
+            public @NonNull FileVisitResult visitFile(
+                @NonNull Path file, @NonNull BasicFileAttributes attrs) {
+              if (attrs.isRegularFile()) {
+                adapterFor(file, adapters)
+                    .ifPresent(adapter -> byPath.putIfAbsent(file, new SourceFile(file, adapter)));
+              }
+              return FileVisitResult.CONTINUE;
+            }
+          });
+    } catch (IOException e) {
+      throw new ProcessingException("Cannot walk source root", e);
+    }
   }
 
   private StoredFileState preloadStoredFileState(List<SourceFile> files) {
@@ -649,8 +683,12 @@ public final class IngestionOrchestrator {
   }
 
   private Optional<LanguageAdapter<?>> adapterFor(Path file) {
+    return adapterFor(file, languageAdapters);
+  }
+
+  private Optional<LanguageAdapter<?>> adapterFor(Path file, List<LanguageAdapter<?>> adapters) {
     Path localFile = LanguageAdapter.localPath(sourceRoot, file);
-    return languageAdapters.stream().filter(adapter -> adapter.accepts(localFile)).findFirst();
+    return adapters.stream().filter(adapter -> adapter.accepts(localFile)).findFirst();
   }
 
   private Optional<SourceFile> sourceFileFor(

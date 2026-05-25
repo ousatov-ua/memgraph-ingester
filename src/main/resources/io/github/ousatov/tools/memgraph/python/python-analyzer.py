@@ -48,7 +48,7 @@ class PythonSourceAnalyzer:
         self.tree = None
         self.local_classes = {}  # type: Dict[str, str]
         self.local_functions = {}  # type: Dict[str, str]
-        self.imported_modules = {}  # type: Dict[str, str]
+        self.imported_modules = {}  # type: Dict[str, ImportedModule]
         self.imported_symbols = {}  # type: Dict[str, ImportedSymbol]
         self.class_stack = []  # type: List[str]
 
@@ -77,7 +77,7 @@ class PythonSourceAnalyzer:
                     local_name = alias.asname or alias.name
                     module_fqn = self.resolve_import_module(alias.name)
                     if module_fqn:
-                        self.imported_modules[local_name] = module_fqn
+                        self.imported_modules[local_name] = ImportedModule(module_fqn, alias.name.replace(".", "/"))
             elif isinstance(node, ast.ImportFrom):
                 base_module = self.resolve_import_from_module(node)
                 for alias in node.names:
@@ -94,7 +94,9 @@ class PythonSourceAnalyzer:
                         is_module=bool(submodule),
                     )
                     if submodule:
-                        self.imported_modules[local_name] = submodule
+                        self.imported_modules[local_name] = ImportedModule(
+                            submodule, self.import_from_relative_path(node, alias.name)
+                        )
 
     def predeclare_module_declarations(self, body: List[ast.stmt]) -> None:
         for node in body:
@@ -240,8 +242,6 @@ class PythonSourceAnalyzer:
             if imported:
                 if imported.is_module:
                     return ResolvedCall(owner_fqn=imported.module_fqn, name=INIT)
-                if looks_like_type(func.id):
-                    return ResolvedCall(owner_fqn=f"{imported.module_fqn}.{imported.name}", name=INIT)
                 return ResolvedCall(owner_fqn=imported.module_fqn, name=imported.name)
             return None
         if isinstance(func, ast.Attribute):
@@ -252,7 +252,7 @@ class PythonSourceAnalyzer:
                 if receiver.id in self.local_classes:
                     return ResolvedCall(owner_fqn=self.local_classes[receiver.id], name=func.attr)
                 if receiver.id in self.imported_modules:
-                    return ResolvedCall(owner_fqn=self.imported_modules[receiver.id], name=func.attr)
+                    return ResolvedCall(owner_fqn=self.imported_modules[receiver.id].module_fqn, name=func.attr)
                 imported = self.imported_symbols.get(receiver.id)
                 if imported and not imported.is_module:
                     return ResolvedCall(owner_fqn=f"{imported.module_fqn}.{imported.name}", name=func.attr)
@@ -287,9 +287,14 @@ class PythonSourceAnalyzer:
 
     def resolve_imported_module_parts(self, parts: List[str]) -> Tuple[str, int]:
         for end in range(len(parts), 0, -1):
-            module_fqn = self.imported_modules.get(".".join(parts[:end]))
-            if module_fqn:
-                return module_fqn, end
+            imported = self.imported_modules.get(".".join(parts[:end]))
+            if imported:
+                for submodule_end in range(len(parts), end, -1):
+                    relative = "/".join([imported.relative_path, *parts[end:submodule_end]])
+                    module_fqn = self.module_fqn_for_import_relative_path(relative)
+                    if module_fqn:
+                        return module_fqn, submodule_end
+                return imported.module_fqn, end
         return "", 0
 
     def resolve_import_module(self, module_name: str) -> str:
@@ -318,14 +323,17 @@ class PythonSourceAnalyzer:
         return "/".join(part for part in parts if part)
 
     def module_fqn_for_import_relative_path(self, relative: str) -> str:
+        candidates = []
         if not relative:
-            candidate = "__init__.py"
+            candidates.extend(["__init__.py", "__init__.pyi"])
         else:
-            candidate = f"{relative}.py"
-        module_path = candidate if (self.root / candidate).is_file() else f"{relative}/__init__.py"
-        if not (self.root / module_path).is_file():
-            return ""
-        return module_fqn_for_module_path(module_path)
+            candidates.extend(
+                [f"{relative}.py", f"{relative}.pyi", f"{relative}/__init__.py", f"{relative}/__init__.pyi"]
+            )
+        for module_path in candidates:
+            if (self.root / module_path).is_file():
+                return module_fqn_for_module_path(module_path)
+        return ""
 
     def write_field(
         self,
@@ -363,6 +371,14 @@ class ImportedSymbol:
         self.module_fqn = module_fqn
         self.name = name
         self.is_module = is_module
+
+
+class ImportedModule:
+    """Local module import binding and its import-relative path."""
+
+    def __init__(self, module_fqn: str, relative_path: str) -> None:
+        self.module_fqn = module_fqn
+        self.relative_path = relative_path
 
 
 class ResolvedCall:
@@ -545,11 +561,6 @@ def walk_without_nested_scopes(node: ast.AST):
             continue
         yield current
         stack.extend(reversed(list(ast.iter_child_nodes(current))))
-
-
-def looks_like_type(name: str) -> bool:
-    return bool(name) and name[0].isupper()
-
 
 if __name__ == "__main__":
     raise SystemExit(main())

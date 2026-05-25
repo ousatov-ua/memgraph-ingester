@@ -428,6 +428,11 @@ class IngestionOrchestratorIT {
     }
 
     @Override
+    public boolean usesCustomFileDiscovery() {
+      return true;
+    }
+
+    @Override
     public List<Path> discoverFiles(Path sourceRoot) {
       if (discoveries.incrementAndGet() == 1) {
         return List.of();

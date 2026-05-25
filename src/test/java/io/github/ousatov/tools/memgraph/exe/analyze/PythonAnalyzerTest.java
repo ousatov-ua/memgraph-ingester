@@ -187,6 +187,92 @@ class PythonAnalyzerTest {
         () -> "Calls: " + analysis.calls());
   }
 
+  @Test
+  void resolvesImportsFromPythonStubFiles() throws IOException {
+    Path packageDir = tempDir.resolve("pkg");
+    Files.createDirectories(packageDir);
+    Files.writeString(packageDir.resolve("__init__.pyi"), "class Root: ...\n");
+    Files.writeString(packageDir.resolve("util.pyi"), "class Base: ...\n");
+    Path serviceFile = tempDir.resolve("service.py");
+    Files.writeString(
+        serviceFile,
+        """
+        import pkg
+        from pkg.util import Base
+
+        class Service(Base):
+            pass
+
+        class PackageService(pkg.Root):
+            pass
+        """);
+
+    PythonAnalysis analysis = analyzer().analyze(serviceFile);
+
+    assertTrue(
+        analysis.relations().stream()
+            .anyMatch(
+                relation ->
+                    "classExtends".equals(relation.kind())
+                        && "python.service$2e$py.Service".equals(relation.childFqn())
+                        && "python.pkg.util$2e$pyi.Base".equals(relation.targetFqn())),
+        () -> "Relations: " + analysis.relations());
+    assertTrue(
+        analysis.relations().stream()
+            .anyMatch(
+                relation ->
+                    "classExtends".equals(relation.kind())
+                        && "python.service$2e$py.PackageService".equals(relation.childFqn())
+                        && "python.pkg._$5f$$5f$init$5f$$5f$$2e$pyi.Root"
+                            .equals(relation.targetFqn())),
+        () -> "Relations: " + analysis.relations());
+  }
+
+  @Test
+  void keepsImportedCapitalizedCallableAsModuleFunctionCall() throws IOException {
+    Path packageDir = tempDir.resolve("pkg");
+    Files.createDirectories(packageDir);
+    Files.writeString(packageDir.resolve("mod.py"), "def Factory():\n    return 1\n");
+    Path appFile = tempDir.resolve("app.py");
+    Files.writeString(
+        appFile,
+        """
+        from pkg.mod import Factory
+
+        def run():
+            Factory()
+        """);
+
+    PythonAnalysis analysis = analyzer().analyze(appFile);
+
+    assertTrue(
+        hasCallByName(analysis, "python.app$2e$py.run()", "python.pkg.mod$2e$py", "Factory"),
+        () -> "Calls: " + analysis.calls());
+  }
+
+  @Test
+  void resolvesSubmoduleCallsThroughImportedPackageQualifier() throws IOException {
+    Path packageDir = tempDir.resolve("pkg");
+    Files.createDirectories(packageDir);
+    Files.writeString(packageDir.resolve("__init__.py"), "");
+    Files.writeString(packageDir.resolve("util.py"), "def helper():\n    return 1\n");
+    Path appFile = tempDir.resolve("app.py");
+    Files.writeString(
+        appFile,
+        """
+        import pkg
+
+        def run():
+            pkg.util.helper()
+        """);
+
+    PythonAnalysis analysis = analyzer().analyze(appFile);
+
+    assertTrue(
+        hasCallByName(analysis, "python.app$2e$py.run()", "python.pkg.util$2e$py", "helper"),
+        () -> "Calls: " + analysis.calls());
+  }
+
   private static boolean hasCallByName(
       PythonAnalysis analysis, String callerSignature, String calleeOwnerFqn, String calleeName) {
     return analysis.calls().stream()
