@@ -29,7 +29,7 @@ The normal path is simple:
 1. Run Memgraph.
 2. Download one ingester executable.
 3. Run one command; the ingester selects Java or JS/TS logic from each source file extension.
-4. Optionally connect your AI agent through MCP or `mgconsole`.
+4. Connect your AI agent through MCP or `mgconsole`.
 
 No source code is uploaded by the ingester. It reads local files, writes graph nodes to your
 Memgraph instance over Bolt, and exits.
