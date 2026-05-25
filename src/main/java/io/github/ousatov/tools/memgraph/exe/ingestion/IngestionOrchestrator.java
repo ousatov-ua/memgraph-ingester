@@ -503,7 +503,7 @@ public final class IngestionOrchestrator {
           @Override
           public @NonNull FileVisitResult preVisitDirectory(
               @NonNull Path dir, @NonNull BasicFileAttributes attrs) throws IOException {
-            if (!shouldVisitDirectory(dir)) {
+            if (!shouldVisitDirectory(dir, languageAdapters)) {
               return FileVisitResult.SKIP_SUBTREE;
             }
             WatchKey key =
@@ -523,10 +523,10 @@ public final class IngestionOrchestrator {
     return fileName != null && "node_modules".equals(fileName.toString());
   }
 
-  private boolean shouldVisitDirectory(Path dir) {
+  private boolean shouldVisitDirectory(Path dir, List<LanguageAdapter<?>> adapters) {
     Path localDir = LanguageAdapter.localPath(sourceRoot, dir);
     return !isNodeModulesDirectory(localDir)
-        && languageAdapters.stream().anyMatch(adapter -> adapter.shouldVisitDirectory(localDir));
+        && adapters.stream().allMatch(adapter -> adapter.shouldVisitDirectory(localDir));
   }
 
   private List<SourceFile> discoverSourceFiles() {
@@ -557,7 +557,7 @@ public final class IngestionOrchestrator {
             @Override
             public @NonNull FileVisitResult preVisitDirectory(
                 @NonNull Path dir, @NonNull BasicFileAttributes attrs) {
-              return shouldVisitDirectory(dir)
+              return shouldVisitDirectory(dir, adapters)
                   ? FileVisitResult.CONTINUE
                   : FileVisitResult.SKIP_SUBTREE;
             }

@@ -709,6 +709,33 @@ class IngestionOrchestratorIT {
   }
 
   @Test
+  void sharedDiscoveryPrunesDirectoriesRejectedByAnyConfiguredAdapter() throws Exception {
+    currentProject = PROJECT_BASE + "-shared-pruning";
+    sourceDir = Files.createTempDirectory("orch-shared-pruning-src-");
+    Path appFile =
+        Files.writeString(
+            sourceDir.resolve("Good.java"), "public class Good { int ok() { return 1; } }");
+    Path ignoredFile = sourceDir.resolve(".venv/Leak.java");
+    Files.createDirectories(ignoredFile.getParent());
+    Files.writeString(ignoredFile, "public class Leak { int bad() { return 1; } }");
+
+    int failures =
+        new IngestionOrchestrator(
+                sourceDir,
+                currentProject,
+                1,
+                driver,
+                List.of(
+                    new JavaLanguageAdapter(new ParseService(sourceDir)),
+                    new PythonLanguageAdapter(null)))
+            .run(Settings.def());
+
+    assertEquals(0, failures);
+    assertTrue(fileExistsInGraph(currentProject, appFile));
+    assertFalse(fileExistsInGraph(currentProject, ignoredFile));
+  }
+
+  @Test
   void ingestsPythonSourceWithClassesFieldsAndCalls() throws Exception {
     assumeTrue(systemPythonAvailable(), "Python ingestion IT requires python3");
     currentProject = PROJECT_BASE + "-python";
