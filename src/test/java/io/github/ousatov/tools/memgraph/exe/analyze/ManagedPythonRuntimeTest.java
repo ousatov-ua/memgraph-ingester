@@ -1,5 +1,14 @@
 package io.github.ousatov.tools.memgraph.exe.analyze;
 
+import static io.github.ousatov.tools.memgraph.def.Const.SystemParams.AARCH_64;
+import static io.github.ousatov.tools.memgraph.def.Const.SystemParams.AMD_64;
+import static io.github.ousatov.tools.memgraph.def.Const.SystemParams.APPLE_DARWIN;
+import static io.github.ousatov.tools.memgraph.def.Const.SystemParams.ARM_64;
+import static io.github.ousatov.tools.memgraph.def.Const.SystemParams.DARWIN;
+import static io.github.ousatov.tools.memgraph.def.Const.SystemParams.LINUX;
+import static io.github.ousatov.tools.memgraph.def.Const.SystemParams.PYTHON;
+import static io.github.ousatov.tools.memgraph.def.Const.SystemParams.WINDOWS;
+import static io.github.ousatov.tools.memgraph.def.Const.SystemParams.X_86_64;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -93,9 +102,7 @@ class ManagedPythonRuntimeTest {
   private Path standaloneExecutable(String platformId) {
     return standaloneInstallDir(platformId)
         .resolve(
-            platformId.contains("pc-windows-msvc")
-                ? "python.exe"
-                : "bin/" + pythonBinaryName());
+            platformId.contains("pc-windows-msvc") ? "python.exe" : "bin/" + pythonBinaryName());
   }
 
   private Path venvExecutable(String platformId) {
@@ -105,7 +112,7 @@ class ManagedPythonRuntimeTest {
 
   private Path standaloneInstallDir(String platformId) {
     return tempDir
-        .resolve("python")
+        .resolve(PYTHON)
         .resolve("standalone")
         .resolve(
             ManagedPythonRuntime.DEFAULT_PYTHON_VERSION
@@ -136,15 +143,15 @@ class ManagedPythonRuntimeTest {
     String archName = System.getProperty("os.arch", "").toLowerCase(Locale.ROOT);
     String os =
         switch (platformOs(osName)) {
-          case "darwin" -> "apple-darwin";
-          case "linux" -> "unknown-linux-gnu";
-          case "windows" -> "pc-windows-msvc";
+          case DARWIN -> APPLE_DARWIN;
+          case LINUX -> LINUX;
+          case WINDOWS -> WINDOWS;
           default -> "";
         };
     String arch =
         switch (archName) {
-          case "aarch64", "arm64" -> "aarch64";
-          case "amd64", "x86_64" -> "x86_64";
+          case AARCH_64, ARM_64 -> AARCH_64;
+          case AMD_64, X_86_64 -> X_86_64;
           default -> "";
         };
     assumeTrue(!os.isBlank(), "Managed Python test requires a supported operating system");
@@ -154,13 +161,13 @@ class ManagedPythonRuntimeTest {
 
   private static String platformOs(String osName) {
     if (osName.contains("mac") || osName.contains("darwin")) {
-      return "darwin";
+      return DARWIN;
     }
     if (osName.contains("linux")) {
-      return "linux";
+      return LINUX;
     }
     if (osName.contains("win")) {
-      return "windows";
+      return WINDOWS;
     }
     return osName;
   }
@@ -180,6 +187,6 @@ class ManagedPythonRuntimeTest {
   private static String pythonBinaryName() {
     int firstDot = ManagedPythonRuntime.DEFAULT_PYTHON_VERSION.indexOf('.');
     int secondDot = ManagedPythonRuntime.DEFAULT_PYTHON_VERSION.indexOf('.', firstDot + 1);
-    return "python" + ManagedPythonRuntime.DEFAULT_PYTHON_VERSION.substring(0, secondDot);
+    return PYTHON + ManagedPythonRuntime.DEFAULT_PYTHON_VERSION.substring(0, secondDot);
   }
 }

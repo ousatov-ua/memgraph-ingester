@@ -38,9 +38,7 @@ public final class LanguageAdapterFactory {
             jsCacheRoot, jsRuntimeOptions.nodeVersion(), jsRuntimeOptions.runtimeMode());
     ManagedTypescriptPackage typescriptPackage =
         new ManagedTypescriptPackage(
-            jsCacheRoot,
-            jsRuntimeOptions.typescriptVersion(),
-            jsRuntimeOptions.runtimeMode());
+            jsCacheRoot, jsRuntimeOptions.typescriptVersion(), jsRuntimeOptions.runtimeMode());
     Path pythonCacheRoot = resolveCacheRoot(pythonRuntimeOptions.cacheRoot());
     ManagedPythonRuntime pythonRuntime =
         new ManagedPythonRuntime(

@@ -747,8 +747,7 @@ class IngestionOrchestratorIT {
     assertTrue(fieldExists(currentProject, serviceFqn + "#name"));
     assertTrue(classExtendsEdgeExists(currentProject, serviceFqn, baseFqn));
     assertTrue(
-        callEdgeExists(
-            currentProject, serviceFqn + ".run()", "python.app.service$2e$py.helper()"));
+        callEdgeExists(currentProject, serviceFqn + ".run()", "python.app.service$2e$py.helper()"));
   }
 
   @Test

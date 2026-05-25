@@ -1,6 +1,7 @@
 package io.github.ousatov.tools.memgraph.schema;
 
 import io.github.ousatov.tools.memgraph.def.Const.Labels;
+import io.github.ousatov.tools.memgraph.def.Const.Params;
 import io.github.ousatov.tools.memgraph.exception.ProcessingException;
 import java.io.IOException;
 import java.io.InputStream;
@@ -154,13 +155,14 @@ public final class Memgraph {
       }
       String label = theRecord.get("label").asString("");
       List<String> properties = theRecord.get("properties").asList(Value::asString);
-      if ("Language".equals(label) && hasSameProperties(properties, Labels.PROJECT, "name")) {
+      if (Labels.LANGUAGE.equals(label)
+          && hasSameProperties(properties, Labels.PROJECT, Params.NAME)) {
         languageConstraint = true;
-      } else if ("Code".equals(label)
-          && hasSameProperties(properties, Labels.PROJECT, "language")) {
+      } else if (Labels.CODE.equals(label)
+          && hasSameProperties(properties, Labels.PROJECT, Params.LANGUAGE)) {
         codeConstraint = true;
-      } else if ("Package".equals(label)
-          && hasSameProperties(properties, Labels.PROJECT, "name", "language")) {
+      } else if (Labels.PACKAGE.equals(label)
+          && hasSameProperties(properties, Labels.PROJECT, Params.NAME, Params.LANGUAGE)) {
         packageConstraint = true;
       }
     }

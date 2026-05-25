@@ -286,7 +286,7 @@ public final class JavaGraphWriter extends CommonGraphWriter {
                         field.isStatic(),
                         field.getAccessSpecifier().asString(),
                         JAVA_LANGUAGE,
-                        "field"))
+                        Params.FIELD))
             .toList();
     upsertFieldNodes(file, fields);
     fields.forEach(f -> upsertAnnotationsByFqn(f.fqn(), field));
@@ -302,9 +302,9 @@ public final class JavaGraphWriter extends CommonGraphWriter {
                 entry.getNameAsString(),
                 ownerFqn,
                 true,
-                "public",
+                Params.PUBLIC,
                 JAVA_LANGUAGE,
-                "enum-member")));
+                Params.ENUM_MEMBER)));
   }
 
   private void upsertMethod(Path file, String ownerFqn, MethodDeclaration method) {
@@ -401,7 +401,7 @@ public final class JavaGraphWriter extends CommonGraphWriter {
                 accessorName,
                 JavaTypeNames.resolveType(param.getType()),
                 false,
-                "public",
+                Params.PUBLIC,
                 0,
                 0,
                 true));

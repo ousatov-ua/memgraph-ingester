@@ -107,7 +107,7 @@ public final class PythonLanguageAdapter implements LanguageAdapter<PythonAnalys
           .relations()
           .forEach(
               relation -> {
-                if ("classExtends".equals(relation.kind())) {
+                if (Params.CLASS_EXTENDS.equals(relation.kind())) {
                   writer.upsertPythonExtendsClass(relation.childFqn(), relation.targetFqn());
                 }
               });
@@ -146,7 +146,7 @@ public final class PythonLanguageAdapter implements LanguageAdapter<PythonAnalys
         .members()
         .forEach(
             member -> {
-              if ("method".equals(member.memberType())) {
+              if (Params.METHOD.equals(member.memberType())) {
                 methodSignatures.add(member.key());
               } else {
                 fieldFqns.add(member.key());
@@ -160,7 +160,7 @@ public final class PythonLanguageAdapter implements LanguageAdapter<PythonAnalys
     List<FieldWrite> fields = new ArrayList<>();
     List<Method> methods = new ArrayList<>();
     for (PythonAnalysis.MemberDecl member : members) {
-      if ("method".equals(member.memberType())) {
+      if (Params.METHOD.equals(member.memberType())) {
         methods.add(
             new Method(
                 member.ownerFqn(),
@@ -201,8 +201,8 @@ public final class PythonLanguageAdapter implements LanguageAdapter<PythonAnalys
               annotation.fqn(),
               annotation.name(),
               SourceLanguage.PYTHON.graphName(),
-              "decorator");
-      if ("sig".equals(annotation.ownerKind())) {
+              Params.DECORATOR);
+      if (Params.SIG.equals(annotation.ownerKind())) {
         methodAnnotations.add(write);
       } else {
         ownerAnnotations.add(write);

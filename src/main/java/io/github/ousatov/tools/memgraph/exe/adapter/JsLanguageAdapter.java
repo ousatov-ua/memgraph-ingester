@@ -123,7 +123,7 @@ public final class JsLanguageAdapter implements LanguageAdapter<JsAnalysis> {
         .types()
         .forEach(
             type -> {
-              if (Params.CLASS.equals(type.kind()) || "enum".equals(type.kind())) {
+              if (Params.CLASS.equals(type.kind()) || Params.ENUM.equals(type.kind())) {
                 classFqns.add(type.fqn());
                 if (Params.CLASS.equals(type.kind()) && !type.hasConstructor()) {
                   methodSignatures.add(type.fqn() + "." + Labels.INIT + "()");
@@ -136,7 +136,7 @@ public final class JsLanguageAdapter implements LanguageAdapter<JsAnalysis> {
         .members()
         .forEach(
             member -> {
-              if ("method".equals(member.memberType())) {
+              if (Params.METHOD.equals(member.memberType())) {
                 methodSignatures.add(member.key());
               } else {
                 fieldFqns.add(member.key());
@@ -164,7 +164,7 @@ public final class JsLanguageAdapter implements LanguageAdapter<JsAnalysis> {
           type.hasConstructor(),
           type.startLine(),
           type.endLine());
-    } else if ("enum".equals(type.kind())) {
+    } else if (Params.ENUM.equals(type.kind())) {
       writer.upsertJavascriptEnum(
           file, packageName, type.fqn(), type.name(), modulePath, type.startLine(), type.endLine());
     } else {
@@ -175,11 +175,11 @@ public final class JsLanguageAdapter implements LanguageAdapter<JsAnalysis> {
 
   private static void upsertRelation(GraphWriter writer, JsAnalysis.RelationDecl relation) {
     switch (relation.kind()) {
-      case "classExtends" ->
+      case Params.CLASS_EXTENDS ->
           writer.upsertJavascriptExtendsClass(relation.childFqn(), relation.targetFqn());
-      case "interfaceExtends" ->
+      case Params.INTERFACE_EXTENDS ->
           writer.upsertJavascriptInterfaceExtends(relation.childFqn(), relation.targetFqn());
-      case "implements" ->
+      case Params.IMPLEMENTS ->
           writer.upsertJavascriptImplements(relation.childFqn(), relation.targetFqn());
       default -> log.debug("Ignoring unknown JavaScript relation kind: {}", relation.kind());
     }
@@ -190,7 +190,7 @@ public final class JsLanguageAdapter implements LanguageAdapter<JsAnalysis> {
     List<FieldWrite> fields = new ArrayList<>();
     List<Method> methods = new ArrayList<>();
     for (JsAnalysis.MemberDecl member : members) {
-      if ("method".equals(member.memberType())) {
+      if (Params.METHOD.equals(member.memberType())) {
         methods.add(
             new Method(
                 member.ownerFqn(),
@@ -231,8 +231,8 @@ public final class JsLanguageAdapter implements LanguageAdapter<JsAnalysis> {
               annotation.fqn(),
               annotation.name(),
               SourceLanguage.JAVASCRIPT.graphName(),
-              "decorator");
-      if ("sig".equals(annotation.ownerKind())) {
+              Params.DECORATOR);
+      if (Params.SIG.equals(annotation.ownerKind())) {
         methodAnnotations.add(write);
       } else {
         ownerAnnotations.add(write);

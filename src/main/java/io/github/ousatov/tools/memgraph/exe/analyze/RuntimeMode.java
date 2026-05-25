@@ -25,7 +25,8 @@ public enum RuntimeMode {
       case "system" -> SYSTEM;
       case "offline" -> OFFLINE;
       default ->
-          throw new IllegalArgumentException("Unsupported " + runtimeName + " runtime mode: " + value);
+          throw new IllegalArgumentException(
+              "Unsupported " + runtimeName + " runtime mode: " + value);
     };
   }
 }

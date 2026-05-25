@@ -133,7 +133,7 @@ public class CommonGraphWriter {
   protected void upsertInterfaceNode(
       Path file, String pkg, String fqn, String name, boolean isAbstract, String visibility) {
     upsertInterfaceNode(
-        file, pkg, fqn, name, isAbstract, visibility, JAVA_LANGUAGE, "interface", "", "");
+        file, pkg, fqn, name, isAbstract, visibility, JAVA_LANGUAGE, Params.INTERFACE, "", "");
   }
 
   protected void upsertAnnotationNode(
@@ -221,12 +221,12 @@ public class CommonGraphWriter {
 
   private static String classKind(boolean isEnum, boolean isRecord) {
     if (isEnum) {
-      return "enum";
+      return Params.ENUM;
     }
     if (isRecord) {
-      return "record";
+      return Params.RECORD;
     }
-    return "class";
+    return Params.CLASS;
   }
 
   /** Internal dependency bundle for language writers without exposing session primitives. */

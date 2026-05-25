@@ -1,5 +1,7 @@
 package io.github.ousatov.tools.memgraph.exe.metrics;
 
+import io.github.ousatov.tools.memgraph.def.Const.Labels;
+import io.github.ousatov.tools.memgraph.def.Const.Params;
 import io.github.ousatov.tools.memgraph.exception.ProcessingException;
 import java.io.IOException;
 import java.io.InputStream;
@@ -31,7 +33,7 @@ public final class IngestionMetricsCollector {
           query("fields", "fields.cypher"),
           query("calls", "calls.cypher"),
           query("extends", "extends.cypher"),
-          query("implements", "implements.cypher"),
+          query(Params.IMPLEMENTS, "implements.cypher"),
           query("annotated_with", "annotated-with.cypher"),
           query("pending_calls", "pending-calls.cypher"),
           query("resolved_code_refs", "resolved-code-refs.cypher"));
@@ -42,7 +44,7 @@ public final class IngestionMetricsCollector {
 
   /** Collects a project-scoped metrics snapshot using the provided session. */
   public static IngestionMetrics collect(Session session, String project) {
-    Map<String, Object> params = Map.of("project", project);
+    Map<String, Object> params = Map.of(Labels.PROJECT, project);
     List<IngestionMetrics.Row> rows =
         QUERIES.stream()
             .map(query -> new IngestionMetrics.Row(query.name(), count(session, query, params)))

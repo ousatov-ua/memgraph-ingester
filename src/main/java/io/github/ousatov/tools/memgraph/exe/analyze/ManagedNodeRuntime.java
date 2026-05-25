@@ -1,5 +1,11 @@
 package io.github.ousatov.tools.memgraph.exe.analyze;
 
+import static io.github.ousatov.tools.memgraph.def.Const.SystemParams.AARCH_64;
+import static io.github.ousatov.tools.memgraph.def.Const.SystemParams.AMD_64;
+import static io.github.ousatov.tools.memgraph.def.Const.SystemParams.ARM_64;
+import static io.github.ousatov.tools.memgraph.def.Const.SystemParams.DARWIN;
+import static io.github.ousatov.tools.memgraph.def.Const.SystemParams.X_86_64;
+
 import io.github.ousatov.tools.memgraph.exception.ProcessingException;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -297,8 +303,8 @@ public final class ManagedNodeRuntime {
       String os = osName.contains("win") ? "win" : getNix(osName);
       String arch =
           switch (archName) {
-            case "aarch64", "arm64" -> "arm64";
-            case "amd64", "x86_64" -> "x64";
+            case AARCH_64, ARM_64 -> ARM_64;
+            case AMD_64, X_86_64 -> "x64";
             default -> throw new ProcessingException("Unsupported CPU architecture: " + archName);
           };
       return new Platform(os, arch);
@@ -323,8 +329,8 @@ public final class ManagedNodeRuntime {
   }
 
   private static @NonNull String getNix(String osName) {
-    if (osName.contains("mac") || osName.contains("darwin")) {
-      return "darwin";
+    if (osName.contains("mac") || osName.contains(DARWIN)) {
+      return DARWIN;
     }
     if (osName.contains(LINUX)) {
       return LINUX;

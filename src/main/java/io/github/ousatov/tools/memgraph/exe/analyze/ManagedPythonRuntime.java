@@ -1,5 +1,6 @@
 package io.github.ousatov.tools.memgraph.exe.analyze;
 
+import io.github.ousatov.tools.memgraph.def.Const.SystemParams;
 import io.github.ousatov.tools.memgraph.exception.ProcessingException;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -137,7 +138,8 @@ public final class ManagedPythonRuntime {
     }
   }
 
-  private void ensureManagedVenvInstalled(Path standaloneExecutable, Path venvDir, Path executable) {
+  private void ensureManagedVenvInstalled(
+      Path standaloneExecutable, Path venvDir, Path executable) {
     try {
       Files.createDirectories(venvDir);
       Object localLock = INSTALL_LOCKS.computeIfAbsent(lockKey(venvDir), _ -> new Object());
@@ -207,20 +209,22 @@ public final class ManagedPythonRuntime {
         var _ = executable.toFile().setExecutable(true, true);
       }
       if (!Files.isExecutable(executable)) {
-        throw new ProcessingException("Managed Python venv executable was not created: " + executable);
+        throw new ProcessingException(
+            "Managed Python venv executable was not created: " + executable);
       }
       markManagedVenvReady(venvDir);
     } catch (IOException e) {
       throw new ProcessingException("Could not create managed Python venv at " + venvDir, e);
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
-      throw new ProcessingException("Interrupted while creating managed Python venv at " + venvDir, e);
+      throw new ProcessingException(
+          "Interrupted while creating managed Python venv at " + venvDir, e);
     }
   }
 
   private Path installDir(Platform platform) {
     return cacheRoot
-        .resolve("python")
+        .resolve(SystemParams.PYTHON)
         .resolve("standalone")
         .resolve(pythonVersion + "+" + pythonBuild)
         .resolve(platform.id());
@@ -228,7 +232,7 @@ public final class ManagedPythonRuntime {
 
   private Path venvDir(Platform platform) {
     return cacheRoot
-        .resolve("python")
+        .resolve(SystemParams.PYTHON)
         .resolve("venv")
         .resolve(pythonVersion + "+" + pythonBuild)
         .resolve(platform.id());
@@ -393,15 +397,15 @@ public final class ManagedPythonRuntime {
       String archName = System.getProperty("os.arch", "").toLowerCase(Locale.ROOT);
       String os =
           switch (platformOs(osName)) {
-            case "darwin" -> "apple-darwin";
-            case "linux" -> "unknown-linux-gnu";
+            case SystemParams.DARWIN -> SystemParams.APPLE_DARWIN;
+            case SystemParams.LINUX -> SystemParams.UNKNOWN_LINUX_GNU;
             case "windows" -> "pc-windows-msvc";
             default -> throw new ProcessingException("Unsupported operating system: " + osName);
           };
       String arch =
           switch (archName) {
-            case "aarch64", "arm64" -> "aarch64";
-            case "amd64", "x86_64" -> "x86_64";
+            case SystemParams.AARCH_64, SystemParams.ARM_64 -> SystemParams.AARCH_64;
+            case SystemParams.AMD_64, SystemParams.X_86_64 -> SystemParams.X_86_64;
             default -> throw new ProcessingException("Unsupported CPU architecture: " + archName);
           };
       return new Platform(os, arch);
@@ -420,14 +424,14 @@ public final class ManagedPythonRuntime {
     }
 
     private static String platformOs(String osName) {
-      if (osName.contains("mac") || osName.contains("darwin")) {
-        return "darwin";
+      if (osName.contains("mac") || osName.contains(SystemParams.DARWIN)) {
+        return SystemParams.DARWIN;
       }
-      if (osName.contains("linux")) {
-        return "linux";
+      if (osName.contains(SystemParams.LINUX)) {
+        return SystemParams.LINUX;
       }
       if (osName.contains("win")) {
-        return "windows";
+        return SystemParams.WINDOWS;
       }
       return osName;
     }

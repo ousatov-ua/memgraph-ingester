@@ -1,5 +1,7 @@
 package io.github.ousatov.tools.memgraph;
 
+import io.github.ousatov.tools.memgraph.def.Const.Labels;
+import io.github.ousatov.tools.memgraph.def.Const.Params;
 import io.github.ousatov.tools.memgraph.exception.ProcessingException;
 import io.github.ousatov.tools.memgraph.exe.adapter.LanguageAdapter;
 import io.github.ousatov.tools.memgraph.exe.adapter.LanguageAdapterFactory;
@@ -558,7 +560,7 @@ public final class IngesterCli implements Callable<Integer> {
         analysis.relations().stream()
             .anyMatch(
                 relation ->
-                    "classExtends".equals(relation.kind())
+                    Params.CLASS_EXTENDS.equals(relation.kind())
                         && "python.service$2e$py.Service".equals(relation.childFqn())
                         && "python.base$2e$py.Base".equals(relation.targetFqn()));
     if (!extendsFound) {
@@ -606,7 +608,7 @@ public final class IngesterCli implements Callable<Integer> {
         analysis.relations().stream()
             .anyMatch(
                 relation ->
-                    "classExtends".equals(relation.kind())
+                    Params.CLASS_EXTENDS.equals(relation.kind())
                         && relation.childFqn().endsWith(".alias$2d$consumer$2e$ts.Derived")
                         && "js.src.app.specific$2e$ts.Base".equals(relation.targetFqn()));
     if (!specificAliasFound) {
@@ -620,16 +622,16 @@ public final class IngesterCli implements Callable<Integer> {
         analysis.types().stream()
             .anyMatch(
                 type ->
-                    "class".equals(type.kind())
-                        && "default".equals(type.name())
+                    Params.CLASS.equals(type.kind())
+                        && Params.DEFAULT.equals(type.name())
                         && type.hasConstructor());
     boolean constructorFound =
         analysis.members().stream()
             .anyMatch(
                 member ->
-                    "method".equals(member.memberType())
-                        && "constructor".equals(member.kind())
-                        && "<init>".equals(member.name()));
+                    Params.METHOD.equals(member.memberType())
+                        && Params.CONSTRUCTOR.equals(member.kind())
+                        && Labels.INIT.equals(member.name()));
     if (!defaultClassFound || !constructorFound) {
       throw new ProcessingException("Default anonymous class was not parsed correctly");
     }
@@ -640,9 +642,9 @@ public final class IngesterCli implements Callable<Integer> {
         analysis.members().stream()
             .anyMatch(
                 member ->
-                    "method".equals(member.memberType())
-                        && "function".equals(member.kind())
-                        && "default".equals(member.name()));
+                    Params.METHOD.equals(member.memberType())
+                        && Params.FUNCTION.equals(member.kind())
+                        && Params.DEFAULT.equals(member.name()));
     if (!defaultFunctionFound) {
       throw new ProcessingException("Default anonymous function was not parsed correctly");
     }

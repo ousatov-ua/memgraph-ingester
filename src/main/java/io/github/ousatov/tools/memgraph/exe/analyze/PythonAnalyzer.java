@@ -94,56 +94,58 @@ public final class PythonAnalyzer {
 
     for (String line : stdout.lines().filter(l -> !l.isBlank()).toList()) {
       Map<String, String> obj = parseObject(line);
-      switch (value(obj, "record")) {
-        case "module" -> {
-          moduleFqn = value(obj, "moduleFqn");
-          moduleName = value(obj, "moduleName");
-          packageName = value(obj, "packageName");
-          modulePath = value(obj, "modulePath");
+      switch (value(obj, Params.RECORD)) {
+        case Params.MODULE -> {
+          moduleFqn = value(obj, Params.MODULE_FQN);
+          moduleName = value(obj, Params.MODULE_NAME);
+          packageName = value(obj, Params.PACKAGE_NAME);
+          modulePath = value(obj, Params.MODULE_PATH);
           startLine = intValue(obj, Params.START_LINE);
           endLine = intValue(obj, Params.END_LINE);
         }
-        case "type" ->
+        case Params.TYPE ->
             types.add(
                 new PythonAnalysis.TypeDecl(
-                    value(obj, "kind"),
-                    value(obj, "fqn"),
-                    value(obj, "name"),
-                    value(obj, "framework"),
-                    booleanValue(obj, "hasConstructor"),
-                    booleanValue(obj, "isAbstract"),
-                    intValue(obj, "startLine"),
-                    intValue(obj, "endLine")));
-        case "relation" ->
+                    value(obj, Params.KIND),
+                    value(obj, Params.FQN),
+                    value(obj, Params.NAME),
+                    value(obj, Params.FRAMEWORK),
+                    booleanValue(obj, Params.HAS_CONSTRUCTOR),
+                    booleanValue(obj, Params.IS_ABSTRACT),
+                    intValue(obj, Params.START_LINE),
+                    intValue(obj, Params.END_LINE)));
+        case Params.RELATION ->
             relations.add(
                 new PythonAnalysis.RelationDecl(
-                    value(obj, "kind"), value(obj, "childFqn"), value(obj, "targetFqn")));
-        case "member" ->
+                    value(obj, Params.KIND),
+                    value(obj, Params.CHILD_FQN),
+                    value(obj, Params.TARGET_FQN)));
+        case Params.MEMBER ->
             members.add(
                 new PythonAnalysis.MemberDecl(
-                    value(obj, "ownerFqn"),
-                    value(obj, "memberType"),
-                    value(obj, "kind"),
-                    value(obj, "key"),
-                    value(obj, "name"),
-                    value(obj, "dataType"),
-                    booleanValue(obj, "isStatic"),
-                    intValue(obj, "startLine"),
-                    intValue(obj, "endLine")));
-        case "annotation" ->
+                    value(obj, Params.OWNER_FQN),
+                    value(obj, Params.MEMBER_TYPE),
+                    value(obj, Params.KIND),
+                    value(obj, Params.KEY),
+                    value(obj, Params.NAME),
+                    value(obj, Params.DATA_TYPE),
+                    booleanValue(obj, Params.IS_STATIC),
+                    intValue(obj, Params.START_LINE),
+                    intValue(obj, Params.END_LINE)));
+        case Params.ANNOTATION ->
             annotations.add(
                 new PythonAnalysis.AnnotationDecl(
-                    value(obj, "ownerKind"),
-                    value(obj, "ownerKey"),
-                    value(obj, "fqn"),
-                    value(obj, "name")));
-        case "call", "callByName" ->
+                    value(obj, Params.OWNER_KIND),
+                    value(obj, Params.OWNER_KEY),
+                    value(obj, Params.FQN),
+                    value(obj, Params.NAME)));
+        case Params.CALL, Params.CALL_BY_NAME ->
             calls.add(
                 new PythonAnalysis.CallDecl(
-                    value(obj, "callerSignature"),
-                    value(obj, "calleeSignature"),
-                    value(obj, "calleeOwnerFqn"),
-                    value(obj, "calleeName")));
+                    value(obj, Params.CALLER_SIGNATURE),
+                    value(obj, Params.CALLEE_SIGNATURE),
+                    value(obj, Params.CALLEE_OWNER_FQN),
+                    value(obj, Params.CALLEE_NAME)));
         default -> log.debug("Ignoring unknown Python analyzer record: {}", line);
       }
     }

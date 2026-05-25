@@ -283,7 +283,9 @@ public final class GraphWriter {
     cypher.run(Cypher.CYPHER_DELETE_EMPTY_JAVASCRIPT_PACKAGES, Map.of());
   }
 
-  /** Removes Python definitions for {@code file} that were written under older module FQN schemes. */
+  /**
+   * Removes Python definitions for {@code file} that were written under older module FQN schemes.
+   */
   public void deleteStalePythonDefinitionsForFile(Path file, String currentModuleFqn) {
     Map<String, Object> params =
         Map.of(
@@ -330,12 +332,12 @@ public final class GraphWriter {
     try {
       return cypher.read(
           getFilesLastModifiedCypher(language),
-          Map.of("paths", paths),
+          Map.of(Params.PATHS, paths),
           result -> {
             Map<String, Long> mtimes = HashMap.newHashMap(files.size() * 2);
             while (result.hasNext()) {
               var currentRec = result.next();
-              String path = currentRec.get("path").asString(null);
+              String path = currentRec.get(Params.PATH).asString(null);
               var value = currentRec.get(Params.LAST_MODIFIED);
               if (path != null && !value.isNull()) {
                 mtimes.put(path, value.asLong());
@@ -487,7 +489,7 @@ public final class GraphWriter {
       cypher.run(
           Cypher.CYPHER_UPSERT_PROJECT,
           Map.of(
-              "sourceRoot",
+              Params.SOURCE_ROOT,
               sourceRoot.toString(),
               Params.LANGUAGE,
               language.graphName(),

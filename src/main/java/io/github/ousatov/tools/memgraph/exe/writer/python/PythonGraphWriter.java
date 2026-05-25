@@ -31,7 +31,19 @@ public final class PythonGraphWriter extends CommonGraphWriter {
       int startLine,
       int endLine) {
     upsertClassNode(
-        file, pkg, fqn, name, false, "", false, false, false, PYTHON_LANGUAGE, "module", modulePath, "");
+        file,
+        pkg,
+        fqn,
+        name,
+        false,
+        "",
+        false,
+        false,
+        false,
+        PYTHON_LANGUAGE,
+        Params.MODULE,
+        modulePath,
+        "");
     upsertMethodNode(
         file,
         new Method(
@@ -45,7 +57,7 @@ public final class PythonGraphWriter extends CommonGraphWriter {
             endLine,
             true,
             PYTHON_LANGUAGE,
-            "module"));
+            Params.MODULE));
   }
 
   /** Upserts a Python class declaration using the existing {@code :Class} label. */
@@ -62,7 +74,19 @@ public final class PythonGraphWriter extends CommonGraphWriter {
       int startLine,
       int endLine) {
     upsertClassNode(
-        file, pkg, fqn, name, isAbstract, "", false, false, false, PYTHON_LANGUAGE, Params.CLASS, modulePath, framework);
+        file,
+        pkg,
+        fqn,
+        name,
+        isAbstract,
+        "",
+        false,
+        false,
+        false,
+        PYTHON_LANGUAGE,
+        Params.CLASS,
+        modulePath,
+        framework);
     if (!hasDeclaredConstructor) {
       upsertMethodNode(
           file,
@@ -77,7 +101,7 @@ public final class PythonGraphWriter extends CommonGraphWriter {
               endLine,
               true,
               PYTHON_LANGUAGE,
-              "constructor"));
+              Params.CONSTRUCTOR));
     }
   }
 
@@ -109,7 +133,8 @@ public final class PythonGraphWriter extends CommonGraphWriter {
       boolean isStatic,
       String kind) {
     upsertFieldNodes(
-        file, List.of(new FieldWrite(ownerFqn, fqn, name, type, isStatic, "", PYTHON_LANGUAGE, kind)));
+        file,
+        List.of(new FieldWrite(ownerFqn, fqn, name, type, isStatic, "", PYTHON_LANGUAGE, kind)));
   }
 
   /** Upserts a Python function or method. */
