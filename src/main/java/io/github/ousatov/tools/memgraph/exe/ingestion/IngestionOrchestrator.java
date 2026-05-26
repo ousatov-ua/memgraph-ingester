@@ -503,7 +503,7 @@ public final class IngestionOrchestrator {
           @Override
           public @NonNull FileVisitResult preVisitDirectory(
               @NonNull Path dir, @NonNull BasicFileAttributes attrs) throws IOException {
-            if (!shouldVisitDirectory(dir)) {
+            if (!shouldVisitDirectory(dir, languageAdapters)) {
               return FileVisitResult.SKIP_SUBTREE;
             }
             WatchKey key =
@@ -518,28 +518,63 @@ public final class IngestionOrchestrator {
         });
   }
 
-  private static boolean isNodeModulesDirectory(Path dir) {
-    Path fileName = dir.getFileName();
-    return fileName != null && "node_modules".equals(fileName.toString());
+  private boolean shouldVisitDirectory(Path dir, List<LanguageAdapter<?>> adapters) {
+    return !adaptersForDirectory(dir, adapters).isEmpty();
   }
 
-  private boolean shouldVisitDirectory(Path dir) {
-    return !isNodeModulesDirectory(dir)
-        && languageAdapters.stream().anyMatch(adapter -> adapter.shouldVisitDirectory(dir));
+  private List<LanguageAdapter<?>> adaptersForDirectory(
+      Path dir, List<LanguageAdapter<?>> adapters) {
+    Path localDir = LanguageAdapter.localPath(sourceRoot, dir);
+    return adapters.stream().filter(adapter -> adapter.shouldVisitDirectory(localDir)).toList();
   }
 
   private List<SourceFile> discoverSourceFiles() {
     Map<Path, SourceFile> byPath = new LinkedHashMap<>();
-    List<SourceFile> discovered = new ArrayList<>();
+    List<LanguageAdapter<?>> defaultDiscoveryAdapters = new ArrayList<>();
     for (LanguageAdapter<?> adapter : languageAdapters) {
-      adapter
-          .discoverFiles(sourceRoot)
-          .forEach(file -> discovered.add(new SourceFile(file, adapter)));
+      if (adapter.usesCustomFileDiscovery()) {
+        adapter
+            .discoverFiles(sourceRoot)
+            .forEach(file -> byPath.putIfAbsent(file, new SourceFile(file, adapter)));
+      } else {
+        defaultDiscoveryAdapters.add(adapter);
+      }
     }
-    discovered.stream()
-        .sorted(Comparator.comparing(SourceFile::path))
-        .forEach(sourceFile -> byPath.putIfAbsent(sourceFile.path(), sourceFile));
-    return List.copyOf(byPath.values());
+    discoverSourceFiles(defaultDiscoveryAdapters, byPath);
+    return byPath.values().stream().sorted(Comparator.comparing(SourceFile::path)).toList();
+  }
+
+  private void discoverSourceFiles(
+      List<LanguageAdapter<?>> adapters, Map<Path, SourceFile> byPath) {
+    if (adapters.isEmpty()) {
+      return;
+    }
+    try {
+      Files.walkFileTree(
+          sourceRoot,
+          new SimpleFileVisitor<>() {
+            @Override
+            public @NonNull FileVisitResult preVisitDirectory(
+                @NonNull Path dir, @NonNull BasicFileAttributes attrs) {
+              return shouldVisitDirectory(dir, adapters)
+                  ? FileVisitResult.CONTINUE
+                  : FileVisitResult.SKIP_SUBTREE;
+            }
+
+            @Override
+            public @NonNull FileVisitResult visitFile(
+                @NonNull Path file, @NonNull BasicFileAttributes attrs) {
+              if (attrs.isRegularFile()) {
+                Path fileDirectory = file.getParent() == null ? sourceRoot : file.getParent();
+                adapterFor(file, adaptersForDirectory(fileDirectory, adapters))
+                    .ifPresent(adapter -> byPath.putIfAbsent(file, new SourceFile(file, adapter)));
+              }
+              return FileVisitResult.CONTINUE;
+            }
+          });
+    } catch (IOException e) {
+      throw new ProcessingException("Cannot walk source root", e);
+    }
   }
 
   private StoredFileState preloadStoredFileState(List<SourceFile> files) {
@@ -648,7 +683,12 @@ public final class IngestionOrchestrator {
   }
 
   private Optional<LanguageAdapter<?>> adapterFor(Path file) {
-    return languageAdapters.stream().filter(adapter -> adapter.accepts(file)).findFirst();
+    return adapterFor(file, languageAdapters);
+  }
+
+  private Optional<LanguageAdapter<?>> adapterFor(Path file, List<LanguageAdapter<?>> adapters) {
+    Path localFile = LanguageAdapter.localPath(sourceRoot, file);
+    return adapters.stream().filter(adapter -> adapter.accepts(localFile)).findFirst();
   }
 
   private Optional<SourceFile> sourceFileFor(
@@ -682,6 +722,10 @@ public final class IngestionOrchestrator {
           relativePathFromPackageName(file, sourceRootHint)
               .flatMap(relativePath -> sourceRootFromRelativePath(file, relativePath));
       case JAVASCRIPT ->
+          sourceRootHint.isBlank()
+              ? Optional.empty()
+              : sourceRootFromRelativePath(file, Path.of(sourceRootHint).normalize());
+      case PYTHON ->
           sourceRootHint.isBlank()
               ? Optional.empty()
               : sourceRootFromRelativePath(file, Path.of(sourceRootHint).normalize());

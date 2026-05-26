@@ -2,8 +2,8 @@ package io.github.ousatov.tools.memgraph.exe.adapter;
 
 import io.github.ousatov.tools.memgraph.def.Const.Labels;
 import io.github.ousatov.tools.memgraph.def.Const.Params;
-import io.github.ousatov.tools.memgraph.exe.analyze.JsAnalysis;
-import io.github.ousatov.tools.memgraph.exe.analyze.JsAnalyzer;
+import io.github.ousatov.tools.memgraph.exe.analyze.PythonAnalysis;
+import io.github.ousatov.tools.memgraph.exe.analyze.PythonAnalyzer;
 import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.AnnotationWrite;
 import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.CallWrite;
 import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.FieldWrite;
@@ -22,49 +22,54 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Node/TypeScript-backed adapter for JavaScript and TypeScript source structure.
+ * CPython AST-backed adapter for Python source structure.
  *
  * @author Oleksii Usatov
  */
-public final class JsLanguageAdapter implements LanguageAdapter<JsAnalysis> {
+public final class PythonLanguageAdapter implements LanguageAdapter<PythonAnalysis> {
 
-  private static final Logger log = LoggerFactory.getLogger(JsLanguageAdapter.class);
-  private static final Set<String> EXTENSIONS =
-      Set.of(".js", ".jsx", ".ts", ".tsx", ".mts", ".cts", ".mjs", ".cjs");
+  private static final Logger log = LoggerFactory.getLogger(PythonLanguageAdapter.class);
+  private static final Set<String> SKIPPED_DIRECTORIES =
+      Set.of(
+          "node_modules",
+          "__pycache__",
+          ".venv",
+          "venv",
+          ".tox",
+          ".nox",
+          "site-packages",
+          "build",
+          "dist");
 
-  private final JsAnalyzer analyzer;
+  private final PythonAnalyzer analyzer;
 
-  public JsLanguageAdapter(JsAnalyzer analyzer) {
+  public PythonLanguageAdapter(PythonAnalyzer analyzer) {
     this.analyzer = analyzer;
   }
 
   @Override
   public SourceLanguage language() {
-    return SourceLanguage.JAVASCRIPT;
+    return SourceLanguage.PYTHON;
   }
 
   @Override
   public boolean accepts(Path file) {
-    String path = file.toString().replace('\\', '/');
-    String lower = path.toLowerCase(Locale.ROOT);
-    if (isInNodeModules(file)) {
-      return false;
-    }
-    return EXTENSIONS.stream().anyMatch(lower::endsWith);
+    String lower = file.toString().replace('\\', '/').toLowerCase(Locale.ROOT);
+    return !isInSkippedDirectory(file) && (lower.endsWith(".py") || lower.endsWith(".pyi"));
   }
 
   @Override
   public boolean shouldVisitDirectory(Path directory) {
-    return !isInNodeModules(directory);
+    return !isInSkippedDirectory(directory);
   }
 
   @Override
-  public LanguageAdapter<JsAnalysis> forSourceRoot(Path sourceRoot) {
-    return new JsLanguageAdapter(analyzer.withSourceRoot(sourceRoot));
+  public LanguageAdapter<PythonAnalysis> forSourceRoot(Path sourceRoot) {
+    return new PythonLanguageAdapter(analyzer.withSourceRoot(sourceRoot));
   }
 
   @Override
-  public Optional<JsAnalysis> parse(Path file) {
+  public Optional<PythonAnalysis> parse(Path file) {
     try {
       return Optional.of(analyzer.analyze(file));
     } catch (Exception e) {
@@ -74,17 +79,17 @@ public final class JsLanguageAdapter implements LanguageAdapter<JsAnalysis> {
   }
 
   @Override
-  public SourceFileDefinitions collectDefinitions(JsAnalysis analysis) {
+  public SourceFileDefinitions collectDefinitions(PythonAnalysis analysis) {
     return buildDefinitions(analysis);
   }
 
   @Override
-  public boolean write(GraphWriter writer, Path file, JsAnalysis analysis) {
+  public boolean write(GraphWriter writer, Path file, PythonAnalysis analysis) {
     try {
       writer.upsertFile(file, language());
-      writer.deleteStaleJavascriptDefinitionsForFile(file, analysis.moduleFqn());
+      writer.deleteStalePythonDefinitionsForFile(file, analysis.moduleFqn());
       writer.upsertPackage(analysis.packageName(), language());
-      writer.upsertJavascriptModule(
+      writer.upsertPythonModule(
           file,
           analysis.packageName(),
           analysis.moduleFqn(),
@@ -96,8 +101,25 @@ public final class JsLanguageAdapter implements LanguageAdapter<JsAnalysis> {
           .types()
           .forEach(
               type ->
-                  upsertType(writer, file, analysis.packageName(), analysis.modulePath(), type));
-      analysis.relations().forEach(relation -> upsertRelation(writer, relation));
+                  writer.upsertPythonClass(
+                      file,
+                      analysis.packageName(),
+                      type.fqn(),
+                      type.name(),
+                      analysis.modulePath(),
+                      type.framework(),
+                      type.isAbstract(),
+                      type.hasConstructor(),
+                      type.startLine(),
+                      type.endLine()));
+      analysis
+          .relations()
+          .forEach(
+              relation -> {
+                if (Params.CLASS_EXTENDS.equals(relation.kind())) {
+                  writer.upsertPythonExtendsClass(relation.childFqn(), relation.targetFqn());
+                }
+              });
       upsertMembers(writer, file, analysis.members());
       upsertAnnotations(writer, analysis.annotations());
       upsertCalls(writer, analysis.calls());
@@ -111,9 +133,8 @@ public final class JsLanguageAdapter implements LanguageAdapter<JsAnalysis> {
     }
   }
 
-  private static SourceFileDefinitions buildDefinitions(JsAnalysis analysis) {
+  private static SourceFileDefinitions buildDefinitions(PythonAnalysis analysis) {
     Set<String> classFqns = new LinkedHashSet<>();
-    Set<String> interfaceFqns = new LinkedHashSet<>();
     Set<String> methodSignatures = new LinkedHashSet<>();
     Set<String> fieldFqns = new LinkedHashSet<>();
 
@@ -123,13 +144,11 @@ public final class JsLanguageAdapter implements LanguageAdapter<JsAnalysis> {
         .types()
         .forEach(
             type -> {
-              if (Params.CLASS.equals(type.kind()) || Params.ENUM.equals(type.kind())) {
+              if (Params.CLASS.equals(type.kind())) {
                 classFqns.add(type.fqn());
-                if (Params.CLASS.equals(type.kind()) && !type.hasConstructor()) {
+                if (!type.hasConstructor()) {
                   methodSignatures.add(type.fqn() + "." + Labels.INIT + "()");
                 }
-              } else {
-                interfaceFqns.add(type.fqn());
               }
             });
     analysis
@@ -142,54 +161,14 @@ public final class JsLanguageAdapter implements LanguageAdapter<JsAnalysis> {
                 fieldFqns.add(member.key());
               }
             });
-    return SourceFileDefinitions.of(
-        classFqns, interfaceFqns, Set.of(), methodSignatures, fieldFqns);
-  }
-
-  private static void upsertType(
-      GraphWriter writer,
-      Path file,
-      String packageName,
-      String modulePath,
-      JsAnalysis.TypeDecl type) {
-    if (Params.CLASS.equals(type.kind())) {
-      writer.upsertJavascriptClass(
-          file,
-          packageName,
-          type.fqn(),
-          type.name(),
-          modulePath,
-          type.framework(),
-          type.isAbstract(),
-          type.hasConstructor(),
-          type.startLine(),
-          type.endLine());
-    } else if (Params.ENUM.equals(type.kind())) {
-      writer.upsertJavascriptEnum(
-          file, packageName, type.fqn(), type.name(), modulePath, type.startLine(), type.endLine());
-    } else {
-      writer.upsertJavascriptInterface(
-          file, packageName, type.fqn(), type.name(), type.kind(), modulePath, type.framework());
-    }
-  }
-
-  private static void upsertRelation(GraphWriter writer, JsAnalysis.RelationDecl relation) {
-    switch (relation.kind()) {
-      case Params.CLASS_EXTENDS ->
-          writer.upsertJavascriptExtendsClass(relation.childFqn(), relation.targetFqn());
-      case Params.INTERFACE_EXTENDS ->
-          writer.upsertJavascriptInterfaceExtends(relation.childFqn(), relation.targetFqn());
-      case Params.IMPLEMENTS ->
-          writer.upsertJavascriptImplements(relation.childFqn(), relation.targetFqn());
-      default -> log.debug("Ignoring unknown JavaScript relation kind: {}", relation.kind());
-    }
+    return SourceFileDefinitions.of(classFqns, Set.of(), Set.of(), methodSignatures, fieldFqns);
   }
 
   private static void upsertMembers(
-      GraphWriter writer, Path file, Collection<JsAnalysis.MemberDecl> members) {
+      GraphWriter writer, Path file, Collection<PythonAnalysis.MemberDecl> members) {
     List<FieldWrite> fields = new ArrayList<>();
     List<Method> methods = new ArrayList<>();
-    for (JsAnalysis.MemberDecl member : members) {
+    for (PythonAnalysis.MemberDecl member : members) {
       if (Params.METHOD.equals(member.memberType())) {
         methods.add(
             new Method(
@@ -202,7 +181,7 @@ public final class JsLanguageAdapter implements LanguageAdapter<JsAnalysis> {
                 member.startLine(),
                 member.endLine(),
                 false,
-                SourceLanguage.JAVASCRIPT.graphName(),
+                SourceLanguage.PYTHON.graphName(),
                 member.kind()));
       } else {
         fields.add(
@@ -213,24 +192,24 @@ public final class JsLanguageAdapter implements LanguageAdapter<JsAnalysis> {
                 member.dataType(),
                 member.isStatic(),
                 "",
-                SourceLanguage.JAVASCRIPT.graphName(),
+                SourceLanguage.PYTHON.graphName(),
                 member.kind()));
       }
     }
-    writer.upsertJavascriptMembers(file, fields, methods);
+    writer.upsertPythonMembers(file, fields, methods);
   }
 
   private static void upsertAnnotations(
-      GraphWriter writer, Collection<JsAnalysis.AnnotationDecl> annotations) {
+      GraphWriter writer, Collection<PythonAnalysis.AnnotationDecl> annotations) {
     List<AnnotationWrite> ownerAnnotations = new ArrayList<>();
     List<AnnotationWrite> methodAnnotations = new ArrayList<>();
-    for (JsAnalysis.AnnotationDecl annotation : annotations) {
+    for (PythonAnalysis.AnnotationDecl annotation : annotations) {
       AnnotationWrite write =
           new AnnotationWrite(
               annotation.ownerKey(),
               annotation.fqn(),
               annotation.name(),
-              SourceLanguage.JAVASCRIPT.graphName(),
+              SourceLanguage.PYTHON.graphName(),
               Params.DECORATOR);
       if (Params.SIG.equals(annotation.ownerKind())) {
         methodAnnotations.add(write);
@@ -242,13 +221,13 @@ public final class JsLanguageAdapter implements LanguageAdapter<JsAnalysis> {
     writer.upsertAnnotationReferencesBySig(methodAnnotations);
   }
 
-  private static void upsertCalls(GraphWriter writer, Collection<JsAnalysis.CallDecl> calls) {
+  private static void upsertCalls(GraphWriter writer, Collection<PythonAnalysis.CallDecl> calls) {
     List<CallWrite> resolvedCalls = new ArrayList<>();
     List<PendingCallWrite> pendingCalls = new ArrayList<>();
-    for (JsAnalysis.CallDecl call : calls) {
+    for (PythonAnalysis.CallDecl call : calls) {
       if (!call.calleeSignature().isBlank()) {
         resolvedCalls.add(new CallWrite(call.callerSignature(), call.calleeSignature()));
-      } else {
+      } else if (!call.calleeOwnerFqn().isBlank() && !call.calleeName().isBlank()) {
         pendingCalls.add(
             new PendingCallWrite(call.callerSignature(), call.calleeOwnerFqn(), call.calleeName()));
       }
@@ -257,9 +236,9 @@ public final class JsLanguageAdapter implements LanguageAdapter<JsAnalysis> {
     writer.upsertPendingCallsByName(pendingCalls);
   }
 
-  private static boolean isInNodeModules(Path path) {
+  private static boolean isInSkippedDirectory(Path path) {
     for (Path part : path) {
-      if ("node_modules".equals(part.toString())) {
+      if (SKIPPED_DIRECTORIES.contains(part.toString())) {
         return true;
       }
     }

@@ -1,12 +1,17 @@
 package io.github.ousatov.tools.memgraph;
 
+import io.github.ousatov.tools.memgraph.def.Const.Labels;
+import io.github.ousatov.tools.memgraph.def.Const.Params;
 import io.github.ousatov.tools.memgraph.exception.ProcessingException;
 import io.github.ousatov.tools.memgraph.exe.adapter.LanguageAdapter;
 import io.github.ousatov.tools.memgraph.exe.adapter.LanguageAdapterFactory;
 import io.github.ousatov.tools.memgraph.exe.analyze.JsAnalysis;
 import io.github.ousatov.tools.memgraph.exe.analyze.JsAnalyzer;
 import io.github.ousatov.tools.memgraph.exe.analyze.ManagedNodeRuntime;
+import io.github.ousatov.tools.memgraph.exe.analyze.ManagedPythonRuntime;
 import io.github.ousatov.tools.memgraph.exe.analyze.ManagedTypescriptPackage;
+import io.github.ousatov.tools.memgraph.exe.analyze.PythonAnalysis;
+import io.github.ousatov.tools.memgraph.exe.analyze.PythonAnalyzer;
 import io.github.ousatov.tools.memgraph.exe.analyze.RuntimeMode;
 import io.github.ousatov.tools.memgraph.exe.ingestion.IngestionOrchestrator;
 import io.github.ousatov.tools.memgraph.vo.Settings;
@@ -168,6 +173,44 @@ public final class IngesterCli implements Callable<Integer> {
   private boolean checkJsRuntime;
 
   @Option(
+      names = {"--python-runtime-mode"},
+      defaultValue = "managed",
+      description =
+          "Python runtime mode: managed downloads standalone CPython and creates a private venv,"
+              + " system uses Python 3.9+ from PATH, offline requires a warmed managed cache."
+              + " Defaults to managed.")
+  @SuppressWarnings("unused")
+  private String pythonRuntimeMode;
+
+  @Option(
+      names = {"--python-runtime-cache"},
+      description = "Cache directory for managed CPython downloads and private Python venvs.")
+  @SuppressWarnings("unused")
+  private Path pythonRuntimeCache;
+
+  @Option(
+      names = {"--python-version"},
+      defaultValue = ManagedPythonRuntime.DEFAULT_PYTHON_VERSION,
+      description = "Pinned CPython version used for managed Python parsing.")
+  @SuppressWarnings("unused")
+  private String pythonVersion;
+
+  @Option(
+      names = {"--python-build"},
+      defaultValue = ManagedPythonRuntime.DEFAULT_PYTHON_BUILD,
+      description = "Pinned python-build-standalone release tag used for managed Python parsing.")
+  @SuppressWarnings("unused")
+  private String pythonBuild;
+
+  @Option(
+      names = {"--check-python-runtime"},
+      description =
+          "Download/cache the managed Python parser runtime if needed and run a local parser "
+              + "smoke check without connecting to Memgraph.")
+  @SuppressWarnings("unused")
+  private boolean checkPythonRuntime;
+
+  @Option(
       names = {"--init-instructions"},
       description =
           "Write or replace managed Memgraph agent instructions. Code guidance is included by "
@@ -216,15 +259,24 @@ public final class IngesterCli implements Callable<Integer> {
       }
     }
 
-    RuntimeMode selectedRuntimeMode;
+    RuntimeMode selectedJsRuntimeMode;
+    RuntimeMode selectedPythonRuntimeMode;
     try {
-      selectedRuntimeMode = RuntimeMode.parse(jsRuntimeMode);
+      selectedJsRuntimeMode = RuntimeMode.parse(jsRuntimeMode, "JS");
+      selectedPythonRuntimeMode = RuntimeMode.parse(pythonRuntimeMode, "Python");
     } catch (IllegalArgumentException e) {
       log.error(e.getMessage());
       return 1;
     }
-    if (checkJsRuntime) {
-      return runJsRuntimeCheck(selectedRuntimeMode);
+    if (checkJsRuntime || checkPythonRuntime) {
+      int checkExit = 0;
+      if (checkJsRuntime) {
+        checkExit = Math.max(checkExit, runJsRuntimeCheck(selectedJsRuntimeMode));
+      }
+      if (checkPythonRuntime) {
+        checkExit = Math.max(checkExit, runPythonRuntimeCheck(selectedPythonRuntimeMode));
+      }
+      return checkExit;
     }
     if (threads < 1) {
       log.error("--threads must be >= 1 (got {})", threads);
@@ -248,7 +300,8 @@ public final class IngesterCli implements Callable<Integer> {
     }
     log.info("Using next classpath entries: {}", classpath);
     try (Driver driver = GraphDatabase.driver(boltUrl, AuthTokens.basic(user, pass))) {
-      List<LanguageAdapter<?>> languageAdapters = createLanguageAdapters(selectedRuntimeMode);
+      List<LanguageAdapter<?>> languageAdapters =
+          createLanguageAdapters(selectedJsRuntimeMode, selectedPythonRuntimeMode);
       log.info(
           "Enabled source language adapters: {}",
           languageAdapters.stream().map(LanguageAdapter::displayName).toList());
@@ -276,6 +329,7 @@ public final class IngesterCli implements Callable<Integer> {
 
   private boolean isFollowOnCliActionRequested() {
     return checkJsRuntime
+        || checkPythonRuntime
         || sourceRoot != null
         || boltUrl != null
         || watch
@@ -294,7 +348,11 @@ public final class IngesterCli implements Callable<Integer> {
         || optionWasMatched("--js-runtime-mode")
         || optionWasMatched("--js-runtime-cache")
         || optionWasMatched("--js-node-version")
-        || optionWasMatched("--js-typescript-version");
+        || optionWasMatched("--js-typescript-version")
+        || optionWasMatched("--python-runtime-mode")
+        || optionWasMatched("--python-runtime-cache")
+        || optionWasMatched("--python-version")
+        || optionWasMatched("--python-build");
   }
 
   private boolean optionWasMatched(String optionName) {
@@ -325,8 +383,7 @@ public final class IngesterCli implements Callable<Integer> {
   }
 
   private Integer runJsRuntimeCheck(RuntimeMode selectedRuntimeMode) {
-    Path cacheRoot =
-        jsRuntimeCache == null ? ManagedNodeRuntime.defaultCacheRoot() : jsRuntimeCache;
+    Path cacheRoot = resolvedJsRuntimeCache();
     Path tempDir = null;
     try {
       tempDir = Files.createTempDirectory("memgraph-ingester-js-runtime-check-");
@@ -452,6 +509,76 @@ public final class IngesterCli implements Callable<Integer> {
     }
   }
 
+  private Integer runPythonRuntimeCheck(RuntimeMode selectedRuntimeMode) {
+    Path cacheRoot = resolvedPythonRuntimeCache();
+    Path tempDir = null;
+    try {
+      tempDir = Files.createTempDirectory("memgraph-ingester-python-runtime-check-");
+      Path baseFile = tempDir.resolve("base.py");
+      Path serviceFile = tempDir.resolve("service.py");
+      Files.writeString(
+          baseFile,
+          """
+          class Base:
+              pass
+          """);
+      Files.writeString(
+          serviceFile,
+          """
+          from base import Base
+
+          class Service(Base):
+              def run(self):
+                  helper()
+
+          def helper():
+              return 1
+          """);
+
+      PythonAnalyzer analyzer =
+          new PythonAnalyzer(
+              tempDir,
+              new ManagedPythonRuntime(cacheRoot, pythonVersion, pythonBuild, selectedRuntimeMode));
+      PythonAnalysis analysis = analyzer.analyze(serviceFile);
+      assertPythonExtends(analysis);
+      assertPythonCall(analysis);
+      log.info("Python parser runtime check succeeded using cache {}", cacheRoot);
+      return 0;
+    } catch (IOException | RuntimeException e) {
+      log.error("Python parser runtime check failed: {}", e.getMessage());
+      return 1;
+    } finally {
+      if (tempDir != null) {
+        deleteDir(tempDir);
+      }
+    }
+  }
+
+  private static void assertPythonExtends(PythonAnalysis analysis) {
+    boolean extendsFound =
+        analysis.relations().stream()
+            .anyMatch(
+                relation ->
+                    Params.CLASS_EXTENDS.equals(relation.kind())
+                        && "python.service$2e$py.Service".equals(relation.childFqn())
+                        && "python.base$2e$py.Base".equals(relation.targetFqn()));
+    if (!extendsFound) {
+      throw new ProcessingException("Python class inheritance was not parsed correctly");
+    }
+  }
+
+  private static void assertPythonCall(PythonAnalysis analysis) {
+    boolean callFound =
+        analysis.calls().stream()
+            .anyMatch(
+                call ->
+                    "python.service$2e$py.Service.run()".equals(call.callerSignature())
+                        && "python.service$2e$py.helper()".equals(call.calleeSignature()));
+    if (!callFound) {
+      throw new ProcessingException("Python function call was not parsed correctly");
+    }
+  }
+
   private static void assertDistinctModuleFqns(JsAnalysis jsAnalysis, JsAnalysis tsAnalysis) {
     assertDistinctModuleFqns(jsAnalysis, tsAnalysis, "JavaScript and TypeScript module FQNs");
   }
@@ -480,7 +607,7 @@ public final class IngesterCli implements Callable<Integer> {
         analysis.relations().stream()
             .anyMatch(
                 relation ->
-                    "classExtends".equals(relation.kind())
+                    Params.CLASS_EXTENDS.equals(relation.kind())
                         && relation.childFqn().endsWith(".alias$2d$consumer$2e$ts.Derived")
                         && "js.src.app.specific$2e$ts.Base".equals(relation.targetFqn()));
     if (!specificAliasFound) {
@@ -494,16 +621,16 @@ public final class IngesterCli implements Callable<Integer> {
         analysis.types().stream()
             .anyMatch(
                 type ->
-                    "class".equals(type.kind())
-                        && "default".equals(type.name())
+                    Params.CLASS.equals(type.kind())
+                        && Params.DEFAULT.equals(type.name())
                         && type.hasConstructor());
     boolean constructorFound =
         analysis.members().stream()
             .anyMatch(
                 member ->
-                    "method".equals(member.memberType())
-                        && "constructor".equals(member.kind())
-                        && "<init>".equals(member.name()));
+                    Params.METHOD.equals(member.memberType())
+                        && Params.CONSTRUCTOR.equals(member.kind())
+                        && Labels.INIT.equals(member.name()));
     if (!defaultClassFound || !constructorFound) {
       throw new ProcessingException("Default anonymous class was not parsed correctly");
     }
@@ -514,9 +641,9 @@ public final class IngesterCli implements Callable<Integer> {
         analysis.members().stream()
             .anyMatch(
                 member ->
-                    "method".equals(member.memberType())
-                        && "function".equals(member.kind())
-                        && "default".equals(member.name()));
+                    Params.METHOD.equals(member.memberType())
+                        && Params.FUNCTION.equals(member.kind())
+                        && Params.DEFAULT.equals(member.name()));
     if (!defaultFunctionFound) {
       throw new ProcessingException("Default anonymous function was not parsed correctly");
     }
@@ -539,13 +666,28 @@ public final class IngesterCli implements Callable<Integer> {
     }
   }
 
-  private List<LanguageAdapter<?>> createLanguageAdapters(RuntimeMode selectedRuntimeMode) {
+  private List<LanguageAdapter<?>> createLanguageAdapters(
+      RuntimeMode selectedJsRuntimeMode, RuntimeMode selectedPythonRuntimeMode) {
     return LanguageAdapterFactory.create(
         sourceRoot,
         classpath,
-        jsRuntimeCache,
-        jsNodeVersion,
-        jsTypescriptVersion,
-        selectedRuntimeMode);
+        new LanguageAdapterFactory.JsRuntimeOptions(
+            resolvedJsRuntimeCache(), jsNodeVersion, jsTypescriptVersion, selectedJsRuntimeMode),
+        new LanguageAdapterFactory.PythonRuntimeOptions(
+            resolvedPythonRuntimeCache(), pythonVersion, pythonBuild, selectedPythonRuntimeMode));
+  }
+
+  private Path resolvedJsRuntimeCache() {
+    return jsRuntimeCache == null ? ManagedNodeRuntime.defaultCacheRoot() : jsRuntimeCache;
+  }
+
+  private Path resolvedPythonRuntimeCache() {
+    return resolvePythonRuntimeCache(pythonRuntimeCache);
+  }
+
+  static Path resolvePythonRuntimeCache(Path pythonRuntimeCache) {
+    return pythonRuntimeCache == null
+        ? ManagedPythonRuntime.defaultCacheRoot()
+        : pythonRuntimeCache;
   }
 }

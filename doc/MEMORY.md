@@ -368,9 +368,10 @@ Use `MATCH` for code nodes instead of merging them inline. Code nodes are owned 
 inline `MERGE` can create incomplete code nodes or conflict with uniqueness constraints.
 
 `targetType` must be one of: `Code`, `Package`, `File`, `Class`, `Interface`, `Annotation`,
-`Method`, `Field`. `key` is the matching identity: reference language key for `Code` (`java` or
-`js`), language-prefixed package name for `Package` (`java:<package>` or `js:<package>`), path for
-`File`, FQN for types/fields, and signature for methods.
+`Method`, `Field`. `key` is the matching identity: reference language key for `Code` (`java`,
+`js`, or `python`), language-prefixed package name for `Package` (`java:<package>`,
+`js:<package>`, or `python:<package>`), path for `File`, FQN for types/fields, and signature for
+methods.
 
 ---
 

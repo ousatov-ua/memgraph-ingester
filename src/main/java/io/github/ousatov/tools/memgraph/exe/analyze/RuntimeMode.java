@@ -1,7 +1,7 @@
 package io.github.ousatov.tools.memgraph.exe.analyze;
 
 /**
- * How JavaScript parsing obtains a Node.js executable.
+ * How managed parser runtimes obtain executable dependencies.
  *
  * @author Oleksii Usatov
  */
@@ -12,6 +12,11 @@ public enum RuntimeMode {
 
   /** Parses a CLI/runtime-mode value, defaulting blank input to managed runtime mode. */
   public static RuntimeMode parse(String value) {
+    return parse(value, "parser");
+  }
+
+  /** Parses a CLI/runtime-mode value for a named runtime family. */
+  public static RuntimeMode parse(String value, String runtimeName) {
     if (value == null || value.isBlank()) {
       return MANAGED;
     }
@@ -19,7 +24,9 @@ public enum RuntimeMode {
       case "managed" -> MANAGED;
       case "system" -> SYSTEM;
       case "offline" -> OFFLINE;
-      default -> throw new IllegalArgumentException("Unsupported JS runtime mode: " + value);
+      default ->
+          throw new IllegalArgumentException(
+              "Unsupported " + runtimeName + " runtime mode: " + value);
     };
   }
 }

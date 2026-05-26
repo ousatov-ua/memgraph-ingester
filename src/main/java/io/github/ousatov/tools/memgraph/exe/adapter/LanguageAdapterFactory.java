@@ -2,8 +2,10 @@ package io.github.ousatov.tools.memgraph.exe.adapter;
 
 import io.github.ousatov.tools.memgraph.exe.analyze.JsAnalyzer;
 import io.github.ousatov.tools.memgraph.exe.analyze.ManagedNodeRuntime;
+import io.github.ousatov.tools.memgraph.exe.analyze.ManagedPythonRuntime;
 import io.github.ousatov.tools.memgraph.exe.analyze.ManagedTypescriptPackage;
 import io.github.ousatov.tools.memgraph.exe.analyze.ParseService;
+import io.github.ousatov.tools.memgraph.exe.analyze.PythonAnalyzer;
 import io.github.ousatov.tools.memgraph.exe.analyze.RuntimeMode;
 import java.io.File;
 import java.nio.file.Files;
@@ -18,28 +20,48 @@ import java.util.List;
  */
 public final class LanguageAdapterFactory {
 
-  private LanguageAdapterFactory() {}
+  private LanguageAdapterFactory() {
+    // Utility class.
+  }
 
   /** Creates the default list of configured language adapters. */
   public static List<LanguageAdapter<?>> create(
       Path sourceRoot,
       String classpath,
-      Path jsRuntimeCache,
-      String jsNodeVersion,
-      String jsTypescriptVersion,
-      RuntimeMode selectedRuntimeMode) {
+      JsRuntimeOptions jsRuntimeOptions,
+      PythonRuntimeOptions pythonRuntimeOptions) {
 
     ParseService parseService = new ParseService(sourceRoot, classpathEntries(classpath));
-    Path cacheRoot = resolveCacheRoot(jsRuntimeCache);
+    Path jsCacheRoot = resolveCacheRoot(jsRuntimeOptions.cacheRoot());
     ManagedNodeRuntime nodeRuntime =
-        new ManagedNodeRuntime(cacheRoot, jsNodeVersion, selectedRuntimeMode);
+        new ManagedNodeRuntime(
+            jsCacheRoot, jsRuntimeOptions.nodeVersion(), jsRuntimeOptions.runtimeMode());
     ManagedTypescriptPackage typescriptPackage =
-        new ManagedTypescriptPackage(cacheRoot, jsTypescriptVersion, selectedRuntimeMode);
+        new ManagedTypescriptPackage(
+            jsCacheRoot, jsRuntimeOptions.typescriptVersion(), jsRuntimeOptions.runtimeMode());
+    Path pythonCacheRoot = resolveCacheRoot(pythonRuntimeOptions.cacheRoot());
+    ManagedPythonRuntime pythonRuntime =
+        new ManagedPythonRuntime(
+            pythonCacheRoot,
+            pythonRuntimeOptions.pythonVersion(),
+            pythonRuntimeOptions.pythonBuild(),
+            pythonRuntimeOptions.runtimeMode());
 
     return List.of(
         new JavaLanguageAdapter(parseService),
-        new JsLanguageAdapter(new JsAnalyzer(sourceRoot, nodeRuntime, typescriptPackage)));
+        new JsLanguageAdapter(new JsAnalyzer(sourceRoot, nodeRuntime, typescriptPackage)),
+        new PythonLanguageAdapter(new PythonAnalyzer(sourceRoot, pythonRuntime)));
   }
+
+  /** JavaScript parser runtime settings. */
+  @SuppressWarnings("java:S1186")
+  public record JsRuntimeOptions(
+      Path cacheRoot, String nodeVersion, String typescriptVersion, RuntimeMode runtimeMode) {}
+
+  /** Python parser runtime settings. */
+  @SuppressWarnings("java:S1186")
+  public record PythonRuntimeOptions(
+      Path cacheRoot, String pythonVersion, String pythonBuild, RuntimeMode runtimeMode) {}
 
   private static List<Path> classpathEntries(String classpath) {
     if (classpath == null || classpath.isBlank()) {
@@ -51,7 +73,7 @@ public final class LanguageAdapterFactory {
         .toList();
   }
 
-  private static Path resolveCacheRoot(Path jsRuntimeCache) {
-    return jsRuntimeCache == null ? ManagedNodeRuntime.defaultCacheRoot() : jsRuntimeCache;
+  private static Path resolveCacheRoot(Path runtimeCache) {
+    return runtimeCache == null ? ManagedNodeRuntime.defaultCacheRoot() : runtimeCache;
   }
 }

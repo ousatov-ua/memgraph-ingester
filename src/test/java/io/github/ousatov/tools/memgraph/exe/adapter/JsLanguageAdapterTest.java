@@ -55,6 +55,19 @@ class JsLanguageAdapterTest {
   }
 
   @Test
+  void discoverFilesIgnoresNodeModulesOutsideSourceRoot() throws IOException {
+    Path sourceRoot = tempDir.resolve("node_modules/project");
+    Path appFile = sourceRoot.resolve("src/app.ts");
+    Path dependencyFile = sourceRoot.resolve("src/node_modules/pkg/index.ts");
+    Files.createDirectories(appFile.getParent());
+    Files.createDirectories(dependencyFile.getParent());
+    Files.writeString(appFile, "export const app = 1;");
+    Files.writeString(dependencyFile, "export const dependency = 1;");
+
+    assertIterableEquals(List.of(appFile), adapter.discoverFiles(sourceRoot));
+  }
+
+  @Test
   void returnsEmptyWhenRuntimeFailureEscapesAnalyzer() {
     assertTrue(adapter.parse(Path.of("src/broken.js")).isEmpty());
   }

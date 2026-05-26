@@ -8,10 +8,11 @@
 [![GitHub last commit](https://img.shields.io/github/last-commit/ousatov-ua/memgraph-ingester)](https://github.com/ousatov-ua/memgraph-ingester/commits/main)
 [![Supports Java codebases](https://img.shields.io/badge/supports-Java-f89820?logo=openjdk&logoColor=white)](#3-ingest-java)
 [![Supports JavaScript/TypeScript codebases](https://img.shields.io/badge/supports-JavaScript%20%2F%20TypeScript-3178c6?logo=typescript&logoColor=white)](#4-ingest-javascript-or-typescript)
+[![Supports Python codebases](https://img.shields.io/badge/supports-Python-3776ab?logo=python&logoColor=white)](#5-ingest-python)
 
 ![memgraph-ingester-readme-banner-640x320.svg](image/memgraph-ingester-readme-banner-640x320.svg)
 
-Memgraph Ingester indexes **Java** and **JavaScript/TypeScript** source files into
+Memgraph Ingester indexes **Java**, **JavaScript/TypeScript**, and **Python** source files into
 [Memgraph](https://memgraph.com/) so AI agents can query a real code graph instead of repeatedly
 scanning raw files.
 
@@ -28,7 +29,7 @@ The normal path is simple:
 
 1. Run Memgraph.
 2. Download one ingester executable.
-3. Run one command; the ingester selects Java or JS/TS logic from each source file extension.
+3. Run one command; the ingester selects Java, JS/TS, or Python logic from each source file extension.
 4. Connect your AI agent through MCP or `mgconsole`.
 
 No source code is uploaded by the ingester. It reads local files, writes graph nodes to your
@@ -46,19 +47,28 @@ The ingester is designed to be safe to try.
 | Full database wipe | `--wipe-all` deletes all Memgraph data. Use it only when you intentionally want an empty database. |
 | Schema setup | `--apply-schema` is safe to re-run. Existing constraints and indexes are skipped by Memgraph. |
 | Java parsing | Java source is parsed locally with JavaParser. Dependencies are optional and only improve symbol resolution. |
-| JS/TS parsing | The native executable can manage its own Node.js and TypeScript parser locally. You do not have to install Node.js. |
+| JS/TS parsing | The ingester can manage its own Node.js and TypeScript parser locally. You do not have to install Node.js. |
+| Python parsing | The ingester can manage its own standalone CPython runtime and private venv locally. You do not have to install Python. |
 
-For JS/TS, managed runtime mode is explicit and controlled:
+For JS/TS and Python, managed runtime mode is explicit and controlled:
 
 - Default mode is `--js-runtime-mode managed`.
+- Default mode is `--python-runtime-mode managed`.
 - Managed mode downloads pinned Node.js `22.11.0` from `nodejs.org`.
 - It verifies Node.js with the official SHA-256 checksum before extracting.
 - It downloads pinned TypeScript `5.6.3` from the npm registry.
 - It verifies the TypeScript package with SHA-512 integrity metadata.
-- It caches both under `~/.cache/memgraph-ingester` by default.
+- Managed Python downloads pinned standalone CPython `3.14.5` from python-build-standalone.
+- It verifies CPython with the release `SHA256SUMS` file before extracting.
+- It creates a private Python venv under `~/.cache/memgraph-ingester` by default.
+- It caches parser runtimes under `~/.cache/memgraph-ingester` by default.
 - It never installs Node.js globally.
+- It never installs Python globally.
 - It never runs `npm install` in your project.
+- It never imports your Python project packages or runs your Python application code.
 - It skips `node_modules` during source ingestion and watch registration.
+- The Python adapter skips common Python environment/cache directories such as `.venv`, `venv`,
+  `site-packages`, `__pycache__`, `build`, and `dist`.
 
 If you do not want the ingester to download Node.js, use your own Node.js:
 
@@ -96,14 +106,17 @@ For normal use:
 
 Runtime requirements by artifact:
 
-| Artifact | Java required? | Node.js required for JS/TS? |
-|---|---:|---:|
-| Native executable | No | No, managed mode handles it |
-| Shaded JAR | Java 25 JRE | No, managed mode handles it |
+| Artifact | Java required? | Node.js required for JS/TS? | Python required for Python? |
+|---|---:|---:|---:|
+| Native executable | No | No, managed mode handles it | No, managed mode handles it |
+| Shaded JAR | Java 25 JRE | No, managed mode handles it | No, managed mode handles it |
 
 Optional tools:
 
 - `mgconsole`, if you want to query Memgraph directly without MCP (***produces much fewer tokens***)
+- Node.js or Python 3.9+, only when you explicitly choose `--js-runtime-mode system` or
+  `--python-runtime-mode system`. Set `MEMGRAPH_INGESTER_PYTHON` to override the system Python
+  executable.
 - Maven, only if you want a richer Java classpath or you want to build from source.
 - Java 25 SDK, only if you build from source.
 
@@ -212,7 +225,32 @@ Optional preflight check, without connecting to Memgraph:
 This downloads and verifies the managed parser runtime if needed, then runs a local parser smoke
 test against temporary JS files.
 
-### 5. Verify the Graph
+### 5. Ingest Python
+
+Managed mode needs no user-installed Python:
+
+```bash
+cd /path/to/your/python/project
+
+<ingester> \
+  --source . \
+  --bolt bolt://localhost:7687 \
+  --project my-python-project \
+  --wipe-project-code \
+  --init-instructions \
+  --apply-schema
+```
+
+Optional preflight check, without connecting to Memgraph:
+
+```bash
+<ingester> --check-python-runtime
+```
+
+This downloads and verifies the managed standalone CPython runtime if needed, creates the private
+parser venv, then runs a local parser smoke test against temporary Python files.
+
+### 6. Verify the Graph
 
 With MCP, run the same Cypher through your agent. With `mgconsole`:
 
@@ -430,6 +468,71 @@ methods. Dynamic dispatch, dependency injection, monkey-patching, framework temp
 generated code can produce missing call edges. A missing JS/TS `CALLS` edge does not prove a call
 never happens.
 
+## Python Guide
+
+Python files are detected from their extensions during the normal `--source` scan.
+
+Accepted source extensions:
+
+- `.py`
+- `.pyi`
+
+Skipped paths:
+
+- `__pycache__`
+- `.venv`
+- `venv`
+- `.tox`
+- `.nox`
+- `site-packages`
+- `build`
+- `dist`
+
+Captured Python structure:
+
+- Files and synthetic module owners.
+- Classes and class `EXTENDS` relationships when relative imports resolve under `--source`.
+- Top-level functions and variables under the module owner.
+- Methods, constructors, fields, decorators, line ranges, and kinds.
+- Syntax-based best-effort call edges for local functions and deferred owner/name calls for
+  resolvable `self.method()` calls.
+
+Runtime modes:
+
+| Mode | Use when | Network |
+|---|---|---|
+| `managed` | You want the ingester to own the parser runtime. This is the default. | Downloads once if cache is missing. |
+| `system` | You want to use Python 3.9+ from `PATH` or `MEMGRAPH_INGESTER_PYTHON`. | No CPython download. |
+| `offline` | You want no downloads and the managed cache is already warm. | No downloads. Fails if cache is missing. |
+
+Custom cache:
+
+```bash
+<ingester> \
+  --source . \
+  --bolt bolt://localhost:7687 \
+  --project my-python-project \
+  --python-runtime-cache /path/to/cache \
+  --wipe-project-code
+```
+
+Custom pinned standalone CPython:
+
+```bash
+<ingester> \
+  --source . \
+  --bolt bolt://localhost:7687 \
+  --project my-python-project \
+  --python-version 3.14.5 \
+  --python-build 20260510 \
+  --wipe-project-code
+```
+
+Python caveat: Python is dynamic. The ingester parses syntax with CPython `ast`; it does not import
+project modules, install project dependencies, or execute application code. Dynamic dispatch,
+monkey-patching, imports outside `--source`, and generated code can produce missing call or
+inheritance edges. A missing Python `CALLS` edge does not prove a call never happens.
+
 ## Agent Setup
 
 The graph is useful directly, but it becomes much more powerful when your agent is told to use it.
@@ -631,6 +734,11 @@ Options:
 | `--js-node-version` |  | no | `22.11.0` | Pinned Node.js version for managed JS/TS parsing. |
 | `--js-typescript-version` |  | no | `5.6.3` | Pinned TypeScript compiler package version. A leading `v` is accepted. |
 | `--check-js-runtime` |  | no | `false` | Run a local JS runtime smoke check without connecting to Memgraph. |
+| `--python-runtime-mode` |  | no | `managed` | `managed`, `system`, or `offline`. |
+| `--python-runtime-cache` |  | no | `~/.cache/memgraph-ingester` | Cache directory for managed CPython downloads and private Python venvs. |
+| `--python-version` |  | no | `3.14.5` | Pinned CPython version for managed Python parsing. A leading `v` is accepted. |
+| `--python-build` |  | no | `20260510` | Pinned python-build-standalone release tag for managed Python parsing. |
+| `--check-python-runtime` |  | no | `false` | Run a local Python runtime smoke check without connecting to Memgraph. |
 | `--init-instructions` |  | no | `false` | Write or replace managed agent instructions and exit. Includes Code guidance by default. |
 | `--instructions-agent` |  | no | `codex` | Agent preset: `codex`, `claude`, `gemini`, `github`, or `copilot`. Implies `--init-instructions` when explicitly provided. |
 | `--instructions-file` |  | no | preset file | Instruction file to update. Overrides `--instructions-agent` and implies `--init-instructions`. |
@@ -740,8 +848,9 @@ Controlled values:
 | `(:Decision \| :ADR \| :Rule \| :Context \| :Finding \| :Task \| :Risk \| :Idea)-[:REFERS_TO]->(:CodeRef)` | Stable memory-to-code reference. |
 | `(:CodeRef)-[:RESOLVES_TO]->(:Code \| :Package \| :File \| :Class \| :Interface \| :Annotation \| :Method \| :Field)` | Current code node resolved after ingestion. |
 
-For `:CodeRef`, use `key: 'java'` or `key: 'js'` for `targetType: 'Code'`, and
-`key: 'java:<package>'` or `key: 'js:<package>'` for `targetType: 'Package'`.
+For `:CodeRef`, use `key: 'java'`, `key: 'js'`, or `key: 'python'` for `targetType: 'Code'`,
+and `key: 'java:<package>'`, `key: 'js:<package>'`, or `key: 'python:<package>'` for
+`targetType: 'Package'`.
 
 See [`doc/MEMORY.md`](doc/MEMORY.md) for Memory examples and Cypher recipes.
 See [`doc/SCHEMA.md`](doc/SCHEMA.md) for the full graph model.
@@ -840,9 +949,12 @@ RETURN labels(memory), memory.id, memory.title;
 │   │   │   ├── JsAnalysis.java                 # Neutral JS analyzer records
 │   │   │   ├── JsAnalyzer.java                 # Java wrapper around the bundled JS analyzer
 │   │   │   ├── ManagedNodeRuntime.java         # Downloaded/cached Node.js runtime management
+│   │   │   ├── ManagedPythonRuntime.java       # Downloaded/cached CPython and venv management
 │   │   │   ├── ManagedTypescriptPackage.java   # Downloaded/cached TypeScript compiler management
 │   │   │   ├── ParseService.java               # JavaParser setup and parsing
-│   │   │   └── RuntimeMode.java                # JS runtime mode values
+│   │   │   ├── PythonAnalysis.java             # Neutral Python analyzer records
+│   │   │   ├── PythonAnalyzer.java             # Java wrapper around the bundled Python analyzer
+│   │   │   └── RuntimeMode.java                # Parser runtime mode values
 │   │   ├── ingestion/
 │   │   │   └── IngestionOrchestrator.java      # Ingestion, wipe, incremental, and watch workflow
 │   │   ├── metrics/
@@ -862,8 +974,10 @@ RETURN labels(memory), memory.id, memory.title;
 │   │       ├── GraphWriter.java                # Stable writer facade over language-specific writers
 │   │       ├── java/
 │   │       │   └── JavaGraphWriter.java        # Java-specific graph writes
-│   │       └── js/
-│   │           └── JsGraphWriter.java          # JavaScript/TypeScript-specific graph writes
+│   │       ├── js/
+│   │       │   └── JsGraphWriter.java          # JavaScript/TypeScript-specific graph writes
+│   │       └── python/
+│   │           └── PythonGraphWriter.java      # Python-specific graph writes
 │   ├── schema/
 │   │   └── Memgraph.java                       # Schema loader and global wipe helpers
 │   └── vo/
@@ -876,7 +990,8 @@ RETURN labels(memory), memory.id, memory.title;
 │   │       └── resource-config.json            # GraalVM bundled resource patterns
 │   ├── io/github/ousatov/tools/memgraph/cypher/
 │   │   ├── action/                             # Shared upsert, delete, and resolve Cypher
-│   │   │   └── Js/                             # JS/TS-specific cleanup Cypher
+│   │   │   ├── Js/                             # JS/TS-specific cleanup Cypher
+│   │   │   └── Python/                         # Python-specific cleanup Cypher
 │   │   ├── metrics/                            # Metrics snapshot Cypher queries
 │   │   ├── create-schema.cypher                # Constraints and indexes
 │   │   ├── drop-schema.cypher                  # Schema teardown
@@ -885,6 +1000,8 @@ RETURN labels(memory), memory.id, memory.title;
 │   │   ├── js-analyzer-ast.cjs                 # TypeScript AST extraction helpers
 │   │   ├── js-analyzer-paths.cjs               # JS/TS import and tsconfig path resolution
 │   │   └── js-analyzer.cjs                     # Bundled TypeScript compiler-based JS/TS analyzer
+│   ├── io/github/ousatov/tools/memgraph/python/
+│   │   └── python-analyzer.py                  # Bundled CPython ast-based Python analyzer
 │   └── simplelogger.properties                 # Runtime logging defaults
 ├── src/test/java/io/github/ousatov/tools/memgraph/
 │   ├── AgentInstructionsInstallerTest.java     # Agent instruction installer tests

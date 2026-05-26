@@ -1,5 +1,7 @@
 package io.github.ousatov.tools.memgraph.vo;
 
+import io.github.ousatov.tools.memgraph.def.Const.Params;
+
 /**
  * Method
  *
@@ -41,6 +43,6 @@ public record Method(
         endLine,
         isSynthetic,
         "java",
-        "method");
+        Params.METHOD);
   }
 }

@@ -19,37 +19,38 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Invokes the bundled Node.js helper and converts its NDJSON output into neutral records.
+ * Invokes the bundled Python AST helper and converts its NDJSON output into neutral records.
  *
  * @author Oleksii Usatov
  */
-public final class JsAnalyzer {
+public final class PythonAnalyzer {
 
-  private static final Logger log = LoggerFactory.getLogger(JsAnalyzer.class);
-  private static final String HELPER_RESOURCE_DIR = "/io/github/ousatov/tools/memgraph/js/";
-  private static final String HELPER_SCRIPT_NAME = "js-analyzer.cjs";
-  private static final List<String> HELPER_RESOURCE_NAMES =
-      List.of(HELPER_SCRIPT_NAME, "js-analyzer-ast.cjs", "js-analyzer-paths.cjs");
+  private static final Logger log = LoggerFactory.getLogger(PythonAnalyzer.class);
+  private static final String HELPER_RESOURCE_DIR = "/io/github/ousatov/tools/memgraph/python/";
+  private static final String HELPER_SCRIPT_NAME = "python-analyzer.py";
   private static final Duration PROCESS_TIMEOUT = Duration.ofMinutes(2);
 
   private final Path sourceRoot;
-  private final ManagedNodeRuntime nodeRuntime;
-  private final ManagedTypescriptPackage typescriptPackage;
+  private final ManagedPythonRuntime pythonRuntime;
   private final Path helperScript;
 
-  public JsAnalyzer(
-      Path sourceRoot, ManagedNodeRuntime nodeRuntime, ManagedTypescriptPackage typescriptPackage) {
-    this(sourceRoot, nodeRuntime, typescriptPackage, extractHelperScript());
+  public PythonAnalyzer(Path sourceRoot) {
+    this(
+        sourceRoot,
+        new ManagedPythonRuntime(
+            ManagedPythonRuntime.defaultCacheRoot(),
+            ManagedPythonRuntime.DEFAULT_PYTHON_VERSION,
+            ManagedPythonRuntime.DEFAULT_PYTHON_BUILD,
+            RuntimeMode.MANAGED));
   }
 
-  private JsAnalyzer(
-      Path sourceRoot,
-      ManagedNodeRuntime nodeRuntime,
-      ManagedTypescriptPackage typescriptPackage,
-      Path helperScript) {
+  public PythonAnalyzer(Path sourceRoot, ManagedPythonRuntime pythonRuntime) {
+    this(sourceRoot, pythonRuntime, extractHelperScript());
+  }
+
+  private PythonAnalyzer(Path sourceRoot, ManagedPythonRuntime pythonRuntime, Path helperScript) {
     this.sourceRoot = sourceRoot;
-    this.nodeRuntime = nodeRuntime;
-    this.typescriptPackage = typescriptPackage;
+    this.pythonRuntime = pythonRuntime;
     this.helperScript = helperScript;
   }
 
@@ -64,7 +65,7 @@ public final class JsAnalyzer {
                 output.completeExceptionally(e);
               }
             },
-            "memgraph-js-analyzer-" + streamName);
+            "memgraph-python-analyzer-" + streamName);
     reader.setDaemon(true);
     reader.start();
     return output;
@@ -78,22 +79,22 @@ public final class JsAnalyzer {
       throw new ProcessingException("Interrupted while reading analyzer " + streamName, e);
     } catch (ExecutionException e) {
       throw new ProcessingException(
-          "Could not read JavaScript analyzer " + streamName + " for " + file, e.getCause());
+          "Could not read Python analyzer " + streamName + " for " + file, e.getCause());
     }
   }
 
-  private static JsAnalysis parse(String stdout, Path file) {
+  private static PythonAnalysis parse(String stdout, Path file) {
     String moduleFqn = null;
     String moduleName = null;
     String packageName = null;
     String modulePath = null;
     int startLine = 1;
     int endLine = 1;
-    List<JsAnalysis.TypeDecl> types = new ArrayList<>();
-    List<JsAnalysis.RelationDecl> relations = new ArrayList<>();
-    List<JsAnalysis.MemberDecl> members = new ArrayList<>();
-    List<JsAnalysis.AnnotationDecl> annotations = new ArrayList<>();
-    List<JsAnalysis.CallDecl> calls = new ArrayList<>();
+    List<PythonAnalysis.TypeDecl> types = new ArrayList<>();
+    List<PythonAnalysis.RelationDecl> relations = new ArrayList<>();
+    List<PythonAnalysis.MemberDecl> members = new ArrayList<>();
+    List<PythonAnalysis.AnnotationDecl> annotations = new ArrayList<>();
+    List<PythonAnalysis.CallDecl> calls = new ArrayList<>();
 
     for (String line : stdout.lines().filter(l -> !l.isBlank()).toList()) {
       Map<String, String> obj = parseObject(line);
@@ -108,7 +109,7 @@ public final class JsAnalyzer {
         }
         case Params.TYPE ->
             types.add(
-                new JsAnalysis.TypeDecl(
+                new PythonAnalysis.TypeDecl(
                     value(obj, Params.KIND),
                     value(obj, Params.FQN),
                     value(obj, Params.NAME),
@@ -119,13 +120,13 @@ public final class JsAnalyzer {
                     intValue(obj, Params.END_LINE)));
         case Params.RELATION ->
             relations.add(
-                new JsAnalysis.RelationDecl(
+                new PythonAnalysis.RelationDecl(
                     value(obj, Params.KIND),
                     value(obj, Params.CHILD_FQN),
                     value(obj, Params.TARGET_FQN)));
         case Params.MEMBER ->
             members.add(
-                new JsAnalysis.MemberDecl(
+                new PythonAnalysis.MemberDecl(
                     value(obj, Params.OWNER_FQN),
                     value(obj, Params.MEMBER_TYPE),
                     value(obj, Params.KIND),
@@ -137,25 +138,25 @@ public final class JsAnalyzer {
                     intValue(obj, Params.END_LINE)));
         case Params.ANNOTATION ->
             annotations.add(
-                new JsAnalysis.AnnotationDecl(
+                new PythonAnalysis.AnnotationDecl(
                     value(obj, Params.OWNER_KIND),
                     value(obj, Params.OWNER_KEY),
                     value(obj, Params.FQN),
                     value(obj, Params.NAME)));
         case Params.CALL, Params.CALL_BY_NAME ->
             calls.add(
-                new JsAnalysis.CallDecl(
+                new PythonAnalysis.CallDecl(
                     value(obj, Params.CALLER_SIGNATURE),
                     value(obj, Params.CALLEE_SIGNATURE),
                     value(obj, Params.CALLEE_OWNER_FQN),
                     value(obj, Params.CALLEE_NAME)));
-        default -> log.debug("Ignoring unknown JavaScript analyzer record: {}", line);
+        default -> log.debug("Ignoring unknown Python analyzer record: {}", line);
       }
     }
     if (moduleFqn == null) {
-      throw new ProcessingException("JavaScript analyzer produced no module record for " + file);
+      throw new ProcessingException("Python analyzer produced no module record for " + file);
     }
-    return new JsAnalysis(
+    return new PythonAnalysis(
         moduleFqn,
         moduleName,
         packageName,
@@ -188,62 +189,55 @@ public final class JsAnalyzer {
   }
 
   private static Path extractHelperScript() {
-    try {
-      Path helperDir = Files.createTempDirectory("memgraph-ingester-js-analyzer-");
-      helperDir.toFile().deleteOnExit();
-      for (String resourceName : HELPER_RESOURCE_NAMES) {
-        String resourcePath = HELPER_RESOURCE_DIR + resourceName;
-        try (InputStream in = JsAnalyzer.class.getResourceAsStream(resourcePath)) {
-          if (in == null) {
-            throw new ProcessingException(resourcePath + " is missing from jar");
-          }
-          Path helper = helperDir.resolve(resourceName);
-          Files.write(helper, in.readAllBytes());
-          helper.toFile().deleteOnExit();
-        }
+    String resourcePath = HELPER_RESOURCE_DIR + HELPER_SCRIPT_NAME;
+    try (InputStream in = PythonAnalyzer.class.getResourceAsStream(resourcePath)) {
+      if (in == null) {
+        throw new ProcessingException(resourcePath + " is missing from jar");
       }
-      return helperDir.resolve(HELPER_SCRIPT_NAME);
+      Path helperDir = Files.createTempDirectory("memgraph-ingester-python-analyzer-");
+      helperDir.toFile().deleteOnExit();
+      Path helper = helperDir.resolve(HELPER_SCRIPT_NAME);
+      Files.write(helper, in.readAllBytes());
+      helper.toFile().deleteOnExit();
+      return helper;
     } catch (IOException e) {
-      throw new ProcessingException("Could not extract JavaScript analyzer helper", e);
+      throw new ProcessingException("Could not extract Python analyzer helper", e);
     }
   }
 
-  public JsAnalysis analyze(Path file) {
-    Path node = nodeRuntime.nodeExecutable();
-    Path nodeModules = typescriptPackage.nodeModulesDir();
+  public PythonAnalysis analyze(Path file) {
+    Path python = pythonRuntime.pythonExecutable();
     ProcessBuilder processBuilder =
         new ProcessBuilder(
-            node.toString(),
+            python.toString(),
             helperScript.toString(),
             "--file",
             file.toString(),
             "--root",
             sourceRoot.toString());
-    processBuilder.environment().put("NODE_PATH", nodeModules.toString());
     try {
       Process process = processBuilder.start();
       CompletableFuture<String> stdout = readAsync(process.getInputStream(), "stdout");
       CompletableFuture<String> stderr = readAsync(process.getErrorStream(), "stderr");
       if (!process.waitFor(PROCESS_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS)) {
         process.destroyForcibly();
-        throw new ProcessingException("JavaScript analyzer timed out for " + file);
+        throw new ProcessingException("Python analyzer timed out for " + file);
       }
       String stderrText = outputOf(stderr, file, "stderr");
       if (process.exitValue() != 0) {
-        throw new ProcessingException(
-            "JavaScript analyzer failed for " + file + ": " + stderrText.trim());
+        throw new ProcessingException("Python analyzer failed for " + file + ": " + stderrText);
       }
       return parse(outputOf(stdout, file, "stdout"), file);
     } catch (IOException e) {
-      throw new ProcessingException("Could not run JavaScript analyzer for " + file, e);
+      throw new ProcessingException("Could not run Python analyzer for " + file, e);
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
       throw new ProcessingException("Interrupted while analyzing " + file, e);
     }
   }
 
-  public JsAnalyzer withSourceRoot(Path sourceRoot) {
-    return new JsAnalyzer(sourceRoot, nodeRuntime, typescriptPackage, helperScript);
+  public PythonAnalyzer withSourceRoot(Path sourceRoot) {
+    return new PythonAnalyzer(sourceRoot, pythonRuntime, helperScript);
   }
 
   private static final class JsonCursor {
@@ -290,8 +284,8 @@ public final class JsAnalyzer {
       }
       int start = pos;
       while (pos < input.length()) {
-        char c = input.charAt(pos);
-        if (c == ',' || c == '}') {
+        char current = input.charAt(pos);
+        if (current == ',' || current == '}') {
           break;
         }
         pos++;
@@ -303,43 +297,34 @@ public final class JsAnalyzer {
       expect('"');
       StringBuilder out = new StringBuilder();
       while (pos < input.length()) {
-        char c = input.charAt(pos++);
-        if (c == '"') {
+        char current = input.charAt(pos++);
+        if (current == '"') {
           return out.toString();
         }
-        if (c != '\\') {
-          out.append(c);
-          continue;
-        }
-        if (pos >= input.length()) {
-          throw error("Unterminated escape sequence");
-        }
-        char escaped = input.charAt(pos++);
-        switch (escaped) {
-          case '"', '\\', '/' -> out.append(escaped);
-          case 'b' -> out.append('\b');
-          case 'f' -> out.append('\f');
-          case 'n' -> out.append('\n');
-          case 'r' -> out.append('\r');
-          case 't' -> out.append('\t');
-          case 'u' -> out.append(unicodeEscape());
-          default -> throw error("Unknown escape sequence");
+        if (current == '\\') {
+          out.append(escape());
+        } else {
+          out.append(current);
         }
       }
       throw error("Unterminated string");
     }
 
-    private void skipWhitespace() {
-      while (pos < input.length() && Character.isWhitespace(input.charAt(pos))) {
-        pos++;
-      }
-    }
-
-    private char peek() {
+    private char escape() {
       if (pos >= input.length()) {
-        throw error("Unexpected end of JSON");
+        throw error("Unterminated escape");
       }
-      return input.charAt(pos);
+      char escaped = input.charAt(pos++);
+      return switch (escaped) {
+        case '"', '\\', '/' -> escaped;
+        case 'b' -> '\b';
+        case 'f' -> '\f';
+        case 'n' -> '\n';
+        case 'r' -> '\r';
+        case 't' -> '\t';
+        case 'u' -> unicodeEscape();
+        default -> throw error("Unsupported escape: " + escaped);
+      };
     }
 
     private char unicodeEscape() {
@@ -356,6 +341,19 @@ public final class JsAnalyzer {
       }
     }
 
+    private void skipWhitespace() {
+      while (pos < input.length() && Character.isWhitespace(input.charAt(pos))) {
+        pos++;
+      }
+    }
+
+    private char peek() {
+      if (pos >= input.length()) {
+        throw error("Unexpected end of input");
+      }
+      return input.charAt(pos);
+    }
+
     private void expect(char expected) {
       if (peek() != expected) {
         throw error("Expected '" + expected + "'");
@@ -364,11 +362,12 @@ public final class JsAnalyzer {
     }
 
     private ProcessingException error(String message) {
-      return new ProcessingException(message + " at position " + pos + " in " + input);
+      return new ProcessingException(message + " while parsing Python analyzer output: " + input);
     }
 
     private ProcessingException error(String message, Throwable cause) {
-      return new ProcessingException(message + " at position " + pos + " in " + input, cause);
+      return new ProcessingException(
+          message + " while parsing Python analyzer output: " + input, cause);
     }
   }
 }

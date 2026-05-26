@@ -41,7 +41,7 @@ public final class JsGraphWriter extends CommonGraphWriter {
         false,
         false,
         JAVASCRIPT_LANGUAGE,
-        "module",
+        Params.MODULE,
         modulePath,
         "");
     upsertMethodNode(
@@ -57,7 +57,7 @@ public final class JsGraphWriter extends CommonGraphWriter {
             endLine,
             true,
             JAVASCRIPT_LANGUAGE,
-            "module"));
+            Params.MODULE));
   }
 
   /** Upserts a JavaScript/TypeScript class declaration using the existing {@code :Class} label. */
@@ -82,7 +82,7 @@ public final class JsGraphWriter extends CommonGraphWriter {
         framework,
         false,
         isAbstract,
-        "class",
+        Params.CLASS,
         startLine,
         endLine);
     if (!hasDeclaredConstructor) {
@@ -99,7 +99,7 @@ public final class JsGraphWriter extends CommonGraphWriter {
               endLine,
               true,
               JAVASCRIPT_LANGUAGE,
-              "constructor"));
+              Params.CONSTRUCTOR));
     }
   }
 
@@ -112,7 +112,8 @@ public final class JsGraphWriter extends CommonGraphWriter {
       String modulePath,
       int startLine,
       int endLine) {
-    upsertTypeClass(file, pkg, fqn, name, modulePath, "", true, false, "enum", startLine, endLine);
+    upsertTypeClass(
+        file, pkg, fqn, name, modulePath, "", true, false, Params.ENUM, startLine, endLine);
   }
 
   /** Writes a JavaScript/TypeScript class {@code EXTENDS} relation. */

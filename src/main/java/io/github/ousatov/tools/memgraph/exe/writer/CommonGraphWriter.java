@@ -26,6 +26,7 @@ public class CommonGraphWriter {
 
   protected static final String JAVA_LANGUAGE = SourceLanguage.JAVA.graphName();
   protected static final String JAVASCRIPT_LANGUAGE = SourceLanguage.JAVASCRIPT.graphName();
+  protected static final String PYTHON_LANGUAGE = SourceLanguage.PYTHON.graphName();
 
   private final CypherExecutor cypher;
   private final CallEdgeWriter callEdges;
@@ -132,7 +133,7 @@ public class CommonGraphWriter {
   protected void upsertInterfaceNode(
       Path file, String pkg, String fqn, String name, boolean isAbstract, String visibility) {
     upsertInterfaceNode(
-        file, pkg, fqn, name, isAbstract, visibility, JAVA_LANGUAGE, "interface", "", "");
+        file, pkg, fqn, name, isAbstract, visibility, JAVA_LANGUAGE, Params.INTERFACE, "", "");
   }
 
   protected void upsertAnnotationNode(
@@ -220,12 +221,12 @@ public class CommonGraphWriter {
 
   private static String classKind(boolean isEnum, boolean isRecord) {
     if (isEnum) {
-      return "enum";
+      return Params.ENUM;
     }
     if (isRecord) {
-      return "record";
+      return Params.RECORD;
     }
-    return "class";
+    return Params.CLASS;
   }
 
   /** Internal dependency bundle for language writers without exposing session primitives. */

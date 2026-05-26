@@ -8,8 +8,8 @@ describes the model.
 
 `(:Project)` is the project anchor. Its identity is the `name` property. Code-specific graph data
 hangs below `(:Project)-[:CONTAINS]->(:Language)-[:CONTAINS]->(:Code)`. Language nodes are named
-`Java` or `Js`; `:Code` and every code node carry a `project` property matching the project name,
-so clients can filter either via anchor traversal or direct property matches.
+`Java`, `Js`, or `Python`; `:Code` and every code node carry a `project` property matching the
+project name, so clients can filter either via anchor traversal or direct property matches.
 
 Memory data hangs below `(:Project)-[:HAS_MEMORY]->(:Memory)`. `:Memory` and every memory item
 carry the same `project` property. Code nodes are produced by the ingester; memory nodes are
@@ -89,9 +89,10 @@ All memory item labels are unique by `(id, project)`. Most memory items also use
 
 `CodeRef.targetType` is one of `Code`, `Package`, `File`, `Class`, `Interface`, `Annotation`,
 `Method`, or `Field`. `CodeRef.key` uses the target identity: reference language key for `Code`
-(`java` or `js`), language-prefixed package name for `Package` (`java:<package>` or
-`js:<package>`), path for `File`, FQN for `Class`/`Interface`/`Annotation`/`Field`, and
-signature for `Method`. The ingester deletes and recreates `RESOLVES_TO` edges after each run.
+(`java`, `js`, or `python`), language-prefixed package name for `Package` (`java:<package>`,
+`js:<package>`, or `python:<package>`), path for `File`, FQN for
+`Class`/`Interface`/`Annotation`/`Field`, and signature for `Method`. The ingester deletes and
+recreates `RESOLVES_TO` edges after each run.
 
 Common memory-to-memory links:
 
@@ -127,16 +128,22 @@ Common memory-to-memory links:
   `(project, targetType, key)`.
 - Nested/inner classes use `$` as separator in FQN (e.g. `com.example.Outer$Inner`).
 - `language`, `kind`, `modulePath`, and `framework` are optional compatibility metadata. Current
-  emitted language values are `java` and `js`; older ingestions may not have these
-  properties. Language grouping nodes use display names `Java` and `Js`.
+  emitted language values are `java`, `js`, and `python`; older ingestions may not have these
+  properties. Language grouping nodes use display names `Java`, `Js`, and `Python`.
 - JavaScript/TypeScript modules are represented as synthetic `:Class` nodes with
   `language = "js"` and `kind = "module"`. Top-level functions and variables are declared
   by the module owner. TypeScript interfaces and type aliases reuse `:Interface`; decorators reuse
   `:Annotation` and `ANNOTATED_WITH`. TypeScript enums reuse `:Class` with `isEnum = true` and
   `kind = "enum"`. Angular decorators can set `framework = "angular"`.
+- Python modules are represented as synthetic `:Class` nodes with `language = "python"` and
+  `kind = "module"`. Top-level functions and variables are declared by the module owner. Python
+  decorators reuse `:Annotation` and `ANNOTATED_WITH`.
 - JavaScript/TypeScript file discovery is bounded by the configured `--source` root. Use the
   repository root as `--source` when root-level config or support files should be code nodes.
   `node_modules` is still skipped.
+- Python file discovery is bounded by the configured `--source` root and skips common environment
+  or generated directories such as `.venv`, `venv`, `site-packages`, `__pycache__`, `build`, and
+  `dist`.
 - Regular and watch re-ingestion prune deleted files and removed declarations. Changed-file
   cleanup and replacement writes are per-file transactional. Retained snapshots include
   active-source files, existing same-root graph files, and existing files from other source roots.
@@ -167,10 +174,13 @@ Common memory-to-memory links:
   declarations so `new X()` imports from barrel modules can resolve through the alias.
 - JavaScript/TypeScript namespace-qualified decorators preserve the namespace in the annotation FQN
   when the namespace import can be identified.
-- `CALLS` edges only connect methods within the same project. External library calls are dropped to avoid phantom nodes. JavaScript/TypeScript owner/name calls that cross file-order boundaries are first stored as `:PendingCall` records, then resolved after the ingestion batch. Direct owner methods are preferred, then the nearest superclass with exactly one matching method. Unresolved or ambiguous pending calls can remain until a later ingestion supplies a unique target; pending calls for a reingested JS/TS file are cleared before the file's current calls are stored.
+- `CALLS` edges only connect methods within the same project. External library calls are dropped to avoid phantom nodes. JavaScript/TypeScript and Python owner/name calls that cross file-order boundaries are first stored as `:PendingCall` records, then resolved after the ingestion batch. Direct owner methods are preferred, then the nearest superclass with exactly one matching method. Unresolved or ambiguous pending calls can remain until a later ingestion supplies a unique target; pending calls for a reingested JS/TS or Python file are cleared before the file's current calls are stored.
 - JavaScript/TypeScript `CALLS` edges are syntax-only best effort. Top-level IIFEs/callbacks and
   local function constructors are handled, but dynamic dispatch, framework templates, dependency
   injection, monkey-patching, and generated code can be missing.
+- Python `CALLS` edges are syntax-only best effort from CPython `ast`. Local function calls and
+  resolvable `self.method()` owner/name calls are handled, but dynamic dispatch, monkey-patching,
+  imports outside `--source`, and generated code can be missing.
 - **External / phantom nodes.** When a class extends or implements an external type, the parent node is created with `isExternal = true`. Its `name` and `packageName` are inferred from the FQN. External annotations (those not defined in the ingested source tree) are also marked `isExternal = true`. Project-internal nodes always have `isExternal = false`. Use `WHERE NOT n.isExternal` to exclude external types from queries.
 - Memory relationships are conventional, not constrained by DDL. Agents should keep memory scoped with `project` and link memory to `:CodeRef`, not directly to code nodes.
 
