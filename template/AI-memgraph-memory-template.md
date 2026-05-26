@@ -5,6 +5,7 @@ MUST include `project: '{{PROJECT_NAME}}'`.
 
 ### Memory Triggers
 
+- **NO DELEGATION:** Never delegate memory state queries or updates to subagents. You MUST use Memgraph.
 - **Status/pending-work requests:** run Orientation queries first, then check Git if local changes are relevant. Never answer from Git alone unless the user explicitly asks for Git-only status.
 - **Orientation reuse:** Orientation queries are session-scoped. If they were already run for `{{PROJECT_NAME}}` in this assistant session, reuse those results for follow-up work and skip rerunning them unless memory was changed, the user asks for a refresh, or the task scope is unrelated.
 - **Code changes:** before any code-change task, run Orientation queries for Rules, open Findings, Context, active Tasks, open Questions, and open Risks. Empty results are valid. Skip only if already run in this session.

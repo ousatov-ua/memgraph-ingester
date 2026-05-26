@@ -16,6 +16,7 @@ When Memgraph returns no relevant rows, fall back to text search and state why.
 
 ### Mandatory Triggers
 
+- **NO DELEGATION:** Never delegate architecture analysis, codebase investigations, or member/caller lookups to subagents (e.g., `codebase_investigator`). You MUST use Memgraph.
 - **Status/pending-work requests:** query Memgraph staleness or relevant structure first, then check Git when local changes are relevant. Never answer from Git alone unless the user explicitly asks for Git-only status.
 - **No ritual Codebase Analysis:** do not run Codebase Analysis queries just to have context. Run them only when a trigger below applies or code structure/relationships are needed.
 - **Orientation reuse:** Memgraph query results are session-scoped. Reuse relevant results unless the user asks for a refresh, source files changed, memory changed, or the task scope is unrelated.
