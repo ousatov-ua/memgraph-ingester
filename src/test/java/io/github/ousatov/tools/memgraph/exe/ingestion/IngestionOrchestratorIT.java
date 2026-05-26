@@ -22,6 +22,7 @@ import io.github.ousatov.tools.memgraph.exe.writer.js.JsGraphWriter;
 import io.github.ousatov.tools.memgraph.extension.MemgraphExtension;
 import io.github.ousatov.tools.memgraph.extension.MemgraphInstance;
 import io.github.ousatov.tools.memgraph.schema.Memgraph;
+import io.github.ousatov.tools.memgraph.schema.MemgraphDriver;
 import io.github.ousatov.tools.memgraph.vo.Settings;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -44,9 +45,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.neo4j.driver.AuthTokens;
 import org.neo4j.driver.Driver;
-import org.neo4j.driver.GraphDatabase;
 import org.neo4j.driver.Session;
 
 /**
@@ -69,7 +68,7 @@ class IngestionOrchestratorIT {
 
   @BeforeAll
   static void setupDriver(MemgraphInstance mg) {
-    driver = GraphDatabase.driver(mg.getBoltUrl(), AuthTokens.basic("", ""));
+    driver = MemgraphDriver.open(mg.getBoltUrl());
   }
 
   @AfterAll

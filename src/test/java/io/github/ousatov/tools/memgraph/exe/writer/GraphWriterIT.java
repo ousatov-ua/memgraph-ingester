@@ -18,6 +18,7 @@ import io.github.ousatov.tools.memgraph.exe.writer.java.JavaGraphWriter;
 import io.github.ousatov.tools.memgraph.exe.writer.js.JsGraphWriter;
 import io.github.ousatov.tools.memgraph.extension.MemgraphExtension;
 import io.github.ousatov.tools.memgraph.extension.MemgraphInstance;
+import io.github.ousatov.tools.memgraph.schema.MemgraphDriver;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -30,9 +31,7 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.neo4j.driver.AuthTokens;
 import org.neo4j.driver.Driver;
-import org.neo4j.driver.GraphDatabase;
 import org.neo4j.driver.Session;
 
 /**
@@ -59,7 +58,7 @@ class GraphWriterIT {
 
   @BeforeAll
   static void setupDriver(MemgraphInstance mg) {
-    driver = GraphDatabase.driver(mg.getBoltUrl(), AuthTokens.basic("", ""));
+    driver = MemgraphDriver.open(mg.getBoltUrl());
   }
 
   @AfterAll

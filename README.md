@@ -6,9 +6,10 @@
 [![Visitors](https://visitor-badge.laobi.icu/badge?page_id=ousatov-ua.memgraph-ingester)](https://github.com/ousatov-ua/memgraph-ingester)
 [![GitHub commits](https://img.shields.io/github/commit-activity/t/ousatov-ua/memgraph-ingester)](https://github.com/ousatov-ua/memgraph-ingester/commits/main)
 [![GitHub last commit](https://img.shields.io/github/last-commit/ousatov-ua/memgraph-ingester)](https://github.com/ousatov-ua/memgraph-ingester/commits/main)
-[![Supports Java codebases](https://img.shields.io/badge/supports-Java-f89820?logo=openjdk&logoColor=white)](#3-ingest-java)
-[![Supports JavaScript/TypeScript codebases](https://img.shields.io/badge/supports-JavaScript%20%2F%20TypeScript-3178c6?logo=typescript&logoColor=white)](#4-ingest-javascript-or-typescript)
-[![Supports Python codebases](https://img.shields.io/badge/supports-Python-3776ab?logo=python&logoColor=white)](#5-ingest-python)
+[![Supports Java codebases](https://img.shields.io/badge/spec_support-Java-f89820?logo=openjdk&logoColor=white)](#3-ingest-java)
+[![Supports JavaScript/TypeScript codebases](https://img.shields.io/badge/spec_support-JavaScript%20%2F%20TypeScript-3178c6?logo=typescript&logoColor=white)](#4-ingest-javascript-or-typescript)
+[![Supports Python codebases](https://img.shields.io/badge/spec_support-Python-3776ab?logo=python&logoColor=white)](#5-ingest-python)
+[![Supports any language](https://img.shields.io/badge/supports-any_language-blue)](#6-ingest-any-language)
 
 ![memgraph-ingester-readme-banner-640x320.svg](image/memgraph-ingester-readme-banner-640x320.svg)
 
@@ -20,6 +21,8 @@ Languages supported:
 - **Java**
 - **JavaScript/TypeScript**
 - **Python**
+- **Ctags-detected fallback languages** such as Ruby, Go, Rust, Kotlin, C, and C++ for structural
+  inventories when no first-class adapter owns the file extension.
 
 Optionally, it can also enable **memories** for durable project rules.
 
@@ -34,7 +37,8 @@ The normal path is simple:
 
 1. Run Memgraph.
 2. Download one ingester executable.
-3. Run one command; the ingester selects Java, JS/TS, or Python logic from each source file extension.
+3. Run one command; the ingester selects Java, JS/TS, Python, or ctags fallback logic from each
+   source file extension.
 4. Connect your AI agent through MCP or `mgconsole`.
 
 No source code is uploaded by the ingester. It reads local files, writes graph nodes to your
@@ -54,11 +58,13 @@ The ingester is designed to be safe to try.
 | Java parsing | Java source is parsed locally with JavaParser. Dependencies are optional and only improve symbol resolution. |
 | JS/TS parsing | The ingester can manage its own Node.js and TypeScript parser locally. You do not have to install Node.js. |
 | Python parsing | The ingester can manage its own standalone CPython runtime and private venv locally. You do not have to install Python. |
+| Ctags fallback | The ingester can manage its own Universal Ctags executable locally. You do not have to install ctags. |
 
-For JS/TS and Python, managed runtime mode is explicit and controlled:
+For JS/TS, Python, and ctags fallback, managed runtime mode is explicit and controlled:
 
 - Default mode is `--js-runtime-mode managed`.
 - Default mode is `--python-runtime-mode managed`.
+- Default mode is `--ctags-runtime-mode managed`.
 - Managed mode downloads pinned Node.js `22.11.0` from `nodejs.org`.
 - It verifies Node.js with the official SHA-256 checksum before extracting.
 - It downloads pinned TypeScript `5.6.3` from the npm registry.
@@ -66,11 +72,16 @@ For JS/TS and Python, managed runtime mode is explicit and controlled:
 - Managed Python downloads pinned standalone CPython `3.14.5` from python-build-standalone.
 - It verifies CPython with the release `SHA256SUMS` file before extracting.
 - It creates a private Python venv under `~/.cache/memgraph-ingester` by default.
+- Managed ctags downloads an official Universal Ctags release asset and verifies SHA-256 when the
+  release publishes a digest.
+- With `--ctags-version latest`, a ready cached ctags install is reused before checking GitHub
+  release metadata.
 - It caches parser runtimes under `~/.cache/memgraph-ingester` by default.
 - It never installs Node.js globally.
 - It never installs Python globally.
 - It never runs `npm install` in your project.
 - It never imports your Python project packages or runs your Python application code.
+- It never runs source files through ctags; ctags only reads files to emit tags.
 - It skips `node_modules` during source ingestion and watch registration.
 - The Python adapter skips common Python environment/cache directories such as `.venv`, `venv`,
   `site-packages`, `__pycache__`, `build`, and `dist`.
@@ -111,17 +122,18 @@ For normal use:
 
 Runtime requirements by artifact:
 
-| Artifact | Java required? | Node.js required for JS/TS? | Python required for Python? |
-|---|---:|---:|---:|
-| Native executable | No | No, managed mode handles it | No, managed mode handles it |
-| Shaded JAR | Java 25 JRE | No, managed mode handles it | No, managed mode handles it |
+| Artifact | Java required? | Node.js required for JS/TS? | Python required for Python? | Ctags required for fallback? |
+|---|---:|---:|---:|---:|
+| Native executable | No | No, managed mode handles it | No, managed mode handles it | No, managed mode handles it |
+| Shaded JAR | Java 25 JRE | No, managed mode handles it | No, managed mode handles it | No, managed mode handles it |
 
 Optional tools:
 
 - `mgconsole`, if you want to query Memgraph directly without MCP (***produces much fewer tokens***)
-- Node.js or Python 3.9+, only when you explicitly choose `--js-runtime-mode system` or
-  `--python-runtime-mode system`. Set `MEMGRAPH_INGESTER_PYTHON` to override the system Python
-  executable.
+- Node.js, Python 3.9+, or Universal Ctags only when you explicitly choose
+  `--js-runtime-mode system`, `--python-runtime-mode system`, or `--ctags-runtime-mode system`.
+  Set `MEMGRAPH_INGESTER_PYTHON` to override the system Python executable, or
+  `MEMGRAPH_INGESTER_CTAGS` to override the system ctags executable.
 - Maven, only if you want a richer Java classpath or you want to build from source.
 - Java 25 SDK, only if you build from source.
 
@@ -255,7 +267,33 @@ Optional preflight check, without connecting to Memgraph:
 This downloads and verifies the managed standalone CPython runtime if needed, creates the private
 parser venv, then runs a local parser smoke test against temporary Python files.
 
-### 6. Verify the Graph
+### 6. Ingest Other Ctags-Detected Languages
+
+Managed ctags mode needs no user-installed ctags. It is a fallback after Java, JS/TS, and Python,
+so first-class adapters still own their extensions:
+
+```bash
+cd /path/to/your/mixed/project
+
+<ingester> \
+  --source . \
+  --bolt bolt://localhost:7687 \
+  --project my-mixed-project \
+  --wipe-project-code \
+  --init-instructions \
+  --apply-schema
+```
+
+Optional preflight check, without connecting to Memgraph:
+
+```bash
+<ingester> --check-ctags-runtime
+```
+
+Ctags fallback writes files, packages, synthetic module owners, types, methods, and fields under the
+detected graph language. It does not promise call graphs or language-specific semantic resolution.
+
+### 7. Verify the Graph
 
 With MCP, run the same Cypher through your agent. With `mgconsole`:
 

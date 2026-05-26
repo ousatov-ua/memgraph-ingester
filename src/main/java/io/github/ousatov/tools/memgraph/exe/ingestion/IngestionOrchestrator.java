@@ -66,7 +66,6 @@ public final class IngestionOrchestrator {
   private static final int FILE_TX_RETRY_ATTEMPTS = 16;
   private static final long FILE_TX_INITIAL_BACKOFF_MS = 10L;
   private static final long FILE_TX_MAX_BACKOFF_MS = 1_000L;
-  private static final int PROGRESS_DIVISOR = 10;
   private final Path sourceRoot;
   private final String project;
   private final int threads;
@@ -133,7 +132,7 @@ public final class IngestionOrchestrator {
    * @return number of failed files; 0 means complete success
    */
   public int run(Settings settings) {
-    log.info("Proceeding with ingestion, settings: {}", settings);
+    log.debug("Proceeding with ingestion, settings: {}", settings);
     this.incremental = settings.incremental();
     IngestionRunStats stats = new IngestionRunStats(threads);
     if (incremental && (settings.wipeAllData() || settings.wipeProjectCode())) {
@@ -164,11 +163,11 @@ public final class IngestionOrchestrator {
         bootstrapWriter.wipeMemories();
       }
       bootstrapWriter.upsertProject(sourceRoot, languages());
-      log.info(
+      log.debug(
           "Upserted :Project -> :Language -> :Code and :Project -> :Memory anchors for '{}'",
           project);
       bootstrapWriter.backfillMethodOwnerMetadata();
-      log.info("Backfilled :Method owner metadata for '{}'", project);
+      log.debug("Backfilled :Method owner metadata for '{}'", project);
     }
 
     List<SourceFile> files = discoverSourceFiles();
@@ -190,10 +189,12 @@ public final class IngestionOrchestrator {
     }
 
     int failures;
-    if (threads == 1) {
-      failures = ingestSequential(files, storedFiles, retainedSourcePaths, stats);
-    } else {
-      failures = ingestParallel(files, storedFiles, retainedSourcePaths, stats);
+    try (IngestionProgress progress = IngestionProgress.start(files.size())) {
+      if (threads == 1) {
+        failures = ingestSequential(files, storedFiles, retainedSourcePaths, stats, progress);
+      } else {
+        failures = ingestParallel(files, storedFiles, retainedSourcePaths, stats, progress);
+      }
     }
 
     if (failures == 0) {
@@ -274,7 +275,26 @@ public final class IngestionOrchestrator {
       throw new ProcessingException("Watch service failed", e);
     } catch (InterruptedException _) {
       Thread.currentThread().interrupt();
+    } catch (RuntimeException e) {
+      if (isInterruptedFailure(e)) {
+        Thread.currentThread().interrupt();
+        return;
+      }
+      throw e;
     }
+  }
+
+  private static boolean isInterruptedFailure(Throwable throwable) {
+    for (Throwable current = throwable; current != null; current = current.getCause()) {
+      if (current instanceof InterruptedException) {
+        return true;
+      }
+      String message = current.getMessage();
+      if (message != null && message.contains("Thread interrupted")) {
+        return true;
+      }
+    }
+    return false;
   }
 
   void ingestChangedFiles(Set<Path> files) {
@@ -468,13 +488,13 @@ public final class IngestionOrchestrator {
   /** Refreshes graph artifacts that depend on all available code nodes being present. */
   private void refreshDerivedGraphArtifacts(GraphWriter writer) {
     writer.resolvePendingCalls();
-    log.info("Resolved pending owner/name CALLS edges for '{}'", project);
+    log.debug("Resolved pending owner/name CALLS edges for '{}'", project);
     writer.deletePhantomMethods();
-    log.info("Removed phantom external Method nodes for '{}'", project);
+    log.debug("Removed phantom external Method nodes for '{}'", project);
     writer.deleteEmptyPackages();
-    log.info("Removed empty Package nodes for '{}'", project);
+    log.debug("Removed empty Package nodes for '{}'", project);
     writer.resolveCodeRefs();
-    log.info("Refreshed :CodeRef resolution edges for '{}'", project);
+    log.debug("Refreshed :CodeRef resolution edges for '{}'", project);
   }
 
   @SuppressWarnings({"java:S106", "java:S1181"})
@@ -587,7 +607,7 @@ public final class IngestionOrchestrator {
       Map<SourceLanguage, List<Path>> pathsByLanguage = new LinkedHashMap<>();
       for (SourceFile file : files) {
         pathsByLanguage
-            .computeIfAbsent(file.adapter().language(), ignored -> new ArrayList<>())
+            .computeIfAbsent(file.language(), ignored -> new ArrayList<>())
             .add(file.path());
       }
       for (var entry : pathsByLanguage.entrySet()) {
@@ -631,7 +651,7 @@ public final class IngestionOrchestrator {
     for (SourceFile file : files) {
       currentFilesByPath.put(file.path(), file);
       pathsByLanguage
-          .computeIfAbsent(file.adapter().language(), ignored -> new ArrayList<>())
+          .computeIfAbsent(file.language(), ignored -> new ArrayList<>())
           .add(file.path());
     }
     try (Session session = driver.session()) {
@@ -639,7 +659,7 @@ public final class IngestionOrchestrator {
       writer.setRetainedSourcePaths(retainedPaths);
       Set<Path> retainedPathSet = new HashSet<>(retainedPaths);
       Set<Path> refreshAfterDelete = new LinkedHashSet<>();
-      for (SourceLanguage language : languages()) {
+      for (SourceLanguage language : languagesForCleanup(writer, pathsByLanguage)) {
         List<Path> currentPaths = pathsByLanguage.getOrDefault(language, List.of());
         Set<Path> currentPathSet = new HashSet<>(currentPaths);
         writer.getFilePathsInSourceRoot(sourceRoot, language).stream()
@@ -679,7 +699,18 @@ public final class IngestionOrchestrator {
   }
 
   private List<SourceLanguage> languages() {
-    return languageAdapters.stream().map(LanguageAdapter::language).distinct().toList();
+    return languageAdapters.stream()
+        .flatMap(adapter -> adapter.staticLanguage().stream())
+        .distinct()
+        .toList();
+  }
+
+  private List<SourceLanguage> languagesForCleanup(
+      GraphWriter writer, Map<SourceLanguage, List<Path>> pathsByLanguage) {
+    Set<SourceLanguage> cleanupLanguages = new LinkedHashSet<>(languages());
+    cleanupLanguages.addAll(pathsByLanguage.keySet());
+    cleanupLanguages.addAll(writer.getLanguagesInSourceRoot(sourceRoot));
+    return List.copyOf(cleanupLanguages);
   }
 
   private Optional<LanguageAdapter<?>> adapterFor(Path file) {
@@ -709,27 +740,21 @@ public final class IngestionOrchestrator {
   private <T> LanguageAdapter<T> rebaseAdapterForRetainedFile(
       Path file, LanguageAdapter<T> adapter, GraphWriter writer) {
     return writer
-        .getSourceRootHint(file, adapter.language())
-        .flatMap(hint -> sourceRootFromHint(file, adapter.language(), hint))
+        .getSourceRootHint(file, adapter.language(file))
+        .flatMap(hint -> sourceRootFromHint(file, adapter.language(file), hint))
         .map(adapter::forSourceRoot)
         .orElse(adapter);
   }
 
   private static Optional<Path> sourceRootFromHint(
       Path file, SourceLanguage language, String sourceRootHint) {
-    return switch (language) {
-      case JAVA ->
-          relativePathFromPackageName(file, sourceRootHint)
-              .flatMap(relativePath -> sourceRootFromRelativePath(file, relativePath));
-      case JAVASCRIPT ->
-          sourceRootHint.isBlank()
-              ? Optional.empty()
-              : sourceRootFromRelativePath(file, Path.of(sourceRootHint).normalize());
-      case PYTHON ->
-          sourceRootHint.isBlank()
-              ? Optional.empty()
-              : sourceRootFromRelativePath(file, Path.of(sourceRootHint).normalize());
-    };
+    if (SourceLanguage.JAVA.equals(language)) {
+      return relativePathFromPackageName(file, sourceRootHint)
+          .flatMap(relativePath -> sourceRootFromRelativePath(file, relativePath));
+    }
+    return sourceRootHint.isBlank()
+        ? Optional.empty()
+        : sourceRootFromRelativePath(file, Path.of(sourceRootHint).normalize());
   }
 
   private static Optional<Path> relativePathFromPackageName(Path file, String packageName) {
@@ -773,10 +798,9 @@ public final class IngestionOrchestrator {
       List<SourceFile> files,
       StoredFileState storedFiles,
       Collection<Path> retainedSourcePaths,
-      IngestionRunStats stats) {
+      IngestionRunStats stats,
+      IngestionProgress progress) {
     int failures = 0;
-    int total = files.size();
-    int step = Math.clamp(total / PROGRESS_DIVISOR, 1, 100);
     int done = 0;
     try (Session session = driver.session()) {
       GraphWriter writer = new GraphWriter(session, project, stats);
@@ -786,9 +810,7 @@ public final class IngestionOrchestrator {
           failures++;
         }
         done++;
-        if (done % step == 0 || done == total) {
-          log.info("Progress: {}/{} files", done, total);
-        }
+        progress.update(done);
       }
     }
     return failures;
@@ -905,9 +927,10 @@ public final class IngestionOrchestrator {
       List<SourceFile> files,
       StoredFileState storedFiles,
       Collection<Path> retainedSourcePaths,
-      IngestionRunStats stats) {
+      IngestionRunStats stats,
+      IngestionProgress progress) {
     try {
-      return ingestParallelTransactional(files, storedFiles, retainedSourcePaths, stats);
+      return ingestParallelTransactional(files, storedFiles, retainedSourcePaths, stats, progress);
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
       throw new ProcessingException("Interrupted during ingestion", e);
@@ -918,7 +941,8 @@ public final class IngestionOrchestrator {
       List<SourceFile> files,
       StoredFileState storedFiles,
       Collection<Path> retainedSourcePaths,
-      IngestionRunStats stats)
+      IngestionRunStats stats,
+      IngestionProgress progress)
       throws InterruptedException {
     if (files.isEmpty()) {
       return 0;
@@ -948,7 +972,6 @@ public final class IngestionOrchestrator {
     AtomicInteger done = new AtomicInteger();
     AtomicInteger failures = new AtomicInteger();
     int total = files.size();
-    int step = Math.clamp(total / PROGRESS_DIVISOR, 1, 100);
 
     try {
       CountDownLatch latch = new CountDownLatch(total);
@@ -956,7 +979,7 @@ public final class IngestionOrchestrator {
         pool.submit(
             () ->
                 runFileIngestionTask(
-                    file, storedFiles, threadWriter.get(), failures, done, step, total, latch));
+                    file, storedFiles, threadWriter.get(), failures, done, progress, latch));
       }
       boolean completed = latch.await(SHUTDOWN_TIMEOUT_MINUTES, TimeUnit.MINUTES);
       pool.shutdown();
@@ -992,8 +1015,7 @@ public final class IngestionOrchestrator {
       GraphWriter writer,
       AtomicInteger failures,
       AtomicInteger done,
-      int step,
-      int total,
+      IngestionProgress progress,
       CountDownLatch latch) {
     try {
       if (!ingestFileBatched(writer, file, storedFiles)) {
@@ -1004,9 +1026,7 @@ public final class IngestionOrchestrator {
       failures.incrementAndGet();
     } finally {
       int n = done.incrementAndGet();
-      if (n % step == 0 || n == total) {
-        log.info("Progress: {}/{} files", n, total);
-      }
+      progress.update(n);
       latch.countDown();
     }
   }
@@ -1025,7 +1045,10 @@ public final class IngestionOrchestrator {
 
   /** Source file paired with the adapter selected by extension. */
   private record SourceFile(Path path, LanguageAdapter<?> adapter) {
-    // Record body intentionally empty.
+
+    SourceLanguage language() {
+      return adapter.language(path);
+    }
   }
 
   /** Source files and retained paths captured from one watch-cycle snapshot. */

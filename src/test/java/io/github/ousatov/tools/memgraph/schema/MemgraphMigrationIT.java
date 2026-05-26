@@ -13,9 +13,7 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.neo4j.driver.AuthTokens;
 import org.neo4j.driver.Driver;
-import org.neo4j.driver.GraphDatabase;
 import org.neo4j.driver.Session;
 
 /**
@@ -36,7 +34,7 @@ class MemgraphMigrationIT {
 
   @BeforeAll
   static void setupDriver(MemgraphInstance mg) {
-    driver = GraphDatabase.driver(mg.getBoltUrl(), AuthTokens.basic("", ""));
+    driver = MemgraphDriver.open(mg.getBoltUrl());
   }
 
   @AfterAll

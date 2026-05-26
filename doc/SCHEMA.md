@@ -7,9 +7,11 @@ describes the model.
 ## Anchor nodes
 
 `(:Project)` is the project anchor. Its identity is the `name` property. Code-specific graph data
-hangs below `(:Project)-[:CONTAINS]->(:Language)-[:CONTAINS]->(:Code)`. Language nodes are named
-`Java`, `Js`, or `Python`; `:Code` and every code node carry a `project` property matching the
-project name, so clients can filter either via anchor traversal or direct property matches.
+hangs below `(:Project)-[:CONTAINS]->(:Language)-[:CONTAINS]->(:Code)`. First-class language nodes
+are named `Java`, `Js`, or `Python`; ctags fallback ingestion can add detected language nodes such
+as `Ruby`, `Go`, `Rust`, or `Kotlin`. `:Code` and every code node carry a `project` property
+matching the project name, so clients can filter either via anchor traversal or direct property
+matches.
 
 Memory data hangs below `(:Project)-[:HAS_MEMORY]->(:Memory)`. `:Memory` and every memory item
 carry the same `project` property. Code nodes are produced by the ingester; memory nodes are
@@ -89,8 +91,9 @@ All memory item labels are unique by `(id, project)`. Most memory items also use
 
 `CodeRef.targetType` is one of `Code`, `Package`, `File`, `Class`, `Interface`, `Annotation`,
 `Method`, or `Field`. `CodeRef.key` uses the target identity: reference language key for `Code`
-(`java`, `js`, or `python`), language-prefixed package name for `Package` (`java:<package>`,
-`js:<package>`, or `python:<package>`), path for `File`, FQN for
+(`java`, `js`, `python`, or a ctags-detected graph language), language-prefixed package name for
+`Package` (`java:<package>`, `js:<package>`, `python:<package>`, or
+`<detected-language>:<package>`), path for `File`, FQN for
 `Class`/`Interface`/`Annotation`/`Field`, and signature for `Method`. The ingester deletes and
 recreates `RESOLVES_TO` edges after each run.
 
@@ -128,8 +131,9 @@ Common memory-to-memory links:
   `(project, targetType, key)`.
 - Nested/inner classes use `$` as separator in FQN (e.g. `com.example.Outer$Inner`).
 - `language`, `kind`, `modulePath`, and `framework` are optional compatibility metadata. Current
-  emitted language values are `java`, `js`, and `python`; older ingestions may not have these
-  properties. Language grouping nodes use display names `Java`, `Js`, and `Python`.
+  first-class language values are `java`, `js`, and `python`; ctags fallback can add detected
+  language values such as `ruby`, `go`, `rust`, or `kotlin`. Older ingestions may not have these
+  properties. Language grouping nodes use display names such as `Java`, `Js`, `Python`, or `Ruby`.
 - JavaScript/TypeScript modules are represented as synthetic `:Class` nodes with
   `language = "js"` and `kind = "module"`. Top-level functions and variables are declared
   by the module owner. TypeScript interfaces and type aliases reuse `:Interface`; decorators reuse
@@ -138,6 +142,11 @@ Common memory-to-memory links:
 - Python modules are represented as synthetic `:Class` nodes with `language = "python"` and
   `kind = "module"`. Top-level functions and variables are declared by the module owner. Python
   decorators reuse `:Annotation` and `ANNOTATED_WITH`.
+- Ctags-detected modules are represented as synthetic `:Class` nodes with the detected language and
+  `kind = "module"`. Ctags fallback emits file/package/module/type/member inventories only; it does
+  not promise call graphs, inheritance, imports, decorators, or language-specific semantic
+  resolution. Ctags-detected package names and module owner FQNs use the detected graph language as
+  their synthetic prefix.
 - JavaScript/TypeScript file discovery is bounded by the configured `--source` root. Use the
   repository root as `--source` when root-level config or support files should be code nodes.
   `node_modules` is still skipped.

@@ -7,6 +7,7 @@ import io.github.ousatov.tools.memgraph.exe.adapter.SourceLanguage;
 import io.github.ousatov.tools.memgraph.extension.MemgraphExtension;
 import io.github.ousatov.tools.memgraph.extension.MemgraphInstance;
 import io.github.ousatov.tools.memgraph.schema.Memgraph;
+import io.github.ousatov.tools.memgraph.schema.MemgraphDriver;
 import java.nio.file.Path;
 import java.util.Map;
 import java.util.UUID;
@@ -16,9 +17,7 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.neo4j.driver.AuthTokens;
 import org.neo4j.driver.Driver;
-import org.neo4j.driver.GraphDatabase;
 import org.neo4j.driver.Session;
 
 /**
@@ -43,7 +42,7 @@ class MemoryGraphIT {
 
   @BeforeAll
   static void setupDriver(MemgraphInstance mg) {
-    driver = GraphDatabase.driver(mg.getBoltUrl(), AuthTokens.basic("", ""));
+    driver = MemgraphDriver.open(mg.getBoltUrl());
     try (Session s = driver.session()) {
       Memgraph.applySchema(s);
     }
@@ -233,16 +232,14 @@ class MemoryGraphIT {
   }
 
   @Test
-  void resolveCodeRefsClearsUnsupportedCodeAndPackageEdges() {
+  void resolveCodeRefsResolveDynamicCodeAndPackageEdges() {
     session
         .run(
             "CREATE (code:Code {project: $p, language: 'ruby'})"
-                + " CREATE (pkg:Package {project: $p, name: 'shared', language: 'ruby'})"
+                + " CREATE (pkg:Package {project: $p, name: 'ruby.shared', language: 'ruby'})"
                 + " CREATE (codeRef:CodeRef {project: $p, targetType: 'Code', key: 'ruby'})"
                 + " CREATE (pkgRef:CodeRef {project: $p,"
-                + " targetType: 'Package', key: 'ruby:shared'})"
-                + " CREATE (codeRef)-[:RESOLVES_TO]->(code)"
-                + " CREATE (pkgRef)-[:RESOLVES_TO]->(pkg)",
+                + " targetType: 'Package', key: 'ruby:ruby.shared'})",
             Map.of("p", PROJECT))
         .consume();
 
@@ -252,14 +249,14 @@ class MemoryGraphIT {
         session
             .run(
                 "MATCH (ref:CodeRef {project: $p})-[rel:RESOLVES_TO]->()"
-                    + " WHERE ref.key IN ['ruby', 'ruby:shared']"
+                    + " WHERE ref.key IN ['ruby', 'ruby:ruby.shared']"
                     + " RETURN count(rel) AS n",
                 Map.of("p", PROJECT))
             .single()
             .get("n")
             .asLong();
 
-    assertEquals(0, count);
+    assertEquals(2, count);
   }
 
   @Test

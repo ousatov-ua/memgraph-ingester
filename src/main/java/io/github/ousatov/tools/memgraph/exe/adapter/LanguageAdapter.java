@@ -25,6 +25,16 @@ public interface LanguageAdapter<T> {
   /** Returns the source language represented by this adapter. */
   SourceLanguage language();
 
+  /** Returns a static source language when the adapter is bound to one graph language. */
+  default Optional<SourceLanguage> staticLanguage() {
+    return Optional.of(language());
+  }
+
+  /** Returns the source language selected for {@code file}. */
+  default SourceLanguage language(Path file) {
+    return language();
+  }
+
   /** Returns true when this adapter can parse {@code file}. */
   boolean accepts(Path file);
 

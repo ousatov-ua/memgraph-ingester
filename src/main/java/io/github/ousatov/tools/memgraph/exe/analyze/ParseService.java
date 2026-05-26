@@ -118,7 +118,7 @@ public final class ParseService {
     try {
       Path filtered = createFilteredJar(jar);
       solver.add(new JarTypeSolver(filtered));
-      log.info("Added filtered JAR to solver (skipped problematic entries): {}", jar);
+      log.debug("Added filtered JAR to solver (skipped problematic entries): {}", jar);
     } catch (Exception _) {
       log.warn("Could not add JAR to solver: {}: {}", jar, original.getMessage());
     }

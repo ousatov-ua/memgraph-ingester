@@ -9,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import io.github.ousatov.tools.memgraph.exe.analyze.ManagedPythonRuntime;
 import io.github.ousatov.tools.memgraph.extension.MemgraphExtension;
 import io.github.ousatov.tools.memgraph.extension.MemgraphInstance;
+import io.github.ousatov.tools.memgraph.schema.MemgraphDriver;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
@@ -23,8 +24,6 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.neo4j.driver.AuthTokens;
-import org.neo4j.driver.GraphDatabase;
 import picocli.CommandLine;
 
 /**
@@ -289,6 +288,9 @@ class IngesterCliTest {
                     Files.readString(defaultInstructions).contains("## Memories"),
                     "default instructions should be installed before watch mode blocks");
                 assertTrue(
+                    readOutput(output).contains("Connected to Memgraph at " + mg.getBoltUrl()),
+                    () -> readOutput(output));
+                assertTrue(
                     classExists(mg, project, "Good"),
                     "watch mode should still perform the initial ingestion");
               });
@@ -358,7 +360,7 @@ class IngesterCliTest {
   }
 
   private static boolean classExists(MemgraphInstance mg, String project, String name) {
-    try (var driver = GraphDatabase.driver(mg.getBoltUrl(), AuthTokens.basic("", ""));
+    try (var driver = MemgraphDriver.open(mg.getBoltUrl());
         var session = driver.session()) {
       long classCount =
           session
@@ -373,7 +375,7 @@ class IngesterCliTest {
   }
 
   private static void wipeProject(MemgraphInstance mg, String project) {
-    try (var driver = GraphDatabase.driver(mg.getBoltUrl(), AuthTokens.basic("", ""));
+    try (var driver = MemgraphDriver.open(mg.getBoltUrl());
         var session = driver.session()) {
       session.run("MATCH (n) WHERE n.project = $p DETACH DELETE n", Map.of("p", project)).consume();
       session.run("MATCH (p:Project {name: $p}) DETACH DELETE p", Map.of("p", project)).consume();

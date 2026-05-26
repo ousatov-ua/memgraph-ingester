@@ -184,11 +184,12 @@ Use full Codebase Analysis only when focused queries do not identify the target 
 
 ### Query Caveats
 
-- Code is grouped by `(:Language {name: "Java"|"Js"|"Python"})` between `:Project` and `:Code`. Code graph nodes may have optional `language` (`"java"`, `"js"`, or `"python"`), `kind`, `modulePath`, and `framework` metadata. Older graphs may not have these properties.
+- Code is grouped by `(:Language)-[:CONTAINS]->(:Code)` between `:Project` and source nodes. First-class language graph values are `java`, `js`, and `python`; ctags fallback ingestion can add detected language values such as `ruby`, `go`, `rust`, or `kotlin`. Code graph nodes may have optional `language`, `kind`, `modulePath`, and `framework` metadata. Older graphs may not have these properties.
 - `CALLS` has no `project`; filter both endpoints.
 - `CALLS` and `ANNOTATED_WITH` are best-effort; missing edges do not prove no relationship.
 - JavaScript/TypeScript modules are represented as synthetic `:Class` owner nodes with `language = "js"` and `kind = "module"`. Top-level functions and variables are declared by that module owner.
 - Python modules are represented as synthetic `:Class` owner nodes with `language = "python"` and `kind = "module"`. Top-level functions and variables are declared by that module owner.
+- Ctags-detected modules are represented as synthetic `:Class` owner nodes with the detected `language` and `kind = "module"`. Ctags fallback emits file/package/module/type/member inventories only; it does not promise call graphs, inheritance, imports, decorators, or language-specific semantic resolution.
 - Raw JavaScript/TypeScript `:Class` queries include synthetic module owners and TypeScript enums. Filter by `kind = "class"` when you only want classes.
 - JavaScript/TypeScript file discovery is bounded by the configured `--source` root. If `--source` points at `src`, root-level config or support files such as `jest.config.ts`, `webpack.config.ts`, `karma.conf.js`, or `mocker/*.js` are outside the ingested tree. Use the repository root as `--source` when those files should be code nodes. `node_modules` is still skipped.
 - Python file discovery is bounded by the configured `--source` root and skips common environment/cache directories such as `.venv`, `venv`, `site-packages`, `__pycache__`, `build`, and `dist`.
@@ -206,6 +207,7 @@ Use full Codebase Analysis only when focused queries do not identify the target 
 - JavaScript/TypeScript `CALLS` edges are syntax-only and intra-project best effort, not a complete raw AST call inventory. Identifier calls resolve only when the local declaration name is unique. Property calls resolve only for known local receivers such as `this`, typed `this.<property>` receivers for local classes, a local class, or `new LocalClass()`. Constructor calls from `new LocalClass()` and local function constructors resolve to explicit or synthesized signatures; imported or barrel class constructors use owner/name pending calls. Top-level IIFEs and callback bodies are traversed, while standalone nested functions are skipped. Unknown receivers, dynamic dispatch, dependency injection, framework templates, monkey-patching, and generated code can be missing.
 - Python `CALLS` edges are syntax-only and intra-project best effort from CPython `ast`. Local function calls and resolvable `self.method()` calls are handled, while dynamic dispatch, monkey-patching, imports outside `--source`, and generated code can be missing.
 - JavaScript/TypeScript `packageName` and module owner FQN values are synthetic, collision-safe encoded path identities with a `js.` prefix; they are not npm package names or raw filenames.
+- Ctags-detected `packageName` and module owner FQN values are synthetic, collision-safe encoded path identities with the detected graph language prefix.
 - Fully ingested `Method` nodes store `ownerFqn` and `ownerDisplayName`; prefer those properties for relationship summaries instead of parsing `signature` or traversing `DECLARES`.
 - Placeholder callee `Method` nodes created during call-edge ingestion can lack owner metadata until the callee is ingested; phantom cleanup normally removes unresolved placeholders.
 - External nodes use `isExternal = true`. External interfaces implemented by project classes still have `IMPLEMENTS` edges, but are excluded by internal-interface filters.
@@ -223,6 +225,19 @@ Use full Codebase Analysis only when focused queries do not identify the target 
 - Implicit default constructors are synthetic `<init>()` methods with `startLine=0`, `endLine=0`.
 
 ## Standard Queries
+
+### Language Selection
+
+When the target file language is unclear, query available graph languages first:
+
+```cypher
+MATCH (l:Language {project: '{{PROJECT_NAME}}'})-[:CONTAINS]->(c:Code)
+RETURN l.name AS languageName, l.graphName AS graphName, c.language AS language
+ORDER BY languageName;
+```
+
+For follow-up queries, filter by the returned `language` / `graphName` value. Ctags-ingested files
+are stored under their detected language, such as `ruby`, `go`, `rust`, or `kotlin`.
 
 ### Pagination
 
