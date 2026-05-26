@@ -383,8 +383,7 @@ public final class IngesterCli implements Callable<Integer> {
   }
 
   private Integer runJsRuntimeCheck(RuntimeMode selectedRuntimeMode) {
-    Path cacheRoot =
-        jsRuntimeCache == null ? ManagedNodeRuntime.defaultCacheRoot() : jsRuntimeCache;
+    Path cacheRoot = resolvedJsRuntimeCache();
     Path tempDir = null;
     try {
       tempDir = Files.createTempDirectory("memgraph-ingester-js-runtime-check-");
@@ -669,21 +668,26 @@ public final class IngesterCli implements Callable<Integer> {
 
   private List<LanguageAdapter<?>> createLanguageAdapters(
       RuntimeMode selectedJsRuntimeMode, RuntimeMode selectedPythonRuntimeMode) {
-    Path jsCacheRoot =
-        jsRuntimeCache == null ? ManagedNodeRuntime.defaultCacheRoot() : jsRuntimeCache;
     return LanguageAdapterFactory.create(
         sourceRoot,
         classpath,
         new LanguageAdapterFactory.JsRuntimeOptions(
-            jsCacheRoot, jsNodeVersion, jsTypescriptVersion, selectedJsRuntimeMode),
+            resolvedJsRuntimeCache(), jsNodeVersion, jsTypescriptVersion, selectedJsRuntimeMode),
         new LanguageAdapterFactory.PythonRuntimeOptions(
             resolvedPythonRuntimeCache(), pythonVersion, pythonBuild, selectedPythonRuntimeMode));
   }
 
+  private Path resolvedJsRuntimeCache() {
+    return jsRuntimeCache == null ? ManagedNodeRuntime.defaultCacheRoot() : jsRuntimeCache;
+  }
+
   private Path resolvedPythonRuntimeCache() {
-    if (pythonRuntimeCache != null) {
-      return pythonRuntimeCache;
-    }
-    return jsRuntimeCache == null ? ManagedPythonRuntime.defaultCacheRoot() : jsRuntimeCache;
+    return resolvePythonRuntimeCache(pythonRuntimeCache);
+  }
+
+  static Path resolvePythonRuntimeCache(Path pythonRuntimeCache) {
+    return pythonRuntimeCache == null
+        ? ManagedPythonRuntime.defaultCacheRoot()
+        : pythonRuntimeCache;
   }
 }

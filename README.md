@@ -67,7 +67,7 @@ For JS/TS and Python, managed runtime mode is explicit and controlled:
 - It never runs `npm install` in your project.
 - It never imports your Python project packages or runs your Python application code.
 - It skips `node_modules` during source ingestion and watch registration.
-- It skips common Python environment/cache directories such as `.venv`, `venv`,
+- The Python adapter skips common Python environment/cache directories such as `.venv`, `venv`,
   `site-packages`, `__pycache__`, `build`, and `dist`.
 
 If you do not want the ingester to download Node.js, use your own Node.js:

@@ -720,9 +720,9 @@ class IngestionOrchestratorIT {
     Files.writeString(buildJavaFile, "public class BuildSource { int ok() { return 1; } }");
     Path buildPythonFile = buildJavaFile.getParent().resolve("ignored.py");
     Files.writeString(buildPythonFile, "value = 1\n");
-    Path ignoredFile = sourceDir.resolve(".venv/Leak.java");
-    Files.createDirectories(ignoredFile.getParent());
-    Files.writeString(ignoredFile, "public class Leak { int bad() { return 1; } }");
+    Path venvJavaFile = sourceDir.resolve(".venv/Leak.java");
+    Files.createDirectories(venvJavaFile.getParent());
+    Files.writeString(venvJavaFile, "public class Leak { int bad() { return 1; } }");
 
     int failures =
         new IngestionOrchestrator(
@@ -739,7 +739,7 @@ class IngestionOrchestratorIT {
     assertTrue(fileExistsInGraph(currentProject, appFile));
     assertTrue(fileExistsInGraph(currentProject, buildJavaFile));
     assertFalse(fileExistsInGraph(currentProject, buildPythonFile));
-    assertFalse(fileExistsInGraph(currentProject, ignoredFile));
+    assertTrue(fileExistsInGraph(currentProject, venvJavaFile));
   }
 
   @Test

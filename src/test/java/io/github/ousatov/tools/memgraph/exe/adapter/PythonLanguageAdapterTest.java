@@ -36,6 +36,7 @@ class PythonLanguageAdapterTest {
   @Test
   void rejectsGeneratedAndEnvironmentDirectories() {
     assertFalse(adapter.accepts(Path.of("__pycache__/app.py")));
+    assertFalse(adapter.accepts(Path.of("node_modules/pkg/app.py")));
     assertFalse(adapter.accepts(Path.of(".venv/lib/python/site-packages/pkg/app.py")));
     assertFalse(adapter.accepts(Path.of("dist/app.py")));
   }

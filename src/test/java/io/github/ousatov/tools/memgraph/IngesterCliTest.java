@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import io.github.ousatov.tools.memgraph.exe.analyze.ManagedPythonRuntime;
 import io.github.ousatov.tools.memgraph.extension.MemgraphExtension;
 import io.github.ousatov.tools.memgraph.extension.MemgraphInstance;
 import java.io.IOException;
@@ -146,6 +147,18 @@ class IngesterCliTest {
       assertEquals(1, exitCode);
     } finally {
       deleteDir(sourceDir);
+    }
+  }
+
+  @Test
+  void pythonRuntimeCacheDefaultsIndependentlyOfJsRuntimeCache() throws IOException {
+    Path explicitPythonCache = Files.createTempDirectory("cli-python-cache-");
+    try {
+      assertEquals(
+          ManagedPythonRuntime.defaultCacheRoot(), IngesterCli.resolvePythonRuntimeCache(null));
+      assertEquals(explicitPythonCache, IngesterCli.resolvePythonRuntimeCache(explicitPythonCache));
+    } finally {
+      deleteDir(explicitPythonCache);
     }
   }
 

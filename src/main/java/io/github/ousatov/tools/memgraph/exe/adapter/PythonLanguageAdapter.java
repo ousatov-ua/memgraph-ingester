@@ -30,7 +30,16 @@ public final class PythonLanguageAdapter implements LanguageAdapter<PythonAnalys
 
   private static final Logger log = LoggerFactory.getLogger(PythonLanguageAdapter.class);
   private static final Set<String> SKIPPED_DIRECTORIES =
-      Set.of("__pycache__", ".venv", "venv", ".tox", ".nox", "site-packages", "build", "dist");
+      Set.of(
+          "node_modules",
+          "__pycache__",
+          ".venv",
+          "venv",
+          ".tox",
+          ".nox",
+          "site-packages",
+          "build",
+          "dist");
 
   private final PythonAnalyzer analyzer;
 

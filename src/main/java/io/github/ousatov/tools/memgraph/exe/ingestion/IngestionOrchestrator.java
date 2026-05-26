@@ -518,14 +518,6 @@ public final class IngestionOrchestrator {
         });
   }
 
-  private static final Set<String> GLOBALLY_SKIPPED_SOURCE_DIRECTORIES =
-      Set.of("node_modules", "__pycache__", ".venv", "venv", ".tox", ".nox", "site-packages");
-
-  private static boolean isGloballySkippedSourceDirectory(Path dir) {
-    Path fileName = dir.getFileName();
-    return fileName != null && GLOBALLY_SKIPPED_SOURCE_DIRECTORIES.contains(fileName.toString());
-  }
-
   private boolean shouldVisitDirectory(Path dir, List<LanguageAdapter<?>> adapters) {
     return !adaptersForDirectory(dir, adapters).isEmpty();
   }
@@ -533,9 +525,6 @@ public final class IngestionOrchestrator {
   private List<LanguageAdapter<?>> adaptersForDirectory(
       Path dir, List<LanguageAdapter<?>> adapters) {
     Path localDir = LanguageAdapter.localPath(sourceRoot, dir);
-    if (isGloballySkippedSourceDirectory(localDir)) {
-      return List.of();
-    }
     return adapters.stream().filter(adapter -> adapter.shouldVisitDirectory(localDir)).toList();
   }
 
