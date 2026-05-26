@@ -709,12 +709,17 @@ class IngestionOrchestratorIT {
   }
 
   @Test
-  void sharedDiscoveryPrunesDirectoriesRejectedByAnyConfiguredAdapter() throws Exception {
+  void sharedDiscoveryUsesAdapterSpecificDirectoryPruning() throws Exception {
     currentProject = PROJECT_BASE + "-shared-pruning";
     sourceDir = Files.createTempDirectory("orch-shared-pruning-src-");
     Path appFile =
         Files.writeString(
             sourceDir.resolve("Good.java"), "public class Good { int ok() { return 1; } }");
+    Path buildJavaFile = sourceDir.resolve("build/BuildSource.java");
+    Files.createDirectories(buildJavaFile.getParent());
+    Files.writeString(buildJavaFile, "public class BuildSource { int ok() { return 1; } }");
+    Path buildPythonFile = buildJavaFile.getParent().resolve("ignored.py");
+    Files.writeString(buildPythonFile, "value = 1\n");
     Path ignoredFile = sourceDir.resolve(".venv/Leak.java");
     Files.createDirectories(ignoredFile.getParent());
     Files.writeString(ignoredFile, "public class Leak { int bad() { return 1; } }");
@@ -732,6 +737,8 @@ class IngestionOrchestratorIT {
 
     assertEquals(0, failures);
     assertTrue(fileExistsInGraph(currentProject, appFile));
+    assertTrue(fileExistsInGraph(currentProject, buildJavaFile));
+    assertFalse(fileExistsInGraph(currentProject, buildPythonFile));
     assertFalse(fileExistsInGraph(currentProject, ignoredFile));
   }
 

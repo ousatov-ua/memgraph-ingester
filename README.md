@@ -114,7 +114,7 @@ Runtime requirements by artifact:
 Optional tools:
 
 - `mgconsole`, if you want to query Memgraph directly without MCP (***produces much fewer tokens***)
-- Node.js or Python 3, only when you explicitly choose `--js-runtime-mode system` or
+- Node.js or Python 3.9+, only when you explicitly choose `--js-runtime-mode system` or
   `--python-runtime-mode system`. Set `MEMGRAPH_INGESTER_PYTHON` to override the system Python
   executable.
 - Maven, only if you want a richer Java classpath or you want to build from source.
@@ -502,7 +502,7 @@ Runtime modes:
 | Mode | Use when | Network |
 |---|---|---|
 | `managed` | You want the ingester to own the parser runtime. This is the default. | Downloads once if cache is missing. |
-| `system` | You want to use Python from `PATH` or `MEMGRAPH_INGESTER_PYTHON`. | No CPython download. |
+| `system` | You want to use Python 3.9+ from `PATH` or `MEMGRAPH_INGESTER_PYTHON`. | No CPython download. |
 | `offline` | You want no downloads and the managed cache is already warm. | No downloads. Fails if cache is missing. |
 
 Custom cache:

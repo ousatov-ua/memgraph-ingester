@@ -518,15 +518,25 @@ public final class IngestionOrchestrator {
         });
   }
 
-  private static boolean isNodeModulesDirectory(Path dir) {
+  private static final Set<String> GLOBALLY_SKIPPED_SOURCE_DIRECTORIES =
+      Set.of("node_modules", "__pycache__", ".venv", "venv", ".tox", ".nox", "site-packages");
+
+  private static boolean isGloballySkippedSourceDirectory(Path dir) {
     Path fileName = dir.getFileName();
-    return fileName != null && "node_modules".equals(fileName.toString());
+    return fileName != null && GLOBALLY_SKIPPED_SOURCE_DIRECTORIES.contains(fileName.toString());
   }
 
   private boolean shouldVisitDirectory(Path dir, List<LanguageAdapter<?>> adapters) {
+    return !adaptersForDirectory(dir, adapters).isEmpty();
+  }
+
+  private List<LanguageAdapter<?>> adaptersForDirectory(
+      Path dir, List<LanguageAdapter<?>> adapters) {
     Path localDir = LanguageAdapter.localPath(sourceRoot, dir);
-    return !isNodeModulesDirectory(localDir)
-        && adapters.stream().allMatch(adapter -> adapter.shouldVisitDirectory(localDir));
+    if (isGloballySkippedSourceDirectory(localDir)) {
+      return List.of();
+    }
+    return adapters.stream().filter(adapter -> adapter.shouldVisitDirectory(localDir)).toList();
   }
 
   private List<SourceFile> discoverSourceFiles() {
@@ -566,7 +576,8 @@ public final class IngestionOrchestrator {
             public @NonNull FileVisitResult visitFile(
                 @NonNull Path file, @NonNull BasicFileAttributes attrs) {
               if (attrs.isRegularFile()) {
-                adapterFor(file, adapters)
+                Path fileDirectory = file.getParent() == null ? sourceRoot : file.getParent();
+                adapterFor(file, adaptersForDirectory(fileDirectory, adapters))
                     .ifPresent(adapter -> byPath.putIfAbsent(file, new SourceFile(file, adapter)));
               }
               return FileVisitResult.CONTINUE;

@@ -2,10 +2,12 @@ package io.github.ousatov.tools.memgraph.exe.analyze;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.concurrent.TimeUnit;
@@ -522,6 +524,69 @@ class PythonAnalyzerTest {
         () -> "Annotations: " + analysis.annotations());
   }
 
+  @Test
+  void collectsModuleAndClassFieldsFromControlBlocks() throws IOException {
+    PythonAnalysis analysis =
+        analyzeSource(
+            "members.py",
+            """
+            if True:
+                module_flag: int = 1
+
+            class Service:
+                if True:
+                    enabled: bool = True
+                try:
+                    name = "service"
+                except Exception:
+                    fallback = "fallback"
+
+                def run(self):
+                    if True:
+                        local_value = 1
+            """);
+
+    assertTrue(hasMember(analysis, "python.members$2e$py#module_flag"));
+    assertTrue(hasMember(analysis, "python.members$2e$py.Service#enabled"));
+    assertTrue(hasMember(analysis, "python.members$2e$py.Service#name"));
+    assertTrue(hasMember(analysis, "python.members$2e$py.Service#fallback"));
+    assertFalse(
+        hasMember(analysis, "python.members$2e$py.Service#local_value"),
+        () -> "Members: " + analysis.members());
+  }
+
+  @Test
+  void helperFailsFastWhenAstUnparseIsUnavailable() throws IOException, InterruptedException {
+    assumeTrue(systemPythonAvailable(), "Python analyzer helper test requires python3");
+    Path sourceFile = tempDir.resolve("app.py");
+    Files.writeString(sourceFile, "@decorator\nclass Service:\n    pass\n");
+    Path helperScript =
+        Path.of("src/main/resources/io/github/ousatov/tools/memgraph/python/python-analyzer.py")
+            .toAbsolutePath();
+    String command =
+        "import ast, runpy, sys; "
+            + "delattr(ast, 'unparse') if hasattr(ast, 'unparse') else None; "
+            + "source, root, helper = sys.argv[1:4]; "
+            + "sys.argv = ['python-analyzer.py', '--file', source, '--root', root]; "
+            + "runpy.run_path(helper, run_name='__main__')";
+
+    Process process =
+        new ProcessBuilder(
+                ManagedPythonRuntime.systemPythonExecutable(),
+                "-c",
+                command,
+                sourceFile.toString(),
+                tempDir.toString(),
+                helperScript.toString())
+            .redirectErrorStream(true)
+            .start();
+    String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+
+    assertTrue(process.waitFor(10, TimeUnit.SECONDS));
+    assertNotEquals(0, process.exitValue(), () -> "Output: " + output);
+    assertTrue(output.contains("requires Python 3.9+"), () -> "Output: " + output);
+  }
+
   private static boolean hasCallByName(
       PythonAnalysis analysis, String callerSignature, String calleeOwnerFqn, String calleeName) {
     return analysis.calls().stream()
@@ -531,6 +596,10 @@ class PythonAnalyzerTest {
                     && call.calleeSignature().isBlank()
                     && calleeOwnerFqn.equals(call.calleeOwnerFqn())
                     && calleeName.equals(call.calleeName()));
+  }
+
+  private static boolean hasMember(PythonAnalysis analysis, String key) {
+    return analysis.members().stream().anyMatch(member -> key.equals(member.key()));
   }
 
   private PythonAnalysis analyzeSource(String fileName, String source) throws IOException {

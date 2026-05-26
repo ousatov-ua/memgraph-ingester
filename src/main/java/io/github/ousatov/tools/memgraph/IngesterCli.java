@@ -177,7 +177,7 @@ public final class IngesterCli implements Callable<Integer> {
       defaultValue = "managed",
       description =
           "Python runtime mode: managed downloads standalone CPython and creates a private venv,"
-              + " system uses python from PATH, offline requires a warmed managed cache."
+              + " system uses Python 3.9+ from PATH, offline requires a warmed managed cache."
               + " Defaults to managed.")
   @SuppressWarnings("unused")
   private String pythonRuntimeMode;

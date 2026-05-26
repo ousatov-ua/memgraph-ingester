@@ -29,6 +29,7 @@ def main() -> int:
     parser.add_argument("--root", required=True)
     args = parser.parse_args()
 
+    require_ast_unparse()
     analyzer = PythonSourceAnalyzer(Path(args.root), Path(args.file))
     analyzer.analyze()
     return 0
@@ -173,7 +174,7 @@ class PythonSourceAnalyzer:
                 self.collect_function(self.module_fqn, node, function_kind(node))
 
     def collect_module_members(self, body: List[ast.stmt]) -> None:
-        for node in body:
+        for node in assignment_nodes(body):
             for name, data_type in assigned_names(node):
                 self.write_field(self.module_fqn, name, data_type, True, "variable", node)
 
@@ -209,9 +210,9 @@ class PythonSourceAnalyzer:
                     self.collect_class(member, fqn)
                 elif isinstance(member, (ast.FunctionDef, ast.AsyncFunctionDef)):
                     self.collect_method(fqn, member)
-                else:
-                    for name, data_type in assigned_names(member):
-                        self.write_field(fqn, name, data_type, True, "class-field", member)
+            for member in assignment_nodes(node.body):
+                for name, data_type in assigned_names(member):
+                    self.write_field(fqn, name, data_type, True, "class-field", member)
         finally:
             self.class_stack.pop()
 
@@ -642,10 +643,15 @@ def annotation_text(annotation: Optional[ast.expr]) -> str:
 def expression_text(node: Optional[ast.AST]) -> str:
     if node is None:
         return ""
-    try:
-        return ast.unparse(node)
-    except Exception:
-        return ""
+    return ast.unparse(node)
+
+
+def require_ast_unparse() -> None:
+    if not hasattr(ast, "unparse"):
+        raise RuntimeError(
+            "Python analyzer requires Python 3.9+ with ast.unparse; "
+            "use --python-runtime-mode managed or a newer system Python."
+        )
 
 
 def assigned_names(node: ast.AST) -> List[Tuple[str, str]]:
@@ -740,6 +746,13 @@ def walk_without_nested_scopes(node: ast.AST):
             continue
         yield current
         stack.extend(reversed(list(ast.iter_child_nodes(current))))
+
+
+def assignment_nodes(body: List[ast.stmt]):
+    for node in body:
+        if isinstance(node, SKIPPED_CALL_SCOPES):
+            continue
+        yield from walk_without_nested_scopes(node)
 
 if __name__ == "__main__":
     raise SystemExit(main())
