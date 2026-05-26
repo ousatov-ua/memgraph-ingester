@@ -15,10 +15,16 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import io.github.ousatov.tools.memgraph.exception.ProcessingException;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Locale;
+import java.util.zip.GZIPOutputStream;
+import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
+import org.apache.commons.compress.archivers.tar.TarArchiveOutputStream;
+import org.apache.commons.compress.archivers.tar.TarConstants;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -73,6 +79,30 @@ class ManagedPythonRuntimeTest {
     ProcessingException error = assertThrows(ProcessingException.class, runtime::pythonExecutable);
 
     assertTrue(error.getMessage().contains("is not cached"));
+  }
+
+  @Test
+  void extractTgzPreservesRelativeSymlinkEntries() throws IOException {
+    assumeSymlinkSupport();
+    byte[] archive = archiveWithPythonSymlink("python3.14");
+
+    ManagedPythonRuntime.extractTgz(archive, tempDir);
+
+    Path python = tempDir.resolve("bin/python");
+    assertTrue(Files.isSymbolicLink(python));
+    assertEquals(Path.of("python3.14"), Files.readSymbolicLink(python));
+    assertEquals("print('ok')", Files.readString(python));
+  }
+
+  @Test
+  void extractTgzRejectsEscapingSymlinkEntries() throws IOException {
+    byte[] archive = archiveWithPythonSymlink("../../outside");
+
+    ProcessingException error =
+        assertThrows(
+            ProcessingException.class, () -> ManagedPythonRuntime.extractTgz(archive, tempDir));
+
+    assertTrue(error.getMessage().contains("escapes CPython cache"));
   }
 
   private Path offlineExecutableFor(String osName, String archName, String platformId)
@@ -136,6 +166,62 @@ class ManagedPythonRuntimeTest {
     Files.createDirectories(executable.getParent());
     Files.writeString(executable, "");
     assertTrue(executable.toFile().setExecutable(true, true) || isWindows());
+  }
+
+  private static byte[] archiveWithPythonSymlink(String linkTarget) throws IOException {
+    byte[] content = "print('ok')".getBytes(StandardCharsets.UTF_8);
+    try (ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        GZIPOutputStream gzip = new GZIPOutputStream(bytes);
+        TarArchiveOutputStream tar = new TarArchiveOutputStream(gzip)) {
+      addDirectory(tar, "cpython/");
+      addDirectory(tar, "cpython/bin/");
+      addFile(tar, "cpython/bin/python3.14", content);
+      addSymlink(tar, "cpython/bin/python", linkTarget);
+      tar.finish();
+      gzip.finish();
+      return bytes.toByteArray();
+    }
+  }
+
+  private static void addDirectory(TarArchiveOutputStream tar, String name) throws IOException {
+    TarArchiveEntry entry = new TarArchiveEntry(name);
+    tar.putArchiveEntry(entry);
+    tar.closeArchiveEntry();
+  }
+
+  private static void addFile(TarArchiveOutputStream tar, String name, byte[] content)
+      throws IOException {
+    TarArchiveEntry entry = new TarArchiveEntry(name);
+    entry.setSize(content.length);
+    tar.putArchiveEntry(entry);
+    tar.write(content);
+    tar.closeArchiveEntry();
+  }
+
+  private static void addSymlink(TarArchiveOutputStream tar, String name, String linkTarget)
+      throws IOException {
+    TarArchiveEntry entry = new TarArchiveEntry(name, TarConstants.LF_SYMLINK);
+    entry.setLinkName(linkTarget);
+    tar.putArchiveEntry(entry);
+    tar.closeArchiveEntry();
+  }
+
+  private void assumeSymlinkSupport() throws IOException {
+    Path target = tempDir.resolve("symlink-target");
+    Path link = tempDir.resolve("symlink-check");
+    Files.writeString(target, "");
+    boolean symlinkCreated = false;
+    try {
+      Files.createSymbolicLink(link, target.getFileName());
+      symlinkCreated = true;
+    } catch (UnsupportedOperationException e) {
+      symlinkCreated = false;
+    } catch (IOException e) {
+      symlinkCreated = false;
+    } finally {
+      Files.deleteIfExists(link);
+    }
+    assumeTrue(symlinkCreated, "Symbolic links are not available");
   }
 
   private static String platformId() {

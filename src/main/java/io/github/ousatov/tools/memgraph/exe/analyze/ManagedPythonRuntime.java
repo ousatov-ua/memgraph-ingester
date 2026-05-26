@@ -326,14 +326,14 @@ public final class ManagedPythonRuntime {
     }
   }
 
-  private static void extractTgz(byte[] archive, Path installDir) throws IOException {
+  static void extractTgz(byte[] archive, Path installDir) throws IOException {
     Path installRoot = installDir.toAbsolutePath().normalize();
     try (InputStream raw = new ByteArrayInputStream(archive);
         InputStream gzip = new GZIPInputStream(raw);
         TarArchiveInputStream in = new TarArchiveInputStream(gzip)) {
       TarArchiveEntry entry;
       while ((entry = in.getNextEntry()) != null) {
-        if (!entry.isDirectory() && !entry.isFile()) {
+        if (!entry.isDirectory() && !entry.isFile() && !entry.isSymbolicLink()) {
           continue;
         }
         Path relative = stripTopDirectory(entry.getName());
@@ -346,12 +346,33 @@ public final class ManagedPythonRuntime {
         }
         if (entry.isDirectory()) {
           Files.createDirectories(target);
+        } else if (entry.isSymbolicLink()) {
+          extractSymbolicLink(entry, installRoot, target);
         } else {
           Files.createDirectories(target.getParent());
           Files.copy(in, target, StandardCopyOption.REPLACE_EXISTING);
         }
       }
     }
+  }
+
+  private static void extractSymbolicLink(TarArchiveEntry entry, Path installRoot, Path target)
+      throws IOException {
+    String rawLinkName = entry.getLinkName();
+    if (rawLinkName == null || rawLinkName.isBlank()) {
+      throw new ProcessingException("Archive symlink target is empty: " + entry.getName());
+    }
+    Path linkTarget = Path.of(rawLinkName);
+    if (linkTarget.isAbsolute()) {
+      throw new ProcessingException("Archive symlink target is absolute: " + entry.getName());
+    }
+    Path resolvedTarget = target.getParent().resolve(linkTarget).normalize();
+    if (!resolvedTarget.startsWith(installRoot)) {
+      throw new ProcessingException("Archive symlink escapes CPython cache: " + entry.getName());
+    }
+    Files.createDirectories(target.getParent());
+    Files.deleteIfExists(target);
+    Files.createSymbolicLink(target, linkTarget);
   }
 
   private static Path stripTopDirectory(String rawName) {
