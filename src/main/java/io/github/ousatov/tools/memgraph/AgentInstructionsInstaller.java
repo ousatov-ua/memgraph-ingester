@@ -38,7 +38,8 @@ final class AgentInstructionsInstaller {
     String normalized = agent == null ? "codex" : agent.toLowerCase(Locale.ROOT);
     return switch (normalized) {
       case "claude" -> Path.of("CLAUDE.md");
-      case "codex", "gemini", "github", "copilot" -> Path.of("AGENTS.md");
+      case "gemini" -> Path.of("GEMINI.md");
+      case "codex", "github", "copilot" -> Path.of("AGENTS.md");
       default -> throw new IllegalArgumentException("Unsupported instructions agent: " + agent);
     };
   }
