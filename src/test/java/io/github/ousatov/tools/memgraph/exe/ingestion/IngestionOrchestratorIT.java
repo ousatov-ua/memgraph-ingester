@@ -18,6 +18,7 @@ import io.github.ousatov.tools.memgraph.exe.analyze.ParseService;
 import io.github.ousatov.tools.memgraph.exe.analyze.PythonAnalyzer;
 import io.github.ousatov.tools.memgraph.exe.analyze.RuntimeMode;
 import io.github.ousatov.tools.memgraph.exe.writer.GraphWriter;
+import io.github.ousatov.tools.memgraph.exe.writer.js.JsGraphWriter;
 import io.github.ousatov.tools.memgraph.extension.MemgraphExtension;
 import io.github.ousatov.tools.memgraph.extension.MemgraphInstance;
 import io.github.ousatov.tools.memgraph.schema.Memgraph;
@@ -338,9 +339,10 @@ class IngestionOrchestratorIT {
 
     @Override
     public boolean write(GraphWriter writer, Path file, Path parsed) {
+      JsGraphWriter jsWriter = new JsGraphWriter(writer.dependencies());
       writer.upsertFile(file, language());
       writer.upsertPackage("js.test", language());
-      writer.upsertJavascriptModule(file, "js.test", "js.test.App", "App", "app.ts", 1, 1);
+      jsWriter.upsertModule(file, "js.test", "js.test.App", "App", "app.ts", 1, 1);
       return true;
     }
   }
@@ -389,12 +391,13 @@ class IngestionOrchestratorIT {
 
     @Override
     public boolean write(GraphWriter writer, Path file, Path parsed) {
+      JsGraphWriter jsWriter = new JsGraphWriter(writer.dependencies());
       String modulePath = sourceRoot.relativize(file).toString().replace('\\', '/');
       String moduleName = modulePath.replaceAll("[^A-Za-z0-9]", "_");
       String moduleFqn = "js.test." + moduleName;
       writer.upsertFile(file, language());
       writer.upsertPackage("js.test", language());
-      writer.upsertJavascriptModule(file, "js.test", moduleFqn, moduleName, modulePath, 1, 1);
+      jsWriter.upsertModule(file, "js.test", moduleFqn, moduleName, modulePath, 1, 1);
       return true;
     }
   }
@@ -994,7 +997,7 @@ class IngestionOrchestratorIT {
     boolean deleted =
         orchestrator.deleteSourceFileWithRetry(
             sourceDir.resolve("Gone.java"),
-            file -> {
+            _ -> {
               if (attempts.getAndIncrement() == 0) {
                 throw new RuntimeException("conflicting transactions");
               }
@@ -1018,7 +1021,7 @@ class IngestionOrchestratorIT {
     var retainedFiles =
         orchestrator.retainedFilesSharingDefinitionsWithRetry(
             deletedFile,
-            file -> {
+            _ -> {
               if (attempts.getAndIncrement() == 0) {
                 throw new RuntimeException("deadlock detected");
               }

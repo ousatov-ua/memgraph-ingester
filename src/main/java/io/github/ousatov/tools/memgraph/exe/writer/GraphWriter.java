@@ -1,9 +1,5 @@
 package io.github.ousatov.tools.memgraph.exe.writer;
 
-import com.github.javaparser.ast.body.AnnotationDeclaration;
-import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
-import com.github.javaparser.ast.body.EnumDeclaration;
-import com.github.javaparser.ast.body.RecordDeclaration;
 import io.github.ousatov.tools.memgraph.def.Const.Cypher;
 import io.github.ousatov.tools.memgraph.def.Const.Params;
 import io.github.ousatov.tools.memgraph.exe.adapter.SourceFileDefinitions;
@@ -11,12 +7,7 @@ import io.github.ousatov.tools.memgraph.exe.adapter.SourceLanguage;
 import io.github.ousatov.tools.memgraph.exe.metrics.IngestionRunStats;
 import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.AnnotationWrite;
 import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.CallWrite;
-import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.FieldWrite;
 import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.PendingCallWrite;
-import io.github.ousatov.tools.memgraph.exe.writer.java.JavaGraphWriter;
-import io.github.ousatov.tools.memgraph.exe.writer.js.JsGraphWriter;
-import io.github.ousatov.tools.memgraph.exe.writer.python.PythonGraphWriter;
-import io.github.ousatov.tools.memgraph.vo.Method;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -49,14 +40,10 @@ public final class GraphWriter {
   private static final Logger log = LoggerFactory.getLogger(GraphWriter.class);
 
   private static final int WIPE_BATCH_SIZE = 10_000;
-  private static final String JAVA_LANGUAGE = SourceLanguage.JAVA.graphName();
-
   private final CypherExecutor cypher;
   private final CallEdgeWriter callEdges;
   private final GraphNodeWriter nodes;
-  private final JavaGraphWriter javaWriter;
-  private final JsGraphWriter jsWriter;
-  private final PythonGraphWriter pythonWriter;
+  private final CommonGraphWriter.Dependencies dependencies;
   private final IngestionRunStats stats;
   private List<String> retainedSourcePaths = List.of();
 
@@ -77,11 +64,12 @@ public final class GraphWriter {
     this.cypher = new CypherExecutor(session, project, stats);
     this.nodes = new GraphNodeWriter(cypher);
     this.callEdges = new CallEdgeWriter(cypher, nodes);
-    var languageWriters = new CommonGraphWriter.Dependencies(cypher, callEdges, nodes);
-    this.javaWriter = new JavaGraphWriter(languageWriters);
-    this.jsWriter = new JsGraphWriter(languageWriters);
-    this.pythonWriter = new PythonGraphWriter(languageWriters);
+    this.dependencies = new CommonGraphWriter.Dependencies(cypher, callEdges, nodes);
     this.stats = stats;
+  }
+
+  public CommonGraphWriter.Dependencies dependencies() {
+    return dependencies;
   }
 
   /** Sets project paths that should preserve shared definitions during file cleanup. */
@@ -547,216 +535,6 @@ public final class GraphWriter {
             language.nodeName()));
   }
 
-  /** Upserts the synthetic module owner used for top-level JavaScript declarations. */
-  public void upsertJavascriptModule(
-      Path file,
-      String pkg,
-      String fqn,
-      String name,
-      String modulePath,
-      int startLine,
-      int endLine) {
-    jsWriter.upsertModule(file, pkg, fqn, name, modulePath, startLine, endLine);
-  }
-
-  /** Upserts a JavaScript/TypeScript class declaration using the existing {@code :Class} label. */
-  @SuppressWarnings("java:S107")
-  public void upsertJavascriptClass(
-      Path file,
-      String pkg,
-      String fqn,
-      String name,
-      String modulePath,
-      String framework,
-      boolean isAbstract,
-      boolean hasDeclaredConstructor,
-      int startLine,
-      int endLine) {
-    jsWriter.upsertClass(
-        file,
-        pkg,
-        fqn,
-        name,
-        modulePath,
-        framework,
-        isAbstract,
-        hasDeclaredConstructor,
-        startLine,
-        endLine);
-  }
-
-  /** Upserts a TypeScript enum using the existing {@code :Class} label and enum metadata. */
-  public void upsertJavascriptEnum(
-      Path file,
-      String pkg,
-      String fqn,
-      String name,
-      String modulePath,
-      int startLine,
-      int endLine) {
-    jsWriter.upsertEnum(file, pkg, fqn, name, modulePath, startLine, endLine);
-  }
-
-  /** Writes a JavaScript/TypeScript class {@code EXTENDS} relation. */
-  public void upsertJavascriptExtendsClass(String childFqn, String parentFqn) {
-    jsWriter.upsertExtendsClass(childFqn, parentFqn);
-  }
-
-  /** Writes a JavaScript/TypeScript interface {@code EXTENDS} relation. */
-  public void upsertJavascriptInterfaceExtends(String childFqn, String parentFqn) {
-    jsWriter.upsertInterfaceExtends(childFqn, parentFqn);
-  }
-
-  /** Writes a JavaScript/TypeScript class {@code IMPLEMENTS} relation. */
-  public void upsertJavascriptImplements(String childFqn, String interfaceFqn) {
-    jsWriter.upsertImplements(childFqn, interfaceFqn);
-  }
-
-  /** Upserts a TypeScript interface or type alias using the compatible {@code :Interface} label. */
-  public void upsertJavascriptInterface(
-      Path file,
-      String pkg,
-      String fqn,
-      String name,
-      String kind,
-      String modulePath,
-      String framework) {
-    jsWriter.upsertInterface(file, pkg, fqn, name, kind, modulePath, framework);
-  }
-
-  /** Upserts a JavaScript/TypeScript property or top-level variable as a {@code :Field}. */
-  public void upsertJavascriptField(
-      Path file,
-      String ownerFqn,
-      String fqn,
-      String name,
-      String type,
-      boolean isStatic,
-      String kind) {
-    jsWriter.upsertField(file, ownerFqn, fqn, name, type, isStatic, kind);
-  }
-
-  /** Upserts a JavaScript/TypeScript function or method as a {@code :Method}. */
-  @SuppressWarnings("java:S107")
-  public void upsertJavascriptMethod(
-      Path file,
-      String ownerFqn,
-      String signature,
-      String name,
-      String returnType,
-      boolean isStatic,
-      int startLine,
-      int endLine,
-      String kind) {
-    jsWriter.upsertMethod(
-        file, ownerFqn, signature, name, returnType, isStatic, startLine, endLine, kind);
-  }
-
-  public void upsertJavascriptMembers(
-      Path file, Collection<FieldWrite> fields, Collection<Method> methods) {
-    jsWriter.upsertMembers(file, fields, methods);
-  }
-
-  /** Upserts the synthetic module owner used for top-level Python declarations. */
-  public void upsertPythonModule(
-      Path file,
-      String pkg,
-      String fqn,
-      String name,
-      String modulePath,
-      int startLine,
-      int endLine) {
-    pythonWriter.upsertModule(file, pkg, fqn, name, modulePath, startLine, endLine);
-  }
-
-  /** Upserts a Python class declaration using the existing {@code :Class} label. */
-  @SuppressWarnings("java:S107")
-  public void upsertPythonClass(
-      Path file,
-      String pkg,
-      String fqn,
-      String name,
-      String modulePath,
-      String framework,
-      boolean isAbstract,
-      boolean hasDeclaredConstructor,
-      int startLine,
-      int endLine) {
-    pythonWriter.upsertClass(
-        file,
-        pkg,
-        fqn,
-        name,
-        modulePath,
-        framework,
-        isAbstract,
-        hasDeclaredConstructor,
-        startLine,
-        endLine);
-  }
-
-  /** Writes a Python class {@code EXTENDS} relation. */
-  public void upsertPythonExtendsClass(String childFqn, String parentFqn) {
-    pythonWriter.upsertExtendsClass(childFqn, parentFqn);
-  }
-
-  /** Upserts a Python field. */
-  public void upsertPythonField(
-      Path file,
-      String ownerFqn,
-      String fqn,
-      String name,
-      String type,
-      boolean isStatic,
-      String kind) {
-    pythonWriter.upsertField(file, ownerFqn, fqn, name, type, isStatic, kind);
-  }
-
-  /** Upserts a Python function or method. */
-  @SuppressWarnings("java:S107")
-  public void upsertPythonMethod(
-      Path file,
-      String ownerFqn,
-      String signature,
-      String name,
-      String returnType,
-      boolean isStatic,
-      int startLine,
-      int endLine,
-      String kind) {
-    pythonWriter.upsertMethod(
-        file, ownerFqn, signature, name, returnType, isStatic, startLine, endLine, kind);
-  }
-
-  public void upsertPythonMembers(
-      Path file, Collection<FieldWrite> fields, Collection<Method> methods) {
-    pythonWriter.upsertMembers(file, fields, methods);
-  }
-
-  /** Adds an annotation/decorator edge for a type or field identified by FQN. */
-  public void upsertAnnotationReferenceByFqn(String ownerFqn, String annotationFqn, String name) {
-    upsertAnnotationReferenceByFqn(ownerFqn, annotationFqn, name, JAVA_LANGUAGE, Params.ANNOTATION);
-  }
-
-  /** Adds an annotation/decorator edge for a type or field identified by FQN. */
-  public void upsertAnnotationReferenceByFqn(
-      String ownerFqn, String annotationFqn, String name, String language, String kind) {
-    nodes.upsertAnnotationReferencesByFqn(
-        List.of(new AnnotationWrite(ownerFqn, annotationFqn, name, language, kind)));
-  }
-
-  /** Adds an annotation/decorator edge for a method identified by signature. */
-  public void upsertAnnotationReferenceBySig(
-      String signature, String annotationFqn, String name, String language, String kind) {
-    nodes.upsertAnnotationReferencesBySig(
-        List.of(new AnnotationWrite(signature, annotationFqn, name, language, kind)));
-  }
-
-  /** Upserts a resolved in-project call edge. */
-  public void upsertCall(String callerSignature, String calleeSignature) {
-    nodes.upsertCalls(List.of(new CallWrite(callerSignature, calleeSignature)));
-  }
-
   /** Stores a deferred owner/name call for post-ingestion resolution. */
   public void upsertPendingCallByName(String callerSignature, String ownerFqn, String calleeName) {
     nodes.upsertPendingCallsByName(
@@ -777,62 +555,5 @@ public final class GraphWriter {
 
   public void upsertPendingCallsByName(Collection<PendingCallWrite> calls) {
     nodes.upsertPendingCallsByName(calls);
-  }
-
-  /**
-   * Upserts a class or interface declaration and all of its members, including directly nested
-   * types with their correct {@code $}-separated FQN.
-   */
-  public void upsertType(Path file, String pkg, ClassOrInterfaceDeclaration decl) {
-    javaWriter.upsertType(file, pkg, decl);
-  }
-
-  /**
-   * Upserts an enum declaration as a {@code :Class} with {@code isEnum = true}, including its
-   * constants, fields, methods, constructors, implemented interfaces, and nested types.
-   */
-  public void upsertEnum(Path file, String pkg, EnumDeclaration decl) {
-    javaWriter.upsertEnum(file, pkg, decl);
-  }
-
-  /**
-   * Upserts a record declaration as a {@code :Class} with {@code isRecord = true}, including its
-   * fields, methods, constructors, implemented interfaces, and nested types.
-   */
-  public void upsertRecord(Path file, String pkg, RecordDeclaration decl) {
-    javaWriter.upsertRecord(file, pkg, decl);
-  }
-
-  /**
-   * Upserts an {@code @interface} declaration as an {@code :Annotation} node, including {@code
-   * ANNOTATED_WITH} edges for any meta-annotations applied to it.
-   */
-  public void upsertAnnotation(Path file, String pkg, AnnotationDeclaration decl) {
-    javaWriter.upsertAnnotation(file, pkg, decl);
-  }
-
-  /**
-   * Upserts {@code CALLS} edges for all methods and constructors in {@code decl}, including
-   * directly nested types. Call this after all structural upserts for the file are complete, so
-   * every callee node already exists.
-   */
-  public void upsertTypeCallEdges(String pkg, ClassOrInterfaceDeclaration decl) {
-    javaWriter.upsertTypeCallEdges(pkg, decl);
-  }
-
-  /**
-   * Upserts {@code CALLS} edges for all methods and constructors in {@code decl}, including nested
-   * types. Call this after all structural upserts for the file are complete.
-   */
-  public void upsertEnumCallEdges(String pkg, EnumDeclaration decl) {
-    javaWriter.upsertEnumCallEdges(pkg, decl);
-  }
-
-  /**
-   * Upserts {@code CALLS} edges for all methods and constructors in {@code decl}, including nested
-   * types. Call this after all structural upserts for the file are complete.
-   */
-  public void upsertRecordCallEdges(String pkg, RecordDeclaration decl) {
-    javaWriter.upsertRecordCallEdges(pkg, decl);
   }
 }

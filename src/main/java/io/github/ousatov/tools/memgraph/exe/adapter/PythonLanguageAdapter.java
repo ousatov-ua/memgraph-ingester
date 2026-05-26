@@ -9,6 +9,7 @@ import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.CallWrite;
 import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.FieldWrite;
 import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.PendingCallWrite;
 import io.github.ousatov.tools.memgraph.exe.writer.GraphWriter;
+import io.github.ousatov.tools.memgraph.exe.writer.python.PythonGraphWriter;
 import io.github.ousatov.tools.memgraph.vo.Method;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -85,11 +86,12 @@ public final class PythonLanguageAdapter implements LanguageAdapter<PythonAnalys
 
   @Override
   public boolean write(GraphWriter writer, Path file, PythonAnalysis analysis) {
+    PythonGraphWriter pythonWriter = new PythonGraphWriter(writer.dependencies());
     try {
       writer.upsertFile(file, language());
       writer.deleteStalePythonDefinitionsForFile(file, analysis.moduleFqn());
       writer.upsertPackage(analysis.packageName(), language());
-      writer.upsertPythonModule(
+      pythonWriter.upsertModule(
           file,
           analysis.packageName(),
           analysis.moduleFqn(),
@@ -101,7 +103,7 @@ public final class PythonLanguageAdapter implements LanguageAdapter<PythonAnalys
           .types()
           .forEach(
               type ->
-                  writer.upsertPythonClass(
+                  pythonWriter.upsertClass(
                       file,
                       analysis.packageName(),
                       type.fqn(),
@@ -117,10 +119,10 @@ public final class PythonLanguageAdapter implements LanguageAdapter<PythonAnalys
           .forEach(
               relation -> {
                 if (Params.CLASS_EXTENDS.equals(relation.kind())) {
-                  writer.upsertPythonExtendsClass(relation.childFqn(), relation.targetFqn());
+                  pythonWriter.upsertExtendsClass(relation.childFqn(), relation.targetFqn());
                 }
               });
-      upsertMembers(writer, file, analysis.members());
+      upsertMembers(pythonWriter, file, analysis.members());
       upsertAnnotations(writer, analysis.annotations());
       upsertCalls(writer, analysis.calls());
       return true;
@@ -165,7 +167,7 @@ public final class PythonLanguageAdapter implements LanguageAdapter<PythonAnalys
   }
 
   private static void upsertMembers(
-      GraphWriter writer, Path file, Collection<PythonAnalysis.MemberDecl> members) {
+      PythonGraphWriter writer, Path file, Collection<PythonAnalysis.MemberDecl> members) {
     List<FieldWrite> fields = new ArrayList<>();
     List<Method> methods = new ArrayList<>();
     for (PythonAnalysis.MemberDecl member : members) {
@@ -196,7 +198,7 @@ public final class PythonLanguageAdapter implements LanguageAdapter<PythonAnalys
                 member.kind()));
       }
     }
-    writer.upsertPythonMembers(file, fields, methods);
+    writer.upsertMembers(file, fields, methods);
   }
 
   private static void upsertAnnotations(

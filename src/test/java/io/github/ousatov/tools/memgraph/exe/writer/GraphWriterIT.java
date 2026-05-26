@@ -14,6 +14,8 @@ import com.github.javaparser.symbolsolver.resolution.typesolvers.ReflectionTypeS
 import io.github.ousatov.tools.memgraph.exe.adapter.SourceFileDefinitions;
 import io.github.ousatov.tools.memgraph.exe.adapter.SourceLanguage;
 import io.github.ousatov.tools.memgraph.exe.analyze.ParseService;
+import io.github.ousatov.tools.memgraph.exe.writer.java.JavaGraphWriter;
+import io.github.ousatov.tools.memgraph.exe.writer.js.JsGraphWriter;
 import io.github.ousatov.tools.memgraph.extension.MemgraphExtension;
 import io.github.ousatov.tools.memgraph.extension.MemgraphInstance;
 import java.io.IOException;
@@ -52,6 +54,8 @@ class GraphWriterIT {
   private static Driver driver;
   private Session session;
   private GraphWriter writer;
+  private JavaGraphWriter javaWriter;
+  private JsGraphWriter jsWriter;
 
   @BeforeAll
   static void setupDriver(MemgraphInstance mg) {
@@ -67,6 +71,8 @@ class GraphWriterIT {
   void openSession() {
     session = driver.session();
     writer = new GraphWriter(session, PROJECT);
+    javaWriter = new JavaGraphWriter(writer.dependencies());
+    jsWriter = new JsGraphWriter(writer.dependencies());
     writer.upsertProject(SRC_ROOT);
   }
 
@@ -225,7 +231,7 @@ class GraphWriterIT {
       assertFalse(incompleteCache.containsKey(tempFile.toString()));
 
       writer.upsertPackage("js.test", SourceLanguage.JAVASCRIPT);
-      writer.upsertJavascriptModule(tempFile, "js.test", "js.test.App", "App", "app.ts", 1, 1);
+      jsWriter.upsertModule(tempFile, "js.test", "js.test.App", "App", "app.ts", 1, 1);
 
       Map<String, Long> completeCache =
           writer.getAllFileLastModified(List.of(tempFile), SourceLanguage.JAVASCRIPT);
@@ -296,7 +302,7 @@ class GraphWriterIT {
     ClassOrInterfaceDeclaration decl =
         parseDecl("package com.example; public class Widget { private String name; }");
 
-    writer.upsertType(TEST_FILE, PKG, decl);
+    javaWriter.upsertType(TEST_FILE, PKG, decl);
 
     var rec =
         session
@@ -316,7 +322,7 @@ class GraphWriterIT {
     writer.upsertPackage(PKG);
     ClassOrInterfaceDeclaration decl = parseDecl("package com.example; public class Widget {}");
 
-    writer.upsertType(TEST_FILE, PKG, decl);
+    javaWriter.upsertType(TEST_FILE, PKG, decl);
 
     String visibility =
         session
@@ -337,7 +343,7 @@ class GraphWriterIT {
     ClassOrInterfaceDeclaration decl =
         parseDecl("package com.example; public interface Describable { String describe(); }");
 
-    writer.upsertType(TEST_FILE, PKG, decl);
+    javaWriter.upsertType(TEST_FILE, PKG, decl);
 
     long count =
         session
@@ -359,7 +365,7 @@ class GraphWriterIT {
         parseDecl(
             "package com.example; public abstract class BaseWidget { abstract void init(); }");
 
-    writer.upsertType(TEST_FILE, PKG, decl);
+    javaWriter.upsertType(TEST_FILE, PKG, decl);
 
     boolean isAbstract =
         session
@@ -385,7 +391,7 @@ class GraphWriterIT {
                 + "   private static int count;"
                 + " }");
 
-    writer.upsertType(TEST_FILE, PKG, decl);
+    javaWriter.upsertType(TEST_FILE, PKG, decl);
 
     List<String> fieldNames =
         session
@@ -405,7 +411,7 @@ class GraphWriterIT {
     ClassOrInterfaceDeclaration decl =
         parseDecl("package com.example; public class Widget { private static int count; }");
 
-    writer.upsertType(TEST_FILE, PKG, decl);
+    javaWriter.upsertType(TEST_FILE, PKG, decl);
 
     boolean isStatic =
         session
@@ -433,7 +439,7 @@ class GraphWriterIT {
                 + "   public static int getCount() { return 0; }"
                 + " }");
 
-    writer.upsertType(TEST_FILE, PKG, decl);
+    javaWriter.upsertType(TEST_FILE, PKG, decl);
 
     List<String> methodNames =
         session
@@ -458,7 +464,7 @@ class GraphWriterIT {
                 + "   public String getName() { return \"widget\"; }"
                 + " }");
 
-    writer.upsertType(TEST_FILE, PKG, decl);
+    javaWriter.upsertType(TEST_FILE, PKG, decl);
 
     var row =
         session
@@ -478,7 +484,7 @@ class GraphWriterIT {
     writer.upsertPackage(PKG);
     ClassOrInterfaceDeclaration decl = parseDecl("package com.example; public class Widget {}");
 
-    writer.upsertType(TEST_FILE, PKG, decl);
+    javaWriter.upsertType(TEST_FILE, PKG, decl);
 
     long fileLink =
         session
@@ -508,7 +514,7 @@ class GraphWriterIT {
   void upsertTypeDoesNotCreateOrphansWhenFileOrPackageAnchorIsMissing() {
     ClassOrInterfaceDeclaration decl = parseDecl("package com.example; public class Widget {}");
 
-    writer.upsertType(TEST_FILE, PKG, decl);
+    javaWriter.upsertType(TEST_FILE, PKG, decl);
 
     long count =
         session
@@ -530,7 +536,7 @@ class GraphWriterIT {
         parseDecl(
             "package com.example;" + " public class Widget {" + "   public Widget() {}" + " }");
 
-    writer.upsertType(TEST_FILE, PKG, decl);
+    javaWriter.upsertType(TEST_FILE, PKG, decl);
 
     long count =
         session
@@ -557,7 +563,7 @@ class GraphWriterIT {
                 + "   public Widget(String name) {}"
                 + " }");
 
-    writer.upsertType(TEST_FILE, PKG, decl);
+    javaWriter.upsertType(TEST_FILE, PKG, decl);
 
     long count =
         session
@@ -583,7 +589,7 @@ class GraphWriterIT {
                 + "   public Widget(String name, int count) {}"
                 + " }");
 
-    writer.upsertType(TEST_FILE, PKG, decl);
+    javaWriter.upsertType(TEST_FILE, PKG, decl);
 
     String sig =
         session
@@ -605,7 +611,7 @@ class GraphWriterIT {
     writer.upsertPackage(PKG);
     ClassOrInterfaceDeclaration decl = parseDecl("package com.example; public class Widget {}");
 
-    writer.upsertType(TEST_FILE, PKG, decl);
+    javaWriter.upsertType(TEST_FILE, PKG, decl);
 
     var row =
         session
@@ -626,7 +632,7 @@ class GraphWriterIT {
     ClassOrInterfaceDeclaration decl =
         parseDecl("package com.example; public interface Runnable { void run(); }");
 
-    writer.upsertType(TEST_FILE, PKG, decl);
+    javaWriter.upsertType(TEST_FILE, PKG, decl);
 
     long count =
         session
@@ -649,8 +655,7 @@ class GraphWriterIT {
     writer.upsertFile(jsFile, SourceLanguage.JAVASCRIPT);
     writer.upsertPackage(pkg, SourceLanguage.JAVASCRIPT);
 
-    writer.upsertJavascriptClass(
-        jsFile, pkg, fqn, "Service", "app/service.js", "", false, false, 1, 1);
+    jsWriter.upsertClass(jsFile, pkg, fqn, "Service", "app/service.js", "", false, false, 1, 1);
 
     var row =
         session
@@ -672,9 +677,8 @@ class GraphWriterIT {
     writer.upsertFile(jsFile, SourceLanguage.JAVASCRIPT);
     writer.upsertPackage(pkg, SourceLanguage.JAVASCRIPT);
 
-    writer.upsertJavascriptClass(
-        jsFile, pkg, fqn, "Service", "app/service.js", "", false, true, 1, 3);
-    writer.upsertJavascriptMethod(
+    jsWriter.upsertClass(jsFile, pkg, fqn, "Service", "app/service.js", "", false, true, 1, 3);
+    jsWriter.upsertMethod(
         jsFile, fqn, fqn + ".<init>(any)", "<init>", "void", false, 2, 2, "constructor");
 
     long noArgCtorCount =
@@ -712,7 +716,7 @@ class GraphWriterIT {
     writer.upsertFile(tsFile, SourceLanguage.JAVASCRIPT);
     writer.upsertPackage(pkg, SourceLanguage.JAVASCRIPT);
 
-    writer.upsertJavascriptModule(
+    jsWriter.upsertModule(
         tsFile,
         pkg,
         fqn,
@@ -742,7 +746,7 @@ class GraphWriterIT {
     String pkg = "js.app";
     String fqn = "js.app.orphan$2e$spec$2e$ts";
 
-    writer.upsertJavascriptModule(tsFile, pkg, fqn, "orphan_spec", "app/orphan.spec.ts", 1, 1);
+    jsWriter.upsertModule(tsFile, pkg, fqn, "orphan_spec", "app/orphan.spec.ts", 1, 1);
 
     var row =
         session
@@ -761,10 +765,8 @@ class GraphWriterIT {
   void upsertJavascriptMembersDoNotCreateOrphansWhenOwnerIsMissing() {
     Path jsFile = Path.of("/tmp/test-gw/src/app/missing.ts");
     String owner = "js.app.missing$2e$ts.Missing";
-    writer.upsertJavascriptField(
-        jsFile, owner, owner + "#value", "value", "string", false, "property");
-    writer.upsertJavascriptMethod(
-        jsFile, owner, owner + ".load()", "load", "void", false, 1, 1, "method");
+    jsWriter.upsertField(jsFile, owner, owner + "#value", "value", "string", false, "property");
+    jsWriter.upsertMethod(jsFile, owner, owner + ".load()", "load", "void", false, 1, 1, "method");
 
     var row =
         session
@@ -791,10 +793,8 @@ class GraphWriterIT {
             Map.of("owner", owner, "p", PROJECT))
         .consume();
 
-    writer.upsertJavascriptField(
-        jsFile, owner, owner + "#value", "value", "string", false, "property");
-    writer.upsertJavascriptMethod(
-        jsFile, owner, owner + ".load()", "load", "void", false, 1, 1, "method");
+    jsWriter.upsertField(jsFile, owner, owner + "#value", "value", "string", false, "property");
+    jsWriter.upsertMethod(jsFile, owner, owner + ".load()", "load", "void", false, 1, 1, "method");
 
     var row =
         session
@@ -817,7 +817,7 @@ class GraphWriterIT {
     writer.upsertFile(tsFile, SourceLanguage.JAVASCRIPT);
     writer.upsertPackage(pkg, SourceLanguage.JAVASCRIPT);
 
-    writer.upsertJavascriptEnum(tsFile, pkg, fqn, "Status", "app/status.ts", 1, 1);
+    jsWriter.upsertEnum(tsFile, pkg, fqn, "Status", "app/status.ts", 1, 1);
 
     var row =
         session
@@ -841,10 +841,10 @@ class GraphWriterIT {
     writer.upsertFile(tsFile, SourceLanguage.JAVASCRIPT);
     writer.upsertPackage(pkg, SourceLanguage.JAVASCRIPT);
 
-    writer.upsertJavascriptClass(
+    jsWriter.upsertClass(
         tsFile, pkg, fqn, "UserService", "app/user.service.ts", "angular", true, false, 1, 5);
-    writer.upsertJavascriptExtendsClass(fqn, "js.app.base$2e$service$2e$ts.BaseService");
-    writer.upsertJavascriptImplements(fqn, "@angular/core.OnInit");
+    jsWriter.upsertExtendsClass(fqn, "js.app.base$2e$service$2e$ts.BaseService");
+    jsWriter.upsertImplements(fqn, "@angular/core.OnInit");
 
     var row =
         session
@@ -871,10 +871,10 @@ class GraphWriterIT {
     writer.upsertFile(tsFile, SourceLanguage.JAVASCRIPT);
     writer.upsertPackage(pkg, SourceLanguage.JAVASCRIPT);
 
-    writer.upsertJavascriptInterface(
+    jsWriter.upsertInterface(
         tsFile, pkg, fqn, "Repository", "interface", "app/repository.interface.ts", "");
-    writer.upsertJavascriptInterfaceExtends(fqn, "js.app.base$2e$interface$2e$ts.RepositoryBase");
-    writer.upsertJavascriptField(
+    jsWriter.upsertInterfaceExtends(fqn, "js.app.base$2e$interface$2e$ts.RepositoryBase");
+    jsWriter.upsertField(
         tsFile,
         fqn,
         fqn + "#pendingItemsCount",
@@ -882,7 +882,7 @@ class GraphWriterIT {
         "number",
         false,
         "interface-property");
-    writer.upsertJavascriptMethod(
+    jsWriter.upsertMethod(
         tsFile, fqn, fqn + ".save(Repository)", "save", "void", false, 3, 3, "interface-method");
 
     var row =
@@ -911,10 +911,9 @@ class GraphWriterIT {
     writer.upsertFile(tsFile, SourceLanguage.JAVASCRIPT);
     writer.upsertPackage(pkg, SourceLanguage.JAVASCRIPT);
 
-    writer.upsertJavascriptEnum(tsFile, pkg, fqn, "TabsEnum", "app/tabs.enum.ts", 1, 4);
-    writer.upsertJavascriptField(tsFile, fqn, fqn + "#VIEW", "VIEW", fqn, true, "enum-member");
-    writer.upsertJavascriptField(
-        tsFile, fqn, fqn + "#PENDING", "PENDING", fqn, true, "enum-member");
+    jsWriter.upsertEnum(tsFile, pkg, fqn, "TabsEnum", "app/tabs.enum.ts", 1, 4);
+    jsWriter.upsertField(tsFile, fqn, fqn + "#VIEW", "VIEW", fqn, true, "enum-member");
+    jsWriter.upsertField(tsFile, fqn, fqn + "#PENDING", "PENDING", fqn, true, "enum-member");
 
     List<String> fieldNames =
         session
@@ -940,11 +939,11 @@ class GraphWriterIT {
     session.run(
         "MERGE (:Package {name: $name, project: $project})",
         Map.of("name", legacyPkg, "project", PROJECT));
-    writer.upsertJavascriptModule(
+    jsWriter.upsertModule(
         tsFile, currentPkg, currentFqn, "app_component", "app-dir/app.component.ts", 1, 3);
-    writer.upsertJavascriptModule(
+    jsWriter.upsertModule(
         tsFile, legacyPkg, legacyFqn, "app_component", "app-dir/app.component.ts", 1, 3);
-    writer.upsertJavascriptClass(
+    jsWriter.upsertClass(
         tsFile,
         legacyPkg,
         legacyFqn + ".AppComponent",
@@ -955,7 +954,7 @@ class GraphWriterIT {
         false,
         1,
         3);
-    writer.upsertJavascriptField(
+    jsWriter.upsertField(
         tsFile,
         legacyFqn + ".AppComponent",
         legacyFqn + ".AppComponent#title",
@@ -963,7 +962,7 @@ class GraphWriterIT {
         "string",
         false,
         "property");
-    writer.upsertJavascriptMethod(
+    jsWriter.upsertMethod(
         tsFile,
         legacyFqn + ".AppComponent",
         legacyFqn + ".AppComponent.render()",
@@ -1024,13 +1023,14 @@ class GraphWriterIT {
       String pkg = cu.getPackageDeclaration().map(pd -> pd.getName().asString()).orElse("");
       writer.upsertFile(f);
       writer.upsertPackage(pkg);
-      cu.findFirst(ClassOrInterfaceDeclaration.class).ifPresent(d -> writer.upsertType(f, pkg, d));
+      cu.findFirst(ClassOrInterfaceDeclaration.class)
+          .ifPresent(d -> javaWriter.upsertType(f, pkg, d));
     }
     for (Path f : List.of(serviceFile, clientFile)) {
       var cu = parseService.parse(f).orElseThrow();
       String pkg = cu.getPackageDeclaration().map(pd -> pd.getName().asString()).orElse("");
       cu.findFirst(ClassOrInterfaceDeclaration.class)
-          .ifPresent(d -> writer.upsertTypeCallEdges(pkg, d));
+          .ifPresent(d -> javaWriter.upsertTypeCallEdges(pkg, d));
     }
     writer.deletePhantomMethods();
 
@@ -1123,7 +1123,7 @@ class GraphWriterIT {
                 + "   private final String label = \"x\";"
                 + " }");
 
-    writer.upsertEnum(TEST_FILE, PKG, decl);
+    javaWriter.upsertEnum(TEST_FILE, PKG, decl);
 
     List<String> fieldNames =
         session
@@ -1147,7 +1147,7 @@ class GraphWriterIT {
                 + "   ACTIVE, INACTIVE;"
                 + " }");
 
-    writer.upsertEnum(TEST_FILE, PKG, decl);
+    javaWriter.upsertEnum(TEST_FILE, PKG, decl);
 
     long count =
         session
@@ -1169,7 +1169,7 @@ class GraphWriterIT {
     RecordDeclaration decl =
         parseRecord("package com.example;" + " public record Point(int x, int y) {}");
 
-    writer.upsertRecord(TEST_FILE, PKG, decl);
+    javaWriter.upsertRecord(TEST_FILE, PKG, decl);
 
     List<String> fieldNames =
         session
@@ -1191,7 +1191,7 @@ class GraphWriterIT {
             "package com.example;"
                 + " public record Point(int x, int y) implements java.io.Serializable {}");
 
-    writer.upsertRecord(TEST_FILE, PKG, decl);
+    javaWriter.upsertRecord(TEST_FILE, PKG, decl);
 
     long count =
         session
@@ -1972,7 +1972,7 @@ class GraphWriterIT {
         parseDeclResolved(
             "package com.example;" + " public class MyException extends RuntimeException {}");
 
-    writer.upsertType(TEST_FILE, PKG, decl);
+    javaWriter.upsertType(TEST_FILE, PKG, decl);
 
     var result =
         session
@@ -1994,7 +1994,7 @@ class GraphWriterIT {
         parseDeclResolved(
             "package com.example;" + " public class MyException extends RuntimeException {}");
 
-    writer.upsertType(TEST_FILE, PKG, decl);
+    javaWriter.upsertType(TEST_FILE, PKG, decl);
 
     var result =
         session
@@ -2030,8 +2030,8 @@ class GraphWriterIT {
 
     writer.upsertFile(sourceFile);
     writer.upsertPackage("com.example");
-    writer.upsertType(sourceFile, "com.example", decl);
-    writer.upsertTypeCallEdges("com.example", decl);
+    javaWriter.upsertType(sourceFile, "com.example", decl);
+    javaWriter.upsertTypeCallEdges("com.example", decl);
 
     long callCount =
         session
@@ -2070,8 +2070,8 @@ class GraphWriterIT {
 
     writer.upsertFile(sourceFile);
     writer.upsertPackage("com.example");
-    writer.upsertType(sourceFile, "com.example", decl);
-    writer.upsertTypeCallEdges("com.example", decl);
+    javaWriter.upsertType(sourceFile, "com.example", decl);
+    javaWriter.upsertTypeCallEdges("com.example", decl);
 
     long callCount =
         session
@@ -2107,8 +2107,8 @@ class GraphWriterIT {
 
     writer.upsertFile(sourceFile);
     writer.upsertPackage("com.example");
-    writer.upsertType(sourceFile, "com.example", decl);
-    writer.upsertTypeCallEdges("com.example", decl);
+    javaWriter.upsertType(sourceFile, "com.example", decl);
+    javaWriter.upsertTypeCallEdges("com.example", decl);
 
     long callCount =
         session
@@ -2146,8 +2146,8 @@ class GraphWriterIT {
 
     writer.upsertFile(sourceFile);
     writer.upsertPackage("com.example");
-    writer.upsertType(sourceFile, "com.example", decl);
-    writer.upsertTypeCallEdges("com.example", decl);
+    javaWriter.upsertType(sourceFile, "com.example", decl);
+    javaWriter.upsertTypeCallEdges("com.example", decl);
 
     long callCount =
         session
@@ -2192,13 +2192,13 @@ class GraphWriterIT {
     var helperDecl = helperCu.findFirst(ClassOrInterfaceDeclaration.class).orElseThrow();
     writer.upsertFile(helperFile);
     writer.upsertPackage("com.example");
-    writer.upsertType(helperFile, "com.example", helperDecl);
+    javaWriter.upsertType(helperFile, "com.example", helperDecl);
 
     var callerCu = parseService.parse(callerFile).orElseThrow();
     var callerDecl = callerCu.findFirst(ClassOrInterfaceDeclaration.class).orElseThrow();
     writer.upsertFile(callerFile);
-    writer.upsertType(callerFile, "com.example", callerDecl);
-    writer.upsertTypeCallEdges("com.example", callerDecl);
+    javaWriter.upsertType(callerFile, "com.example", callerDecl);
+    javaWriter.upsertTypeCallEdges("com.example", callerDecl);
 
     long callCount =
         session
@@ -2227,8 +2227,8 @@ class GraphWriterIT {
                 + "   public void doWork() { helper(); }"
                 + " }");
 
-    writer.upsertType(TEST_FILE, PKG, decl);
-    writer.upsertTypeCallEdges(PKG, decl);
+    javaWriter.upsertType(TEST_FILE, PKG, decl);
+    javaWriter.upsertTypeCallEdges(PKG, decl);
 
     long callCount =
         session
@@ -2261,9 +2261,9 @@ class GraphWriterIT {
                 + "   public void load() { refreshRepository(); }"
                 + " }");
 
-    writer.upsertType(TEST_FILE, PKG, base);
-    writer.upsertType(TEST_FILE, PKG, service);
-    writer.upsertTypeCallEdges(PKG, service);
+    javaWriter.upsertType(TEST_FILE, PKG, base);
+    javaWriter.upsertType(TEST_FILE, PKG, service);
+    javaWriter.upsertTypeCallEdges(PKG, service);
 
     long callCount =
         session
@@ -2304,10 +2304,10 @@ class GraphWriterIT {
                 + "   public void load() { refreshRepository(); }"
                 + " }");
 
-    writer.upsertType(TEST_FILE, PKG, base);
-    writer.upsertType(TEST_FILE, PKG, middle);
-    writer.upsertType(TEST_FILE, PKG, service);
-    writer.upsertTypeCallEdges(PKG, service);
+    javaWriter.upsertType(TEST_FILE, PKG, base);
+    javaWriter.upsertType(TEST_FILE, PKG, middle);
+    javaWriter.upsertType(TEST_FILE, PKG, service);
+    javaWriter.upsertTypeCallEdges(PKG, service);
 
     var row =
         session
@@ -2331,7 +2331,7 @@ class GraphWriterIT {
     ClassOrInterfaceDeclaration helper =
         parseDecl("package com.example; public class Helper { public static void assist() {} }");
 
-    writer.upsertType(TEST_FILE, PKG, caller);
+    javaWriter.upsertType(TEST_FILE, PKG, caller);
     writer.upsertPendingCallByName("com.example.Caller.run()", "com.example.Helper", "assist");
 
     long pendingBefore =
@@ -2351,7 +2351,7 @@ class GraphWriterIT {
             .get("n")
             .asLong();
 
-    writer.upsertType(TEST_FILE, PKG, helper);
+    javaWriter.upsertType(TEST_FILE, PKG, helper);
     writer.resolvePendingCalls();
 
     long pendingAfter =
@@ -2394,8 +2394,8 @@ class GraphWriterIT {
                 + "   public void refreshRepository() {}"
                 + " }");
 
-    writer.upsertType(TEST_FILE, PKG, caller);
-    writer.upsertType(TEST_FILE, PKG, service);
+    javaWriter.upsertType(TEST_FILE, PKG, caller);
+    javaWriter.upsertType(TEST_FILE, PKG, service);
     writer.upsertPendingCallByName(
         "com.example.Caller.run()", "com.example.RepositoryService", "refreshRepository");
 
@@ -2406,7 +2406,7 @@ class GraphWriterIT {
             .get("n")
             .asLong();
 
-    writer.upsertType(TEST_FILE, PKG, base);
+    javaWriter.upsertType(TEST_FILE, PKG, base);
     writer.resolvePendingCalls();
 
     var row =
@@ -2449,10 +2449,10 @@ class GraphWriterIT {
                 + "   public void refreshRepository() {}"
                 + " }");
 
-    writer.upsertType(TEST_FILE, PKG, caller);
-    writer.upsertType(TEST_FILE, PKG, service);
-    writer.upsertType(TEST_FILE, PKG, middle);
-    writer.upsertType(TEST_FILE, PKG, base);
+    javaWriter.upsertType(TEST_FILE, PKG, caller);
+    javaWriter.upsertType(TEST_FILE, PKG, service);
+    javaWriter.upsertType(TEST_FILE, PKG, middle);
+    javaWriter.upsertType(TEST_FILE, PKG, base);
     writer.upsertPendingCallByName(
         "com.example.Caller.run()", "com.example.RepositoryService", "refreshRepository");
     writer.resolvePendingCalls();
@@ -2480,7 +2480,7 @@ class GraphWriterIT {
     ClassOrInterfaceDeclaration caller =
         parseDecl("package com.example; public class Caller { public void run() {} }");
 
-    writer.upsertType(TEST_FILE, PKG, caller);
+    javaWriter.upsertType(TEST_FILE, PKG, caller);
     writer.upsertPendingCallByName("com.example.Caller.run()", "com.example.Helper", "assist");
 
     long pendingBefore =
@@ -2517,9 +2517,9 @@ class GraphWriterIT {
                 + "   public void doWork() { Helper.assist(); }"
                 + " }");
 
-    writer.upsertType(TEST_FILE, PKG, helper);
-    writer.upsertType(TEST_FILE, PKG, caller);
-    writer.upsertTypeCallEdges(PKG, caller);
+    javaWriter.upsertType(TEST_FILE, PKG, helper);
+    javaWriter.upsertType(TEST_FILE, PKG, caller);
+    javaWriter.upsertTypeCallEdges(PKG, caller);
 
     long callCount =
         session
@@ -2551,9 +2551,9 @@ class GraphWriterIT {
                 + "   public Supplier<Widget> factory() { return Widget::new; }"
                 + " }");
 
-    writer.upsertType(TEST_FILE, PKG, widget);
-    writer.upsertType(TEST_FILE, PKG, maker);
-    writer.upsertTypeCallEdges(PKG, maker);
+    javaWriter.upsertType(TEST_FILE, PKG, widget);
+    javaWriter.upsertType(TEST_FILE, PKG, maker);
+    javaWriter.upsertTypeCallEdges(PKG, maker);
 
     long callCount =
         session
@@ -2584,8 +2584,8 @@ class GraphWriterIT {
                 + "   }"
                 + " }");
 
-    writer.upsertType(TEST_FILE, PKG, decl);
-    writer.upsertTypeCallEdges(PKG, decl);
+    javaWriter.upsertType(TEST_FILE, PKG, decl);
+    javaWriter.upsertTypeCallEdges(PKG, decl);
 
     long callCount =
         session
