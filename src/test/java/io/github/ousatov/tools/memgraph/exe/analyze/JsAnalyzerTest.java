@@ -1,11 +1,13 @@
 package io.github.ousatov.tools.memgraph.exe.analyze;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import io.github.ousatov.tools.memgraph.exception.ProcessingException;
 import java.io.IOException;
+import java.lang.reflect.Field;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.concurrent.TimeUnit;
@@ -23,6 +25,24 @@ class JsAnalyzerTest {
   private static final String BASE_CLASS_FQN = "js.base$2e$ts.BaseTranslationRequestService";
 
   @TempDir private static Path tempDir;
+
+  @Test
+  void withSourceRootReusesExtractedHelperScripts() throws ReflectiveOperationException {
+    Path runtimeCache = tempDir.resolve("runtime");
+    JsAnalyzer analyzer =
+        new JsAnalyzer(
+            tempDir,
+            new ManagedNodeRuntime(
+                runtimeCache, ManagedNodeRuntime.DEFAULT_NODE_VERSION, RuntimeMode.OFFLINE),
+            new ManagedTypescriptPackage(
+                runtimeCache,
+                ManagedTypescriptPackage.DEFAULT_TYPESCRIPT_VERSION,
+                RuntimeMode.OFFLINE));
+
+    JsAnalyzer rebased = analyzer.withSourceRoot(tempDir.resolve("other-root"));
+
+    assertSame(helperScript(analyzer), helperScript(rebased));
+  }
 
   @Test
   void analyzesNestedLocalClassDeclarations() throws IOException {
@@ -743,6 +763,12 @@ class JsAnalyzerTest {
       assumeTrue(false, "Managed TypeScript package unavailable: " + e.getMessage());
       throw e;
     }
+  }
+
+  private static Path helperScript(JsAnalyzer analyzer) throws ReflectiveOperationException {
+    Field field = JsAnalyzer.class.getDeclaredField("helperScript");
+    field.setAccessible(true);
+    return (Path) field.get(analyzer);
   }
 
   private static boolean systemNodeAvailable() {

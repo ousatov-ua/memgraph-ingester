@@ -3,10 +3,12 @@ package io.github.ousatov.tools.memgraph.exe.analyze;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import java.io.IOException;
+import java.lang.reflect.Field;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -86,6 +88,36 @@ class PythonAnalyzerTest {
                 call ->
                     "python.pkg.service$2e$py.Service.run()".equals(call.callerSignature())
                         && "python.pkg.service$2e$py.helper()".equals(call.calleeSignature())));
+  }
+
+  @Test
+  void decodesUnicodeEscapesFromHelperJson() throws IOException {
+    PythonAnalysis analysis =
+        analyzeSource(
+            "unicode.py",
+            """
+            def \u03bb():
+                return 1
+            """);
+
+    assertTrue(
+        analysis.members().stream().anyMatch(member -> "\u03bb".equals(member.name())),
+        () -> "Members: " + analysis.members());
+  }
+
+  @Test
+  void withSourceRootReusesExtractedHelperScript() throws ReflectiveOperationException {
+    ManagedPythonRuntime runtime =
+        new ManagedPythonRuntime(
+            tempDir.resolve("runtime"),
+            ManagedPythonRuntime.DEFAULT_PYTHON_VERSION,
+            ManagedPythonRuntime.DEFAULT_PYTHON_BUILD,
+            RuntimeMode.OFFLINE);
+    PythonAnalyzer analyzer = new PythonAnalyzer(tempDir, runtime);
+
+    PythonAnalyzer rebased = analyzer.withSourceRoot(tempDir.resolve("other-root"));
+
+    assertSame(helperScript(analyzer), helperScript(rebased));
   }
 
   @Test
@@ -617,6 +649,12 @@ class PythonAnalyzerTest {
             ManagedPythonRuntime.DEFAULT_PYTHON_VERSION,
             ManagedPythonRuntime.DEFAULT_PYTHON_BUILD,
             RuntimeMode.SYSTEM));
+  }
+
+  private static Path helperScript(PythonAnalyzer analyzer) throws ReflectiveOperationException {
+    Field field = PythonAnalyzer.class.getDeclaredField("helperScript");
+    field.setAccessible(true);
+    return (Path) field.get(analyzer);
   }
 
   private static boolean systemPythonAvailable() {

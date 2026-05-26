@@ -45,9 +45,13 @@ public final class PythonAnalyzer {
   }
 
   public PythonAnalyzer(Path sourceRoot, ManagedPythonRuntime pythonRuntime) {
+    this(sourceRoot, pythonRuntime, extractHelperScript());
+  }
+
+  private PythonAnalyzer(Path sourceRoot, ManagedPythonRuntime pythonRuntime, Path helperScript) {
     this.sourceRoot = sourceRoot;
     this.pythonRuntime = pythonRuntime;
-    this.helperScript = extractHelperScript();
+    this.helperScript = helperScript;
   }
 
   private static CompletableFuture<String> readAsync(InputStream input, String streamName) {
@@ -233,7 +237,7 @@ public final class PythonAnalyzer {
   }
 
   public PythonAnalyzer withSourceRoot(Path sourceRoot) {
-    return new PythonAnalyzer(sourceRoot, pythonRuntime);
+    return new PythonAnalyzer(sourceRoot, pythonRuntime, helperScript);
   }
 
   private static final class JsonCursor {
@@ -318,8 +322,23 @@ public final class PythonAnalyzer {
         case 'n' -> '\n';
         case 'r' -> '\r';
         case 't' -> '\t';
+        case 'u' -> unicodeEscape();
         default -> throw error("Unsupported escape: " + escaped);
       };
+    }
+
+    private char unicodeEscape() {
+      if (pos + 4 > input.length()) {
+        throw error("Incomplete unicode escape");
+      }
+      String hex = input.substring(pos, pos + 4);
+      try {
+        int value = Integer.parseInt(hex, 16);
+        pos += 4;
+        return (char) value;
+      } catch (NumberFormatException e) {
+        throw error("Invalid unicode escape", e);
+      }
     }
 
     private void skipWhitespace() {
@@ -344,6 +363,11 @@ public final class PythonAnalyzer {
 
     private ProcessingException error(String message) {
       return new ProcessingException(message + " while parsing Python analyzer output: " + input);
+    }
+
+    private ProcessingException error(String message, Throwable cause) {
+      return new ProcessingException(
+          message + " while parsing Python analyzer output: " + input, cause);
     }
   }
 }

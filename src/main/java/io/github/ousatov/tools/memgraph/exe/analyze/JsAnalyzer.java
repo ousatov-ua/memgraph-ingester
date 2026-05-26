@@ -39,10 +39,18 @@ public final class JsAnalyzer {
 
   public JsAnalyzer(
       Path sourceRoot, ManagedNodeRuntime nodeRuntime, ManagedTypescriptPackage typescriptPackage) {
+    this(sourceRoot, nodeRuntime, typescriptPackage, extractHelperScript());
+  }
+
+  private JsAnalyzer(
+      Path sourceRoot,
+      ManagedNodeRuntime nodeRuntime,
+      ManagedTypescriptPackage typescriptPackage,
+      Path helperScript) {
     this.sourceRoot = sourceRoot;
     this.nodeRuntime = nodeRuntime;
     this.typescriptPackage = typescriptPackage;
-    this.helperScript = extractHelperScript();
+    this.helperScript = helperScript;
   }
 
   private static CompletableFuture<String> readAsync(InputStream input, String streamName) {
@@ -235,7 +243,7 @@ public final class JsAnalyzer {
   }
 
   public JsAnalyzer withSourceRoot(Path sourceRoot) {
-    return new JsAnalyzer(sourceRoot, nodeRuntime, typescriptPackage);
+    return new JsAnalyzer(sourceRoot, nodeRuntime, typescriptPackage, helperScript);
   }
 
   private static final class JsonCursor {
