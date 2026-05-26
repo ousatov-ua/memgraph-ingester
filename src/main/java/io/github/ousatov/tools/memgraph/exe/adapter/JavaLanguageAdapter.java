@@ -15,6 +15,7 @@ import io.github.ousatov.tools.memgraph.def.Const.Labels;
 import io.github.ousatov.tools.memgraph.exe.analyze.JavaTypeNames;
 import io.github.ousatov.tools.memgraph.exe.analyze.ParseService;
 import io.github.ousatov.tools.memgraph.exe.writer.GraphWriter;
+import io.github.ousatov.tools.memgraph.exe.writer.java.JavaGraphWriter;
 import java.nio.file.Path;
 import java.util.LinkedHashSet;
 import java.util.Optional;
@@ -67,6 +68,7 @@ public final class JavaLanguageAdapter implements LanguageAdapter<CompilationUni
   @Override
   public boolean write(GraphWriter writer, Path file, CompilationUnit cu) {
     String pkg = cu.getPackageDeclaration().map(pd -> pd.getName().asString()).orElse("");
+    JavaGraphWriter javaWriter = new JavaGraphWriter(writer.dependencies());
     try {
       writer.upsertFile(file, language());
       writer.upsertPackage(pkg, language());
@@ -74,24 +76,24 @@ public final class JavaLanguageAdapter implements LanguageAdapter<CompilationUni
           .forEach(
               typeDecl -> {
                 if (typeDecl instanceof ClassOrInterfaceDeclaration ci) {
-                  writer.upsertType(file, pkg, ci);
+                  javaWriter.upsertType(file, pkg, ci);
                 } else if (typeDecl instanceof EnumDeclaration en) {
-                  writer.upsertEnum(file, pkg, en);
+                  javaWriter.upsertEnum(file, pkg, en);
                 } else if (typeDecl instanceof RecordDeclaration rec) {
-                  writer.upsertRecord(file, pkg, rec);
+                  javaWriter.upsertRecord(file, pkg, rec);
                 } else if (typeDecl instanceof AnnotationDeclaration ann) {
-                  writer.upsertAnnotation(file, pkg, ann);
+                  javaWriter.upsertAnnotation(file, pkg, ann);
                 }
               });
       cu.getTypes()
           .forEach(
               typeDecl -> {
                 if (typeDecl instanceof ClassOrInterfaceDeclaration ci) {
-                  writer.upsertTypeCallEdges(pkg, ci);
+                  javaWriter.upsertTypeCallEdges(pkg, ci);
                 } else if (typeDecl instanceof EnumDeclaration en) {
-                  writer.upsertEnumCallEdges(pkg, en);
+                  javaWriter.upsertEnumCallEdges(pkg, en);
                 } else if (typeDecl instanceof RecordDeclaration rec) {
-                  writer.upsertRecordCallEdges(pkg, rec);
+                  javaWriter.upsertRecordCallEdges(pkg, rec);
                 }
               });
       return true;

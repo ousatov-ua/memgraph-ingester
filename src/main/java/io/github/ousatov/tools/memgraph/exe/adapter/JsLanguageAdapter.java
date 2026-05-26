@@ -9,6 +9,7 @@ import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.CallWrite;
 import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.FieldWrite;
 import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.PendingCallWrite;
 import io.github.ousatov.tools.memgraph.exe.writer.GraphWriter;
+import io.github.ousatov.tools.memgraph.exe.writer.js.JsGraphWriter;
 import io.github.ousatov.tools.memgraph.vo.Method;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -80,25 +81,26 @@ public final class JsLanguageAdapter implements LanguageAdapter<JsAnalysis> {
 
   @Override
   public boolean write(GraphWriter writer, Path file, JsAnalysis analysis) {
+    JsGraphWriter jsWriter = new JsGraphWriter(writer.dependencies());
     try {
       writer.upsertFile(file, language());
       writer.deleteStaleJavascriptDefinitionsForFile(file, analysis.moduleFqn());
       writer.upsertPackage(analysis.packageName(), language());
-      writer.upsertJavascriptModule(
+      jsWriter.upsertModule(
           file,
           analysis.packageName(),
           analysis.moduleFqn(),
           analysis.moduleName(),
           analysis.modulePath(),
-          analysis.startLine(),
+          1,
           analysis.endLine());
       analysis
           .types()
           .forEach(
               type ->
-                  upsertType(writer, file, analysis.packageName(), analysis.modulePath(), type));
-      analysis.relations().forEach(relation -> upsertRelation(writer, relation));
-      upsertMembers(writer, file, analysis.members());
+                  upsertType(jsWriter, file, analysis.packageName(), analysis.modulePath(), type));
+      analysis.relations().forEach(relation -> upsertRelation(jsWriter, relation));
+      upsertMembers(jsWriter, file, analysis.members());
       upsertAnnotations(writer, analysis.annotations());
       upsertCalls(writer, analysis.calls());
       return true;
@@ -147,13 +149,13 @@ public final class JsLanguageAdapter implements LanguageAdapter<JsAnalysis> {
   }
 
   private static void upsertType(
-      GraphWriter writer,
+      JsGraphWriter writer,
       Path file,
       String packageName,
       String modulePath,
       JsAnalysis.TypeDecl type) {
     if (Params.CLASS.equals(type.kind())) {
-      writer.upsertJavascriptClass(
+      writer.upsertClass(
           file,
           packageName,
           type.fqn(),
@@ -165,28 +167,27 @@ public final class JsLanguageAdapter implements LanguageAdapter<JsAnalysis> {
           type.startLine(),
           type.endLine());
     } else if (Params.ENUM.equals(type.kind())) {
-      writer.upsertJavascriptEnum(
+      writer.upsertEnum(
           file, packageName, type.fqn(), type.name(), modulePath, type.startLine(), type.endLine());
     } else {
-      writer.upsertJavascriptInterface(
+      writer.upsertInterface(
           file, packageName, type.fqn(), type.name(), type.kind(), modulePath, type.framework());
     }
   }
 
-  private static void upsertRelation(GraphWriter writer, JsAnalysis.RelationDecl relation) {
+  private static void upsertRelation(JsGraphWriter writer, JsAnalysis.RelationDecl relation) {
     switch (relation.kind()) {
       case Params.CLASS_EXTENDS ->
-          writer.upsertJavascriptExtendsClass(relation.childFqn(), relation.targetFqn());
+          writer.upsertExtendsClass(relation.childFqn(), relation.targetFqn());
       case Params.INTERFACE_EXTENDS ->
-          writer.upsertJavascriptInterfaceExtends(relation.childFqn(), relation.targetFqn());
-      case Params.IMPLEMENTS ->
-          writer.upsertJavascriptImplements(relation.childFqn(), relation.targetFqn());
+          writer.upsertInterfaceExtends(relation.childFqn(), relation.targetFqn());
+      case Params.IMPLEMENTS -> writer.upsertImplements(relation.childFqn(), relation.targetFqn());
       default -> log.debug("Ignoring unknown JavaScript relation kind: {}", relation.kind());
     }
   }
 
   private static void upsertMembers(
-      GraphWriter writer, Path file, Collection<JsAnalysis.MemberDecl> members) {
+      JsGraphWriter writer, Path file, Collection<JsAnalysis.MemberDecl> members) {
     List<FieldWrite> fields = new ArrayList<>();
     List<Method> methods = new ArrayList<>();
     for (JsAnalysis.MemberDecl member : members) {
@@ -217,7 +218,7 @@ public final class JsLanguageAdapter implements LanguageAdapter<JsAnalysis> {
                 member.kind()));
       }
     }
-    writer.upsertJavascriptMembers(file, fields, methods);
+    writer.upsertMembers(file, fields, methods);
   }
 
   private static void upsertAnnotations(
