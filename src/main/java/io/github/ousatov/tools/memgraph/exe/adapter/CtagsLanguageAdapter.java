@@ -118,12 +118,23 @@ public final class CtagsLanguageAdapter implements LanguageAdapter<CtagsAnalysis
 
   @Override
   public boolean accepts(Path file) {
-    if (isFirstClassSource(file) || isNonCodeSource(file) || isInSkippedDirectory(file)) {
+    Path localFile = sourceRootLocal(file);
+    if (isFirstClassSource(localFile)
+        || isNonCodeSource(localFile)
+        || isInSkippedDirectory(localFile)) {
       return false;
     }
     return detectedLanguage(file)
         .filter(CtagsLanguageAdapter::isFallbackProgrammingLanguage)
         .isPresent();
+  }
+
+  @Override
+  public boolean acceptsDeletedPath(Path file) {
+    Path localFile = sourceRootLocal(file);
+    return !isFirstClassSource(localFile)
+        && !isNonCodeSource(localFile)
+        && !isInSkippedDirectory(localFile);
   }
 
   @Override
@@ -242,7 +253,7 @@ public final class CtagsLanguageAdapter implements LanguageAdapter<CtagsAnalysis
             @Override
             public @NonNull FileVisitResult visitFile(
                 @NonNull Path file, @NonNull BasicFileAttributes attrs) {
-              if (attrs.isRegularFile() && accepts(file)) {
+              if (attrs.isRegularFile() && accepts(LanguageAdapter.localPath(root, file))) {
                 files.add(file);
               }
               return FileVisitResult.CONTINUE;
@@ -322,6 +333,22 @@ public final class CtagsLanguageAdapter implements LanguageAdapter<CtagsAnalysis
       return normalizedFile;
     }
     return sourceRoot.resolve(normalizedFile).normalize();
+  }
+
+  private Path sourceRootLocal(Path file) {
+    Path normalizedFile = file.normalize();
+    Path normalizedRoot = sourceRoot.normalize();
+    if (normalizedFile.isAbsolute()) {
+      Path absoluteRoot = sourceRoot.toAbsolutePath().normalize();
+      if (normalizedFile.startsWith(absoluteRoot)) {
+        return absoluteRoot.relativize(normalizedFile);
+      }
+      return normalizedFile;
+    }
+    if (normalizedFile.startsWith(normalizedRoot)) {
+      return normalizedRoot.relativize(normalizedFile);
+    }
+    return normalizedFile;
   }
 
   private static boolean isFirstClassSource(Path file) {

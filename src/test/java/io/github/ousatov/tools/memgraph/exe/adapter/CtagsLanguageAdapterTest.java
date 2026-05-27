@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertIterableEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeFalse;
 
+import io.github.ousatov.tools.memgraph.def.Const.Params;
 import io.github.ousatov.tools.memgraph.exe.analyze.CtagsAnalysis;
 import io.github.ousatov.tools.memgraph.exe.analyze.CtagsAnalyzer;
 import io.github.ousatov.tools.memgraph.exe.analyze.ManagedCtagsRuntime;
@@ -90,6 +91,63 @@ class CtagsLanguageAdapterTest {
   }
 
   @Test
+  void discoversFilesWhenSourceRootParentHasSkippedDirectoryName() throws IOException {
+    assumeFalse(isWindows(), "fake executable script is POSIX-only");
+    Path sourceRoot = tempDir.resolve("build").resolve("repo");
+    CtagsLanguageAdapter adapter = adapterWithFakeCtags(sourceRoot, "Ruby");
+    Path rubyFile = sourceRoot.resolve("service.rb");
+    Files.createDirectories(sourceRoot);
+    Files.writeString(rubyFile, "class Service\nend\n");
+
+    assertIterableEquals(List.of(rubyFile), adapter.discoverFiles(sourceRoot));
+  }
+
+  @Test
+  void acceptsDeletedFallbackPathWithoutReadingMissingFile() throws IOException {
+    assumeFalse(isWindows(), "fake executable script is POSIX-only");
+    Path sourceRoot = tempDir.resolve("repo");
+    CtagsLanguageAdapter adapter = adapterWithFakeCtags(sourceRoot, "Ruby");
+
+    assertTrue(adapter.acceptsDeletedPath(sourceRoot.resolve("service.rb")));
+    assertTrue(adapter.acceptsDeletedPath(Path.of("service.rb")));
+    assertFalse(adapter.acceptsDeletedPath(sourceRoot.resolve("Service.java")));
+    assertFalse(adapter.acceptsDeletedPath(sourceRoot.resolve("config.yml")));
+    assertFalse(adapter.acceptsDeletedPath(sourceRoot.resolve("vendor/service.rb")));
+  }
+
+  @Test
+  void treatsCtagsEnumsAsTypes() throws IOException {
+    assumeFalse(isWindows(), "fake executable script is POSIX-only");
+    Path sourceRoot = tempDir.resolve("repo");
+    CtagsLanguageAdapter adapter =
+        adapterWithFakeCtags(
+            sourceRoot,
+            "Rust",
+            """
+            {"_type":"tag","name":"Color","path":"color.rs","line":1,"end":4,"kind":"enum"}
+            {"_type":"tag","name":"Red","path":"color.rs","line":2,"kind":"enumerator","scope":"Color"}
+            """);
+    Path enumFile = sourceRoot.resolve("color.rs");
+    Files.createDirectories(sourceRoot);
+    Files.writeString(enumFile, "enum Color { Red }\n");
+
+    CtagsAnalysis analysis = adapter.parse(enumFile).orElseThrow();
+
+    assertEquals(
+        List.of(Params.ENUM),
+        analysis.types().stream().map(CtagsAnalysis.TypeDecl::graphKind).toList());
+    assertFalse(
+        analysis.members().stream()
+            .anyMatch(
+                member ->
+                    "Color".equals(member.name()) && Params.FIELD.equals(member.memberType())));
+    assertTrue(
+        analysis.members().stream()
+            .anyMatch(
+                member -> "Red".equals(member.name()) && member.ownerFqn().endsWith(".Color")));
+  }
+
+  @Test
   void parsesFilesDiscoveredFromRelativeSourceRoot() throws IOException {
     assumeFalse(isWindows(), "fake executable script is POSIX-only");
     Path sourceRoot = Path.of("ctags-relative-source-" + System.nanoTime());
@@ -109,6 +167,17 @@ class CtagsLanguageAdapterTest {
 
   private CtagsLanguageAdapter adapterWithFakeCtags(Path sourceRoot, String language)
       throws IOException {
+    return adapterWithFakeCtags(
+        sourceRoot,
+        language,
+        """
+        {"_type":"tag","name":"Service","path":"service.rb","line":1,"end":4,"kind":"class"}
+        {"_type":"tag","name":"call","path":"service.rb","line":2,"end":3,"kind":"method","scope":"Service","signature":"()"}
+        """);
+  }
+
+  private CtagsLanguageAdapter adapterWithFakeCtags(
+      Path sourceRoot, String language, String tagsJsonLines) throws IOException {
     Path cacheRoot = tempDir.resolve("runtime");
     Path executable = cachedExecutable(cacheRoot, "test");
     Files.createDirectories(executable.getParent());
@@ -132,11 +201,10 @@ class CtagsLanguageAdapterTest {
             exit 1
         fi
         cat <<'JSON'
-        {"_type":"tag","name":"Service","path":"service.rb","line":1,"end":4,"kind":"class"}
-        {"_type":"tag","name":"call","path":"service.rb","line":2,"end":3,"kind":"method","scope":"Service","signature":"()"}
+        %s
         JSON
         """
-            .formatted(language));
+            .formatted(language, tagsJsonLines.stripTrailing()));
     executable.toFile().setExecutable(true, true);
     ManagedCtagsRuntime runtime = new ManagedCtagsRuntime(cacheRoot, "test", RuntimeMode.OFFLINE);
     return new CtagsLanguageAdapter(sourceRoot, new CtagsAnalyzer(sourceRoot, runtime));

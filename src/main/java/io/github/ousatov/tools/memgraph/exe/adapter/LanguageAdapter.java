@@ -38,6 +38,11 @@ public interface LanguageAdapter<T> {
   /** Returns true when this adapter can parse {@code file}. */
   boolean accepts(Path file);
 
+  /** Returns true when this adapter could have parsed {@code file} before a delete event. */
+  default boolean acceptsDeletedPath(Path file) {
+    return accepts(file);
+  }
+
   /** Parses {@code file} into an adapter-specific source model. */
   Optional<T> parse(Path file);
 

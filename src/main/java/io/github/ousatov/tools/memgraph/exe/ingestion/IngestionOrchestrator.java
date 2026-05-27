@@ -253,7 +253,7 @@ public final class IngestionOrchestrator {
             registerRecursive(child, watcher, keys);
           }
 
-          if (adapterFor(child).isPresent()) {
+          if (adapterForWatchEvent(child, kind).isPresent()) {
             changedFiles.add(child);
           }
         }
@@ -401,7 +401,7 @@ public final class IngestionOrchestrator {
       GraphWriter writer, List<Path> deletedFiles, Set<Path> refreshAfterDelete) {
     boolean anyDeleted = false;
     for (Path file : deletedFiles) {
-      if (adapterFor(file).isPresent()) {
+      if (adapterForDeletedPath(file).isPresent()) {
         Optional<Set<Path>> sharedRetainedFiles =
             retainedFilesSharingDefinitionsWithRetry(
                 file, writer::getRetainedFilePathsSharingDefinitionsWith);
@@ -760,6 +760,20 @@ public final class IngestionOrchestrator {
   private Optional<LanguageAdapter<?>> adapterFor(Path file, List<LanguageAdapter<?>> adapters) {
     Path localFile = LanguageAdapter.localPath(sourceRoot, file);
     return adapters.stream().filter(adapter -> adapter.accepts(localFile)).findFirst();
+  }
+
+  private Optional<LanguageAdapter<?>> adapterForWatchEvent(Path file, WatchEvent.Kind<?> kind) {
+    if (kind == StandardWatchEventKinds.ENTRY_DELETE) {
+      return adapterForDeletedPath(file);
+    }
+    return adapterFor(file);
+  }
+
+  private Optional<LanguageAdapter<?>> adapterForDeletedPath(Path file) {
+    Path localFile = LanguageAdapter.localPath(sourceRoot, file);
+    return languageAdapters.stream()
+        .filter(adapter -> adapter.acceptsDeletedPath(localFile))
+        .findFirst();
   }
 
   private Optional<SourceFile> sourceFileFor(

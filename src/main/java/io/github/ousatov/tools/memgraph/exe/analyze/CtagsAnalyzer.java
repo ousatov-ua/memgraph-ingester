@@ -123,7 +123,7 @@ public final class CtagsAnalyzer {
     Map<String, String> typeFqnsByScope = new LinkedHashMap<>();
     for (CtagsTag tag : tags) {
       String graphKind = graphKind(tag.kind());
-      if (!Params.CLASS.equals(graphKind) && !Params.INTERFACE.equals(graphKind)) {
+      if (!isTypeGraphKind(graphKind)) {
         continue;
       }
       String ownerFqn = ownerFqn(moduleFqn, tag.scope(), typeFqnsByScope);
@@ -139,7 +139,7 @@ public final class CtagsAnalyzer {
     List<CtagsAnalysis.MemberDecl> members = new ArrayList<>();
     for (CtagsTag tag : tags) {
       String graphKind = graphKind(tag.kind());
-      if (Params.CLASS.equals(graphKind) || Params.INTERFACE.equals(graphKind)) {
+      if (isTypeGraphKind(graphKind)) {
         continue;
       }
       String ownerFqn = ownerFqn(moduleFqn, tag.scope(), typeFqnsByScope);
@@ -200,6 +200,12 @@ public final class CtagsAnalyzer {
       return kind;
     }
     return Params.FIELD;
+  }
+
+  private static boolean isTypeGraphKind(String graphKind) {
+    return Params.CLASS.equals(graphKind)
+        || Params.INTERFACE.equals(graphKind)
+        || Params.ENUM.equals(graphKind);
   }
 
   private static String normalizeKind(String rawKind) {
