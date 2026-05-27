@@ -14,6 +14,7 @@ import com.github.javaparser.symbolsolver.resolution.typesolvers.ReflectionTypeS
 import io.github.ousatov.tools.memgraph.exe.adapter.SourceFileDefinitions;
 import io.github.ousatov.tools.memgraph.exe.adapter.SourceLanguage;
 import io.github.ousatov.tools.memgraph.exe.analyze.ParseService;
+import io.github.ousatov.tools.memgraph.exe.writer.ctags.CtagsGraphWriter;
 import io.github.ousatov.tools.memgraph.exe.writer.java.JavaGraphWriter;
 import io.github.ousatov.tools.memgraph.exe.writer.js.JsGraphWriter;
 import io.github.ousatov.tools.memgraph.extension.MemgraphExtension;
@@ -24,6 +25,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
@@ -295,6 +297,46 @@ class GraphWriterIT {
           writer.getAllFileLastModified(List.of(tempFile), SourceLanguage.JAVASCRIPT);
 
       assertFalse(cache.containsKey(tempFile.toString()));
+    } finally {
+      Files.deleteIfExists(tempFile);
+    }
+  }
+
+  @Test
+  void getAllFileLastModifiedReadsCtagsLanguageFiles() throws IOException {
+    SourceLanguage ruby = SourceLanguage.of("ruby", "Ruby");
+    Path tempFile = Files.createTempFile("ctags-ruby-", ".rb");
+    try {
+      CtagsGraphWriter ctagsWriter = new CtagsGraphWriter(writer.dependencies());
+      writer.upsertProject(SRC_ROOT, List.of(ruby));
+      writer.upsertFile(tempFile, ruby);
+      writer.upsertPackage("ruby.test", ruby);
+      ctagsWriter.upsertModule(
+          tempFile, ruby, "ruby.test", "ruby.test.service", "service", "service.rb", 1, 2);
+
+      Map<String, Long> cache = writer.getAllFileLastModified(List.of(tempFile), ruby);
+
+      assertTrue(cache.containsKey(tempFile.toString()));
+    } finally {
+      Files.deleteIfExists(tempFile);
+    }
+  }
+
+  @Test
+  void getSourceRootHintReadsCtagsLanguageModulePath() throws IOException {
+    SourceLanguage ruby = SourceLanguage.of("ruby", "Ruby");
+    Path tempFile = Files.createTempFile("ctags-root-hint-", ".rb");
+    try {
+      CtagsGraphWriter ctagsWriter = new CtagsGraphWriter(writer.dependencies());
+      writer.upsertProject(SRC_ROOT, List.of(ruby));
+      writer.upsertFile(tempFile, ruby);
+      writer.upsertPackage("ruby.test", ruby);
+      ctagsWriter.upsertModule(
+          tempFile, ruby, "ruby.test", "ruby.test.service", "service", "lib/service.rb", 1, 2);
+
+      Optional<String> hint = writer.getSourceRootHint(tempFile, ruby);
+
+      assertEquals(Optional.of("lib/service.rb"), hint);
     } finally {
       Files.deleteIfExists(tempFile);
     }

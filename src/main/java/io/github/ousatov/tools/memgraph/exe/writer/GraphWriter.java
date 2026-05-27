@@ -322,7 +322,7 @@ public final class GraphWriter {
     try {
       return cypher.read(
           getFilesLastModifiedCypher(language),
-          Map.of(Params.PATHS, paths),
+          Map.of(Params.PATHS, paths, Params.LANGUAGE, language.graphName()),
           result -> {
             Map<String, Long> mtimes = HashMap.newHashMap(files.size() * 2);
             while (result.hasNext()) {
@@ -429,7 +429,7 @@ public final class GraphWriter {
   public Optional<String> getSourceRootHint(Path file, SourceLanguage language) {
     return cypher.read(
         getSourceRootHintCypher(language),
-        Map.of(Params.PATH, file.toString()),
+        Map.of(Params.PATH, file.toString(), Params.LANGUAGE, language.graphName()),
         result -> {
           if (!result.hasNext()) {
             return Optional.empty();
