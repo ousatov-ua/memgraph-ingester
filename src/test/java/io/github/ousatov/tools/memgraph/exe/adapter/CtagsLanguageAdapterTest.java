@@ -3,10 +3,12 @@ package io.github.ousatov.tools.memgraph.exe.adapter;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertIterableEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeFalse;
 
 import io.github.ousatov.tools.memgraph.def.Const.Params;
+import io.github.ousatov.tools.memgraph.exception.ProcessingException;
 import io.github.ousatov.tools.memgraph.exe.analyze.CtagsAnalysis;
 import io.github.ousatov.tools.memgraph.exe.analyze.CtagsAnalyzer;
 import io.github.ousatov.tools.memgraph.exe.analyze.ManagedCtagsRuntime;
@@ -75,6 +77,31 @@ class CtagsLanguageAdapterTest {
         adapterWithFakeCtags(sourceRoot, "XML")
             .parse(sourceRoot.resolve("pom.custom"))
             .isPresent());
+  }
+
+  @Test
+  void rejectsDocumentationAndStylesheetSources() throws IOException {
+    assumeFalse(isWindows(), "fake executable script is POSIX-only");
+    Path sourceRoot = tempDir.resolve("repo");
+    Files.createDirectories(sourceRoot);
+    Path adocFile = sourceRoot.resolve("README.adoc");
+    Path scssFile = sourceRoot.resolve("style.scss");
+    Files.writeString(adocFile, "= Title\n");
+    Files.writeString(scssFile, "$color: red;\n");
+
+    CtagsLanguageAdapter adapter = adapterWithFakeCtags(sourceRoot, "Ruby");
+
+    assertFalse(adapter.accepts(adocFile));
+    assertFalse(adapter.accepts(scssFile));
+    assertIterableEquals(List.of(), adapter.discoverFiles(sourceRoot));
+
+    Path extensionlessDoc = sourceRoot.resolve("README");
+    Path extensionlessStyle = sourceRoot.resolve("style");
+    Files.writeString(extensionlessDoc, "= Title\n");
+    Files.writeString(extensionlessStyle, "$color: red;\n");
+
+    assertFalse(adapterWithFakeCtags(sourceRoot, "Asciidoc").accepts(extensionlessDoc));
+    assertFalse(adapterWithFakeCtags(sourceRoot, "SCSS").accepts(extensionlessStyle));
   }
 
   @Test
@@ -238,6 +265,19 @@ class CtagsLanguageAdapterTest {
     } finally {
       deleteRecursively(sourceRoot);
     }
+  }
+
+  @Test
+  void propagatesRuntimeFailuresDuringDiscovery() throws IOException {
+    Path sourceRoot = tempDir.resolve("repo");
+    Files.createDirectories(sourceRoot);
+    Files.writeString(sourceRoot.resolve("service.rb"), "class Service\nend\n");
+    ManagedCtagsRuntime runtime =
+        new ManagedCtagsRuntime(tempDir.resolve("missing-runtime"), "missing", RuntimeMode.OFFLINE);
+    CtagsLanguageAdapter adapter =
+        new CtagsLanguageAdapter(sourceRoot, new CtagsAnalyzer(sourceRoot, runtime));
+
+    assertThrows(ProcessingException.class, () -> adapter.discoverFiles(sourceRoot));
   }
 
   private CtagsLanguageAdapter adapterWithFakeCtags(Path sourceRoot, String language)

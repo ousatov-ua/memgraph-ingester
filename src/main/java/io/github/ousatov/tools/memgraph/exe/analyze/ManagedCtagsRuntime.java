@@ -60,9 +60,15 @@ public final class ManagedCtagsRuntime {
           Pattern.DOTALL);
   private static final Pattern RELEASE_ASSET_HTML_PATTERN =
       Pattern.compile(
-          "<a\\s+href=\"([^\"]*/releases/download/[^\"]+)\".*?"
-              + "<span[^>]*class=\"Truncate-text text-bold\"[^>]*>([^<]+)</span>.*?"
-              + "<span[^>]*class=\"Truncate-text\"[^>]*>(sha256:[a-fA-F0-9]+)</span>",
+          "<a\\b[^>]*\\bhref=\"([^\"]*/releases/download/[^\"]+)\"[^>]*>(.*?)</a>", Pattern.DOTALL);
+  private static final Pattern RELEASE_ASSET_NAME_HTML_PATTERN =
+      Pattern.compile(
+          "<span(?=[^>]*class=\"[^\"]*\\bTruncate-text\\b)"
+              + "(?=[^>]*class=\"[^\"]*\\btext-bold\\b)[^>]*>([^<]+)</span>",
+          Pattern.DOTALL);
+  private static final Pattern RELEASE_ASSET_DIGEST_HTML_PATTERN =
+      Pattern.compile(
+          "<span(?=[^>]*class=\"[^\"]*\\bTruncate-text\\b)[^>]*>" + "(sha256:[a-fA-F0-9]+)</span>",
           Pattern.DOTALL);
   private static final ConcurrentMap<String, Object> INSTALL_LOCKS = new ConcurrentHashMap<>();
   public static final String CTAGS_EXE = "ctags.exe";
@@ -395,9 +401,19 @@ public final class ManagedCtagsRuntime {
     java.util.List<ReleaseAsset> assets = new java.util.ArrayList<>();
     while (assetMatcher.find()) {
       String href = unescapeHtml(assetMatcher.group(1));
-      String name = unescapeHtml(assetMatcher.group(2));
+      String assetHtml = assetMatcher.group(2);
+      Matcher nameMatcher = RELEASE_ASSET_NAME_HTML_PATTERN.matcher(assetHtml);
+      if (!nameMatcher.find()) {
+        continue;
+      }
+      Matcher digestMatcher = RELEASE_ASSET_DIGEST_HTML_PATTERN.matcher(assetHtml);
+      Optional<String> digest =
+          digestMatcher.find()
+              ? Optional.of(unescapeHtml(digestMatcher.group(1)))
+              : Optional.empty();
+      String name = unescapeHtml(nameMatcher.group(1));
       String url = href.startsWith("http") ? href : GITHUB_BASE_URL + href;
-      assets.add(new ReleaseAsset(tag, name, Optional.of(assetMatcher.group(3)), url));
+      assets.add(new ReleaseAsset(tag, name, digest, url));
     }
     if (assets.isEmpty()) {
       throw new ProcessingException("Universal Ctags release assets page did not list downloads");
@@ -430,25 +446,25 @@ public final class ManagedCtagsRuntime {
   }
 
   private static void verifyDigest(ReleaseAsset asset, byte[] archive) {
-    String expected =
+    Optional<String> expected =
         asset
             .digest()
             .filter(digest -> digest.startsWith("sha256:"))
-            .map(digest -> digest.substring("sha256:".length()))
-            .orElseThrow(
-                () ->
-                    new ProcessingException(
-                        "Universal Ctags asset "
-                            + asset.name()
-                            + " does not publish a SHA-256 digest; use --ctags-runtime-mode=system"
-                            + " or --ctags-runtime-mode=offline with a verified cache."));
+            .map(digest -> digest.substring("sha256:".length()));
+    if (expected.isEmpty()) {
+      log.warn(
+          "Skipping checksum verification for Universal Ctags asset {} because the release did"
+              + " not publish a SHA-256 digest",
+          asset.name());
+      return;
+    }
     String actual = sha256(archive);
-    if (!expected.equalsIgnoreCase(actual)) {
+    if (!expected.get().equalsIgnoreCase(actual)) {
       throw new ProcessingException(
           "Universal Ctags checksum mismatch for "
               + asset.name()
               + ": expected "
-              + expected
+              + expected.get()
               + " but got "
               + actual);
     }

@@ -42,6 +42,8 @@ public final class CtagsLanguageAdapter implements LanguageAdapter<CtagsAnalysis
       Set.of(".java", ".js", ".jsx", ".ts", ".tsx", ".mts", ".cts", ".mjs", ".cjs", ".py", ".pyi");
   private static final Set<String> NON_CODE_EXTENSIONS =
       Set.of(
+          ".adoc",
+          ".asciidoc",
           ".cfg",
           ".conf",
           ".csv",
@@ -54,11 +56,16 @@ public final class CtagsLanguageAdapter implements LanguageAdapter<CtagsAnalysis
           ".ini",
           ".json",
           ".jsonl",
+          ".less",
           ".lock",
           ".md",
           ".plist",
           ".properties",
           ".rst",
+          ".sass",
+          ".scss",
+          ".styl",
+          ".stylus",
           ".svg",
           ".text",
           ".toml",
@@ -73,7 +80,23 @@ public final class CtagsLanguageAdapter implements LanguageAdapter<CtagsAnalysis
           ".yml");
   private static final Set<String> NON_CODE_LANGUAGE_GRAPH_NAMES =
       Set.of(
-          "css", "html", "ini", "json", "markdown", "rest", "rst", "text", "toml", "xml", "yaml");
+          "asciidoc",
+          "css",
+          "html",
+          "ini",
+          "json",
+          "less",
+          "markdown",
+          "rest",
+          "rst",
+          "sass",
+          "scss",
+          "styl",
+          "stylus",
+          "text",
+          "toml",
+          "xml",
+          "yaml");
   private static final Set<String> SKIPPED_DIRECTORIES =
       Set.of(
           ".git",
@@ -263,8 +286,7 @@ public final class CtagsLanguageAdapter implements LanguageAdapter<CtagsAnalysis
       files.sort(Comparator.naturalOrder());
       return List.copyOf(files);
     } catch (ProcessingException e) {
-      log.warn("Ctags fallback discovery is unavailable: {}", e.getMessage());
-      return List.of();
+      throw e;
     } catch (IOException e) {
       throw new ProcessingException("Cannot walk source root for ctags discovery", e);
     }
@@ -333,8 +355,7 @@ public final class CtagsLanguageAdapter implements LanguageAdapter<CtagsAnalysis
       return detected;
     } catch (RuntimeException e) {
       detectedLanguages.remove(absoluteFile);
-      log.debug("Ctags could not detect language for {}: {}", file, e.getMessage());
-      return Optional.empty();
+      throw e;
     }
   }
 

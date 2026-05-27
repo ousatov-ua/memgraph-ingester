@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -70,6 +71,27 @@ class ManagedCtagsRuntimeTest {
         asset.digest().orElseThrow());
     assertEquals(
         "https://github.com/universal-ctags/ctags-nightly-build/releases/download/2026.05.26%2Babc/uctags-2026.05.26-macos-15.0-arm64.release.tar.xz",
+        asset.url());
+  }
+
+  @Test
+  void parsesGithubReleaseAssetsPageWithoutDigest() {
+    ManagedCtagsRuntime.Release release =
+        ManagedCtagsRuntime.parseReleaseAssetsPage(
+            "v6.1.0",
+            """
+            <a href="/universal-ctags/ctags-win32/releases/download/v6.1.0/ctags-v6.1.0-x64.zip" rel="nofollow">
+              <span data-view-component="true" class="Truncate-text text-bold">ctags-v6.1.0-x64.zip</span>
+              <span data-view-component="true" class="Truncate-text">9.53 MB</span>
+            </a>
+            """);
+
+    ManagedCtagsRuntime.ReleaseAsset asset = release.assets().getFirst();
+    assertEquals("v6.1.0", release.tag());
+    assertEquals("ctags-v6.1.0-x64.zip", asset.name());
+    assertEquals(Optional.empty(), asset.digest());
+    assertEquals(
+        "https://github.com/universal-ctags/ctags-win32/releases/download/v6.1.0/ctags-v6.1.0-x64.zip",
         asset.url());
   }
 
