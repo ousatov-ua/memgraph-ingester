@@ -95,6 +95,68 @@ class MemoryGraphIT {
   }
 
   @Test
+  void upsertMemoryChunksBackfillsAndClearsEmbeddingsOnlyWhenTextChanges() {
+    writer.upsertFile(TEST_FILE);
+    session
+        .run(
+            "MATCH (m:Memory {project: $p})"
+                + " MERGE (d:Decision {id: 'DEC-test-memory-chunk', project: $p})"
+                + " SET d.title = 'Use memory chunks',"
+                + "     d.status = 'accepted',"
+                + "     d.rationale = 'Memory RAG needs derived text'"
+                + " MERGE (ref:CodeRef {project: $p, targetType: 'File', key: $path})"
+                + " MERGE (m)-[:HAS_DECISION]->(d)"
+                + " MERGE (d)-[:REFERS_TO]->(ref)",
+            Map.of("p", PROJECT, "path", TEST_FILE.toString()))
+        .consume();
+    writer.resolveCodeRefs();
+
+    assertEquals(1, writer.upsertMemoryChunks());
+    session
+        .run(
+            "MATCH (chunk:MemoryChunk {project: $p, sourceId: 'DEC-test-memory-chunk'})"
+                + " SET chunk.embeddingModel = 'test-model', chunk.embeddingDimensions = 3",
+            Map.of("p", PROJECT))
+        .consume();
+
+    assertEquals(1, writer.upsertMemoryChunks());
+    long preserved =
+        session
+            .run(
+                "MATCH (:Decision {project: $p, id: 'DEC-test-memory-chunk'})"
+                    + "-[:HAS_RAG_CHUNK]->(chunk:MemoryChunk {embeddingModel: 'test-model'})"
+                    + " WHERE chunk.text CONTAINS 'Decision: Use memory chunks'"
+                    + " AND chunk.text CONTAINS $codeRef"
+                    + " RETURN count(chunk) AS n",
+                Map.of("p", PROJECT, "codeRef", "CodeRefs: File " + TEST_FILE))
+            .single()
+            .get("n")
+            .asLong();
+    assertEquals(1, preserved);
+
+    session
+        .run(
+            "MATCH (d:Decision {project: $p, id: 'DEC-test-memory-chunk'})"
+                + " SET d.rationale = 'Memory RAG text changed'",
+            Map.of("p", PROJECT))
+        .consume();
+    assertEquals(1, writer.upsertMemoryChunks());
+
+    long cleared =
+        session
+            .run(
+                "MATCH (:Decision {project: $p, id: 'DEC-test-memory-chunk'})"
+                    + "-[:HAS_RAG_CHUNK]->(chunk:MemoryChunk)"
+                    + " WHERE chunk.embeddingModel IS NULL"
+                    + " RETURN count(chunk) AS n",
+                Map.of("p", PROJECT))
+            .single()
+            .get("n")
+            .asLong();
+    assertEquals(1, cleared);
+  }
+
+  @Test
   void memoryItemsCanReferToCodeRefsResolvedToCodeNodes() {
     writer.upsertFile(TEST_FILE);
 

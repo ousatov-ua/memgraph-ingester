@@ -8,16 +8,20 @@ MUST include `project: '{{PROJECT_NAME}}'`.
 - **NO DELEGATION:** Never delegate memory state queries or updates to subagents. You MUST use Memgraph.
 - **Status/pending-work requests:** run Orientation queries first, then check Git if local changes are relevant. Never answer from Git alone unless the user explicitly asks for Git-only status.
 - **Orientation reuse:** Orientation queries are session-scoped. If they were already run for `{{PROJECT_NAME}}` in this assistant session, reuse those results for follow-up work and skip rerunning them unless memory was changed, the user asks for a refresh, or the task scope is unrelated.
+- **RAG-first memory discovery:** for implementation, debugging, refactoring, code explanation, "how is this implemented", "when was this changed", prior-work, similar-work, task-history, status/pending-work, or unfamiliar-subsystem prompts, check for a compatible `memory_chunk_embedding_v1` index and run Memory RAG before choosing Context/Task/Decision/Finding/Rule/Question/Risk records by exact filters. Use RAG hits only as discovery; then fetch exact Memory nodes and linked `CodeRef` targets before making claims or edits. If no compatible memory RAG index exists or hits are not relevant, fall back to scoped exact Orientation queries and state why.
 - **Code changes:** before any code-change task, run Orientation queries for Rules, open Findings, Context, active Tasks, open Questions, and open Risks. Empty results are valid. Skip only if already run in this session.
 - **Multi-step work tracking:** for multi-step implementation, debugging, refactoring, documentation, dependency, test, or coverage work, create/update a `Task` as `doing` before edits, even if you expect to finish in the same response.
 - **Task close:** set any task you created or updated to `done`, `blocked`, or `cancelled` before final response and verify it. Also save durable findings/decisions when useful.
 - **Memory lifecycle changes:** immediately update Task/Risk/Question/Decision/ADR/Idea status in Memgraph before proceeding.
+- **Session Memory embedding refresh:** every time you create or materially update a Memory node in the current session, create/update its `MemoryChunk`, clear stale embedding properties when the text changes, and then create the embedding for that MemoryChunk with Memgraph's `embeddings.node_sentence()` batch flow. Do not calculate embedding vectors outside Memgraph.
 - **Code-related memory:** when creating Task/Decision/Finding/Rule/ADR/Risk/Idea nodes related to code, create at least one `CodeRef` and link `(:Decision|:ADR|:Rule|:Context|:Finding|:Task|:Risk|:Question|:Idea)-[:REFERS_TO]->(:CodeRef)-[:RESOLVES_TO]->(:Code|:Package|:File|:Class|:Interface|:Annotation|:Method|:Field)`.
 
 ### Memory RAG Vectors (only if RAG has embeddings)
 
-Use `:MemoryChunk` only as a semantic discovery layer. The source of
-truth remains the canonical Memory node and its status/severity fields.
+Use `:MemoryChunk` as the mandatory semantic discovery layer for implementation, debugging,
+refactoring, code explanation, prior-work, similar-work, task-history, status/pending-work, or
+unfamiliar-subsystem prompts whenever a compatible embedding index exists. The source of truth
+remains the canonical Memory node and its status/severity fields.
 
 Before vector search, verify a matching vector index exists:
 
@@ -29,14 +33,22 @@ Search semantically similar memory chunks with a query vector created by the sam
 and dimension as the stored chunks:
 
 ```cypher
+CALL embeddings.text(['<task-specific semantic query from the user request>'], {}) YIELD embeddings
+WITH embeddings[0] AS queryVector
 CALL vector_search.search('memory_chunk_embedding_v1', 8, $queryVector)
 YIELD node AS chunk, similarity
+WITH chunk, similarity
 WHERE chunk.project = '{{PROJECT_NAME}}'
 MATCH (memory {project: '{{PROJECT_NAME}}'})-[:HAS_RAG_CHUNK]->(chunk)
 RETURN labels(memory) AS type, memory.id AS id, memory.title AS title,
        memory.status AS status, chunk.text AS text, similarity
 ORDER BY similarity DESC;
 ```
+
+Use the user's wording plus likely domain terms in the semantic query, for example:
+"JS/TS parser synthetic constructors constructor declarations previous analyzer fixes". Prefer the
+top relevant hits, then fetch exact Memory records by ID and follow `CodeRef` links when code context
+matters.
 
 After a RAG hit, follow `CodeRef` links when code context matters:
 
@@ -52,9 +64,14 @@ RETURN labels(memory) AS type, memory.id AS id,
 Run at task start when required. 
 
 #### If Memgraph RAG has embeddings
-Search first semantically similar memory chunks for relevant Context, Findings, Rules, Tasks, Questions, or Decisions. 
-Then run exact Memory queries for those specific IDs 
-Finally, fetch the linked code context when relevant.
+For implementation, debugging, refactoring, code explanation, prior-work, similar-work,
+task-history, status/pending-work, or unfamiliar-subsystem prompts, search semantically similar
+memory chunks first for relevant Context, Findings, Rules, Tasks, Questions, Risks, Ideas, ADRs, or
+Decisions.
+Then run exact Memory queries for those specific IDs.
+Finally, fetch linked `CodeRef` targets and use code-graph/source queries when code context matters.
+Do not answer these prompt classes from an exact Context/Task list alone unless Memory RAG is absent
+or produced no relevant rows; state that fallback explicitly.
 
 #### If Memgraph RAG has no embeddings
 
@@ -213,9 +230,10 @@ MERGE (ref)-[:RESOLVES_TO]->(c);
 For `targetType: 'Code'`, use `key: 'java'`, `key: 'js'`, or `key: 'python'`. For `targetType: 'Package'`, use `key: 'java:<package>'`, `key: 'js:<package>'`, or `key: 'python:<package>'`.
 
 When creating or materially updating a Memory node, also create or refresh one derived
-`MemoryChunk` for semantic RAG discovery. Do not generate embeddings in the agent. Store the chunk
-text and a stable hash of that exact text, omit embedding properties, and clear any old embedding
-properties when the text changes. Use the source Memory node as the authority.
+`MemoryChunk` for semantic RAG discovery. Store the chunk text and a stable hash of that exact text,
+clear old embedding properties when the text changes, then create the embedding with Memgraph. Do
+not calculate embedding vectors outside Memgraph. Use the source Memory node as the authority. This
+agent workflow is only for MemoryChunks created or updated during the current session.
 
 ```cypher
 MATCH (d:Decision {id: 'DEC-<topic>-<name>', project: '{{PROJECT_NAME}}'})
@@ -229,6 +247,53 @@ SET chunk.sourceLabel = 'Decision',
 REMOVE chunk.embedding, chunk.embeddingModel, chunk.embeddingDimensions
 MERGE (d)-[:HAS_RAG_CHUNK]->(chunk);
 ```
+
+Ensure the MemoryChunk vector index exists before embedding refresh. Run `SHOW VECTOR INDEX INFO;`
+first and create the index only when `memory_chunk_embedding_v1` is absent:
+
+```cypher
+CREATE VECTOR INDEX memory_chunk_embedding_v1 ON :MemoryChunk(embedding)
+WITH CONFIG $config;
+```
+
+Use the same batch shape as `refresh-code-chunk-embedding-batch.cypher`, adapted for
+`:MemoryChunk`, after every MemoryChunk create/update in the current session. Set `$ids` to the
+MemoryChunk ids created or updated by the session. The query below embeds only those chunks when
+their embedding is missing or their recorded model/dimension no longer matches the configured
+embedding model:
+
+```cypher
+MATCH (chunk:MemoryChunk {project: '{{PROJECT_NAME}}'})
+WHERE chunk.id IN $ids
+  AND chunk.text IS NOT NULL
+  AND (chunk.embedding IS NULL
+    OR chunk.embeddingModel IS NULL
+    OR chunk.embeddingModel <> $modelName
+    OR chunk.embeddingDimensions IS NULL
+    OR chunk.embeddingDimensions <> $dimension)
+WITH chunk
+ORDER BY chunk.id
+WITH collect(chunk) AS chunks
+WITH chunks, [chunk IN chunks | chunk.id] AS embeddedIds
+CALL embeddings.node_sentence(chunks, $config)
+YIELD success, dimension
+RETURN success AS success, dimension AS dimension, embeddedIds AS ids;
+```
+
+When the batch returns `success = true`, stamp the MemoryChunk embedding metadata for the returned
+ids, mirroring `update-code-chunk-embedding-metadata.cypher`:
+
+```cypher
+MATCH (chunk:MemoryChunk {project: '{{PROJECT_NAME}}'})
+WHERE chunk.id IN $ids
+SET chunk.embeddingModel = $modelName,
+    chunk.embeddingDimensions = $dimension,
+    chunk.updatedAt = datetime();
+```
+
+Do not run a whole-project MemoryChunk embedding backfill from these agent instructions. Missing
+Memory embeddings after code re-ingest are handled by the re-ingest flow only when ingestion is run
+with `--with-memories`, using the same missing-embedding batch pattern as CodeChunks.
 
 Verify recent memory and its code link before the final response. Adapt `HAS_DECISION`,
 `:Decision`, and `d` to the memory type just created:

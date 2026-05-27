@@ -79,6 +79,19 @@ class IngesterCliTest {
   }
 
   @Test
+  void embeddingCliOptionsUseFixedCodeModelAndMemoryGate() {
+    CommandLine commandLine = new CommandLine(new IngesterCli());
+    var options = commandLine.getCommandSpec().optionsMap();
+
+    assertEquals("true", options.get("--code-embeddings").defaultValue());
+    assertEquals("true", options.get("--memory-embeddings").defaultValue());
+    assertTrue(options.containsKey("--with-memories"));
+    assertNull(options.get("--code-embedding-index"));
+    assertNull(options.get("--code-embedding-model"));
+    assertNull(options.get("--code-embedding-dimensions"));
+  }
+
+  @Test
   void rejectsMissingSourceBeforeOpeningDriver() {
     Path missing = Path.of("target/missing-" + UUID.randomUUID());
 

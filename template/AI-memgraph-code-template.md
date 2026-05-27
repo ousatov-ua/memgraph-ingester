@@ -20,8 +20,9 @@ When Memgraph returns no relevant rows, fall back to text search and state why.
 - **Status/pending-work requests:** query Memgraph staleness or relevant structure first, then check Git when local changes are relevant. Never answer from Git alone unless the user explicitly asks for Git-only status.
 - **No ritual Codebase Analysis:** do not run Codebase Analysis queries just to have context. Run them only when a trigger below applies or code structure/relationships are needed.
 - **Orientation reuse:** Memgraph query results are session-scoped. Reuse relevant results unless the user asks for a refresh, source files changed, memory changed, or the task scope is unrelated.
+- **RAG-first code discovery:** for implementation, debugging, refactoring, code explanation, "how is this implemented", "find similar code", prior-work, task-history, or unfamiliar-subsystem prompts, check for a compatible `code_chunk_embedding_v1` index and run semantic Code RAG before source inspection or filesystem search. Use RAG hits only as discovery; then query canonical Code nodes and exact source ranges before making claims or edits. If no compatible code RAG index exists or hits are not relevant, fall back to focused exact Memgraph queries and state why.
 - **Relationship refresh after edits:** if source files changed during the session, re-query Memgraph relationships before relying on earlier relationship results; live ingestion may make cached relationships stale.
-- **Code changes:** before source-code changes, run the smallest useful Memgraph query set. Use focused symbol/file/method queries for known targets. Run full Codebase Analysis only for broad, ambiguous, cross-cutting, inheritance-heavy, or unfamiliar-subsystem work. Empty results are valid; fall back to text search and state why.
+- **Code changes:** before source-code changes, run RAG-first discovery when available and then the smallest useful exact Memgraph query set. Use focused symbol/file/method queries for known targets. Run full Codebase Analysis only for broad, ambiguous, cross-cutting, inheritance-heavy, or unfamiliar-subsystem work. Empty results are valid; fall back to text search and state why.
 - **Class/interface work:** query hierarchy before changing class/interface declarations, inheritance, `implements`/`extends`, constructor contracts, or overridden/inherited APIs. For small body-only edits inside a known class, hierarchy lookup is optional unless inheritance could affect behavior.
 - **Symbol work:** for investigations involving symbols, fields, methods, callers, implementations, inheritance, decorators/annotations, imports, exports, or type usages, query Memgraph before source inspection, filesystem search, IDE/LSP, or runtime introspection. JavaScript/TypeScript and Python CALLS edges are best-effort.
 - **Method body reads:** when the target method is known, first query `startLine` and `endLine`, then read only that source range. If the method is not known, use a focused symbol query by class/name before reading source.
@@ -151,8 +152,10 @@ Use full Codebase Analysis only when focused queries do not identify the target 
 
 ## Code RAG Vectors (only if RAG has embeddings)
 
-Use `:CodeChunk` only for broad or fuzzy code discovery. After any vector hit, return to exact
-Memgraph structure queries and source ranges before making claims or edits.
+Use `:CodeChunk` as the semantic discovery layer for implementation, debugging, refactoring, code
+explanation, similar-code, prior-work, task-history, or unfamiliar-subsystem prompts whenever a
+compatible embedding index exists. After any vector hit, return to exact Memgraph structure queries
+and source ranges before making claims or edits.
 
 Check whether a compatible vector index exists:
 
@@ -164,8 +167,11 @@ Search semantically similar code chunks with a query vector created by the same 
 dimension as stored chunks:
 
 ```cypher
+CALL embeddings.text(['<task-specific semantic query from the user request>'], {}) YIELD embeddings
+WITH embeddings[0] AS queryVector
 CALL vector_search.search('code_chunk_embedding_v1', 10, $queryVector)
 YIELD node AS chunk, similarity
+WITH chunk, similarity
 WHERE chunk.project = '{{PROJECT_NAME}}'
 MATCH (source {project: '{{PROJECT_NAME}}'})-[:HAS_RAG_CHUNK]->(chunk)
 RETURN labels(source) AS sourceType, chunk.sourceId AS sourceId,
@@ -173,6 +179,11 @@ RETURN labels(source) AS sourceType, chunk.sourceId AS sourceId,
        chunk.text AS text, similarity
 ORDER BY similarity DESC;
 ```
+
+Use the user's wording plus likely domain terms in the semantic query, for example:
+"JS/TS parser should not emit synthetic constructors but should preserve constructor calls and class
+re-export behavior". Prefer 5-10 hits, inspect the source type/path/signature, then query the exact
+`Class`, `Interface`, `Method`, or `File` nodes needed for line ranges and relationships.
 
 `CodeChunk` text is derived search material. It should include language, path, symbol name, owner,
 signature, documentation comments attached to the code symbol (JavaDoc for Java), and a bounded

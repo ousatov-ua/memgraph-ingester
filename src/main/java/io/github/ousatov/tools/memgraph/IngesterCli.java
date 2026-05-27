@@ -18,7 +18,7 @@ import io.github.ousatov.tools.memgraph.exe.analyze.PythonAnalyzer;
 import io.github.ousatov.tools.memgraph.exe.analyze.RuntimeMode;
 import io.github.ousatov.tools.memgraph.exe.ingestion.IngestionOrchestrator;
 import io.github.ousatov.tools.memgraph.schema.MemgraphDriver;
-import io.github.ousatov.tools.memgraph.vo.CodeEmbeddingSettings;
+import io.github.ousatov.tools.memgraph.vo.EmbeddingSettings;
 import io.github.ousatov.tools.memgraph.vo.Settings;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -131,27 +131,13 @@ public final class IngesterCli implements Callable<Integer> {
 
   @Option(
       names = {"--code-embeddings"},
+      defaultValue = "true",
+      negatable = true,
       description =
-          "Use Memgraph's embeddings module to compute stale :CodeChunk embeddings after "
-              + "ingestion and watch updates.")
+          "Use Memgraph's embeddings module to compute stale :CodeChunk embeddings after"
+              + " ingestion and watch updates.")
   @SuppressWarnings("unused")
   private boolean codeEmbeddings;
-
-  @Option(
-      names = {"--code-embedding-index"},
-      defaultValue = CodeEmbeddingSettings.DEFAULT_INDEX_NAME,
-      description = "Vector index name for CodeChunk embeddings.")
-  @SuppressWarnings("unused")
-  private String codeEmbeddingIndex;
-
-  @Option(
-      names = {"--code-embedding-model"},
-      defaultValue = CodeEmbeddingSettings.DEFAULT_MODEL_NAME,
-      description =
-          "Memgraph embeddings model_name. Bare names run locally; provider-prefixed names use "
-              + "the Memgraph LiteLLM remote path.")
-  @SuppressWarnings("unused")
-  private String codeEmbeddingModel;
 
   @Option(
       names = {"--code-embedding-device"},
@@ -164,26 +150,19 @@ public final class IngesterCli implements Callable<Integer> {
 
   @Option(
       names = {"--code-embedding-batch-size"},
-      defaultValue = "" + CodeEmbeddingSettings.DEFAULT_BATCH_SIZE,
-      description = "CodeChunk nodes per Memgraph embedding call and local embedding batch size.")
+      defaultValue = "" + EmbeddingSettings.DEFAULT_BATCH_SIZE,
+      description =
+          "Chunk nodes per Memgraph embedding call and local embedding batch size for CodeChunk"
+              + " refresh.")
   @SuppressWarnings("unused")
   private int codeEmbeddingBatchSize;
 
   @Option(
       names = {"--code-embedding-chunk-size"},
-      defaultValue = "" + CodeEmbeddingSettings.DEFAULT_CHUNK_SIZE,
+      defaultValue = "" + EmbeddingSettings.DEFAULT_CHUNK_SIZE,
       description = "Memgraph embeddings chunk_size for local multi-GPU computation.")
   @SuppressWarnings("unused")
   private int codeEmbeddingChunkSize;
-
-  @Option(
-      names = {"--code-embedding-dimensions"},
-      defaultValue = "0",
-      description =
-          "Optional target dimension for providers that support server-side truncation; 0 keeps "
-              + "the model default.")
-  @SuppressWarnings("unused")
-  private int codeEmbeddingDimensions;
 
   @Option(
       names = {"--code-embedding-remote-batch-size"},
@@ -207,6 +186,68 @@ public final class IngesterCli implements Callable<Integer> {
               + "cosine metric and f16 scalar storage by default.")
   @SuppressWarnings("unused")
   private int codeEmbeddingIndexCapacity;
+
+  @Option(
+      names = {"--memory-embeddings"},
+      defaultValue = "true",
+      negatable = true,
+      description =
+          "With --with-memories, create missing :MemoryChunk rows and compute stale"
+              + " :MemoryChunk embeddings after ingestion and watch updates.")
+  @SuppressWarnings("unused")
+  private boolean memoryEmbeddings;
+
+  @Option(
+      names = {"--memory-embedding-device"},
+      defaultValue = "",
+      description =
+          "Memgraph embeddings device for MemoryChunk refresh. Leave blank for Memgraph"
+              + " auto-selection, or use cpu, cuda, all, cuda:0, etc.")
+  @SuppressWarnings("unused")
+  private String memoryEmbeddingDevice;
+
+  @Option(
+      names = {"--memory-embedding-batch-size"},
+      defaultValue = "" + EmbeddingSettings.DEFAULT_BATCH_SIZE,
+      description =
+          "Chunk nodes per Memgraph embedding call and local embedding batch size for MemoryChunk"
+              + " refresh.")
+  @SuppressWarnings("unused")
+  private int memoryEmbeddingBatchSize;
+
+  @Option(
+      names = {"--memory-embedding-chunk-size"},
+      defaultValue = "" + EmbeddingSettings.DEFAULT_CHUNK_SIZE,
+      description = "Memgraph embeddings chunk_size for local MemoryChunk computation.")
+  @SuppressWarnings("unused")
+  private int memoryEmbeddingChunkSize;
+
+  @Option(
+      names = {"--memory-embedding-remote-batch-size"},
+      defaultValue = "0",
+      description =
+          "Optional Memgraph remote_batch_size for MemoryChunk refresh; 0 keeps the embeddings"
+              + " module default.")
+  @SuppressWarnings("unused")
+  private int memoryEmbeddingRemoteBatchSize;
+
+  @Option(
+      names = {"--memory-embedding-concurrency"},
+      defaultValue = "0",
+      description =
+          "Optional Memgraph remote provider concurrency for MemoryChunk refresh; 0 keeps the"
+              + " module default.")
+  @SuppressWarnings("unused")
+  private int memoryEmbeddingConcurrency;
+
+  @Option(
+      names = {"--memory-embedding-index-capacity"},
+      defaultValue = "0",
+      description =
+          "Optional MemoryChunk vector index capacity; 0 uses the current MemoryChunk count. The"
+              + " index uses cosine metric and f16 scalar storage by default.")
+  @SuppressWarnings("unused")
+  private int memoryEmbeddingIndexCapacity;
 
   @Option(
       names = {"--classpath"},
@@ -350,9 +391,9 @@ public final class IngesterCli implements Callable<Integer> {
   @Option(
       names = {"--with-memories"},
       description =
-          "Apply managed agent instructions with optional Memory workflow guidance. Uses the "
-              + "default instructions agent unless --instructions-agent or --instructions-file is "
-              + "provided.")
+          "Apply managed agent instructions with optional Memory workflow guidance, and enable"
+              + " MemoryChunk refresh for ingestion runs. Uses the default instructions agent"
+              + " unless --instructions-agent or --instructions-file is provided.")
   @SuppressWarnings("unused")
   private boolean withMemories;
 
@@ -399,22 +440,37 @@ public final class IngesterCli implements Callable<Integer> {
       log.error("--threads must be >= 1 (got {})", threads);
       return 1;
     }
-    CodeEmbeddingSettings codeEmbeddingSettings;
+    EmbeddingSettings codeEmbeddingSettings;
+    EmbeddingSettings memoryEmbeddingSettings;
     try {
       codeEmbeddingSettings =
-          new CodeEmbeddingSettings(
+          new EmbeddingSettings(
               codeEmbeddings,
-              codeEmbeddingIndex,
-              codeEmbeddingModel,
-              CodeEmbeddingSettings.DEFAULT_METRIC,
-              CodeEmbeddingSettings.DEFAULT_SCALAR_KIND,
+              EmbeddingSettings.DEFAULT_CODE_INDEX_NAME,
+              EmbeddingSettings.DEFAULT_MODEL_NAME,
+              EmbeddingSettings.DEFAULT_METRIC,
+              EmbeddingSettings.DEFAULT_SCALAR_KIND,
               codeEmbeddingBatchSize,
               codeEmbeddingChunkSize,
               codeEmbeddingDevice,
-              codeEmbeddingDimensions,
+              0,
               codeEmbeddingRemoteBatchSize,
               codeEmbeddingConcurrency,
               codeEmbeddingIndexCapacity);
+      memoryEmbeddingSettings =
+          new EmbeddingSettings(
+              withMemories && memoryEmbeddings,
+              EmbeddingSettings.DEFAULT_MEMORY_INDEX_NAME,
+              EmbeddingSettings.DEFAULT_MODEL_NAME,
+              EmbeddingSettings.DEFAULT_METRIC,
+              EmbeddingSettings.DEFAULT_SCALAR_KIND,
+              memoryEmbeddingBatchSize,
+              memoryEmbeddingChunkSize,
+              memoryEmbeddingDevice,
+              0,
+              memoryEmbeddingRemoteBatchSize,
+              memoryEmbeddingConcurrency,
+              memoryEmbeddingIndexCapacity);
     } catch (IllegalArgumentException e) {
       log.error(e.getMessage());
       return 1;
@@ -455,7 +511,8 @@ public final class IngesterCli implements Callable<Integer> {
               wipeProjectMemories,
               incremental,
               watch,
-              codeEmbeddingSettings);
+              codeEmbeddingSettings,
+              memoryEmbeddingSettings);
       int failures = orchestrator.run(settings);
       if (failures > 0) {
         log.error("Ingestion finished with {} file failure(s).", failures);
@@ -480,7 +537,6 @@ public final class IngesterCli implements Callable<Integer> {
         || sourceRoot != null
         || boltUrl != null
         || watch
-        || codeEmbeddings
         || applySchema
         || wipeAllData
         || wipeProjectCode

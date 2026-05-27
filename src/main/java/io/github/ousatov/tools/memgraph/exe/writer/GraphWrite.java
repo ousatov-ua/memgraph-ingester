@@ -95,6 +95,27 @@ public final class GraphWrite {
     }
   }
 
+  /** Derived memory RAG chunk write payload. */
+  public record MemoryChunkWrite(
+      String id, String sourceLabel, String sourceId, String text, String textHash)
+      implements BatchWrite {
+
+    @Override
+    public Map<String, Object> params() {
+      return Map.of(
+          Params.ID,
+          id,
+          Params.SOURCE_LABEL,
+          sourceLabel,
+          Params.SOURCE_ID,
+          sourceId,
+          Params.TEXT,
+          text,
+          Params.TEXT_HASH,
+          textHash);
+    }
+  }
+
   /** Method node write payload. */
   record MethodWrite(Path file, Method method) implements BatchWrite {
 

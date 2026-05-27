@@ -145,6 +145,15 @@ class CypherResourceTest {
     String refreshEmbeddings = Const.Cypher.CYPHER_REFRESH_CODE_CHUNK_EMBEDDING_BATCH;
     String updateEmbeddingMetadata = Const.Cypher.CYPHER_UPDATE_CODE_CHUNK_EMBEDDING_METADATA;
     String failureDetail = Const.Cypher.CYPHER_GET_CODE_CHUNK_EMBEDDING_FAILURE_DETAIL;
+    String createMemoryIndex = Const.Cypher.CYPHER_CREATE_MEMORY_CHUNK_VECTOR_INDEX;
+    String countMemoryChunks = Const.Cypher.CYPHER_COUNT_MEMORY_CHUNKS;
+    String listMemorySources = Const.Cypher.CYPHER_LIST_MEMORY_CHUNK_SOURCES;
+    String upsertMemoryChunks = Const.Cypher.CYPHER_UPSERT_MEMORY_CHUNKS_BATCH;
+    String countStaleMemoryEmbeddings = Const.Cypher.CYPHER_COUNT_STALE_MEMORY_CHUNK_EMBEDDINGS;
+    String refreshMemoryEmbeddings = Const.Cypher.CYPHER_REFRESH_MEMORY_CHUNK_EMBEDDING_BATCH;
+    String updateMemoryEmbeddingMetadata =
+        Const.Cypher.CYPHER_UPDATE_MEMORY_CHUNK_EMBEDDING_METADATA;
+    String memoryFailureDetail = Const.Cypher.CYPHER_GET_MEMORY_CHUNK_EMBEDDING_FAILURE_DETAIL;
 
     assertTrue(upsert.contains("MERGE (chunk:CodeChunk"));
     assertTrue(upsert.contains("chunk.textHash AS previousTextHash"));
@@ -168,6 +177,20 @@ class CypherResourceTest {
     assertTrue(refreshEmbeddings.contains("RETURN success AS success"));
     assertTrue(updateEmbeddingMetadata.contains("SET chunk.embeddingModel = $modelName"));
     assertTrue(failureDetail.contains("substring(chunk.text, 0, 240) AS preview"));
+    assertTrue(createMemoryIndex.contains("CREATE VECTOR INDEX __INDEX_NAME__"));
+    assertTrue(createMemoryIndex.contains("ON :MemoryChunk"));
+    assertTrue(countMemoryChunks.contains("MATCH (chunk:MemoryChunk"));
+    assertTrue(listMemorySources.contains("MATCH (root:Memory"));
+    assertTrue(listMemorySources.contains("HAS_RAG_CHUNK"));
+    assertTrue(upsertMemoryChunks.contains("MERGE (chunk:MemoryChunk"));
+    assertTrue(upsertMemoryChunks.contains("previousTextHash <> row.textHash"));
+    assertTrue(upsertMemoryChunks.contains("REMOVE chunk.embedding"));
+    assertTrue(upsertMemoryChunks.contains("MERGE (source)-[:HAS_RAG_CHUNK]->(chunk)"));
+    assertTrue(countStaleMemoryEmbeddings.contains("chunk.embeddingModel <> $modelName"));
+    assertTrue(refreshMemoryEmbeddings.contains("CALL embeddings.node_sentence(chunks, $config)"));
+    assertTrue(refreshMemoryEmbeddings.contains("ORDER BY chunk.id"));
+    assertTrue(updateMemoryEmbeddingMetadata.contains("SET chunk.embeddingModel = $modelName"));
+    assertTrue(memoryFailureDetail.contains("substring(chunk.text, 0, 240) AS preview"));
   }
 
   @Test
@@ -176,8 +199,7 @@ class CypherResourceTest {
         resourceAt(
             "/META-INF/native-image/io.github.ousatov-ua/memgraph-ingester/resource-config.json");
 
-    assertTrue(config.contains("io/github/ousatov/tools/memgraph/cypher/.*[.]cypher$"));
-    assertTrue(config.contains("io/github/ousatov/tools/memgraph/cypher/metrics/.*[.]cypher$"));
+    assertTrue(config.contains(".*[.]cypher$"));
     assertTrue(config.contains("simplelogger[.]properties$"));
     assertTrue(config.contains("io/github/ousatov/tools/memgraph/js/js-(.*)[.]cjs$"));
     assertTrue(config.contains("AI-memgraph-(code|memory)-template[.]md$"));

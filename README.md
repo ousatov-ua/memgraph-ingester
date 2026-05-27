@@ -771,16 +771,20 @@ Options:
 | `--wipe-all` |  | no | `false` | Delete all data from Memgraph. |
 | `--incremental` |  | no | `false` | Skip files whose last-modified timestamp matches the graph. |
 | `--watch` | `-w` | no | `false` | Watch the source directory and re-ingest changes. |
-| `--code-embeddings` |  | no | `false` | Ask Memgraph to compute stale `:CodeChunk.embedding` values after ingestion/watch updates. |
-| `--code-embedding-index` |  | no | `code_chunk_embedding_v1` | Vector index name for CodeChunk embeddings. |
-| `--code-embedding-model` |  | no | `all-MiniLM-L6-v2` | Memgraph embeddings `model_name`; provider-prefixed names use the remote path. |
+| `--[no-]code-embeddings` |  | no | `true` | Ask Memgraph to compute stale `:CodeChunk.embedding` values after ingestion/watch updates. |
 | `--code-embedding-device` |  | no | auto | Memgraph embeddings device, for example `cpu`, `cuda`, `cuda:0`, or `all`. |
 | `--code-embedding-batch-size` |  | no | `1024` | CodeChunk nodes per embedding call and local embedding batch size. Larger values are retried with smaller batches if Memgraph reports a failed embedding batch. |
 | `--code-embedding-chunk-size` |  | no | `48` | Memgraph local multi-GPU `chunk_size`. |
-| `--code-embedding-dimensions` |  | no | `0` | Target provider dimension when supported; `0` keeps the model default. |
 | `--code-embedding-remote-batch-size` |  | no | `0` | Remote provider batch size override; `0` keeps Memgraph's default. |
 | `--code-embedding-concurrency` |  | no | `0` | Remote provider concurrency override; `0` keeps Memgraph's default. |
 | `--code-embedding-index-capacity` |  | no | `0` | Vector index capacity; `0` uses the current CodeChunk count. |
+| `--[no-]memory-embeddings` |  | no | `true` | With `--with-memories`, create missing `:MemoryChunk` rows and compute stale `:MemoryChunk.embedding` values after ingestion/watch updates. |
+| `--memory-embedding-device` |  | no | auto | Memgraph embeddings device for MemoryChunk refresh. |
+| `--memory-embedding-batch-size` |  | no | `1024` | MemoryChunk nodes per embedding call and local embedding batch size. |
+| `--memory-embedding-chunk-size` |  | no | `48` | Memgraph local MemoryChunk `chunk_size`. |
+| `--memory-embedding-remote-batch-size` |  | no | `0` | Remote provider batch size override for MemoryChunk refresh; `0` keeps Memgraph's default. |
+| `--memory-embedding-concurrency` |  | no | `0` | Remote provider concurrency override for MemoryChunk refresh; `0` keeps Memgraph's default. |
+| `--memory-embedding-index-capacity` |  | no | `0` | MemoryChunk vector index capacity; `0` uses the current MemoryChunk count. |
 | `--classpath` |  | no | empty | Platform-separated JAR paths for Java symbol resolution. |
 | `--js-runtime-mode` |  | no | `managed` | `managed`, `system`, or `offline`. |
 | `--js-runtime-cache` |  | no | `~/.cache/memgraph-ingester` | Cache directory for managed Node.js and TypeScript downloads. |
@@ -795,7 +799,7 @@ Options:
 | `--init-instructions` |  | no | `false` | Write or replace managed agent instructions and exit. Includes Code guidance by default. |
 | `--instructions-agent` |  | no | `codex` | Agent preset: `codex`, `claude`, `gemini`, `github`, or `copilot`. Implies `--init-instructions` when explicitly provided. |
 | `--instructions-file` |  | no | preset file | Instruction file to update. Overrides `--instructions-agent` and implies `--init-instructions`. |
-| `--with-memories` |  | no | `false` | Include optional Memory workflow instructions when initializing agents. |
+| `--with-memories` |  | no | `false` | Include optional Memory workflow instructions when initializing agents, and enable MemoryChunk refresh for ingestion runs. |
 | `--help` |  | no |  | Print CLI help. |
 | `--version` |  | no |  | Print CLI version. |
 

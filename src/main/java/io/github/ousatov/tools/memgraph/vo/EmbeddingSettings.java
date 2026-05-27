@@ -5,11 +5,11 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Settings for Memgraph-managed {@code :CodeChunk} embedding refresh.
+ * Settings for Memgraph-managed {@code :CodeChunk} and {@code :MemoryChunk} embedding refresh.
  *
  * @author Oleksii Usatov
  */
-public record CodeEmbeddingSettings(
+public record EmbeddingSettings(
     boolean enabled,
     String indexName,
     String modelName,
@@ -23,7 +23,8 @@ public record CodeEmbeddingSettings(
     int concurrency,
     int capacity) {
 
-  public static final String DEFAULT_INDEX_NAME = "code_chunk_embedding_v1";
+  public static final String DEFAULT_CODE_INDEX_NAME = "code_chunk_embedding_v1";
+  public static final String DEFAULT_MEMORY_INDEX_NAME = "memory_chunk_embedding_v1";
   public static final String DEFAULT_MODEL_NAME = "all-MiniLM-L6-v2";
   public static final String DEFAULT_EMBEDDING_PROPERTY = "embedding";
   public static final String DEFAULT_METRIC = "cos";
@@ -48,33 +49,67 @@ public record CodeEmbeddingSettings(
           "createdAt",
           "updatedAt");
 
+  private static final List<String> MEMORY_CHUNK_METADATA_PROPERTIES =
+      List.of(
+          "id",
+          "project",
+          "sourceLabel",
+          "sourceId",
+          "textHash",
+          DEFAULT_EMBEDDING_PROPERTY,
+          "embeddingModel",
+          "embeddingDimensions",
+          "createdAt",
+          "updatedAt");
+
   /** Normalizes defaults and validates numeric options. */
-  public CodeEmbeddingSettings {
-    indexName = defaultIfBlank(indexName, DEFAULT_INDEX_NAME);
+  public EmbeddingSettings {
+    indexName = defaultIfBlank(indexName, DEFAULT_CODE_INDEX_NAME);
     modelName = defaultIfBlank(modelName, DEFAULT_MODEL_NAME);
     metric = defaultIfBlank(metric, DEFAULT_METRIC);
     scalarKind = defaultIfBlank(scalarKind, DEFAULT_SCALAR_KIND);
     device = device == null ? "" : device.strip();
     batchSize = batchSize == 0 ? DEFAULT_BATCH_SIZE : batchSize;
     chunkSize = chunkSize == 0 ? DEFAULT_CHUNK_SIZE : chunkSize;
-    requirePositive(batchSize, "code embedding batch size");
-    requirePositive(chunkSize, "code embedding chunk size");
-    requireNonNegative(dimensions, "code embedding dimensions");
-    requireNonNegative(remoteBatchSize, "code embedding remote batch size");
-    requireNonNegative(concurrency, "code embedding concurrency");
-    requireNonNegative(capacity, "code embedding index capacity");
+    requirePositive(batchSize, "embedding batch size");
+    requirePositive(chunkSize, "embedding chunk size");
+    requireNonNegative(dimensions, "embedding dimensions");
+    requireNonNegative(remoteBatchSize, "embedding remote batch size");
+    requireNonNegative(concurrency, "embedding concurrency");
+    requireNonNegative(capacity, "embedding index capacity");
   }
 
-  /** Disabled default used by normal ingestion. */
-  public static CodeEmbeddingSettings disabled() {
-    return new CodeEmbeddingSettings(false, null, null, null, null, 0, 0, "", 0, 0, 0, 0);
+  /** Enabled defaults for {@code :CodeChunk} embeddings. */
+  public static EmbeddingSettings codeDefaults() {
+    return new EmbeddingSettings(
+        true, DEFAULT_CODE_INDEX_NAME, null, null, null, 0, 0, "", 0, 0, 0, 0);
+  }
+
+  /** Enabled defaults for {@code :MemoryChunk} embeddings. */
+  public static EmbeddingSettings memoryDefaults() {
+    return new EmbeddingSettings(
+        true, DEFAULT_MEMORY_INDEX_NAME, null, null, null, 0, 0, "", 0, 0, 0, 0);
+  }
+
+  /** Disabled default used by callers that opt out of embedding refresh. */
+  public static EmbeddingSettings disabled() {
+    return new EmbeddingSettings(false, null, null, null, null, 0, 0, "", 0, 0, 0, 0);
   }
 
   /** Returns the Memgraph embeddings module configuration for {@code embeddings.node_sentence}. */
-  public Map<String, Object> nodeSentenceConfiguration() {
+  public Map<String, Object> codeNodeSentenceConfiguration() {
     Map<String, Object> config = modelConfiguration();
     config.put("embedding_property", DEFAULT_EMBEDDING_PROPERTY);
     config.put("excluded_properties", CODE_CHUNK_METADATA_PROPERTIES);
+    config.put("return_embeddings", false);
+    return config;
+  }
+
+  /** Returns the Memgraph embeddings module configuration for {@code :MemoryChunk} nodes. */
+  public Map<String, Object> memoryNodeSentenceConfiguration() {
+    Map<String, Object> config = modelConfiguration();
+    config.put("embedding_property", DEFAULT_EMBEDDING_PROPERTY);
+    config.put("excluded_properties", MEMORY_CHUNK_METADATA_PROPERTIES);
     config.put("return_embeddings", false);
     return config;
   }

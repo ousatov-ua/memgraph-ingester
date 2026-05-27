@@ -12,7 +12,7 @@ import io.github.ousatov.tools.memgraph.exe.metrics.IngestionRunStats;
 import io.github.ousatov.tools.memgraph.exe.output.ConsoleStatusLine;
 import io.github.ousatov.tools.memgraph.exe.writer.GraphWriter;
 import io.github.ousatov.tools.memgraph.schema.Memgraph;
-import io.github.ousatov.tools.memgraph.vo.CodeEmbeddingSettings;
+import io.github.ousatov.tools.memgraph.vo.EmbeddingSettings;
 import io.github.ousatov.tools.memgraph.vo.Settings;
 import java.io.IOException;
 import java.nio.file.FileSystems;
@@ -65,8 +65,8 @@ public final class IngestionOrchestrator {
   private static final Logger log = LoggerFactory.getLogger(IngestionOrchestrator.class);
 
   private static final long SHUTDOWN_TIMEOUT_MINUTES = 10L;
-  private static final int FILE_TX_RETRY_ATTEMPTS = 16;
-  private static final long FILE_TX_INITIAL_BACKOFF_MS = 10L;
+  private static final int FILE_TX_RETRY_ATTEMPTS = 64;
+  private static final long FILE_TX_INITIAL_BACKOFF_MS = 40L;
   private static final long FILE_TX_MAX_BACKOFF_MS = 1_000L;
   private final Path sourceRoot;
   private final String project;
@@ -75,7 +75,8 @@ public final class IngestionOrchestrator {
   private final List<LanguageAdapter<?>> languageAdapters;
   private final Set<Path> pendingWatchFiles = new LinkedHashSet<>();
   private boolean incremental;
-  private CodeEmbeddingSettings codeEmbeddings = CodeEmbeddingSettings.disabled();
+  private EmbeddingSettings codeEmbeddings = EmbeddingSettings.disabled();
+  private EmbeddingSettings memoryEmbeddings = EmbeddingSettings.disabled();
 
   /**
    * @param sourceRoot root directory to walk for {@code .java} files
@@ -138,6 +139,7 @@ public final class IngestionOrchestrator {
     log.debug("Proceeding with ingestion, settings: {}", settings);
     this.incremental = settings.incremental();
     this.codeEmbeddings = settings.codeEmbeddings();
+    this.memoryEmbeddings = settings.memoryEmbeddings();
     IngestionRunStats stats = new IngestionRunStats(threads);
     if (incremental && (settings.wipeAllData() || settings.wipeProjectCode())) {
       log.info(
@@ -214,7 +216,7 @@ public final class IngestionOrchestrator {
     try (Session session = driver.session()) {
       GraphWriter postWriter = new GraphWriter(session, project, stats);
       refreshDerivedGraphArtifacts(postWriter);
-      refreshCodeChunkEmbeddings(postWriter);
+      refreshChunkEmbeddings(postWriter);
       printMetrics(session);
       printPerformance(stats);
     }
@@ -379,7 +381,7 @@ public final class IngestionOrchestrator {
       refreshRetainedFilesAfterDelete(writer, refreshAfterDelete, currentFilesByPath);
       if (changedGraph) {
         refreshDerivedGraphArtifacts(writer);
-        refreshCodeChunkEmbeddings(writer);
+        refreshChunkEmbeddings(writer);
       }
     }
   }
@@ -543,15 +545,24 @@ public final class IngestionOrchestrator {
     log.debug("Refreshed :CodeRef resolution edges for '{}'", project);
   }
 
-  private void refreshCodeChunkEmbeddings(GraphWriter writer) {
-    if (!codeEmbeddings.enabled()) {
+  private void refreshChunkEmbeddings(GraphWriter writer) {
+    if (codeEmbeddings.enabled()) {
+      log.debug(
+          "Refreshing CodeChunk embeddings for project '{}' with Memgraph model '{}'...",
+          project,
+          codeEmbeddings.modelName());
+      writer.refreshCodeChunkEmbeddings(codeEmbeddings);
+    }
+    if (!memoryEmbeddings.enabled()) {
       return;
     }
-    log.info(
-        "Refreshing CodeChunk embeddings for project '{}' with Memgraph model '{}'...",
+    long memoryChunkCount = writer.upsertMemoryChunks();
+    log.debug("Upserted {} MemoryChunk row(s) for '{}'", memoryChunkCount, project);
+    log.debug(
+        "Refreshing MemoryChunk embeddings for project '{}' with Memgraph model '{}'...",
         project,
-        codeEmbeddings.modelName());
-    writer.refreshCodeChunkEmbeddings(codeEmbeddings);
+        memoryEmbeddings.modelName());
+    writer.refreshMemoryChunkEmbeddings(memoryEmbeddings);
   }
 
   @SuppressWarnings({"java:S106", "java:S1181"})

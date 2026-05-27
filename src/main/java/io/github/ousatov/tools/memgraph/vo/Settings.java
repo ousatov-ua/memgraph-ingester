@@ -9,7 +9,8 @@ package io.github.ousatov.tools.memgraph.vo;
  * @param incremental if true, skips files whose lastModified matches the stored value; silently
  *     disabled when {@code wipeAllData} or {@code wipeProjectCode} is set, because wiping removes
  *     all stored timestamps making incremental comparison impossible
- * @param codeEmbeddings optional Memgraph-managed code chunk embedding refresh settings
+ * @param codeEmbeddings Memgraph-managed code chunk embedding refresh settings
+ * @param memoryEmbeddings Memgraph-managed memory chunk embedding refresh settings
  * @author Oleksii Usatov
  */
 public record Settings(
@@ -19,7 +20,8 @@ public record Settings(
     boolean wipeProjectMemories,
     boolean incremental,
     boolean watch,
-    CodeEmbeddingSettings codeEmbeddings) {
+    EmbeddingSettings codeEmbeddings,
+    EmbeddingSettings memoryEmbeddings) {
 
   public Settings(
       boolean wipeAllData,
@@ -35,12 +37,14 @@ public record Settings(
         wipeProjectMemories,
         incremental,
         watch,
-        CodeEmbeddingSettings.disabled());
+        EmbeddingSettings.disabled(),
+        EmbeddingSettings.disabled());
   }
 
-  /** Ensures code embedding settings are never null. */
+  /** Ensures embedding settings are never null. */
   public Settings {
-    codeEmbeddings = codeEmbeddings == null ? CodeEmbeddingSettings.disabled() : codeEmbeddings;
+    codeEmbeddings = codeEmbeddings == null ? EmbeddingSettings.disabled() : codeEmbeddings;
+    memoryEmbeddings = memoryEmbeddings == null ? EmbeddingSettings.disabled() : memoryEmbeddings;
   }
 
   public static Settings applySchemaOnly() {

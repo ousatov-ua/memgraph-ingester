@@ -61,6 +61,22 @@ public final class Const {
         action("embedding/update-code-chunk-embedding-metadata.cypher");
     public static final String CYPHER_GET_CODE_CHUNK_EMBEDDING_FAILURE_DETAIL =
         action("embedding/get-code-chunk-embedding-failure-detail.cypher");
+    public static final String CYPHER_CREATE_MEMORY_CHUNK_VECTOR_INDEX =
+        action("embedding/create-memory-chunk-vector-index.cypher");
+    public static final String CYPHER_COUNT_MEMORY_CHUNKS =
+        action("embedding/count-memory-chunks.cypher");
+    public static final String CYPHER_LIST_MEMORY_CHUNK_SOURCES =
+        action("embedding/list-memory-chunk-sources.cypher");
+    public static final String CYPHER_UPSERT_MEMORY_CHUNKS_BATCH =
+        action("embedding/upsert-memory-chunks-batch.cypher");
+    public static final String CYPHER_COUNT_STALE_MEMORY_CHUNK_EMBEDDINGS =
+        action("embedding/count-stale-memory-chunk-embeddings.cypher");
+    public static final String CYPHER_REFRESH_MEMORY_CHUNK_EMBEDDING_BATCH =
+        action("embedding/refresh-memory-chunk-embedding-batch.cypher");
+    public static final String CYPHER_UPDATE_MEMORY_CHUNK_EMBEDDING_METADATA =
+        action("embedding/update-memory-chunk-embedding-metadata.cypher");
+    public static final String CYPHER_GET_MEMORY_CHUNK_EMBEDDING_FAILURE_DETAIL =
+        action("embedding/get-memory-chunk-embedding-failure-detail.cypher");
 
     /** Batch-fetches Java {@code lastModified} values for files already present in the graph. */
     public static final String CYPHER_GET_JAVA_FILES_LAST_MODIFIED =

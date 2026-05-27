@@ -9,7 +9,7 @@ import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 /**
- * Unit tests for {@link CodeEmbeddingSettings}.
+ * Unit tests for {@link EmbeddingSettings}.
  *
  * @author Oleksii Usatov
  */
@@ -17,19 +17,32 @@ class CodeEmbeddingSettingsTest {
 
   @Test
   void disabledUsesPortableDefaults() {
-    CodeEmbeddingSettings settings = CodeEmbeddingSettings.disabled();
+    EmbeddingSettings settings = EmbeddingSettings.disabled();
 
     assertFalse(settings.enabled());
-    assertEquals(CodeEmbeddingSettings.DEFAULT_INDEX_NAME, settings.indexName());
-    assertEquals(CodeEmbeddingSettings.DEFAULT_MODEL_NAME, settings.modelName());
-    assertEquals(CodeEmbeddingSettings.DEFAULT_BATCH_SIZE, settings.batchSize());
-    assertEquals(CodeEmbeddingSettings.DEFAULT_CHUNK_SIZE, settings.chunkSize());
+    assertEquals(EmbeddingSettings.DEFAULT_CODE_INDEX_NAME, settings.indexName());
+    assertEquals("memory_chunk_embedding_v1", EmbeddingSettings.DEFAULT_MEMORY_INDEX_NAME);
+    assertEquals(EmbeddingSettings.DEFAULT_MODEL_NAME, settings.modelName());
+    assertEquals(EmbeddingSettings.DEFAULT_BATCH_SIZE, settings.batchSize());
+    assertEquals(EmbeddingSettings.DEFAULT_CHUNK_SIZE, settings.chunkSize());
+  }
+
+  @Test
+  void enabledDefaultsUseSeparateCodeAndMemoryIndexes() {
+    EmbeddingSettings code = EmbeddingSettings.codeDefaults();
+    EmbeddingSettings memory = EmbeddingSettings.memoryDefaults();
+
+    assertTrue(code.enabled());
+    assertTrue(memory.enabled());
+    assertEquals(EmbeddingSettings.DEFAULT_CODE_INDEX_NAME, code.indexName());
+    assertEquals(EmbeddingSettings.DEFAULT_MEMORY_INDEX_NAME, memory.indexName());
+    assertEquals(code.modelName(), memory.modelName());
   }
 
   @Test
   void nodeSentenceConfigurationEmbedsOnlyChunkText() {
-    CodeEmbeddingSettings settings =
-        new CodeEmbeddingSettings(
+    EmbeddingSettings settings =
+        new EmbeddingSettings(
             true,
             "idx",
             "openai/text-embedding-3-small",
@@ -43,7 +56,7 @@ class CodeEmbeddingSettingsTest {
             8,
             4096);
 
-    Map<String, Object> config = settings.nodeSentenceConfiguration();
+    Map<String, Object> config = settings.codeNodeSentenceConfiguration();
 
     assertEquals("openai/text-embedding-3-small", config.get("model_name"));
     assertEquals("embedding", config.get("embedding_property"));
@@ -57,10 +70,26 @@ class CodeEmbeddingSettingsTest {
   }
 
   @Test
+  void memoryNodeSentenceConfigurationEmbedsOnlyChunkText() {
+    EmbeddingSettings settings =
+        new EmbeddingSettings(true, "idx", "model", "cos", "f16", 128, 12, "", 0, 0, 0, 0);
+
+    Map<String, Object> config = settings.memoryNodeSentenceConfiguration();
+
+    assertEquals("model", config.get("model_name"));
+    assertEquals("embedding", config.get("embedding_property"));
+    String excludedProperties = config.get("excluded_properties").toString();
+    assertTrue(excludedProperties.contains("project"));
+    assertTrue(excludedProperties.contains("sourceLabel"));
+    assertTrue(excludedProperties.contains("textHash"));
+    assertFalse(excludedProperties.contains("text,"));
+    assertFalse((Boolean) config.get("return_embeddings"));
+  }
+
+  @Test
   void rejectsInvalidNumericOptions() {
     assertThrows(
         IllegalArgumentException.class,
-        () ->
-            new CodeEmbeddingSettings(true, "idx", "model", "cos", "f16", -1, 12, "", 0, 0, 0, 0));
+        () -> new EmbeddingSettings(true, "idx", "model", "cos", "f16", -1, 12, "", 0, 0, 0, 0));
   }
 }
