@@ -9,7 +9,7 @@
 [![Supports Java codebases](https://img.shields.io/badge/spec_support-Java-f89820?logo=openjdk&logoColor=white)](#3-ingest-java)
 [![Supports JavaScript/TypeScript codebases](https://img.shields.io/badge/spec_support-JavaScript%20%2F%20TypeScript-3178c6?logo=typescript&logoColor=white)](#4-ingest-javascript-or-typescript)
 [![Supports Python codebases](https://img.shields.io/badge/spec_support-Python-3776ab?logo=python&logoColor=white)](#5-ingest-python)
-[![Supports any language](https://img.shields.io/badge/supports-any_language-blue)](#6-ingest-any-language)
+[![Supports any language](https://img.shields.io/badge/supports-any_language_by_ctags-blue)](#6-ingest-any-language)
 
 ![memgraph-ingester-readme-banner-640x320.svg](image/memgraph-ingester-readme-banner-640x320.svg)
 
@@ -149,14 +149,14 @@ Memgraph Bolt listens on `bolt://localhost:7687`.
 
 ### 2. Download the Ingester
 
-Version in this repository: `11.0.2`.
+Version in this repository: `11.0.3`.
 
 | Platform | Download                                                                                                                                             |
 |---|------------------------------------------------------------------------------------------------------------------------------------------------------|
-| Java shaded JAR | [memgraph-ingester.jar](https://github.com/ousatov-ua/memgraph-ingester/releases/download/v11.0.2/memgraph-ingester.jar)                             |
-| Linux AMD64 | [memgraph-ingester-linux-amd64.zip](https://github.com/ousatov-ua/memgraph-ingester/releases/download/v11.0.2/memgraph-ingester-linux-amd64.zip)     |
-| macOS ARM64 | [memgraph-ingester-macos-arm64.zip](https://github.com/ousatov-ua/memgraph-ingester/releases/download/v11.0.2/memgraph-ingester-macos-arm64.zip)     |
-| Windows AMD64 | [memgraph-ingester-windows-amd64.zip](https://github.com/ousatov-ua/memgraph-ingester/releases/download/v11.0.2/memgraph-ingester-windows-amd64.zip) |
+| Java shaded JAR | [memgraph-ingester.jar](https://github.com/ousatov-ua/memgraph-ingester/releases/download/v11.0.3/memgraph-ingester.jar)                             |
+| Linux AMD64 | [memgraph-ingester-linux-amd64.zip](https://github.com/ousatov-ua/memgraph-ingester/releases/download/v11.0.3/memgraph-ingester-linux-amd64.zip)     |
+| macOS ARM64 | [memgraph-ingester-macos-arm64.zip](https://github.com/ousatov-ua/memgraph-ingester/releases/download/v11.0.3/memgraph-ingester-macos-arm64.zip)     |
+| Windows AMD64 | [memgraph-ingester-windows-amd64.zip](https://github.com/ousatov-ua/memgraph-ingester/releases/download/v11.0.3/memgraph-ingester-windows-amd64.zip) |
 
 For native downloads:
 
@@ -1137,6 +1137,6 @@ Use the profile that matches your operating system.
 <dependency>
   <groupId>io.github.ousatov-ua</groupId>
   <artifactId>memgraph-ingester</artifactId>
-  <version>11.0.2</version>
+  <version>11.0.3</version>
 </dependency>
 ```
