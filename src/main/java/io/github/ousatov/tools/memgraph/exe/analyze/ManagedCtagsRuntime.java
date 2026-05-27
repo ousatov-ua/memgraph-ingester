@@ -406,11 +406,7 @@ public final class ManagedCtagsRuntime {
       if (!nameMatcher.find()) {
         continue;
       }
-      Matcher digestMatcher = RELEASE_ASSET_DIGEST_HTML_PATTERN.matcher(assetHtml);
-      Optional<String> digest =
-          digestMatcher.find()
-              ? Optional.of(unescapeHtml(digestMatcher.group(1)))
-              : Optional.empty();
+      Optional<String> digest = releaseAssetDigest(html, assetMatcher.end(), assetHtml);
       String name = unescapeHtml(nameMatcher.group(1));
       String url = href.startsWith("http") ? href : GITHUB_BASE_URL + href;
       assets.add(new ReleaseAsset(tag, name, digest, url));
@@ -419,6 +415,25 @@ public final class ManagedCtagsRuntime {
       throw new ProcessingException("Universal Ctags release assets page did not list downloads");
     }
     return new Release(tag, java.util.List.copyOf(assets));
+  }
+
+  private static Optional<String> releaseAssetDigest(String html, int assetEnd, String assetHtml) {
+    Optional<String> digest = releaseAssetDigest(assetHtml);
+    if (digest.isPresent()) {
+      return digest;
+    }
+    int rowEnd = html.indexOf("</li>", assetEnd);
+    if (rowEnd < 0) {
+      return Optional.empty();
+    }
+    return releaseAssetDigest(html.substring(assetEnd, rowEnd));
+  }
+
+  private static Optional<String> releaseAssetDigest(String html) {
+    Matcher digestMatcher = RELEASE_ASSET_DIGEST_HTML_PATTERN.matcher(html);
+    return digestMatcher.find()
+        ? Optional.of(unescapeHtml(digestMatcher.group(1)))
+        : Optional.empty();
   }
 
   private byte[] download(ReleaseAsset asset) {

@@ -75,6 +75,33 @@ class ManagedCtagsRuntimeTest {
   }
 
   @Test
+  void parsesGithubReleaseAssetsPageWithSiblingDigest() {
+    ManagedCtagsRuntime.Release release =
+        ManagedCtagsRuntime.parseReleaseAssetsPage(
+            "2026.05.26+abc",
+            """
+            <li data-view-component="true" class="Box-row d-flex flex-column flex-md-row">
+              <div class="d-flex flex-justify-start flex-items-center">
+                <a href="/universal-ctags/ctags-nightly-build/releases/download/2026.05.26%2Babc/uctags-2026.05.26-macos-10.15-arm64.release.tar.xz" rel="nofollow">
+                  <span data-view-component="true" class="Truncate-text text-bold">uctags-2026.05.26-macos-10.15-arm64.release.tar.xz</span>
+                  <span data-view-component="true" class="Truncate-text"></span>
+                </a>
+              </div>
+              <div class="d-flex flex-auto flex-justify-end flex-items-center">
+                <span data-view-component="true" class="Truncate-text">sha256:8e20de248093ff6cb8aee05ea58149765feda4b974550282bf6b8c2bcd4b59ad</span>
+              </div>
+            </li>
+            """);
+
+    ManagedCtagsRuntime.ReleaseAsset asset = release.assets().getFirst();
+    assertEquals("2026.05.26+abc", release.tag());
+    assertEquals("uctags-2026.05.26-macos-10.15-arm64.release.tar.xz", asset.name());
+    assertEquals(
+        "sha256:8e20de248093ff6cb8aee05ea58149765feda4b974550282bf6b8c2bcd4b59ad",
+        asset.digest().orElseThrow());
+  }
+
+  @Test
   void parsesGithubReleaseAssetsPageWithoutDigest() {
     ManagedCtagsRuntime.Release release =
         ManagedCtagsRuntime.parseReleaseAssetsPage(
