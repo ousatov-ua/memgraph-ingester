@@ -68,6 +68,8 @@ public final class CtagsAnalyzer {
           "var",
           "local",
           "externvar");
+  private static final Set<String> ENUM_MEMBER_KINDS =
+      Set.of("enumerator", "enumconstant", "enum-member");
 
   private final Path sourceRoot;
   private final ManagedCtagsRuntime runtime;
@@ -153,12 +155,11 @@ public final class CtagsAnalyzer {
     List<CtagsAnalysis.MemberDecl> members = new ArrayList<>();
     for (CtagsTag tag : tags) {
       String graphKind = graphKind(tag.kind());
-      if (isTypeGraphKind(graphKind)) {
+      if (isTypeGraphKind(graphKind) || !isMemberGraphKind(graphKind)) {
         continue;
       }
       String ownerFqn = ownerFqn(moduleFqn, tag.scope(), typeFqnsByScope);
-      String memberType =
-          METHOD_KINDS.contains(normalizeKind(tag.kind())) ? Params.METHOD : Params.FIELD;
+      String memberType = isMethodGraphKind(graphKind) ? Params.METHOD : Params.FIELD;
       String key =
           Params.METHOD.equals(memberType)
               ? CtagsNames.methodSignature(ownerFqn, tag.name(), tag.signature())
@@ -190,7 +191,13 @@ public final class CtagsAnalyzer {
     boolean interfaceLike = Params.INTERFACE.equals(graphKind);
     types.add(
         new CtagsAnalysis.TypeDecl(
-            graphKind, tag.kind(), fqn, tag.name(), interfaceLike, tag.line(), tag.endLine()));
+            graphKind,
+            normalizeKind(tag.kind()),
+            fqn,
+            tag.name(),
+            interfaceLike,
+            tag.line(),
+            tag.endLine()));
     typeFqnsByScope.putIfAbsent(tag.name(), fqn);
     typeFqnsByScope.put(scopeKey(tag.scope(), tag.name()), fqn);
   }
@@ -240,10 +247,13 @@ public final class CtagsAnalyzer {
     if (METHOD_KINDS.contains(kind)) {
       return kind.equals("constructor") ? Params.CONSTRUCTOR : Params.METHOD;
     }
+    if (ENUM_MEMBER_KINDS.contains(kind)) {
+      return Params.ENUM_MEMBER;
+    }
     if (FIELD_KINDS.contains(kind)) {
       return kind;
     }
-    return Params.FIELD;
+    return "";
   }
 
   private static boolean isTypeGraphKind(String graphKind) {
@@ -252,9 +262,19 @@ public final class CtagsAnalyzer {
         || Params.ENUM.equals(graphKind);
   }
 
+  private static boolean isMemberGraphKind(String graphKind) {
+    return isMethodGraphKind(graphKind)
+        || Params.ENUM_MEMBER.equals(graphKind)
+        || FIELD_KINDS.contains(graphKind);
+  }
+
+  private static boolean isMethodGraphKind(String graphKind) {
+    return Params.METHOD.equals(graphKind) || Params.CONSTRUCTOR.equals(graphKind);
+  }
+
   private static String normalizeKind(String rawKind) {
     if (rawKind == null || rawKind.isBlank()) {
-      return Params.FIELD;
+      return "";
     }
     return rawKind.trim().toLowerCase(Locale.ROOT);
   }

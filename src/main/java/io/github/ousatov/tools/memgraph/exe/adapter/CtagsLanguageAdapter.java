@@ -187,7 +187,7 @@ public final class CtagsLanguageAdapter implements LanguageAdapter<CtagsAnalysis
         interfaceFqns.add(type.fqn());
       } else {
         classFqns.add(type.fqn());
-        if (Params.CLASS.equals(type.graphKind())) {
+        if (hasSyntheticConstructor(type)) {
           methodSignatures.add(type.fqn() + "." + Labels.INIT + "()");
         }
       }
@@ -230,6 +230,7 @@ public final class CtagsLanguageAdapter implements LanguageAdapter<CtagsAnalysis
                       type.fqn(),
                       type.name(),
                       type.graphKind(),
+                      type.rawKind(),
                       type.interfaceLike(),
                       type.startLine(),
                       type.endLine()));
@@ -361,10 +362,17 @@ public final class CtagsLanguageAdapter implements LanguageAdapter<CtagsAnalysis
 
   private Path absolute(Path file) {
     Path normalizedFile = file.normalize();
-    if (normalizedFile.isAbsolute() || normalizedFile.startsWith(sourceRoot.normalize())) {
+    if (normalizedFile.isAbsolute()) {
       return normalizedFile;
     }
-    return sourceRoot.resolve(normalizedFile).normalize();
+    Path rootLocalFile = sourceRoot.resolve(normalizedFile).normalize();
+    if (Files.exists(rootLocalFile)) {
+      return rootLocalFile;
+    }
+    if (normalizedFile.startsWith(sourceRoot.normalize())) {
+      return normalizedFile;
+    }
+    return rootLocalFile;
   }
 
   private Path sourceRootLocal(Path file) {
@@ -396,6 +404,11 @@ public final class CtagsLanguageAdapter implements LanguageAdapter<CtagsAnalysis
   private static boolean isFallbackProgrammingLanguage(SourceLanguage language) {
     return !language.isFirstClass()
         && !NON_CODE_LANGUAGE_GRAPH_NAMES.contains(language.graphName());
+  }
+
+  private static boolean hasSyntheticConstructor(CtagsAnalysis.TypeDecl type) {
+    String rawKind = type.rawKind() == null ? "" : type.rawKind().toLowerCase(Locale.ROOT);
+    return Params.CLASS.equals(type.graphKind()) && Params.CLASS.equals(rawKind);
   }
 
   private static boolean isInSkippedDirectory(Path path) {

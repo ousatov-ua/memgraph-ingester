@@ -343,6 +343,43 @@ class GraphWriterIT {
   }
 
   @Test
+  void upsertCtagsStructPreservesRawKindAndSkipsConstructor() throws IOException {
+    SourceLanguage go = SourceLanguage.of("go", "Go");
+    Path tempFile = Files.createTempFile("ctags-go-", ".go");
+    try {
+      CtagsGraphWriter ctagsWriter = new CtagsGraphWriter(writer.dependencies());
+      writer.upsertProject(SRC_ROOT, List.of(go));
+      writer.upsertFile(tempFile, go);
+      writer.upsertPackage("go.test", go);
+      ctagsWriter.upsertType(
+          tempFile,
+          go,
+          "go.test",
+          "go.test.main.Service",
+          "Service",
+          "class",
+          "struct",
+          false,
+          1,
+          1);
+
+      var row =
+          session
+              .run(
+                  "MATCH (c:Class {fqn: $fqn, project: $p}) "
+                      + "OPTIONAL MATCH (c)-[:DECLARES]->(m:Method {name: '<init>'}) "
+                      + "RETURN c.kind AS kind, count(m) AS constructors",
+                  Map.of("fqn", "go.test.main.Service", "p", PROJECT))
+              .single();
+
+      assertEquals("struct", row.get("kind").asString());
+      assertEquals(0, row.get("constructors").asLong());
+    } finally {
+      Files.deleteIfExists(tempFile);
+    }
+  }
+
+  @Test
   void upsertPackageCreatesPackageWithContainsEdge() {
     writer.upsertPackage(PKG);
 

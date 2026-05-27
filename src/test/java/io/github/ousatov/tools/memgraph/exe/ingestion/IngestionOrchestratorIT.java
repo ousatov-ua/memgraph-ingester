@@ -404,7 +404,16 @@ class IngestionOrchestratorIT {
       ctagsWriter.upsertModule(
           file, language(), "ruby.test", "ruby.test.service", "service", "service.rb", 1, 2);
       ctagsWriter.upsertType(
-          file, language(), "ruby.test", RUBY_SERVICE_FQN, "Service", Params.CLASS, false, 1, 2);
+          file,
+          language(),
+          "ruby.test",
+          RUBY_SERVICE_FQN,
+          "Service",
+          Params.CLASS,
+          Params.CLASS,
+          false,
+          1,
+          2);
       return true;
     }
   }
@@ -471,7 +480,16 @@ class IngestionOrchestratorIT {
       ctagsWriter.upsertModule(
           file, language(), "ruby.test", "ruby.test.service", "service", "service", 1, 2);
       ctagsWriter.upsertType(
-          file, language(), "ruby.test", RUBY_SERVICE_FQN, "Service", Params.CLASS, false, 1, 2);
+          file,
+          language(),
+          "ruby.test",
+          RUBY_SERVICE_FQN,
+          "Service",
+          Params.CLASS,
+          Params.CLASS,
+          false,
+          1,
+          2);
       return true;
     }
   }

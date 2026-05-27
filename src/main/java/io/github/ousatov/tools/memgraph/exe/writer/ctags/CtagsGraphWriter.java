@@ -9,6 +9,7 @@ import io.github.ousatov.tools.memgraph.vo.Method;
 import java.nio.file.Path;
 import java.util.Collection;
 import java.util.List;
+import java.util.Locale;
 
 /**
  * Writes Universal Ctags fallback graph structures for a detected source language.
@@ -69,12 +70,14 @@ public final class CtagsGraphWriter extends CommonGraphWriter {
       String pkg,
       String fqn,
       String name,
-      String kind,
+      String graphKind,
+      String rawKind,
       boolean interfaceLike,
       int startLine,
       int endLine) {
+    String nodeKind = nodeKind(graphKind, rawKind);
     if (interfaceLike) {
-      upsertInterfaceNode(file, pkg, fqn, name, true, "", language.graphName(), kind, "", "");
+      upsertInterfaceNode(file, pkg, fqn, name, true, "", language.graphName(), nodeKind, "", "");
       return;
     }
     upsertClassNode(
@@ -84,14 +87,14 @@ public final class CtagsGraphWriter extends CommonGraphWriter {
         name,
         false,
         "",
-        Params.ENUM.equals(kind),
+        Params.ENUM.equals(graphKind),
         false,
         false,
         language.graphName(),
-        kind,
+        nodeKind,
         "",
         "");
-    if (Params.CLASS.equals(kind)) {
+    if (Params.CLASS.equals(graphKind) && Params.CLASS.equals(nodeKind)) {
       upsertMethodNode(
           file,
           new Method(
@@ -107,6 +110,13 @@ public final class CtagsGraphWriter extends CommonGraphWriter {
               language.graphName(),
               Params.CONSTRUCTOR));
     }
+  }
+
+  private static String nodeKind(String graphKind, String rawKind) {
+    if (rawKind == null || rawKind.isBlank()) {
+      return graphKind;
+    }
+    return rawKind.trim().toLowerCase(Locale.ROOT);
   }
 
   /** Upserts field and method declarations emitted by ctags. */

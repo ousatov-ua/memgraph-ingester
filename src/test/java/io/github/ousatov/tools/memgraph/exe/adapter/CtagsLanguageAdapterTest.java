@@ -182,6 +182,34 @@ class CtagsLanguageAdapterTest {
   }
 
   @Test
+  void skipsUnsupportedCtagsKinds() throws IOException {
+    assumeFalse(isWindows(), "fake executable script is POSIX-only");
+    Path sourceRoot = tempDir.resolve("repo");
+    CtagsLanguageAdapter adapter =
+        adapterWithFakeCtags(
+            sourceRoot,
+            "Rust",
+            """
+            {"_type":"tag","name":"Service","path":"service.rs","line":1,"end":1,"kind":"struct"}
+            {"_type":"tag","name":"Service","path":"service.rs","line":3,"end":5,"kind":"implementation"}
+            {"_type":"tag","name":"call","path":"service.rs","line":4,"kind":"method","scope":"Service","signature":"()"}
+            """);
+    Path rustFile = sourceRoot.resolve("service.rs");
+    Files.createDirectories(sourceRoot);
+    Files.writeString(rustFile, "struct Service;\nimpl Service { fn call(&self) {} }\n");
+
+    CtagsAnalysis analysis = adapter.parse(rustFile).orElseThrow();
+
+    assertFalse(
+        analysis.members().stream()
+            .anyMatch(
+                member ->
+                    "Service".equals(member.name())
+                        && member.fqnOrSignature().equals(analysis.types().getFirst().fqn())));
+    assertTrue(analysis.members().stream().anyMatch(member -> "call".equals(member.name())));
+  }
+
+  @Test
   void preservesTagEndLineWhenSourceCannotBeDecodedAsUtf8() throws IOException {
     assumeFalse(isWindows(), "fake executable script is POSIX-only");
     Path sourceRoot = tempDir.resolve("repo");
@@ -225,6 +253,9 @@ class CtagsLanguageAdapterTest {
             .orElseThrow();
 
     assertEquals(packageType.fqn() + ".Service", serviceType.fqn());
+    SourceFileDefinitions definitions = adapter.collectDefinitions(analysis);
+    assertFalse(definitions.methodSignatures().contains(packageType.fqn() + ".<init>()"));
+    assertFalse(definitions.methodSignatures().contains(serviceType.fqn() + ".<init>()"));
     assertTrue(
         analysis.members().stream()
             .anyMatch(
@@ -262,6 +293,24 @@ class CtagsLanguageAdapterTest {
       assertFalse(sourceRoot.isAbsolute());
       assertIterableEquals(List.of(rubyFile), adapter.discoverFiles(sourceRoot));
       assertTrue(adapter.parse(rubyFile).isPresent());
+    } finally {
+      deleteRecursively(sourceRoot);
+    }
+  }
+
+  @Test
+  void parsesRootLocalPathStartingWithRelativeSourceRootName() throws IOException {
+    assumeFalse(isWindows(), "fake executable script is POSIX-only");
+    Path sourceRoot = Path.of("ctags-relative-source-" + System.nanoTime());
+    Path rootLocalFile = sourceRoot.getFileName().resolve("service.rb");
+    Path rubyFile = sourceRoot.resolve(rootLocalFile);
+    Files.createDirectories(rubyFile.getParent());
+    try {
+      CtagsLanguageAdapter adapter = adapterWithFakeCtags(sourceRoot, "Ruby");
+      Files.writeString(rubyFile, "class Service\n  def call\n  end\nend\n");
+
+      assertFalse(sourceRoot.isAbsolute());
+      assertTrue(adapter.parse(rootLocalFile).isPresent());
     } finally {
       deleteRecursively(sourceRoot);
     }
