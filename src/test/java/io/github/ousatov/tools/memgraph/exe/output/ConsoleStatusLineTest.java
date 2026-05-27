@@ -1,5 +1,6 @@
 package io.github.ousatov.tools.memgraph.exe.output;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -37,7 +38,28 @@ class ConsoleStatusLineTest {
     String output = bytes.toString(StandardCharsets.UTF_8);
     assertTrue(output.contains("Progress: 64/64"));
     assertTrue(output.endsWith("\n"));
-    assertTrue(output.chars().filter(ch -> ch == '\n').count() == 1);
+    assertEquals(1, output.chars().filter(ch -> ch == '\n').count());
+  }
+
+  @Test
+  void repeatedUpdatesReuseSameConsoleRow() {
+    ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+    PrintStream out = new PrintStream(bytes, true, StandardCharsets.UTF_8);
+
+    ConsoleStatusLine.update(
+        out, "INFO Watch event: detected changes in 1 file(s). Re-ingesting...");
+    ConsoleStatusLine.update(out, "INFO [Stat] Watch re-ingestion applied 2 times.");
+    ConsoleStatusLine.finish(out);
+
+    String output = bytes.toString(StandardCharsets.UTF_8);
+    assertTrue(
+        output.contains("\rINFO Watch event: detected changes in 1 file(s). Re-ingesting..."));
+    assertTrue(output.contains("\rINFO [Stat] Watch re-ingestion applied 2 times."));
+    assertEquals(1, output.chars().filter(ch -> ch == '\n').count());
+    assertTrue(
+        output
+            .replaceAll(" +\\n$", "\n")
+            .endsWith("INFO [Stat] Watch re-ingestion applied 2 times.\n"));
   }
 
   @Test

@@ -9,6 +9,7 @@ import io.github.ousatov.tools.memgraph.exe.adapter.SourceLanguage;
 import io.github.ousatov.tools.memgraph.exe.analyze.ParseService;
 import io.github.ousatov.tools.memgraph.exe.metrics.IngestionMetricsCollector;
 import io.github.ousatov.tools.memgraph.exe.metrics.IngestionRunStats;
+import io.github.ousatov.tools.memgraph.exe.output.ConsoleStatusLine;
 import io.github.ousatov.tools.memgraph.exe.writer.GraphWriter;
 import io.github.ousatov.tools.memgraph.schema.Memgraph;
 import io.github.ousatov.tools.memgraph.vo.Settings;
@@ -221,11 +222,13 @@ public final class IngestionOrchestrator {
 
   @SuppressWarnings({"java:S3776", "java:S135"})
   private void startWatchLoop() {
-    log.info("Starting watch mode for {}...", sourceRoot);
+    log.debug("Starting watch mode for {}...", sourceRoot);
     try (WatchService watcher = FileSystems.getDefault().newWatchService()) {
       Map<WatchKey, Path> keys = new HashMap<>();
       registerRecursive(sourceRoot, watcher, keys);
 
+      log.info("Watch mode for {} activated.", sourceRoot);
+      int watchReingestionsApplied = 0;
       while (true) {
         WatchKey key = watcher.take();
         Path dir = keys.get(key);
@@ -259,9 +262,11 @@ public final class IngestionOrchestrator {
 
           // Debounce: wait a bit for more events (e.g. IDE multiple writes)
           TimeUnit.MILLISECONDS.sleep(500);
-          log.info(
-              "Watch event: detected changes in {} file(s). Re-ingesting...", changedFiles.size());
-          ingestChangedFiles(changedFiles);
+          renderWatchStatus(
+              "Watch event: detected changes in "
+                  + changedFiles.size()
+                  + " file(s). Re-ingesting...");
+          watchReingestionsApplied = ingestChanges(changedFiles, watchReingestionsApplied);
         }
 
         if (!key.reset()) {
@@ -271,17 +276,34 @@ public final class IngestionOrchestrator {
           }
         }
       }
+      finishWatchStatus();
     } catch (IOException e) {
+      finishWatchStatus();
       throw new ProcessingException("Watch service failed", e);
     } catch (InterruptedException _) {
+      finishWatchStatus();
       Thread.currentThread().interrupt();
     } catch (RuntimeException e) {
       if (isInterruptedFailure(e)) {
+        finishWatchStatus();
         Thread.currentThread().interrupt();
         return;
       }
       throw e;
     }
+  }
+
+  private int ingestChanges(Set<Path> changedFiles, int watchReingestionsApplied) {
+    try {
+      ingestChangedFiles(changedFiles);
+      watchReingestionsApplied++;
+      renderWatchStatus(
+          "[Stat] Watch re-ingestion applied " + watchReingestionsApplied + " times.");
+    } catch (RuntimeException e) {
+      finishWatchStatus();
+      throw e;
+    }
+    return watchReingestionsApplied;
   }
 
   private static boolean isInterruptedFailure(Throwable throwable) {
@@ -337,13 +359,14 @@ public final class IngestionOrchestrator {
           }
         } catch (RuntimeException e) {
           updateFailures++;
-          log.warn("Failed to update graph for watch event on {}: {}", file.path(), e.getMessage());
+          logWatchWarning(
+              "Failed to update graph for watch event on {}: {}", file.path(), e.getMessage());
         }
       }
       if (updateFailures == 0) {
         changedGraph |= processWatchDeletedFiles(writer, deletedFiles, refreshAfterDelete);
       } else if (!deletedFiles.isEmpty()) {
-        log.warn(
+        logWatchWarning(
             "Skipping watch delete cleanup for {} file(s) because {} file update(s) failed.",
             deletedFiles.size(),
             updateFailures);
@@ -351,9 +374,23 @@ public final class IngestionOrchestrator {
       refreshRetainedFilesAfterDelete(writer, refreshAfterDelete, currentFilesByPath);
       if (changedGraph) {
         refreshDerivedGraphArtifacts(writer);
-        log.info("Watch re-ingestion complete.");
       }
     }
+  }
+
+  private static void renderWatchStatus(String message) {
+    if (!log.isInfoEnabled()) {
+      return;
+    }
+    ConsoleStatusLine.update(System.err, "INFO " + message);
+  }
+
+  private static void finishWatchStatus() {
+    ConsoleStatusLine.finish(System.err);
+  }
+
+  private static void logWatchWarning(String message, Object... arguments) {
+    ConsoleStatusLine.withFinishedLine(System.err, () -> log.warn(message, arguments));
   }
 
   /**
@@ -383,7 +420,8 @@ public final class IngestionOrchestrator {
       List<SourceFile> files = discoverSourceFiles();
       return Optional.of(new WatchSourceSnapshot(files, retainedSourcePaths(files, writer)));
     } catch (RuntimeException e) {
-      log.warn("Skipping watch re-ingestion because source snapshot failed: {}", e.getMessage());
+      logWatchWarning(
+          "Skipping watch re-ingestion because source snapshot failed: {}", e.getMessage());
       return Optional.empty();
     }
   }
@@ -403,7 +441,7 @@ public final class IngestionOrchestrator {
                   file -> adapterFor(file).map(adapter -> new SourceFile(file, adapter)).stream())
               .toList();
       if (!existingFiles.isEmpty()) {
-        log.warn(
+        logWatchWarning(
             "Skipping watch delete fallback because {} changed file(s) still exist.",
             existingFiles.size());
         return false;
@@ -426,7 +464,7 @@ public final class IngestionOrchestrator {
       refreshRetainedFilesAfterDelete(writer, refreshAfterDelete, Map.of());
       return changedGraph;
     } catch (RuntimeException e) {
-      log.warn("Could not reconcile watch delete fallback: {}", e.getMessage());
+      logWatchWarning("Could not reconcile watch delete fallback: {}", e.getMessage());
       return false;
     }
   }
@@ -440,10 +478,11 @@ public final class IngestionOrchestrator {
           continue;
         }
         if (!ingestFileBatched(writer, retainedFile.get(), StoredFileState.empty())) {
-          log.warn("Failed to refresh retained file after delete: {}", path);
+          logWatchWarning("Failed to refresh retained file after delete: {}", path);
         }
       } catch (RuntimeException e) {
-        log.warn("Failed to refresh retained file after delete on {}: {}", path, e.getMessage());
+        logWatchWarning(
+            "Failed to refresh retained file after delete on {}: {}", path, e.getMessage());
       }
     }
   }
@@ -456,7 +495,8 @@ public final class IngestionOrchestrator {
         return true;
       } catch (RuntimeException e) {
         if (!GraphWriter.isRetryable(e) || attempt == FILE_TX_RETRY_ATTEMPTS) {
-          log.warn("Failed to update graph for watch delete on {}: {}", file, e.getMessage());
+          logWatchWarning(
+              "Failed to update graph for watch delete on {}: {}", file, e.getMessage());
           return false;
         }
         backoffMs = sleepBeforeFileRetry(file, attempt, e, backoffMs);
@@ -473,7 +513,7 @@ public final class IngestionOrchestrator {
         return Optional.of(retainedFilesLookup.apply(file));
       } catch (RuntimeException e) {
         if (!GraphWriter.isRetryable(e) || attempt == FILE_TX_RETRY_ATTEMPTS) {
-          log.warn(
+          logWatchWarning(
               "Failed to read retained files sharing definitions with {}: {}",
               file,
               e.getMessage());

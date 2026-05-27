@@ -317,7 +317,11 @@ public final class CtagsLanguageAdapter implements LanguageAdapter<CtagsAnalysis
   }
 
   private Path absolute(Path file) {
-    return (file.isAbsolute() ? file : sourceRoot.resolve(file)).normalize();
+    Path normalizedFile = file.normalize();
+    if (normalizedFile.isAbsolute() || normalizedFile.startsWith(sourceRoot.normalize())) {
+      return normalizedFile;
+    }
+    return sourceRoot.resolve(normalizedFile).normalize();
   }
 
   private static boolean isFirstClassSource(Path file) {

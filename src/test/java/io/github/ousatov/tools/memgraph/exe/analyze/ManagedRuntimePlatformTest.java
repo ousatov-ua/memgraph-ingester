@@ -26,6 +26,17 @@ class ManagedRuntimePlatformTest {
   }
 
   @Test
+  void darwinNormalizesAsMacos() {
+    ManagedRuntimePlatform platform = ManagedRuntimePlatform.from("Darwin", "arm64");
+
+    assertEquals(SystemParams.MACOS, platform.os());
+    assertEquals(SystemParams.ARM_64, platform.arch());
+    assertTrue(platform.isMacos());
+    assertFalse(platform.isWindows());
+    assertEquals("tool", platform.executableName("tool", "tool.exe"));
+  }
+
+  @Test
   void linuxX64NormalizesHostIdentity() {
     ManagedRuntimePlatform platform = ManagedRuntimePlatform.from("Linux", "amd64");
 

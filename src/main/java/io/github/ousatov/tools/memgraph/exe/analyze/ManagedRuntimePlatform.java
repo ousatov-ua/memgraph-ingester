@@ -38,7 +38,7 @@ record ManagedRuntimePlatform(String os, String arch) {
   }
 
   private static boolean isWindowsName(String rawName) {
-    return rawName != null && rawName.toLowerCase(Locale.ROOT).contains("win");
+    return rawName != null && rawName.toLowerCase(Locale.ROOT).startsWith("win");
   }
 
   private static String normalizeArch(String rawName) {

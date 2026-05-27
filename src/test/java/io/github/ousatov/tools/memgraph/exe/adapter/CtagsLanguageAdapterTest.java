@@ -13,8 +13,10 @@ import io.github.ousatov.tools.memgraph.exe.analyze.RuntimeMode;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -87,6 +89,24 @@ class CtagsLanguageAdapterTest {
     assertFalse(adapter.collectDefinitions(analysis).classFqns().isEmpty());
   }
 
+  @Test
+  void parsesFilesDiscoveredFromRelativeSourceRoot() throws IOException {
+    assumeFalse(isWindows(), "fake executable script is POSIX-only");
+    Path sourceRoot = Path.of("ctags-relative-source-" + System.nanoTime());
+    Files.createDirectories(sourceRoot);
+    try {
+      CtagsLanguageAdapter adapter = adapterWithFakeCtags(sourceRoot, "Ruby");
+      Path rubyFile = sourceRoot.resolve("service.rb");
+      Files.writeString(rubyFile, "class Service\n  def call\n  end\nend\n");
+
+      assertFalse(sourceRoot.isAbsolute());
+      assertIterableEquals(List.of(rubyFile), adapter.discoverFiles(sourceRoot));
+      assertTrue(adapter.parse(rubyFile).isPresent());
+    } finally {
+      deleteRecursively(sourceRoot);
+    }
+  }
+
   private CtagsLanguageAdapter adapterWithFakeCtags(Path sourceRoot, String language)
       throws IOException {
     Path cacheRoot = tempDir.resolve("runtime");
@@ -106,6 +126,10 @@ class CtagsLanguageAdapterTest {
         if [ "$print_language" = "1" ]; then
             echo "$last: %s"
             exit 0
+        fi
+        if [ ! -f "$last" ]; then
+            echo "missing file: $last" >&2
+            exit 1
         fi
         cat <<'JSON'
         {"_type":"tag","name":"Service","path":"service.rb","line":1,"end":4,"kind":"class"}
@@ -141,5 +165,16 @@ class CtagsLanguageAdapterTest {
 
   private static boolean isWindows() {
     return System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win");
+  }
+
+  private static void deleteRecursively(Path root) throws IOException {
+    if (!Files.exists(root)) {
+      return;
+    }
+    try (Stream<Path> paths = Files.walk(root)) {
+      for (Path path : paths.sorted(Comparator.reverseOrder()).toList()) {
+        Files.deleteIfExists(path);
+      }
+    }
   }
 }
