@@ -4,25 +4,21 @@ import io.github.ousatov.tools.memgraph.exe.output.ConsoleStatusLine;
 import java.io.PrintStream;
 import java.time.Duration;
 import java.util.Objects;
-import java.util.concurrent.atomic.AtomicBoolean;
 
-/** Shows lightweight CLI feedback while a managed runtime is being prepared. */
+/**
+ * Prints CLI feedback while a managed runtime is being prepared.
+ *
+ * @author Oleksii Usatov
+ */
 final class ManagedRuntimeLoadingIndicator implements AutoCloseable {
 
   private static final Duration DEFAULT_INTERVAL = Duration.ofMillis(500);
-  private static final int MAX_DOTS = 6;
-  private static final int JOIN_TIMEOUT_MILLIS = 100;
 
   private final PrintStream out;
-  private final String message;
-  private final Duration interval;
-  private final boolean interactive;
-  private final boolean animated;
-  private final AtomicBoolean running = new AtomicBoolean(true);
-  private final ConsoleStatusLine.StatusSession statusSession;
-  private final Thread thread;
+  private final String runtimeName;
 
-  private volatile boolean succeeded;
+  private boolean succeeded;
+  private boolean closed;
 
   static ManagedRuntimeLoadingIndicator start(String runtimeName) {
     return start(runtimeName, true);
@@ -53,40 +49,21 @@ final class ManagedRuntimeLoadingIndicator implements AutoCloseable {
     return start(runtimeName, out, interval, interactive, false);
   }
 
+  @SuppressWarnings("java:S1172")
   static ManagedRuntimeLoadingIndicator start(
       String runtimeName,
       PrintStream out,
       Duration interval,
       boolean interactive,
       boolean animated) {
-    return new ManagedRuntimeLoadingIndicator(runtimeName, out, interval, interactive, animated);
+    return new ManagedRuntimeLoadingIndicator(runtimeName, out, interval);
   }
 
-  private ManagedRuntimeLoadingIndicator(
-      String runtimeName,
-      PrintStream out,
-      Duration interval,
-      boolean interactive,
-      boolean animated) {
+  private ManagedRuntimeLoadingIndicator(String runtimeName, PrintStream out, Duration interval) {
     this.out = Objects.requireNonNull(out, "out");
-    this.message = "Loading managed runtime: " + Objects.requireNonNull(runtimeName, "runtimeName");
-    this.interval = Objects.requireNonNull(interval, "interval");
-    this.interactive = interactive;
-    this.animated = animated;
-    if (interactive && animated) {
-      this.statusSession = ConsoleStatusLine.openExclusiveStatusSession(this.out);
-      writeFrame(1);
-      this.thread =
-          Thread.ofPlatform()
-              .daemon()
-              .name("memgraph-ingester-managed-runtime-loading")
-              .unstarted(this::animate);
-      this.thread.start();
-    } else {
-      this.statusSession = null;
-      this.thread = null;
-      writeLine(message + "...");
-    }
+    this.runtimeName = Objects.requireNonNull(runtimeName, "runtimeName");
+    Objects.requireNonNull(interval, "interval");
+    writeLine("Loading managed runtime: " + this.runtimeName + "...");
   }
 
   void succeeded() {
@@ -95,56 +72,19 @@ final class ManagedRuntimeLoadingIndicator implements AutoCloseable {
 
   @Override
   public void close() {
-    if (!running.getAndSet(false)) {
+    if (closed) {
       return;
     }
-    if (thread != null) {
-      thread.interrupt();
-      joinThread();
-    }
-    try {
-      writeFinal();
-    } finally {
-      if (statusSession != null) {
-        statusSession.close();
-      }
-    }
-  }
-
-  private void animate() {
-    int dots = 1;
-    while (running.get()) {
-      try {
-        Thread.sleep(interval.toMillis());
-      } catch (InterruptedException _) {
-        Thread.currentThread().interrupt();
-        return;
-      }
-      dots = dots == MAX_DOTS ? 1 : dots + 1;
-      writeFrame(dots);
-    }
-  }
-
-  private void joinThread() {
-    try {
-      thread.join(JOIN_TIMEOUT_MILLIS);
-    } catch (InterruptedException _) {
-      Thread.currentThread().interrupt();
-    }
-  }
-
-  private void writeFrame(int dots) {
-    ConsoleStatusLine.update(out, message + ".".repeat(dots));
+    closed = true;
+    writeFinal();
   }
 
   private void writeFinal() {
-    if (interactive && animated) {
-      ConsoleStatusLine.update(out, message + (succeeded ? " done." : " failed."));
-      ConsoleStatusLine.finish(out);
+    if (succeeded) {
+      writeLine("Loaded managed runtime: " + runtimeName + ".");
     } else {
-      writeLine(message + (succeeded ? " done." : " failed."));
+      writeLine("Failed to load managed runtime: " + runtimeName + ".");
     }
-    out.flush();
   }
 
   private synchronized void writeLine(String text) {
