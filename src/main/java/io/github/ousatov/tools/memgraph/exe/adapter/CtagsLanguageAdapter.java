@@ -15,6 +15,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.nio.file.attribute.FileTime;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
@@ -93,7 +94,7 @@ public final class CtagsLanguageAdapter implements LanguageAdapter<CtagsAnalysis
 
   private final Path sourceRoot;
   private final CtagsAnalyzer analyzer;
-  private final Map<Path, SourceLanguage> detectedLanguages = new ConcurrentHashMap<>();
+  private final Map<Path, DetectedLanguage> detectedLanguages = new ConcurrentHashMap<>();
 
   public CtagsLanguageAdapter(Path sourceRoot, CtagsAnalyzer analyzer) {
     this.sourceRoot = sourceRoot;
@@ -313,15 +314,25 @@ public final class CtagsLanguageAdapter implements LanguageAdapter<CtagsAnalysis
 
   private Optional<SourceLanguage> detectedLanguage(Path file) {
     Path absoluteFile = absolute(file);
-    SourceLanguage cached = detectedLanguages.get(absoluteFile);
-    if (cached != null) {
-      return Optional.of(cached);
+    Optional<FileFingerprint> fingerprint = FileFingerprint.read(absoluteFile);
+    if (fingerprint.isEmpty()) {
+      detectedLanguages.remove(absoluteFile);
+      return Optional.empty();
+    }
+    DetectedLanguage cached = detectedLanguages.get(absoluteFile);
+    if (cached != null && cached.matches(fingerprint.get())) {
+      return Optional.of(cached.language());
     }
     try {
       Optional<SourceLanguage> detected = analyzer.detectLanguage(absoluteFile);
-      detected.ifPresent(language -> detectedLanguages.put(absoluteFile, language));
+      detected.ifPresentOrElse(
+          language ->
+              detectedLanguages.put(
+                  absoluteFile, new DetectedLanguage(language, fingerprint.get())),
+          () -> detectedLanguages.remove(absoluteFile));
       return detected;
     } catch (RuntimeException e) {
+      detectedLanguages.remove(absoluteFile);
       log.debug("Ctags could not detect language for {}: {}", file, e.getMessage());
       return Optional.empty();
     }
@@ -373,5 +384,24 @@ public final class CtagsLanguageAdapter implements LanguageAdapter<CtagsAnalysis
       }
     }
     return false;
+  }
+
+  private record FileFingerprint(FileTime lastModifiedTime, long size) {
+
+    private static Optional<FileFingerprint> read(Path file) {
+      try {
+        BasicFileAttributes attributes = Files.readAttributes(file, BasicFileAttributes.class);
+        return Optional.of(new FileFingerprint(attributes.lastModifiedTime(), attributes.size()));
+      } catch (IOException _) {
+        return Optional.empty();
+      }
+    }
+  }
+
+  private record DetectedLanguage(SourceLanguage language, FileFingerprint fingerprint) {
+
+    private boolean matches(FileFingerprint current) {
+      return fingerprint.equals(current);
+    }
   }
 }

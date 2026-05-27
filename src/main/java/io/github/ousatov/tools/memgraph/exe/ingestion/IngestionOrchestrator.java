@@ -763,10 +763,15 @@ public final class IngestionOrchestrator {
   }
 
   private Optional<LanguageAdapter<?>> adapterForWatchEvent(Path file, WatchEvent.Kind<?> kind) {
-    if (kind == StandardWatchEventKinds.ENTRY_DELETE) {
+    Optional<LanguageAdapter<?>> adapter = adapterFor(file);
+    if (adapter.isPresent()) {
+      return adapter;
+    }
+    if (kind == StandardWatchEventKinds.ENTRY_DELETE
+        || kind == StandardWatchEventKinds.ENTRY_MODIFY) {
       return adapterForDeletedPath(file);
     }
-    return adapterFor(file);
+    return Optional.empty();
   }
 
   private Optional<LanguageAdapter<?>> adapterForDeletedPath(Path file) {

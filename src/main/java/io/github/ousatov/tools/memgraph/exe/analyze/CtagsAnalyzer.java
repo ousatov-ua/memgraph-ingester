@@ -4,6 +4,7 @@ import io.github.ousatov.tools.memgraph.def.Const.Params;
 import io.github.ousatov.tools.memgraph.exception.ProcessingException;
 import io.github.ousatov.tools.memgraph.exe.adapter.SourceLanguage;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -96,7 +97,7 @@ public final class CtagsAnalyzer {
             List.of(
                 "--options=NONE",
                 "--output-format=json",
-                "--fields=+nKlsS",
+                "--fields=+nKlsSe",
                 "--extras=-F",
                 "-f",
                 "-",
@@ -121,19 +122,32 @@ public final class CtagsAnalyzer {
     int endLine = fileEndLine(file, tags);
     List<CtagsAnalysis.TypeDecl> types = new ArrayList<>();
     Map<String, String> typeFqnsByScope = new LinkedHashMap<>();
+    List<CtagsTag> pendingTypeTags = new ArrayList<>();
     for (CtagsTag tag : tags) {
       String graphKind = graphKind(tag.kind());
-      if (!isTypeGraphKind(graphKind)) {
-        continue;
+      if (isTypeGraphKind(graphKind)) {
+        pendingTypeTags.add(tag);
       }
-      String ownerFqn = ownerFqn(moduleFqn, tag.scope(), typeFqnsByScope);
-      String fqn = CtagsNames.childFqn(ownerFqn, tag.name());
-      boolean interfaceLike = Params.INTERFACE.equals(graphKind);
-      types.add(
-          new CtagsAnalysis.TypeDecl(
-              graphKind, tag.kind(), fqn, tag.name(), interfaceLike, tag.line(), tag.endLine()));
-      typeFqnsByScope.put(tag.name(), fqn);
-      typeFqnsByScope.put(scopeKey(tag.scope(), tag.name()), fqn);
+    }
+    while (!pendingTypeTags.isEmpty()) {
+      boolean resolvedAny = false;
+      for (int index = 0; index < pendingTypeTags.size(); ) {
+        CtagsTag tag = pendingTypeTags.get(index);
+        Optional<String> ownerFqn = resolvedOwnerFqn(moduleFqn, tag.scope(), typeFqnsByScope);
+        if (ownerFqn.isEmpty()) {
+          index++;
+          continue;
+        }
+        addTypeDecl(types, typeFqnsByScope, tag, graphKind(tag.kind()), ownerFqn.get());
+        pendingTypeTags.remove(index);
+        resolvedAny = true;
+      }
+      if (!resolvedAny) {
+        for (CtagsTag tag : pendingTypeTags) {
+          addTypeDecl(types, typeFqnsByScope, tag, graphKind(tag.kind()), moduleFqn);
+        }
+        pendingTypeTags.clear();
+      }
     }
 
     List<CtagsAnalysis.MemberDecl> members = new ArrayList<>();
@@ -166,6 +180,21 @@ public final class CtagsAnalyzer {
         language, moduleFqn, moduleName, packageName, modulePath, 1, endLine, types, members);
   }
 
+  private static void addTypeDecl(
+      List<CtagsAnalysis.TypeDecl> types,
+      Map<String, String> typeFqnsByScope,
+      CtagsTag tag,
+      String graphKind,
+      String ownerFqn) {
+    String fqn = CtagsNames.childFqn(ownerFqn, tag.name());
+    boolean interfaceLike = Params.INTERFACE.equals(graphKind);
+    types.add(
+        new CtagsAnalysis.TypeDecl(
+            graphKind, tag.kind(), fqn, tag.name(), interfaceLike, tag.line(), tag.endLine()));
+    typeFqnsByScope.putIfAbsent(tag.name(), fqn);
+    typeFqnsByScope.put(scopeKey(tag.scope(), tag.name()), fqn);
+  }
+
   private static String ownerFqn(
       String moduleFqn, String scope, Map<String, String> typeFqnsByScope) {
     if (scope == null || scope.isBlank()) {
@@ -179,6 +208,21 @@ public final class CtagsAnalyzer {
     int dot = normalized.lastIndexOf('.');
     String simple = dot < 0 ? normalized : normalized.substring(dot + 1);
     return typeFqnsByScope.getOrDefault(simple, moduleFqn);
+  }
+
+  private static Optional<String> resolvedOwnerFqn(
+      String moduleFqn, String scope, Map<String, String> typeFqnsByScope) {
+    if (scope == null || scope.isBlank()) {
+      return Optional.of(moduleFqn);
+    }
+    String normalized = scope.replace("::", ".");
+    String direct = typeFqnsByScope.get(normalized);
+    if (direct != null) {
+      return Optional.of(direct);
+    }
+    int dot = normalized.lastIndexOf('.');
+    String simple = dot < 0 ? normalized : normalized.substring(dot + 1);
+    return Optional.ofNullable(typeFqnsByScope.get(simple));
   }
 
   private static String scopeKey(String scope, String name) {
@@ -219,7 +263,7 @@ public final class CtagsAnalyzer {
     int tagEndLine = tags.stream().mapToInt(CtagsTag::endLine).max().orElse(1);
     try (var lines = Files.lines(file, StandardCharsets.UTF_8)) {
       return Math.max(tagEndLine, (int) lines.count());
-    } catch (IOException _) {
+    } catch (IOException | UncheckedIOException _) {
       return tagEndLine;
     }
   }

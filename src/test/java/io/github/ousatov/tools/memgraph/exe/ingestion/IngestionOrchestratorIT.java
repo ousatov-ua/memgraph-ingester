@@ -410,6 +410,73 @@ class IngestionOrchestratorIT {
   }
 
   /**
+   * Dynamic fallback adapter that stops accepting a file after its content changes.
+   *
+   * @author Oleksii Usatov
+   */
+  private static final class ContentSwitchingRubyAdapter implements LanguageAdapter<Path> {
+
+    private final Path sourceRoot;
+
+    private ContentSwitchingRubyAdapter(Path sourceRoot) {
+      this.sourceRoot = sourceRoot;
+    }
+
+    @Override
+    public SourceLanguage language() {
+      return RUBY;
+    }
+
+    @Override
+    public Optional<SourceLanguage> staticLanguage() {
+      return Optional.empty();
+    }
+
+    @Override
+    public boolean accepts(Path file) {
+      if (!"service".equals(file.getFileName().toString())) {
+        return false;
+      }
+      try {
+        return Files.readString(sourceRoot.resolve(file)).startsWith("ruby");
+      } catch (IOException _) {
+        return false;
+      }
+    }
+
+    @Override
+    public boolean acceptsDeletedPath(Path file) {
+      return "service".equals(file.getFileName().toString());
+    }
+
+    @Override
+    public Optional<Path> parse(Path file) {
+      return accepts(LanguageAdapter.localPath(sourceRoot, file))
+          ? Optional.of(file)
+          : Optional.empty();
+    }
+
+    @Override
+    public SourceFileDefinitions collectDefinitions(Path parsed) {
+      return SourceFileDefinitions.of(
+          List.of(RUBY_SERVICE_FQN), List.of(), List.of(), List.of(), List.of());
+    }
+
+    @Override
+    public boolean write(GraphWriter writer, Path file, Path parsed) {
+      CtagsGraphWriter ctagsWriter = new CtagsGraphWriter(writer.dependencies());
+      writer.upsertProject(sourceRoot, List.of(language()));
+      writer.upsertFile(file, language());
+      writer.upsertPackage("ruby.test", language());
+      ctagsWriter.upsertModule(
+          file, language(), "ruby.test", "ruby.test.service", "service", "service", 1, 2);
+      ctagsWriter.upsertType(
+          file, language(), "ruby.test", RUBY_SERVICE_FQN, "Service", Params.CLASS, false, 1, 2);
+      return true;
+    }
+  }
+
+  /**
    * Stub adapter whose module identity depends on the configured source root.
    *
    * @author Oleksii Usatov
@@ -1084,6 +1151,61 @@ class IngestionOrchestratorIT {
           .until(() -> worker.getState() == Thread.State.WAITING);
 
       Files.delete(watchedFile);
+
+      await()
+          .atMost(Duration.ofSeconds(10))
+          .pollInterval(Duration.ofMillis(250))
+          .untilAsserted(
+              () -> {
+                assertFalse(fileExistsInGraph(currentProject, watchedFile));
+                assertFalse(classExists(currentProject, RUBY_SERVICE_FQN));
+              });
+    } finally {
+      worker.interrupt();
+      worker.join(TimeUnit.SECONDS.toMillis(5));
+    }
+
+    assertFalse(worker.isAlive(), "Watch mode must exit after interruption");
+    assertNull(failure.get(), () -> "Watch mode failed: " + failure.get());
+  }
+
+  @Test
+  void watchModeDeletesDynamicFallbackFileAfterItIsNoLongerAccepted() throws Exception {
+    currentProject = PROJECT_BASE + "-watch-dynamic-reject";
+    sourceDir = Files.createTempDirectory("orch-watch-dynamic-reject-src-");
+    Path watchedFile = sourceDir.resolve("service");
+    Files.writeString(watchedFile, "ruby service\n");
+    IngestionOrchestrator orchestrator =
+        new IngestionOrchestrator(
+            sourceDir, currentProject, 1, driver, new ContentSwitchingRubyAdapter(sourceDir));
+    AtomicReference<Throwable> failure = new AtomicReference<>();
+    Thread worker =
+        new Thread(
+            () -> {
+              try {
+                orchestrator.run(new Settings(false, true, false, false, false, true));
+              } catch (Throwable t) {
+                failure.set(t);
+              }
+            },
+            "watch-dynamic-reject-test");
+    worker.start();
+
+    try {
+      await()
+          .atMost(Duration.ofSeconds(10))
+          .pollInterval(Duration.ofMillis(100))
+          .untilAsserted(
+              () -> {
+                assertTrue(fileExistsInGraph(currentProject, watchedFile));
+                assertTrue(classExists(currentProject, RUBY_SERVICE_FQN));
+              });
+      await()
+          .atMost(Duration.ofSeconds(10))
+          .pollInterval(Duration.ofMillis(50))
+          .until(() -> worker.getState() == Thread.State.WAITING);
+
+      Files.writeString(watchedFile, "console.log('now first class');\n");
 
       await()
           .atMost(Duration.ofSeconds(10))

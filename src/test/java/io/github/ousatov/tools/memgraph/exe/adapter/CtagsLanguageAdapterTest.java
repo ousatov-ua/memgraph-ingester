@@ -35,6 +35,8 @@ class CtagsLanguageAdapterTest {
     assumeFalse(isWindows(), "fake executable script is POSIX-only");
     Path sourceRoot = tempDir.resolve("repo");
     CtagsLanguageAdapter adapter = adapterWithFakeCtags(sourceRoot, "Ruby");
+    Files.createDirectories(sourceRoot);
+    Files.writeString(sourceRoot.resolve("service.rb"), "class Service\nend\n");
 
     assertTrue(adapter.accepts(sourceRoot.resolve("service.rb")));
     assertFalse(adapter.accepts(sourceRoot.resolve("Service.java")));
@@ -45,6 +47,8 @@ class CtagsLanguageAdapterTest {
   void rejectsFirstClassLanguagesEvenWhenExtensionIsUnknown() throws IOException {
     assumeFalse(isWindows(), "fake executable script is POSIX-only");
     Path sourceRoot = tempDir.resolve("repo");
+    Files.createDirectories(sourceRoot);
+    Files.writeString(sourceRoot.resolve("service"), "class Service\nend\n");
 
     assertFalse(adapterWithFakeCtags(sourceRoot, "Java").accepts(sourceRoot.resolve("service")));
     assertFalse(
@@ -56,6 +60,9 @@ class CtagsLanguageAdapterTest {
   void rejectsNonProgrammingFilesByExtensionAndDetectedLanguage() throws IOException {
     assumeFalse(isWindows(), "fake executable script is POSIX-only");
     Path sourceRoot = tempDir.resolve("repo");
+    Files.createDirectories(sourceRoot);
+    Files.writeString(sourceRoot.resolve("config.custom"), "name: value\n");
+    Files.writeString(sourceRoot.resolve("pom.custom"), "<project />\n");
 
     assertFalse(adapterWithFakeCtags(sourceRoot, "Ruby").accepts(sourceRoot.resolve("config.yml")));
     assertFalse(adapterWithFakeCtags(sourceRoot, "Ruby").accepts(sourceRoot.resolve("pom.xml")));
@@ -148,6 +155,74 @@ class CtagsLanguageAdapterTest {
   }
 
   @Test
+  void preservesTagEndLineWhenSourceCannotBeDecodedAsUtf8() throws IOException {
+    assumeFalse(isWindows(), "fake executable script is POSIX-only");
+    Path sourceRoot = tempDir.resolve("repo");
+    CtagsLanguageAdapter adapter = adapterWithFakeCtags(sourceRoot, "Ruby");
+    Path rubyFile = sourceRoot.resolve("service.rb");
+    Files.createDirectories(sourceRoot);
+    Files.write(rubyFile, new byte[] {(byte) 0xC3, 0x28});
+
+    CtagsAnalysis analysis = adapter.parse(rubyFile).orElseThrow();
+
+    assertEquals(4, analysis.endLine());
+  }
+
+  @Test
+  void resolvesOutOfOrderTypeScopesBeforeAssigningChildFqns() throws IOException {
+    assumeFalse(isWindows(), "fake executable script is POSIX-only");
+    Path sourceRoot = tempDir.resolve("repo");
+    CtagsLanguageAdapter adapter =
+        adapterWithFakeCtags(
+            sourceRoot,
+            "Go",
+            """
+            {"_type":"tag","name":"Service","path":"main.go","line":3,"end":5,"kind":"struct","scope":"main"}
+            {"_type":"tag","name":"main","path":"main.go","line":1,"end":1,"kind":"package"}
+            {"_type":"tag","name":"NewService","path":"main.go","line":7,"end":9,"kind":"function","scope":"main","signature":"()"}
+            """);
+    Path goFile = sourceRoot.resolve("main.go");
+    Files.createDirectories(sourceRoot);
+    Files.writeString(goFile, "package main\n");
+
+    CtagsAnalysis analysis = adapter.parse(goFile).orElseThrow();
+    CtagsAnalysis.TypeDecl packageType =
+        analysis.types().stream()
+            .filter(type -> "main".equals(type.name()))
+            .findFirst()
+            .orElseThrow();
+    CtagsAnalysis.TypeDecl serviceType =
+        analysis.types().stream()
+            .filter(type -> "Service".equals(type.name()))
+            .findFirst()
+            .orElseThrow();
+
+    assertEquals(packageType.fqn() + ".Service", serviceType.fqn());
+    assertTrue(
+        analysis.members().stream()
+            .anyMatch(
+                member ->
+                    "NewService".equals(member.name())
+                        && packageType.fqn().equals(member.ownerFqn())));
+  }
+
+  @Test
+  void redetectsLanguageAfterFileContentChanges() throws IOException {
+    assumeFalse(isWindows(), "fake executable script is POSIX-only");
+    Path sourceRoot = tempDir.resolve("repo");
+    CtagsLanguageAdapter adapter = adapterWithContentSensitiveFakeCtags(sourceRoot);
+    Path sourceFile = sourceRoot.resolve("service");
+    Files.createDirectories(sourceRoot);
+    Files.writeString(sourceFile, "class Service\nend\n");
+
+    assertTrue(adapter.accepts(sourceFile));
+
+    Files.writeString(sourceFile, "console.log('now first class');\n");
+
+    assertFalse(adapter.accepts(sourceFile));
+  }
+
+  @Test
   void parsesFilesDiscoveredFromRelativeSourceRoot() throws IOException {
     assumeFalse(isWindows(), "fake executable script is POSIX-only");
     Path sourceRoot = Path.of("ctags-relative-source-" + System.nanoTime());
@@ -191,10 +266,17 @@ class CtagsLanguageAdapterTest {
           if [ "$arg" = "--print-language" ]; then
             print_language=1
           fi
+          if [ "$arg" = "--fields=+nKlsSe" ]; then
+            fields_seen=1
+          fi
         done
         if [ "$print_language" = "1" ]; then
             echo "$last: %s"
             exit 0
+        fi
+        if [ "$fields_seen" != "1" ]; then
+            echo "missing end-line field" >&2
+            exit 2
         fi
         if [ ! -f "$last" ]; then
             echo "missing file: $last" >&2
@@ -207,6 +289,40 @@ class CtagsLanguageAdapterTest {
             .formatted(language, tagsJsonLines.stripTrailing()));
     executable.toFile().setExecutable(true, true);
     ManagedCtagsRuntime runtime = new ManagedCtagsRuntime(cacheRoot, "test", RuntimeMode.OFFLINE);
+    return new CtagsLanguageAdapter(sourceRoot, new CtagsAnalyzer(sourceRoot, runtime));
+  }
+
+  private CtagsLanguageAdapter adapterWithContentSensitiveFakeCtags(Path sourceRoot)
+      throws IOException {
+    Path cacheRoot = tempDir.resolve("runtime");
+    Path executable = cachedExecutable(cacheRoot, "content-sensitive");
+    Files.createDirectories(executable.getParent());
+    Files.writeString(
+        executable,
+        """
+        #!/bin/sh
+        last=""
+        for arg in "$@"; do
+          last="$arg"
+          if [ "$arg" = "--print-language" ]; then
+            print_language=1
+          fi
+        done
+        if [ "$print_language" = "1" ]; then
+            if grep -q "console.log" "$last"; then
+                echo "$last: JavaScript"
+            else
+                echo "$last: Ruby"
+            fi
+            exit 0
+        fi
+        cat <<'JSON'
+        {"_type":"tag","name":"Service","path":"service","line":1,"end":2,"kind":"class"}
+        JSON
+        """);
+    executable.toFile().setExecutable(true, true);
+    ManagedCtagsRuntime runtime =
+        new ManagedCtagsRuntime(cacheRoot, "content-sensitive", RuntimeMode.OFFLINE);
     return new CtagsLanguageAdapter(sourceRoot, new CtagsAnalyzer(sourceRoot, runtime));
   }
 
