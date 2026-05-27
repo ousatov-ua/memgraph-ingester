@@ -675,6 +675,7 @@ public final class IngestionOrchestrator {
     writer.getFilePathsInSourceRoot(sourceRoot).stream()
         .filter(path -> !retainedPaths.contains(path))
         .filter(Files::exists)
+        .filter(this::shouldRetainExistingSourcePath)
         .sorted()
         .forEach(retainedPaths::add);
     writer.getRetainedFilePathsOutsideSourceRoot(sourceRoot).stream()
@@ -682,6 +683,10 @@ public final class IngestionOrchestrator {
         .sorted()
         .forEach(retainedPaths::add);
     return List.copyOf(retainedPaths);
+  }
+
+  private boolean shouldRetainExistingSourcePath(Path path) {
+    return adapterFor(path).isPresent() || adapterForDeletedPath(path).isEmpty();
   }
 
   private void deleteMissingSourceFiles(

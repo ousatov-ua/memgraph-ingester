@@ -199,6 +199,31 @@ class GraphWriterIT {
   }
 
   @Test
+  void upsertFileRemovesOldLanguageCodeLinkWhenLanguageChanges() throws IOException {
+    SourceLanguage ruby = SourceLanguage.of("ruby", "Ruby");
+    SourceLanguage go = SourceLanguage.of("go", "Go");
+    Path tempFile = Files.createTempFile("ctags-language-switch-", "");
+    try {
+      writer.upsertProject(SRC_ROOT, List.of(ruby, go));
+      writer.upsertFile(tempFile, ruby);
+      writer.upsertFile(tempFile, go);
+
+      List<String> codeLanguages =
+          session
+              .run(
+                  "MATCH (code:Code {project: $p})-[:CONTAINS]->"
+                      + "(:File {project: $p, path: $path})"
+                      + " RETURN code.language AS language ORDER BY language",
+                  Map.of("p", PROJECT, "path", tempFile.toString()))
+              .list(row -> row.get("language").asString());
+
+      assertEquals(List.of("go"), codeLanguages);
+    } finally {
+      Files.deleteIfExists(tempFile);
+    }
+  }
+
+  @Test
   void upsertFileWritesLastModified() throws IOException {
     Path tempFile = Files.createTempFile("widget-", ".java");
     try {

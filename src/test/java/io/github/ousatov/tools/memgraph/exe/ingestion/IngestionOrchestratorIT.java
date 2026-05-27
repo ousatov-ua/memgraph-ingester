@@ -1225,6 +1225,27 @@ class IngestionOrchestratorIT {
   }
 
   @Test
+  void reingestionDeletesDynamicFallbackFileAfterItIsNoLongerAccepted() throws Exception {
+    currentProject = PROJECT_BASE + "-dynamic-reject";
+    sourceDir = Files.createTempDirectory("orch-dynamic-reject-src-");
+    Path sourceFile = sourceDir.resolve("service");
+    Files.writeString(sourceFile, "ruby service\n");
+    IngestionOrchestrator orchestrator =
+        new IngestionOrchestrator(
+            sourceDir, currentProject, 1, driver, new ContentSwitchingRubyAdapter(sourceDir));
+
+    assertEquals(0, orchestrator.run(Settings.def()));
+    assertTrue(fileExistsInGraph(currentProject, sourceFile));
+    assertTrue(classExists(currentProject, RUBY_SERVICE_FQN));
+
+    Files.writeString(sourceFile, "plain text\n");
+
+    assertEquals(0, orchestrator.run(Settings.def()));
+    assertFalse(fileExistsInGraph(currentProject, sourceFile));
+    assertFalse(classExists(currentProject, RUBY_SERVICE_FQN));
+  }
+
+  @Test
   void watchDeleteRetriesTransientFailure() throws Exception {
     currentProject = PROJECT_BASE + "-watch-delete-retry";
     sourceDir = Files.createTempDirectory("orch-watch-delete-retry-src-");
