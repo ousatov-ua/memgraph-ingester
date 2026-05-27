@@ -1,6 +1,7 @@
 package io.github.ousatov.tools.memgraph.exe.analyze;
 
 import io.github.ousatov.tools.memgraph.exception.ProcessingException;
+import io.github.ousatov.tools.memgraph.exe.output.ConsoleStatusLine;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.net.URI;
@@ -128,7 +129,8 @@ public final class ManagedTypescriptPackage {
     String metadata = downloadText(URI.create("https://registry.npmjs.org/typescript/" + version));
     String tarball = extract(metadata, TARBALL_PATTERN, "TypeScript tarball URL");
     String integrity = extract(metadata, INTEGRITY_PATTERN, "TypeScript sha512 integrity");
-    log.info("Downloading TypeScript compiler {}", version);
+    ConsoleStatusLine.withFinishedLine(
+        System.err, () -> log.info("Downloading TypeScript compiler {}", version));
     byte[] archive = download(URI.create(tarball));
     verifySha512(archive, integrity);
     extractTgz(archive, typescriptDir);
