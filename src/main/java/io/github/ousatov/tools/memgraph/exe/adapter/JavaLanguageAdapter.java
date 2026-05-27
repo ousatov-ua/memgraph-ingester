@@ -14,6 +14,7 @@ import com.github.javaparser.ast.body.RecordDeclaration;
 import io.github.ousatov.tools.memgraph.def.Const.Labels;
 import io.github.ousatov.tools.memgraph.exe.analyze.JavaTypeNames;
 import io.github.ousatov.tools.memgraph.exe.analyze.ParseService;
+import io.github.ousatov.tools.memgraph.exe.rag.JavaCodeChunkBuilder;
 import io.github.ousatov.tools.memgraph.exe.writer.GraphWriter;
 import io.github.ousatov.tools.memgraph.exe.writer.java.JavaGraphWriter;
 import java.nio.file.Path;
@@ -34,6 +35,7 @@ public final class JavaLanguageAdapter implements LanguageAdapter<CompilationUni
   private static final Logger log = LoggerFactory.getLogger(JavaLanguageAdapter.class);
 
   private final ParseService parseService;
+  private final JavaCodeChunkBuilder codeChunks = new JavaCodeChunkBuilder();
 
   public JavaLanguageAdapter(ParseService parseService) {
     this.parseService = parseService;
@@ -96,6 +98,7 @@ public final class JavaLanguageAdapter implements LanguageAdapter<CompilationUni
                   javaWriter.upsertRecordCallEdges(pkg, rec);
                 }
               });
+      writer.replaceCodeChunksForFile(file, codeChunks.build(file, cu));
       return true;
     } catch (RuntimeException e) {
       if (GraphWriter.isRetryable(e)) {

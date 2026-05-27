@@ -12,6 +12,7 @@ import io.github.ousatov.tools.memgraph.exe.metrics.IngestionRunStats;
 import io.github.ousatov.tools.memgraph.exe.output.ConsoleStatusLine;
 import io.github.ousatov.tools.memgraph.exe.writer.GraphWriter;
 import io.github.ousatov.tools.memgraph.schema.Memgraph;
+import io.github.ousatov.tools.memgraph.vo.CodeEmbeddingSettings;
 import io.github.ousatov.tools.memgraph.vo.Settings;
 import java.io.IOException;
 import java.nio.file.FileSystems;
@@ -74,6 +75,7 @@ public final class IngestionOrchestrator {
   private final List<LanguageAdapter<?>> languageAdapters;
   private final Set<Path> pendingWatchFiles = new LinkedHashSet<>();
   private boolean incremental;
+  private CodeEmbeddingSettings codeEmbeddings = CodeEmbeddingSettings.disabled();
 
   /**
    * @param sourceRoot root directory to walk for {@code .java} files
@@ -135,6 +137,7 @@ public final class IngestionOrchestrator {
   public int run(Settings settings) {
     log.debug("Proceeding with ingestion, settings: {}", settings);
     this.incremental = settings.incremental();
+    this.codeEmbeddings = settings.codeEmbeddings();
     IngestionRunStats stats = new IngestionRunStats(threads);
     if (incremental && (settings.wipeAllData() || settings.wipeProjectCode())) {
       log.info(
@@ -211,6 +214,7 @@ public final class IngestionOrchestrator {
     try (Session session = driver.session()) {
       GraphWriter postWriter = new GraphWriter(session, project, stats);
       refreshDerivedGraphArtifacts(postWriter);
+      refreshCodeChunkEmbeddings(postWriter);
       printMetrics(session);
       printPerformance(stats);
     }
@@ -375,6 +379,7 @@ public final class IngestionOrchestrator {
       refreshRetainedFilesAfterDelete(writer, refreshAfterDelete, currentFilesByPath);
       if (changedGraph) {
         refreshDerivedGraphArtifacts(writer);
+        refreshCodeChunkEmbeddings(writer);
       }
     }
   }
@@ -536,6 +541,17 @@ public final class IngestionOrchestrator {
     log.debug("Removed empty Package nodes for '{}'", project);
     writer.resolveCodeRefs();
     log.debug("Refreshed :CodeRef resolution edges for '{}'", project);
+  }
+
+  private void refreshCodeChunkEmbeddings(GraphWriter writer) {
+    if (!codeEmbeddings.enabled()) {
+      return;
+    }
+    log.info(
+        "Refreshing CodeChunk embeddings for project '{}' with Memgraph model '{}'...",
+        project,
+        codeEmbeddings.modelName());
+    writer.refreshCodeChunkEmbeddings(codeEmbeddings);
   }
 
   @SuppressWarnings({"java:S106", "java:S1181"})

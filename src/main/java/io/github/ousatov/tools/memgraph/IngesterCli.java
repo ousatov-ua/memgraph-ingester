@@ -18,6 +18,7 @@ import io.github.ousatov.tools.memgraph.exe.analyze.PythonAnalyzer;
 import io.github.ousatov.tools.memgraph.exe.analyze.RuntimeMode;
 import io.github.ousatov.tools.memgraph.exe.ingestion.IngestionOrchestrator;
 import io.github.ousatov.tools.memgraph.schema.MemgraphDriver;
+import io.github.ousatov.tools.memgraph.vo.CodeEmbeddingSettings;
 import io.github.ousatov.tools.memgraph.vo.Settings;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -127,6 +128,85 @@ public final class IngesterCli implements Callable<Integer> {
       description = "Watch for changes in the source directory and automatically re-ingest")
   @SuppressWarnings("unused")
   private boolean watch;
+
+  @Option(
+      names = {"--code-embeddings"},
+      description =
+          "Use Memgraph's embeddings module to compute stale :CodeChunk embeddings after "
+              + "ingestion and watch updates.")
+  @SuppressWarnings("unused")
+  private boolean codeEmbeddings;
+
+  @Option(
+      names = {"--code-embedding-index"},
+      defaultValue = CodeEmbeddingSettings.DEFAULT_INDEX_NAME,
+      description = "Vector index name for CodeChunk embeddings.")
+  @SuppressWarnings("unused")
+  private String codeEmbeddingIndex;
+
+  @Option(
+      names = {"--code-embedding-model"},
+      defaultValue = CodeEmbeddingSettings.DEFAULT_MODEL_NAME,
+      description =
+          "Memgraph embeddings model_name. Bare names run locally; provider-prefixed names use "
+              + "the Memgraph LiteLLM remote path.")
+  @SuppressWarnings("unused")
+  private String codeEmbeddingModel;
+
+  @Option(
+      names = {"--code-embedding-device"},
+      defaultValue = "",
+      description =
+          "Memgraph embeddings device. Leave blank for Memgraph auto-selection, or use cpu, cuda, "
+              + "all, cuda:0, etc.")
+  @SuppressWarnings("unused")
+  private String codeEmbeddingDevice;
+
+  @Option(
+      names = {"--code-embedding-batch-size"},
+      defaultValue = "" + CodeEmbeddingSettings.DEFAULT_BATCH_SIZE,
+      description = "CodeChunk nodes per Memgraph embedding call and local embedding batch size.")
+  @SuppressWarnings("unused")
+  private int codeEmbeddingBatchSize;
+
+  @Option(
+      names = {"--code-embedding-chunk-size"},
+      defaultValue = "" + CodeEmbeddingSettings.DEFAULT_CHUNK_SIZE,
+      description = "Memgraph embeddings chunk_size for local multi-GPU computation.")
+  @SuppressWarnings("unused")
+  private int codeEmbeddingChunkSize;
+
+  @Option(
+      names = {"--code-embedding-dimensions"},
+      defaultValue = "0",
+      description =
+          "Optional target dimension for providers that support server-side truncation; 0 keeps "
+              + "the model default.")
+  @SuppressWarnings("unused")
+  private int codeEmbeddingDimensions;
+
+  @Option(
+      names = {"--code-embedding-remote-batch-size"},
+      defaultValue = "0",
+      description = "Optional Memgraph remote_batch_size; 0 keeps the embeddings module default.")
+  @SuppressWarnings("unused")
+  private int codeEmbeddingRemoteBatchSize;
+
+  @Option(
+      names = {"--code-embedding-concurrency"},
+      defaultValue = "0",
+      description = "Optional Memgraph remote provider concurrency; 0 keeps the module default.")
+  @SuppressWarnings("unused")
+  private int codeEmbeddingConcurrency;
+
+  @Option(
+      names = {"--code-embedding-index-capacity"},
+      defaultValue = "0",
+      description =
+          "Optional vector index capacity; 0 uses the current CodeChunk count. The index uses "
+              + "cosine metric and f16 scalar storage by default.")
+  @SuppressWarnings("unused")
+  private int codeEmbeddingIndexCapacity;
 
   @Option(
       names = {"--classpath"},
@@ -319,6 +399,26 @@ public final class IngesterCli implements Callable<Integer> {
       log.error("--threads must be >= 1 (got {})", threads);
       return 1;
     }
+    CodeEmbeddingSettings codeEmbeddingSettings;
+    try {
+      codeEmbeddingSettings =
+          new CodeEmbeddingSettings(
+              codeEmbeddings,
+              codeEmbeddingIndex,
+              codeEmbeddingModel,
+              CodeEmbeddingSettings.DEFAULT_METRIC,
+              CodeEmbeddingSettings.DEFAULT_SCALAR_KIND,
+              codeEmbeddingBatchSize,
+              codeEmbeddingChunkSize,
+              codeEmbeddingDevice,
+              codeEmbeddingDimensions,
+              codeEmbeddingRemoteBatchSize,
+              codeEmbeddingConcurrency,
+              codeEmbeddingIndexCapacity);
+    } catch (IllegalArgumentException e) {
+      log.error(e.getMessage());
+      return 1;
+    }
     if (sourceRoot == null) {
       log.error("--source is required");
       return 1;
@@ -349,7 +449,13 @@ public final class IngesterCli implements Callable<Integer> {
           new IngestionOrchestrator(sourceRoot, project, threads, driver, languageAdapters);
       var settings =
           new Settings(
-              wipeAllData, applySchema, wipeProjectCode, wipeProjectMemories, incremental, watch);
+              wipeAllData,
+              applySchema,
+              wipeProjectCode,
+              wipeProjectMemories,
+              incremental,
+              watch,
+              codeEmbeddingSettings);
       int failures = orchestrator.run(settings);
       if (failures > 0) {
         log.error("Ingestion finished with {} file failure(s).", failures);
@@ -374,6 +480,7 @@ public final class IngesterCli implements Callable<Integer> {
         || sourceRoot != null
         || boltUrl != null
         || watch
+        || codeEmbeddings
         || applySchema
         || wipeAllData
         || wipeProjectCode

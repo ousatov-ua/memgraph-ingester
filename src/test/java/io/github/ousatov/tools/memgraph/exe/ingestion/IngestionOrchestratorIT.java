@@ -165,6 +165,38 @@ class IngestionOrchestratorIT {
     }
   }
 
+  private static List<String> codeChunkTexts(String project, Path file) {
+    try (Session s = driver.session()) {
+      return s.run(
+              "MATCH (chunk:CodeChunk {project: $p, path: $path})"
+                  + " RETURN chunk.text AS text ORDER BY chunk.sourceLabel, chunk.sourceId",
+              Map.of("p", project, "path", file.toString()))
+          .list(row -> row.get("text").asString());
+    }
+  }
+
+  private static List<String> allCodeChunkSummaries(String project) {
+    try (Session s = driver.session()) {
+      return s.run(
+              "MATCH (chunk:CodeChunk {project: $p})"
+                  + " RETURN chunk.path + '|' + chunk.sourceLabel + '|' + chunk.sourceId AS summary"
+                  + " ORDER BY summary",
+              Map.of("p", project))
+          .list(row -> row.get("summary").asString());
+    }
+  }
+
+  private static long codeChunkCount(String project, Path file) {
+    try (Session s = driver.session()) {
+      return s.run(
+              "MATCH (chunk:CodeChunk {project: $p, path: $path}) RETURN count(chunk) AS n",
+              Map.of("p", project, "path", file.toString()))
+          .single()
+          .get("n")
+          .asLong();
+    }
+  }
+
   private static boolean fieldExists(String project, String fqn) {
     try (Session s = driver.session()) {
       return s.run(
@@ -868,6 +900,75 @@ class IngestionOrchestratorIT {
       assertEquals(1, javaFiles);
       assertEquals(1, jsFiles);
     }
+  }
+
+  @Test
+  void reingestionAndWatchRefreshCodeChunksFromJavaDocumentation() throws Exception {
+    sourceDir = Files.createTempDirectory("orch-rag-src-");
+    currentProject = PROJECT_BASE + "-rag-chunks";
+    Path sourceFile = sourceDir.resolve("com/example/Widget.java");
+    Files.createDirectories(sourceFile.getParent());
+    Files.writeString(
+        sourceFile,
+        """
+        package com.example;
+
+        /** Original searchable widget docs. */
+        public class Widget {
+          /** Original method contract. */
+          public String name() {
+            return "old";
+          }
+        }
+        """);
+
+    IngestionOrchestrator orchestrator =
+        new IngestionOrchestrator(
+            sourceDir, currentProject, 1, driver, new ParseService(sourceDir));
+
+    assertEquals(0, orchestrator.run(Settings.def()));
+
+    List<String> initialChunks = codeChunkTexts(currentProject, sourceFile);
+    assertTrue(
+        initialChunks.stream().anyMatch(text -> text.contains("Original searchable widget docs")),
+        () ->
+            "initial chunks: " + initialChunks + ", all: " + allCodeChunkSummaries(currentProject));
+    assertTrue(
+        initialChunks.stream().anyMatch(text -> text.contains("Original method contract")),
+        () -> "initial chunks: " + initialChunks);
+
+    Files.writeString(
+        sourceFile,
+        """
+        package com.example;
+
+        /** Updated searchable widget docs. */
+        public class Widget {
+          /** Updated method contract. */
+          public String name() {
+            return "new";
+          }
+        }
+        """);
+
+    orchestrator.ingestChangedFiles(Set.of(sourceFile));
+
+    List<String> refreshedChunks = codeChunkTexts(currentProject, sourceFile);
+    assertTrue(
+        refreshedChunks.stream().anyMatch(text -> text.contains("Updated searchable widget docs")),
+        () -> "refreshed chunks: " + refreshedChunks);
+    assertTrue(
+        refreshedChunks.stream().anyMatch(text -> text.contains("Updated method contract")),
+        () -> "refreshed chunks: " + refreshedChunks);
+    assertFalse(
+        refreshedChunks.stream()
+            .anyMatch(text -> text.contains("Original searchable widget docs")));
+
+    Files.delete(sourceFile);
+
+    orchestrator.ingestChangedFiles(Set.of(sourceFile));
+
+    assertEquals(0, codeChunkCount(currentProject, sourceFile));
   }
 
   @Test

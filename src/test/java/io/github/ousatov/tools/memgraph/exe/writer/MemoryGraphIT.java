@@ -308,8 +308,18 @@ class MemoryGraphIT {
                 + " MERGE (d:Decision {id: 'DEC-test-wipe-memories', project: $p})"
                 + " SET d.status = 'accepted'"
                 + " MERGE (ref:CodeRef {project: $p, targetType: 'File', key: $path})"
+                + " MERGE (chunk:MemoryChunk {id: 'MCH-test-wipe-memories', project: $p})"
+                + " SET chunk.sourceLabel = 'Decision',"
+                + "     chunk.sourceId = 'DEC-test-wipe-memories',"
+                + "     chunk.text = 'Decision: wipe memory graph',"
+                + "     chunk.textHash = 'memory-wipe-hash',"
+                + "     chunk.embeddingModel = 'test-model',"
+                + "     chunk.embeddingDimensions = 3,"
+                + "     chunk.createdAt = datetime(),"
+                + "     chunk.updatedAt = datetime()"
                 + " MERGE (m)-[:HAS_DECISION]->(d)"
-                + " MERGE (d)-[:REFERS_TO]->(ref)",
+                + " MERGE (d)-[:REFERS_TO]->(ref)"
+                + " MERGE (d)-[:HAS_RAG_CHUNK]->(chunk)",
             Map.of("p", PROJECT, "path", TEST_FILE.toString()))
         .consume();
 
@@ -321,7 +331,7 @@ class MemoryGraphIT {
                 "MATCH (n) WHERE n.project = $p"
                     + " AND (n:Memory OR n:Decision OR n:Idea OR n:Context OR n:Rule"
                     + " OR n:Task OR n:Finding OR n:Question OR n:Risk OR n:ADR"
-                    + " OR n:CodeRef)"
+                    + " OR n:CodeRef OR n:MemoryChunk)"
                     + " RETURN count(n) AS n",
                 Map.of("p", PROJECT))
             .single()

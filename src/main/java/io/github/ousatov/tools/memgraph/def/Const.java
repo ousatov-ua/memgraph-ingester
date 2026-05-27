@@ -35,6 +35,32 @@ public final class Const {
     public static final String CYPHER_WIPE_PROJECT_CODE = action("wipe-project-code.cypher");
     public static final String CYPHER_WIPE_PROJECT_CODE_BATCH =
         action("wipe-project-code-batch.cypher");
+    public static final String CYPHER_DELETE_CODE_CHUNKS_FOR_FILE =
+        action("delete-code-chunks-for-file.cypher");
+    public static final String CYPHER_DELETE_CODE_CHUNKS_FOR_FILES =
+        action("delete-code-chunks-for-files.cypher");
+    public static final String CYPHER_DELETE_CODE_CHUNKS_FOR_FILE_EXCEPT =
+        action("delete-code-chunks-for-file-except.cypher");
+    public static final String CYPHER_UPSERT_CODE_CHUNKS_BATCH =
+        action("upsert-code-chunks-batch.cypher");
+    public static final String CYPHER_LINK_CODE_CHUNKS_BATCH =
+        action("link-code-chunks-batch.cypher");
+    public static final String CYPHER_CODE_EMBEDDING_MODEL_INFO =
+        action("embedding/code-embedding-model-info.cypher");
+    public static final String CYPHER_CREATE_CODE_CHUNK_VECTOR_INDEX =
+        action("embedding/create-code-chunk-vector-index.cypher");
+    public static final String CYPHER_SHOW_VECTOR_INDEX_INFO =
+        action("embedding/show-vector-index-info.cypher");
+    public static final String CYPHER_COUNT_CODE_CHUNKS =
+        action("embedding/count-code-chunks.cypher");
+    public static final String CYPHER_COUNT_STALE_CODE_CHUNK_EMBEDDINGS =
+        action("embedding/count-stale-code-chunk-embeddings.cypher");
+    public static final String CYPHER_REFRESH_CODE_CHUNK_EMBEDDING_BATCH =
+        action("embedding/refresh-code-chunk-embedding-batch.cypher");
+    public static final String CYPHER_UPDATE_CODE_CHUNK_EMBEDDING_METADATA =
+        action("embedding/update-code-chunk-embedding-metadata.cypher");
+    public static final String CYPHER_GET_CODE_CHUNK_EMBEDDING_FAILURE_DETAIL =
+        action("embedding/get-code-chunk-embedding-failure-detail.cypher");
 
     /** Batch-fetches Java {@code lastModified} values for files already present in the graph. */
     public static final String CYPHER_GET_JAVA_FILES_LAST_MODIFIED =
@@ -410,6 +436,7 @@ public final class Const {
     public static final String SIG = "sig";
     public static final String IS_STATIC = "isStatic";
     public static final String RET = "ret";
+    public static final String ID = "id";
     public static final String RECORD = "record";
     public static final String START = "start";
     public static final String END = "end";
@@ -419,6 +446,10 @@ public final class Const {
     public static final String TYPE = "type";
     public static final String TARGET_FQN = "targetFqn";
     public static final String DATA_TYPE = "dataType";
+    public static final String SOURCE_LABEL = "sourceLabel";
+    public static final String SOURCE_ID = "sourceId";
+    public static final String TEXT = "text";
+    public static final String TEXT_HASH = "textHash";
     public static final String LANGUAGE = "language";
     public static final String LANGUAGE_NAME = "languageName";
     public static final String KIND = "kind";
@@ -429,6 +460,7 @@ public final class Const {
     public static final String MODULE_NAME = "moduleName";
     public static final String MODULE_PREFIX = "modulePrefix";
     public static final String PATHS = "paths";
+    public static final String IDS = "ids";
     public static final String RETAINED_PATHS = "retainedPaths";
     public static final String SOURCE_ROOT = "sourceRoot";
     public static final String SOURCE_ROOT_HINT = "sourceRootHint";

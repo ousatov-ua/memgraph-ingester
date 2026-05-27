@@ -14,9 +14,55 @@ MUST include `project: '{{PROJECT_NAME}}'`.
 - **Memory lifecycle changes:** immediately update Task/Risk/Question/Decision/ADR/Idea status in Memgraph before proceeding.
 - **Code-related memory:** when creating Task/Decision/Finding/Rule/ADR/Risk/Idea nodes related to code, create at least one `CodeRef` and link `(:Decision|:ADR|:Rule|:Context|:Finding|:Task|:Risk|:Question|:Idea)-[:REFERS_TO]->(:CodeRef)-[:RESOLVES_TO]->(:Code|:Package|:File|:Class|:Interface|:Annotation|:Method|:Field)`.
 
+### Memory RAG Vectors (only if RAG has embeddings)
+
+Use `:MemoryChunk` only as a semantic discovery layer. The source of
+truth remains the canonical Memory node and its status/severity fields.
+
+Before vector search, verify a matching vector index exists:
+
+```cypher
+SHOW VECTOR INDEX INFO;
+```
+
+Search semantically similar memory chunks with a query vector created by the same embedding model
+and dimension as the stored chunks:
+
+```cypher
+CALL vector_search.search('memory_chunk_embedding_v1', 8, $queryVector)
+YIELD node AS chunk, similarity
+WHERE chunk.project = '{{PROJECT_NAME}}'
+MATCH (memory {project: '{{PROJECT_NAME}}'})-[:HAS_RAG_CHUNK]->(chunk)
+RETURN labels(memory) AS type, memory.id AS id, memory.title AS title,
+       memory.status AS status, chunk.text AS text, similarity
+ORDER BY similarity DESC;
+```
+
+After a RAG hit, follow `CodeRef` links when code context matters:
+
+```cypher
+MATCH (memory {project: '{{PROJECT_NAME}}', id: '<memory-id>'})
+OPTIONAL MATCH (memory)-[:REFERS_TO]->(ref:CodeRef)-[:RESOLVES_TO]->(target)
+RETURN labels(memory) AS type, memory.id AS id,
+       ref.targetType AS targetType, ref.key AS key, labels(target) AS targetLabels;
+```
+
 ### Orientation
 
-Run at task start when required:
+Run at task start when required. 
+
+#### If Memgraph RAG has embeddings
+Search first semantically similar memory chunks for relevant Context, Findings, Rules, Tasks, Questions, or Decisions. 
+Then run exact Memory queries for those specific IDs 
+Finally, fetch the linked code context when relevant.
+
+#### If Memgraph RAG has no embeddings
+
+Run at task start when required.
+
+**BLOCKING** Don't just fetch all. Fetch only the relevant subset of Memory nodes for the current task.
+Use the following queries as templates, adapting filters and ordering to the task scope and needs. 
+Empty results are valid.
 
 ```cypher
 MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_RULE]->(r:Rule)
@@ -73,6 +119,7 @@ Use `datetime()` for all property `createdAt` and `updatedAt` values; do not use
 | `:Question` | `id`, `project`                | `title`, `status`, `answer`, `createdAt`, `updatedAt`                                        |
 | `:Idea`     | `id`, `project`                | `title`, `topic`, `status`, `notes`, `createdAt`, `updatedAt`                                |
 | `:CodeRef`  | `project`, `targetType`, `key` | -                                                                                            |
+| `:MemoryChunk` | `id`, `project`             | `sourceLabel`, `sourceId`, `text`, `textHash`, `embedding`, `embeddingModel`, `embeddingDimensions`, `createdAt`, `updatedAt` |
 
 Controlled values:
 - Decision/ADR `status`: `proposed`, `accepted`, `rejected`, `superseded`; ADR also `draft`.
@@ -90,9 +137,14 @@ Memory links:
 ```text
 (:Project)-[:HAS_MEMORY]->(:Memory)-[:HAS_*]->(:Decision|:ADR|:Rule|:Context|:Finding|:Task|:Risk|:Question|:Idea)
 (:Decision|...)-[:REFERS_TO]->(:CodeRef)-[:RESOLVES_TO]->(:Code|:Package|:File|:Class|:Interface|:Annotation|:Method|:Field)
+(:Decision|...)-[:HAS_RAG_CHUNK]->(:MemoryChunk)
 ```
 
 `CodeRef.key`: reference language key for `Code` (`java`, `js`, or `python`), language-prefixed package name for `Package` (`java:<package>`, `js:<package>`, or `python:<package>`), path for `File`, FQN for types/fields, signature for `Method`.
+
+`MemoryChunk` is derived RAG data. Its `text` should include the memory type, title, topic,
+status/severity/type/priority, body fields, and linked `CodeRef` summaries. Do not use chunks as
+authoritative state; inspect the source Memory node before acting.
 
 ## Memory Policy
 
@@ -159,6 +211,24 @@ MERGE (ref)-[:RESOLVES_TO]->(c);
 ```
 
 For `targetType: 'Code'`, use `key: 'java'`, `key: 'js'`, or `key: 'python'`. For `targetType: 'Package'`, use `key: 'java:<package>'`, `key: 'js:<package>'`, or `key: 'python:<package>'`.
+
+When creating or materially updating a Memory node, also create or refresh one derived
+`MemoryChunk` for semantic RAG discovery. Do not generate embeddings in the agent. Store the chunk
+text and a stable hash of that exact text, omit embedding properties, and clear any old embedding
+properties when the text changes. Use the source Memory node as the authority.
+
+```cypher
+MATCH (d:Decision {id: 'DEC-<topic>-<name>', project: '{{PROJECT_NAME}}'})
+MERGE (chunk:MemoryChunk {id: 'MCH-DEC-<topic>-<name>', project: '{{PROJECT_NAME}}'})
+SET chunk.sourceLabel = 'Decision',
+    chunk.sourceId = d.id,
+    chunk.text = '<type/title/topic/status/body/code-ref-summary text>',
+    chunk.textHash = '<stable-hash-of-text>',
+    chunk.createdAt = coalesce(chunk.createdAt, datetime()),
+    chunk.updatedAt = datetime()
+REMOVE chunk.embedding, chunk.embeddingModel, chunk.embeddingDimensions
+MERGE (d)-[:HAS_RAG_CHUNK]->(chunk);
+```
 
 Verify recent memory and its code link before the final response. Adapt `HAS_DECISION`,
 `:Decision`, and `d` to the memory type just created:

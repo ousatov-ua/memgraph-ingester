@@ -4,6 +4,7 @@ import io.github.ousatov.tools.memgraph.def.Const.Labels;
 import io.github.ousatov.tools.memgraph.def.Const.Params;
 import io.github.ousatov.tools.memgraph.exe.analyze.JsAnalysis;
 import io.github.ousatov.tools.memgraph.exe.analyze.JsAnalyzer;
+import io.github.ousatov.tools.memgraph.exe.rag.JsCodeChunkBuilder;
 import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.AnnotationWrite;
 import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.CallWrite;
 import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.FieldWrite;
@@ -34,6 +35,7 @@ public final class JsLanguageAdapter implements LanguageAdapter<JsAnalysis> {
       Set.of(".js", ".jsx", ".ts", ".tsx", ".mts", ".cts", ".mjs", ".cjs");
 
   private final JsAnalyzer analyzer;
+  private final JsCodeChunkBuilder codeChunks = new JsCodeChunkBuilder();
 
   public JsLanguageAdapter(JsAnalyzer analyzer) {
     this.analyzer = analyzer;
@@ -103,6 +105,7 @@ public final class JsLanguageAdapter implements LanguageAdapter<JsAnalysis> {
       upsertMembers(jsWriter, file, analysis.members());
       upsertAnnotations(writer, analysis.annotations());
       upsertCalls(writer, analysis.calls());
+      writer.replaceCodeChunksForFile(file, codeChunks.build(file, analysis));
       return true;
     } catch (RuntimeException e) {
       if (GraphWriter.isRetryable(e)) {

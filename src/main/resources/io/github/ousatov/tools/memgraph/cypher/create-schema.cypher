@@ -44,6 +44,8 @@ CREATE CONSTRAINT ON (q:Question)  ASSERT q.id, q.project IS UNIQUE;
 CREATE CONSTRAINT ON (risk:Risk)   ASSERT risk.id, risk.project IS UNIQUE;
 CREATE CONSTRAINT ON (adr:ADR)     ASSERT adr.id, adr.project IS UNIQUE;
 CREATE CONSTRAINT ON (ref:CodeRef) ASSERT ref.project, ref.targetType, ref.key IS UNIQUE;
+CREATE CONSTRAINT ON (mc:MemoryChunk) ASSERT mc.id, mc.project IS UNIQUE;
+CREATE CONSTRAINT ON (cc:CodeChunk)   ASSERT cc.id, cc.project IS UNIQUE;
 
 CREATE INDEX ON :Memory(project);
 CREATE INDEX ON :CodeRef(project);
@@ -84,3 +86,21 @@ CREATE INDEX ON :Risk(status);
 
 CREATE INDEX ON :ADR(project);
 CREATE INDEX ON :ADR(status);
+
+CREATE INDEX ON :MemoryChunk(project);
+CREATE INDEX ON :MemoryChunk(sourceLabel);
+CREATE INDEX ON :MemoryChunk(sourceId);
+CREATE INDEX ON :MemoryChunk(textHash);
+CREATE INDEX ON :MemoryChunk(embeddingModel);
+CREATE INDEX ON :MemoryChunk(embeddingDimensions);
+
+CREATE INDEX ON :CodeChunk(project);
+CREATE INDEX ON :CodeChunk(sourceLabel);
+CREATE INDEX ON :CodeChunk(sourceId);
+CREATE INDEX ON :CodeChunk(textHash);
+CREATE INDEX ON :CodeChunk(embeddingModel);
+CREATE INDEX ON :CodeChunk(embeddingDimensions);
+CREATE INDEX ON :CodeChunk(language);
+CREATE INDEX ON :CodeChunk(path);
+CREATE INDEX ON :CodeChunk(ownerFqn);
+CREATE INDEX ON :CodeChunk(signature);

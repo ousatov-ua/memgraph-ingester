@@ -57,6 +57,28 @@ class IngesterCliTest {
   }
 
   @Test
+  void rejectsInvalidCodeEmbeddingBatchSizeBeforeOpeningDriver() throws IOException {
+    Path sourceDir = Files.createTempDirectory("cli-invalid-code-embedding-batch-");
+    try {
+      int exitCode =
+          new CommandLine(new IngesterCli())
+              .execute(
+                  "-s",
+                  sourceDir.toString(),
+                  "-b",
+                  "bolt://127.0.0.1:1",
+                  "-P",
+                  "cli-invalid-code-embedding-batch",
+                  "--code-embeddings",
+                  "--code-embedding-batch-size=-1");
+
+      assertEquals(1, exitCode);
+    } finally {
+      deleteDir(sourceDir);
+    }
+  }
+
+  @Test
   void rejectsMissingSourceBeforeOpeningDriver() {
     Path missing = Path.of("target/missing-" + UUID.randomUUID());
 
