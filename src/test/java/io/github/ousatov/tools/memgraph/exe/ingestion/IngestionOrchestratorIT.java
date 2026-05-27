@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
+import io.github.ousatov.tools.memgraph.def.Const.Params;
 import io.github.ousatov.tools.memgraph.exception.ProcessingException;
 import io.github.ousatov.tools.memgraph.exe.adapter.JavaLanguageAdapter;
 import io.github.ousatov.tools.memgraph.exe.adapter.LanguageAdapter;
@@ -18,10 +19,12 @@ import io.github.ousatov.tools.memgraph.exe.analyze.ParseService;
 import io.github.ousatov.tools.memgraph.exe.analyze.PythonAnalyzer;
 import io.github.ousatov.tools.memgraph.exe.analyze.RuntimeMode;
 import io.github.ousatov.tools.memgraph.exe.writer.GraphWriter;
+import io.github.ousatov.tools.memgraph.exe.writer.ctags.CtagsGraphWriter;
 import io.github.ousatov.tools.memgraph.exe.writer.js.JsGraphWriter;
 import io.github.ousatov.tools.memgraph.extension.MemgraphExtension;
 import io.github.ousatov.tools.memgraph.extension.MemgraphInstance;
 import io.github.ousatov.tools.memgraph.schema.Memgraph;
+import io.github.ousatov.tools.memgraph.schema.MemgraphDriver;
 import io.github.ousatov.tools.memgraph.vo.Settings;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -44,9 +47,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.neo4j.driver.AuthTokens;
 import org.neo4j.driver.Driver;
-import org.neo4j.driver.GraphDatabase;
 import org.neo4j.driver.Session;
 
 /**
@@ -67,9 +68,12 @@ class IngestionOrchestratorIT {
   private Path sourceDir;
   private String currentProject;
 
+  private static final SourceLanguage RUBY = SourceLanguage.of("ruby", "Ruby");
+  private static final String RUBY_SERVICE_FQN = "ruby.test.Service";
+
   @BeforeAll
   static void setupDriver(MemgraphInstance mg) {
-    driver = GraphDatabase.driver(mg.getBoltUrl(), AuthTokens.basic("", ""));
+    driver = MemgraphDriver.open(mg.getBoltUrl());
   }
 
   @AfterAll
@@ -348,6 +352,149 @@ class IngestionOrchestratorIT {
   }
 
   /**
+   * Dynamic fallback adapter that cannot detect a deleted file by reading its contents.
+   *
+   * @author Oleksii Usatov
+   */
+  private static final class ContentDetectingRubyAdapter implements LanguageAdapter<Path> {
+
+    private final Path sourceRoot;
+
+    private ContentDetectingRubyAdapter(Path sourceRoot) {
+      this.sourceRoot = sourceRoot;
+    }
+
+    @Override
+    public SourceLanguage language() {
+      return RUBY;
+    }
+
+    @Override
+    public Optional<SourceLanguage> staticLanguage() {
+      return Optional.empty();
+    }
+
+    @Override
+    public boolean accepts(Path file) {
+      return file.toString().endsWith(".rb") && Files.exists(sourceRoot.resolve(file));
+    }
+
+    @Override
+    public boolean acceptsDeletedPath(Path file) {
+      return file.toString().endsWith(".rb");
+    }
+
+    @Override
+    public Optional<Path> parse(Path file) {
+      return Files.exists(file) ? Optional.of(file) : Optional.empty();
+    }
+
+    @Override
+    public SourceFileDefinitions collectDefinitions(Path parsed) {
+      return SourceFileDefinitions.of(
+          List.of(RUBY_SERVICE_FQN), List.of(), List.of(), List.of(), List.of());
+    }
+
+    @Override
+    public boolean write(GraphWriter writer, Path file, Path parsed) {
+      CtagsGraphWriter ctagsWriter = new CtagsGraphWriter(writer.dependencies());
+      writer.upsertProject(sourceRoot, List.of(language()));
+      writer.upsertFile(file, language());
+      writer.upsertPackage("ruby.test", language());
+      ctagsWriter.upsertModule(
+          file, language(), "ruby.test", "ruby.test.service", "service", "service.rb", 1, 2);
+      ctagsWriter.upsertType(
+          file,
+          language(),
+          "ruby.test",
+          RUBY_SERVICE_FQN,
+          "Service",
+          Params.CLASS,
+          Params.CLASS,
+          false,
+          1,
+          2);
+      return true;
+    }
+  }
+
+  /**
+   * Dynamic fallback adapter that stops accepting a file after its content changes.
+   *
+   * @author Oleksii Usatov
+   */
+  private static final class ContentSwitchingRubyAdapter implements LanguageAdapter<Path> {
+
+    private final Path sourceRoot;
+
+    private ContentSwitchingRubyAdapter(Path sourceRoot) {
+      this.sourceRoot = sourceRoot;
+    }
+
+    @Override
+    public SourceLanguage language() {
+      return RUBY;
+    }
+
+    @Override
+    public Optional<SourceLanguage> staticLanguage() {
+      return Optional.empty();
+    }
+
+    @Override
+    public boolean accepts(Path file) {
+      if (!"service".equals(file.getFileName().toString())) {
+        return false;
+      }
+      try {
+        return Files.readString(sourceRoot.resolve(file)).startsWith("ruby");
+      } catch (IOException _) {
+        return false;
+      }
+    }
+
+    @Override
+    public boolean acceptsDeletedPath(Path file) {
+      return "service".equals(file.getFileName().toString());
+    }
+
+    @Override
+    public Optional<Path> parse(Path file) {
+      return accepts(LanguageAdapter.localPath(sourceRoot, file))
+          ? Optional.of(file)
+          : Optional.empty();
+    }
+
+    @Override
+    public SourceFileDefinitions collectDefinitions(Path parsed) {
+      return SourceFileDefinitions.of(
+          List.of(RUBY_SERVICE_FQN), List.of(), List.of(), List.of(), List.of());
+    }
+
+    @Override
+    public boolean write(GraphWriter writer, Path file, Path parsed) {
+      CtagsGraphWriter ctagsWriter = new CtagsGraphWriter(writer.dependencies());
+      writer.upsertProject(sourceRoot, List.of(language()));
+      writer.upsertFile(file, language());
+      writer.upsertPackage("ruby.test", language());
+      ctagsWriter.upsertModule(
+          file, language(), "ruby.test", "ruby.test.service", "service", "service", 1, 2);
+      ctagsWriter.upsertType(
+          file,
+          language(),
+          "ruby.test",
+          RUBY_SERVICE_FQN,
+          "Service",
+          Params.CLASS,
+          Params.CLASS,
+          false,
+          1,
+          2);
+      return true;
+    }
+  }
+
+  /**
    * Stub adapter whose module identity depends on the configured source root.
    *
    * @author Oleksii Usatov
@@ -422,12 +569,24 @@ class IngestionOrchestratorIT {
 
     @Override
     public SourceLanguage language() {
-      return SourceLanguage.JAVA;
+      return delegate == null ? SourceLanguage.JAVA : delegate.language();
+    }
+
+    @Override
+    public Optional<SourceLanguage> staticLanguage() {
+      return delegate == null ? Optional.of(SourceLanguage.JAVA) : delegate.staticLanguage();
     }
 
     @Override
     public boolean accepts(Path file) {
-      return file.toString().endsWith(".java");
+      return delegate == null ? file.toString().endsWith(".java") : delegate.accepts(file);
+    }
+
+    @Override
+    public boolean acceptsDeletedPath(Path file) {
+      return delegate == null
+          ? file.toString().endsWith(".java")
+          : delegate.acceptsDeletedPath(file);
     }
 
     @Override
@@ -986,6 +1145,137 @@ class IngestionOrchestratorIT {
   }
 
   @Test
+  void watchModeDeletesDynamicFallbackFileAfterFileIsGone() throws Exception {
+    currentProject = PROJECT_BASE + "-watch-dynamic-delete";
+    sourceDir = Files.createTempDirectory("orch-watch-dynamic-delete-src-");
+    Path watchedFile = sourceDir.resolve("service.rb");
+    Files.writeString(watchedFile, "class Service\nend\n");
+    IngestionOrchestrator orchestrator =
+        new IngestionOrchestrator(
+            sourceDir, currentProject, 1, driver, new ContentDetectingRubyAdapter(sourceDir));
+    AtomicReference<Throwable> failure = new AtomicReference<>();
+    Thread worker =
+        new Thread(
+            () -> {
+              try {
+                orchestrator.run(new Settings(false, true, false, false, false, true));
+              } catch (Throwable t) {
+                failure.set(t);
+              }
+            },
+            "watch-dynamic-delete-test");
+    worker.start();
+
+    try {
+      await()
+          .atMost(Duration.ofSeconds(10))
+          .pollInterval(Duration.ofMillis(100))
+          .untilAsserted(
+              () -> {
+                assertTrue(fileExistsInGraph(currentProject, watchedFile));
+                assertTrue(classExists(currentProject, RUBY_SERVICE_FQN));
+              });
+      await()
+          .atMost(Duration.ofSeconds(10))
+          .pollInterval(Duration.ofMillis(50))
+          .until(() -> worker.getState() == Thread.State.WAITING);
+
+      Files.delete(watchedFile);
+
+      await()
+          .atMost(Duration.ofSeconds(10))
+          .pollInterval(Duration.ofMillis(250))
+          .untilAsserted(
+              () -> {
+                assertFalse(fileExistsInGraph(currentProject, watchedFile));
+                assertFalse(classExists(currentProject, RUBY_SERVICE_FQN));
+              });
+    } finally {
+      worker.interrupt();
+      worker.join(TimeUnit.SECONDS.toMillis(5));
+    }
+
+    assertFalse(worker.isAlive(), "Watch mode must exit after interruption");
+    assertNull(failure.get(), () -> "Watch mode failed: " + failure.get());
+  }
+
+  @Test
+  void watchModeDeletesDynamicFallbackFileAfterItIsNoLongerAccepted() throws Exception {
+    currentProject = PROJECT_BASE + "-watch-dynamic-reject";
+    sourceDir = Files.createTempDirectory("orch-watch-dynamic-reject-src-");
+    Path watchedFile = sourceDir.resolve("service");
+    Files.writeString(watchedFile, "ruby service\n");
+    IngestionOrchestrator orchestrator =
+        new IngestionOrchestrator(
+            sourceDir, currentProject, 1, driver, new ContentSwitchingRubyAdapter(sourceDir));
+    AtomicReference<Throwable> failure = new AtomicReference<>();
+    Thread worker =
+        new Thread(
+            () -> {
+              try {
+                orchestrator.run(new Settings(false, true, false, false, false, true));
+              } catch (Throwable t) {
+                failure.set(t);
+              }
+            },
+            "watch-dynamic-reject-test");
+    worker.start();
+
+    try {
+      await()
+          .atMost(Duration.ofSeconds(10))
+          .pollInterval(Duration.ofMillis(100))
+          .untilAsserted(
+              () -> {
+                assertTrue(fileExistsInGraph(currentProject, watchedFile));
+                assertTrue(classExists(currentProject, RUBY_SERVICE_FQN));
+              });
+      await()
+          .atMost(Duration.ofSeconds(10))
+          .pollInterval(Duration.ofMillis(50))
+          .until(() -> worker.getState() == Thread.State.WAITING);
+
+      Files.writeString(watchedFile, "console.log('now first class');\n");
+
+      await()
+          .atMost(Duration.ofSeconds(10))
+          .pollInterval(Duration.ofMillis(250))
+          .untilAsserted(
+              () -> {
+                assertFalse(fileExistsInGraph(currentProject, watchedFile));
+                assertFalse(classExists(currentProject, RUBY_SERVICE_FQN));
+              });
+    } finally {
+      worker.interrupt();
+      worker.join(TimeUnit.SECONDS.toMillis(5));
+    }
+
+    assertFalse(worker.isAlive(), "Watch mode must exit after interruption");
+    assertNull(failure.get(), () -> "Watch mode failed: " + failure.get());
+  }
+
+  @Test
+  void reingestionDeletesDynamicFallbackFileAfterItIsNoLongerAccepted() throws Exception {
+    currentProject = PROJECT_BASE + "-dynamic-reject";
+    sourceDir = Files.createTempDirectory("orch-dynamic-reject-src-");
+    Path sourceFile = sourceDir.resolve("service");
+    Files.writeString(sourceFile, "ruby service\n");
+    IngestionOrchestrator orchestrator =
+        new IngestionOrchestrator(
+            sourceDir, currentProject, 1, driver, new ContentSwitchingRubyAdapter(sourceDir));
+
+    assertEquals(0, orchestrator.run(Settings.def()));
+    assertTrue(fileExistsInGraph(currentProject, sourceFile));
+    assertTrue(classExists(currentProject, RUBY_SERVICE_FQN));
+
+    Files.writeString(sourceFile, "plain text\n");
+
+    assertEquals(0, orchestrator.run(Settings.def()));
+    assertFalse(fileExistsInGraph(currentProject, sourceFile));
+    assertFalse(classExists(currentProject, RUBY_SERVICE_FQN));
+  }
+
+  @Test
   void watchDeleteRetriesTransientFailure() throws Exception {
     currentProject = PROJECT_BASE + "-watch-delete-retry";
     sourceDir = Files.createTempDirectory("orch-watch-delete-retry-src-");
@@ -1146,6 +1436,31 @@ class IngestionOrchestratorIT {
 
     assertFalse(fileExistsInGraph(currentProject, deletedFile));
     assertFalse(classExists(currentProject, "Deleted"));
+  }
+
+  @Test
+  void watchModeReconcilesDeletedFallbackFilesWhenSourceSnapshotFails() throws Exception {
+    currentProject = PROJECT_BASE + "-watch-snapshot-failure-fallback-delete";
+    sourceDir = Files.createTempDirectory("orch-watch-snapshot-failure-fallback-delete-src-");
+    Path deletedFile = sourceDir.resolve("service.rb");
+    Files.writeString(deletedFile, "class Service\nend\n");
+    LanguageAdapter<?> delegate = new ContentDetectingRubyAdapter(sourceDir);
+    IngestionOrchestrator initial =
+        new IngestionOrchestrator(sourceDir, currentProject, 1, driver, delegate);
+    assertEquals(0, initial.run(Settings.def()));
+    assertTrue(fileExistsInGraph(currentProject, deletedFile));
+    assertTrue(classExists(currentProject, RUBY_SERVICE_FQN));
+    Files.delete(deletedFile);
+
+    SnapshotFailingWatchAdapter adapter = new SnapshotFailingWatchAdapter(delegate);
+    adapter.discoverFiles(sourceDir);
+    IngestionOrchestrator orchestrator =
+        new IngestionOrchestrator(sourceDir, currentProject, 1, driver, adapter);
+
+    orchestrator.ingestChangedFiles(Set.of(deletedFile));
+
+    assertFalse(fileExistsInGraph(currentProject, deletedFile));
+    assertFalse(classExists(currentProject, RUBY_SERVICE_FQN));
   }
 
   @Test

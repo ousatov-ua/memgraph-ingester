@@ -1,10 +1,9 @@
 package io.github.ousatov.tools.memgraph.exe.metrics;
 
+import io.github.ousatov.tools.memgraph.schema.MemgraphDriver;
 import java.io.IOException;
 import java.nio.file.Path;
-import org.neo4j.driver.AuthTokens;
 import org.neo4j.driver.Driver;
-import org.neo4j.driver.GraphDatabase;
 import org.neo4j.driver.Session;
 
 /**
@@ -34,7 +33,7 @@ public final class MetricsValidationCli {
       String project = System.getProperty("metrics.project", DEFAULT_PROJECT);
       String user = System.getProperty("metrics.user", "");
       String pass = System.getProperty("metrics.pass", "");
-      try (Driver driver = GraphDatabase.driver(boltUrl, AuthTokens.basic(user, pass));
+      try (Driver driver = MemgraphDriver.open(boltUrl, user, pass);
           Session session = driver.session()) {
         String actualMetrics =
             IngestionMetricsCollector.collect(session, project).toMarkdownTable();

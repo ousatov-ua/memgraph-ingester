@@ -1,12 +1,8 @@
 package io.github.ousatov.tools.memgraph.exe.analyze;
 
-import static io.github.ousatov.tools.memgraph.def.Const.SystemParams.AARCH_64;
-import static io.github.ousatov.tools.memgraph.def.Const.SystemParams.AMD_64;
-import static io.github.ousatov.tools.memgraph.def.Const.SystemParams.ARM_64;
-import static io.github.ousatov.tools.memgraph.def.Const.SystemParams.DARWIN;
-import static io.github.ousatov.tools.memgraph.def.Const.SystemParams.X_86_64;
-
+import io.github.ousatov.tools.memgraph.def.Const.SystemParams;
 import io.github.ousatov.tools.memgraph.exception.ProcessingException;
+import io.github.ousatov.tools.memgraph.exe.output.ConsoleStatusLine;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -24,7 +20,6 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.util.HexFormat;
-import java.util.Locale;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -50,7 +45,6 @@ public final class ManagedNodeRuntime {
   private static final Logger log = LoggerFactory.getLogger(ManagedNodeRuntime.class);
   private static final String NODE_DIST = "https://nodejs.org/dist/";
   private static final Duration HTTP_TIMEOUT = Duration.ofMinutes(5);
-  private static final String LINUX = "linux";
   private static final String INSTALL_LOCK_FILE = ".install.lock";
   private static final String INSTALL_READY_FILE = ".install-complete";
   private static final ConcurrentMap<Path, Object> INSTALL_LOCKS = new ConcurrentHashMap<>();
@@ -71,7 +65,7 @@ public final class ManagedNodeRuntime {
     if (runtimeMode == RuntimeMode.SYSTEM) {
       return systemNode();
     }
-    Platform platform = Platform.current();
+    ManagedRuntimePlatform platform = ManagedRuntimePlatform.current();
     Path installDir = installDir(platform);
     Path executable = cachedNodeExecutable(platform, installDir);
     if (isManagedNodeReady(executable, installDir)) {
@@ -82,11 +76,11 @@ public final class ManagedNodeRuntime {
   }
 
   private Path systemNode() {
-    String executable = isWindows() ? "node.exe" : "node";
-    return Path.of(executable);
+    return Path.of(ManagedRuntimePlatform.isCurrentWindows() ? "node.exe" : "node");
   }
 
-  private void ensureManagedNodeInstalled(Platform platform, Path installDir, Path executable) {
+  private void ensureManagedNodeInstalled(
+      ManagedRuntimePlatform platform, Path installDir, Path executable) {
     try {
       Files.createDirectories(installDir);
       Object localLock = INSTALL_LOCKS.computeIfAbsent(lockKey(installDir), _ -> new Object());
@@ -120,36 +114,43 @@ public final class ManagedNodeRuntime {
     }
   }
 
-  private void installManagedNode(Platform platform, Path installDir, Path executable)
+  private void installManagedNode(ManagedRuntimePlatform platform, Path installDir, Path executable)
       throws IOException {
-    String archiveName = platform.archiveName(nodeVersion);
+    String archiveName = nodeArchiveName(platform, nodeVersion);
     URI archiveUri = URI.create(NODE_DIST + "v" + nodeVersion + "/" + archiveName);
     URI sumsUri = URI.create(NODE_DIST + "v" + nodeVersion + "/SHASUMS256.txt");
-    log.atInfo()
-        .setMessage("Checking managed Node.js {} ({}) availability")
-        .addArgument(nodeVersion)
-        .addArgument(platform::id)
-        .log();
-    byte[] archive = download(archiveUri);
-    verifySha256(archive, archiveName, downloadText(sumsUri));
-    extractNodeArchive(archiveName, archive, installDir);
-    if (!Files.isExecutable(executable)) {
-      @SuppressWarnings("java:S899")
-      var _ = executable.toFile().setExecutable(true, true);
+    ConsoleStatusLine.withFinishedLine(
+        System.err,
+        () ->
+            log.atInfo()
+                .setMessage("Checking managed Node.js {} ({}) availability")
+                .addArgument(nodeVersion)
+                .addArgument(() -> nodeId(platform))
+                .log());
+    try (ManagedRuntimeLoadingIndicator indicator =
+        ManagedRuntimeLoadingIndicator.start(
+            "Node.js " + nodeVersion + " (" + nodeId(platform) + ")")) {
+      byte[] archive = download(archiveUri);
+      verifySha256(archive, archiveName, downloadText(sumsUri));
+      extractNodeArchive(archiveName, archive, installDir);
+      if (!Files.isExecutable(executable)) {
+        @SuppressWarnings("java:S899")
+        var _ = executable.toFile().setExecutable(true, true);
+      }
+      if (!Files.isExecutable(executable)) {
+        throw new ProcessingException("Managed Node.js executable was not created: " + executable);
+      }
+      markManagedNodeReady(installDir);
+      indicator.succeeded();
     }
-    if (!Files.isExecutable(executable)) {
-      throw new ProcessingException("Managed Node.js executable was not created: " + executable);
-    }
-    markManagedNodeReady(installDir);
   }
 
-  private Path cachedNodeExecutable(Platform platform, Path installDir) {
-    String executable = platform.isWindows() ? "node.exe" : "bin/node";
-    return installDir.resolve(executable);
+  private Path cachedNodeExecutable(ManagedRuntimePlatform platform, Path installDir) {
+    return installDir.resolve(platform.executableName("bin/node", "node.exe"));
   }
 
-  private Path installDir(Platform platform) {
-    return cacheRoot.resolve("node").resolve(nodeVersion).resolve(platform.id());
+  private Path installDir(ManagedRuntimePlatform platform) {
+    return cacheRoot.resolve("node").resolve(nodeVersion).resolve(nodeId(platform));
   }
 
   private boolean isManagedNodeReady(Path executable, Path installDir) {
@@ -291,50 +292,37 @@ public final class ManagedNodeRuntime {
     return normalized.startsWith("v") ? normalized.substring(1) : normalized;
   }
 
-  private static boolean isWindows() {
-    return System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win");
+  private static String nodeArchiveName(ManagedRuntimePlatform platform, String version) {
+    return "node-v" + version + "-" + nodeId(platform) + nodeArchiveSuffix(platform);
   }
 
-  private record Platform(String os, String arch) {
-
-    static Platform current() {
-      String osName = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
-      String archName = System.getProperty("os.arch", "").toLowerCase(Locale.ROOT);
-      String os = osName.contains("win") ? "win" : getNix(osName);
-      String arch =
-          switch (archName) {
-            case AARCH_64, ARM_64 -> ARM_64;
-            case AMD_64, X_86_64 -> "x64";
-            default -> throw new ProcessingException("Unsupported CPU architecture: " + archName);
-          };
-      return new Platform(os, arch);
-    }
-
-    String id() {
-      return os + "-" + arch;
-    }
-
-    boolean isWindows() {
-      return os.equals("win");
-    }
-
-    String archiveName(String version) {
-      String suffix = os.equals("win") ? ".zip" : getExt();
-      return "node-v" + version + "-" + id() + suffix;
-    }
-
-    private @NonNull String getExt() {
-      return os.equals(LINUX) ? ".tar.xz" : ".tar.gz";
-    }
+  private static String nodeId(ManagedRuntimePlatform platform) {
+    return nodeOs(platform) + "-" + nodeArch(platform);
   }
 
-  private static @NonNull String getNix(String osName) {
-    if (osName.contains("mac") || osName.contains(DARWIN)) {
-      return DARWIN;
+  private static String nodeOs(ManagedRuntimePlatform platform) {
+    if (platform.isWindows()) {
+      return "win";
     }
-    if (osName.contains(LINUX)) {
-      return LINUX;
+    if (platform.isMacos()) {
+      return "darwin";
     }
-    throw new ProcessingException("Unsupported operating system for managed Node.js: " + osName);
+    return "linux";
+  }
+
+  private static String nodeArch(ManagedRuntimePlatform platform) {
+    return switch (platform.arch()) {
+      case SystemParams.ARM_64 -> SystemParams.ARM_64;
+      case SystemParams.X_86_64 -> SystemParams.X_64;
+      default -> throw new ProcessingException("Unsupported CPU architecture: " + platform.arch());
+    };
+  }
+
+  private static @NonNull String nodeArchiveSuffix(ManagedRuntimePlatform platform) {
+    return platform.isWindows() ? ".zip" : getExtension(platform);
+  }
+
+  private static @NonNull String getExtension(ManagedRuntimePlatform platform) {
+    return platform.isLinux() ? ".tar.xz" : ".tar.gz";
   }
 }

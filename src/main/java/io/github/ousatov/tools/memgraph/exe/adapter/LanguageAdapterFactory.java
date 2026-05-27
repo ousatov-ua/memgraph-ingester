@@ -1,6 +1,8 @@
 package io.github.ousatov.tools.memgraph.exe.adapter;
 
+import io.github.ousatov.tools.memgraph.exe.analyze.CtagsAnalyzer;
 import io.github.ousatov.tools.memgraph.exe.analyze.JsAnalyzer;
+import io.github.ousatov.tools.memgraph.exe.analyze.ManagedCtagsRuntime;
 import io.github.ousatov.tools.memgraph.exe.analyze.ManagedNodeRuntime;
 import io.github.ousatov.tools.memgraph.exe.analyze.ManagedPythonRuntime;
 import io.github.ousatov.tools.memgraph.exe.analyze.ManagedTypescriptPackage;
@@ -29,7 +31,8 @@ public final class LanguageAdapterFactory {
       Path sourceRoot,
       String classpath,
       JsRuntimeOptions jsRuntimeOptions,
-      PythonRuntimeOptions pythonRuntimeOptions) {
+      PythonRuntimeOptions pythonRuntimeOptions,
+      CtagsRuntimeOptions ctagsRuntimeOptions) {
 
     ParseService parseService = new ParseService(sourceRoot, classpathEntries(classpath));
     Path jsCacheRoot = resolveCacheRoot(jsRuntimeOptions.cacheRoot());
@@ -46,11 +49,16 @@ public final class LanguageAdapterFactory {
             pythonRuntimeOptions.pythonVersion(),
             pythonRuntimeOptions.pythonBuild(),
             pythonRuntimeOptions.runtimeMode());
+    Path ctagsCacheRoot = resolveCacheRoot(ctagsRuntimeOptions.cacheRoot());
+    ManagedCtagsRuntime ctagsRuntime =
+        new ManagedCtagsRuntime(
+            ctagsCacheRoot, ctagsRuntimeOptions.ctagsVersion(), ctagsRuntimeOptions.runtimeMode());
 
     return List.of(
         new JavaLanguageAdapter(parseService),
         new JsLanguageAdapter(new JsAnalyzer(sourceRoot, nodeRuntime, typescriptPackage)),
-        new PythonLanguageAdapter(new PythonAnalyzer(sourceRoot, pythonRuntime)));
+        new PythonLanguageAdapter(new PythonAnalyzer(sourceRoot, pythonRuntime)),
+        new CtagsLanguageAdapter(sourceRoot, new CtagsAnalyzer(sourceRoot, ctagsRuntime)));
   }
 
   /** JavaScript parser runtime settings. */
@@ -62,6 +70,10 @@ public final class LanguageAdapterFactory {
   @SuppressWarnings("java:S1186")
   public record PythonRuntimeOptions(
       Path cacheRoot, String pythonVersion, String pythonBuild, RuntimeMode runtimeMode) {}
+
+  /** Universal Ctags parser runtime settings. */
+  @SuppressWarnings("java:S1186")
+  public record CtagsRuntimeOptions(Path cacheRoot, String ctagsVersion, RuntimeMode runtimeMode) {}
 
   private static List<Path> classpathEntries(String classpath) {
     if (classpath == null || classpath.isBlank()) {

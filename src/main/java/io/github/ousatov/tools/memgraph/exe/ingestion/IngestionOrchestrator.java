@@ -9,6 +9,7 @@ import io.github.ousatov.tools.memgraph.exe.adapter.SourceLanguage;
 import io.github.ousatov.tools.memgraph.exe.analyze.ParseService;
 import io.github.ousatov.tools.memgraph.exe.metrics.IngestionMetricsCollector;
 import io.github.ousatov.tools.memgraph.exe.metrics.IngestionRunStats;
+import io.github.ousatov.tools.memgraph.exe.output.ConsoleStatusLine;
 import io.github.ousatov.tools.memgraph.exe.writer.GraphWriter;
 import io.github.ousatov.tools.memgraph.schema.Memgraph;
 import io.github.ousatov.tools.memgraph.vo.Settings;
@@ -66,7 +67,6 @@ public final class IngestionOrchestrator {
   private static final int FILE_TX_RETRY_ATTEMPTS = 16;
   private static final long FILE_TX_INITIAL_BACKOFF_MS = 10L;
   private static final long FILE_TX_MAX_BACKOFF_MS = 1_000L;
-  private static final int PROGRESS_DIVISOR = 10;
   private final Path sourceRoot;
   private final String project;
   private final int threads;
@@ -133,7 +133,7 @@ public final class IngestionOrchestrator {
    * @return number of failed files; 0 means complete success
    */
   public int run(Settings settings) {
-    log.info("Proceeding with ingestion, settings: {}", settings);
+    log.debug("Proceeding with ingestion, settings: {}", settings);
     this.incremental = settings.incremental();
     IngestionRunStats stats = new IngestionRunStats(threads);
     if (incremental && (settings.wipeAllData() || settings.wipeProjectCode())) {
@@ -164,11 +164,11 @@ public final class IngestionOrchestrator {
         bootstrapWriter.wipeMemories();
       }
       bootstrapWriter.upsertProject(sourceRoot, languages());
-      log.info(
+      log.debug(
           "Upserted :Project -> :Language -> :Code and :Project -> :Memory anchors for '{}'",
           project);
       bootstrapWriter.backfillMethodOwnerMetadata();
-      log.info("Backfilled :Method owner metadata for '{}'", project);
+      log.debug("Backfilled :Method owner metadata for '{}'", project);
     }
 
     List<SourceFile> files = discoverSourceFiles();
@@ -190,10 +190,12 @@ public final class IngestionOrchestrator {
     }
 
     int failures;
-    if (threads == 1) {
-      failures = ingestSequential(files, storedFiles, retainedSourcePaths, stats);
-    } else {
-      failures = ingestParallel(files, storedFiles, retainedSourcePaths, stats);
+    try (IngestionProgress progress = IngestionProgress.start(files.size())) {
+      if (threads == 1) {
+        failures = ingestSequential(files, storedFiles, retainedSourcePaths, stats, progress);
+      } else {
+        failures = ingestParallel(files, storedFiles, retainedSourcePaths, stats, progress);
+      }
     }
 
     if (failures == 0) {
@@ -220,11 +222,13 @@ public final class IngestionOrchestrator {
 
   @SuppressWarnings({"java:S3776", "java:S135"})
   private void startWatchLoop() {
-    log.info("Starting watch mode for {}...", sourceRoot);
+    log.debug("Starting watch mode for {}...", sourceRoot);
     try (WatchService watcher = FileSystems.getDefault().newWatchService()) {
       Map<WatchKey, Path> keys = new HashMap<>();
       registerRecursive(sourceRoot, watcher, keys);
 
+      log.info("Watch mode for {} activated.", sourceRoot);
+      int watchReingestionsApplied = 0;
       while (true) {
         WatchKey key = watcher.take();
         Path dir = keys.get(key);
@@ -249,7 +253,7 @@ public final class IngestionOrchestrator {
             registerRecursive(child, watcher, keys);
           }
 
-          if (adapterFor(child).isPresent()) {
+          if (adapterForWatchEvent(child, kind).isPresent()) {
             changedFiles.add(child);
           }
         }
@@ -258,9 +262,11 @@ public final class IngestionOrchestrator {
 
           // Debounce: wait a bit for more events (e.g. IDE multiple writes)
           TimeUnit.MILLISECONDS.sleep(500);
-          log.info(
-              "Watch event: detected changes in {} file(s). Re-ingesting...", changedFiles.size());
-          ingestChangedFiles(changedFiles);
+          renderWatchStatus(
+              "Watch event: detected changes in "
+                  + changedFiles.size()
+                  + " file(s). Re-ingesting...");
+          watchReingestionsApplied = ingestChanges(changedFiles, watchReingestionsApplied);
         }
 
         if (!key.reset()) {
@@ -270,11 +276,47 @@ public final class IngestionOrchestrator {
           }
         }
       }
+      finishWatchStatus();
     } catch (IOException e) {
+      finishWatchStatus();
       throw new ProcessingException("Watch service failed", e);
     } catch (InterruptedException _) {
+      finishWatchStatus();
       Thread.currentThread().interrupt();
+    } catch (RuntimeException e) {
+      if (isInterruptedFailure(e)) {
+        finishWatchStatus();
+        Thread.currentThread().interrupt();
+        return;
+      }
+      throw e;
     }
+  }
+
+  private int ingestChanges(Set<Path> changedFiles, int watchReingestionsApplied) {
+    try {
+      ingestChangedFiles(changedFiles);
+      watchReingestionsApplied++;
+      renderWatchStatus(
+          "[Stat] Watch re-ingestion applied " + watchReingestionsApplied + " times.");
+    } catch (RuntimeException e) {
+      finishWatchStatus();
+      throw e;
+    }
+    return watchReingestionsApplied;
+  }
+
+  private static boolean isInterruptedFailure(Throwable throwable) {
+    for (Throwable current = throwable; current != null; current = current.getCause()) {
+      if (current instanceof InterruptedException) {
+        return true;
+      }
+      String message = current.getMessage();
+      if (message != null && message.contains("Thread interrupted")) {
+        return true;
+      }
+    }
+    return false;
   }
 
   void ingestChangedFiles(Set<Path> files) {
@@ -317,13 +359,14 @@ public final class IngestionOrchestrator {
           }
         } catch (RuntimeException e) {
           updateFailures++;
-          log.warn("Failed to update graph for watch event on {}: {}", file.path(), e.getMessage());
+          logWatchWarning(
+              "Failed to update graph for watch event on {}: {}", file.path(), e.getMessage());
         }
       }
       if (updateFailures == 0) {
         changedGraph |= processWatchDeletedFiles(writer, deletedFiles, refreshAfterDelete);
       } else if (!deletedFiles.isEmpty()) {
-        log.warn(
+        logWatchWarning(
             "Skipping watch delete cleanup for {} file(s) because {} file update(s) failed.",
             deletedFiles.size(),
             updateFailures);
@@ -331,9 +374,23 @@ public final class IngestionOrchestrator {
       refreshRetainedFilesAfterDelete(writer, refreshAfterDelete, currentFilesByPath);
       if (changedGraph) {
         refreshDerivedGraphArtifacts(writer);
-        log.info("Watch re-ingestion complete.");
       }
     }
+  }
+
+  private static void renderWatchStatus(String message) {
+    if (!log.isInfoEnabled()) {
+      return;
+    }
+    ConsoleStatusLine.update(System.err, "INFO " + message);
+  }
+
+  private static void finishWatchStatus() {
+    ConsoleStatusLine.finish(System.err);
+  }
+
+  private static void logWatchWarning(String message, Object... arguments) {
+    ConsoleStatusLine.withFinishedLine(System.err, () -> log.warn(message, arguments));
   }
 
   /**
@@ -344,7 +401,7 @@ public final class IngestionOrchestrator {
       GraphWriter writer, List<Path> deletedFiles, Set<Path> refreshAfterDelete) {
     boolean anyDeleted = false;
     for (Path file : deletedFiles) {
-      if (adapterFor(file).isPresent()) {
+      if (adapterForDeletedPath(file).isPresent()) {
         Optional<Set<Path>> sharedRetainedFiles =
             retainedFilesSharingDefinitionsWithRetry(
                 file, writer::getRetainedFilePathsSharingDefinitionsWith);
@@ -363,7 +420,8 @@ public final class IngestionOrchestrator {
       List<SourceFile> files = discoverSourceFiles();
       return Optional.of(new WatchSourceSnapshot(files, retainedSourcePaths(files, writer)));
     } catch (RuntimeException e) {
-      log.warn("Skipping watch re-ingestion because source snapshot failed: {}", e.getMessage());
+      logWatchWarning(
+          "Skipping watch re-ingestion because source snapshot failed: {}", e.getMessage());
       return Optional.empty();
     }
   }
@@ -383,7 +441,7 @@ public final class IngestionOrchestrator {
                   file -> adapterFor(file).map(adapter -> new SourceFile(file, adapter)).stream())
               .toList();
       if (!existingFiles.isEmpty()) {
-        log.warn(
+        logWatchWarning(
             "Skipping watch delete fallback because {} changed file(s) still exist.",
             existingFiles.size());
         return false;
@@ -392,7 +450,7 @@ public final class IngestionOrchestrator {
       boolean changedGraph = false;
       Set<Path> refreshAfterDelete = new LinkedHashSet<>();
       for (Path file : files.stream().filter(file -> !Files.exists(file)).sorted().toList()) {
-        if (adapterFor(file).isPresent()) {
+        if (adapterForDeletedPath(file).isPresent()) {
           Optional<Set<Path>> sharedRetainedFiles =
               retainedFilesSharingDefinitionsWithRetry(
                   file, writer::getRetainedFilePathsSharingDefinitionsWith);
@@ -406,7 +464,7 @@ public final class IngestionOrchestrator {
       refreshRetainedFilesAfterDelete(writer, refreshAfterDelete, Map.of());
       return changedGraph;
     } catch (RuntimeException e) {
-      log.warn("Could not reconcile watch delete fallback: {}", e.getMessage());
+      logWatchWarning("Could not reconcile watch delete fallback: {}", e.getMessage());
       return false;
     }
   }
@@ -420,10 +478,11 @@ public final class IngestionOrchestrator {
           continue;
         }
         if (!ingestFileBatched(writer, retainedFile.get(), StoredFileState.empty())) {
-          log.warn("Failed to refresh retained file after delete: {}", path);
+          logWatchWarning("Failed to refresh retained file after delete: {}", path);
         }
       } catch (RuntimeException e) {
-        log.warn("Failed to refresh retained file after delete on {}: {}", path, e.getMessage());
+        logWatchWarning(
+            "Failed to refresh retained file after delete on {}: {}", path, e.getMessage());
       }
     }
   }
@@ -436,7 +495,8 @@ public final class IngestionOrchestrator {
         return true;
       } catch (RuntimeException e) {
         if (!GraphWriter.isRetryable(e) || attempt == FILE_TX_RETRY_ATTEMPTS) {
-          log.warn("Failed to update graph for watch delete on {}: {}", file, e.getMessage());
+          logWatchWarning(
+              "Failed to update graph for watch delete on {}: {}", file, e.getMessage());
           return false;
         }
         backoffMs = sleepBeforeFileRetry(file, attempt, e, backoffMs);
@@ -453,7 +513,7 @@ public final class IngestionOrchestrator {
         return Optional.of(retainedFilesLookup.apply(file));
       } catch (RuntimeException e) {
         if (!GraphWriter.isRetryable(e) || attempt == FILE_TX_RETRY_ATTEMPTS) {
-          log.warn(
+          logWatchWarning(
               "Failed to read retained files sharing definitions with {}: {}",
               file,
               e.getMessage());
@@ -468,13 +528,13 @@ public final class IngestionOrchestrator {
   /** Refreshes graph artifacts that depend on all available code nodes being present. */
   private void refreshDerivedGraphArtifacts(GraphWriter writer) {
     writer.resolvePendingCalls();
-    log.info("Resolved pending owner/name CALLS edges for '{}'", project);
+    log.debug("Resolved pending owner/name CALLS edges for '{}'", project);
     writer.deletePhantomMethods();
-    log.info("Removed phantom external Method nodes for '{}'", project);
+    log.debug("Removed phantom external Method nodes for '{}'", project);
     writer.deleteEmptyPackages();
-    log.info("Removed empty Package nodes for '{}'", project);
+    log.debug("Removed empty Package nodes for '{}'", project);
     writer.resolveCodeRefs();
-    log.info("Refreshed :CodeRef resolution edges for '{}'", project);
+    log.debug("Refreshed :CodeRef resolution edges for '{}'", project);
   }
 
   @SuppressWarnings({"java:S106", "java:S1181"})
@@ -587,7 +647,7 @@ public final class IngestionOrchestrator {
       Map<SourceLanguage, List<Path>> pathsByLanguage = new LinkedHashMap<>();
       for (SourceFile file : files) {
         pathsByLanguage
-            .computeIfAbsent(file.adapter().language(), ignored -> new ArrayList<>())
+            .computeIfAbsent(file.language(), ignored -> new ArrayList<>())
             .add(file.path());
       }
       for (var entry : pathsByLanguage.entrySet()) {
@@ -615,6 +675,7 @@ public final class IngestionOrchestrator {
     writer.getFilePathsInSourceRoot(sourceRoot).stream()
         .filter(path -> !retainedPaths.contains(path))
         .filter(Files::exists)
+        .filter(this::shouldRetainExistingSourcePath)
         .sorted()
         .forEach(retainedPaths::add);
     writer.getRetainedFilePathsOutsideSourceRoot(sourceRoot).stream()
@@ -624,6 +685,10 @@ public final class IngestionOrchestrator {
     return List.copyOf(retainedPaths);
   }
 
+  private boolean shouldRetainExistingSourcePath(Path path) {
+    return adapterFor(path).isPresent() || adapterForDeletedPath(path).isEmpty();
+  }
+
   private void deleteMissingSourceFiles(
       List<SourceFile> files, Collection<Path> retainedPaths, IngestionRunStats stats) {
     Map<SourceLanguage, List<Path>> pathsByLanguage = new LinkedHashMap<>();
@@ -631,7 +696,7 @@ public final class IngestionOrchestrator {
     for (SourceFile file : files) {
       currentFilesByPath.put(file.path(), file);
       pathsByLanguage
-          .computeIfAbsent(file.adapter().language(), ignored -> new ArrayList<>())
+          .computeIfAbsent(file.language(), ignored -> new ArrayList<>())
           .add(file.path());
     }
     try (Session session = driver.session()) {
@@ -639,7 +704,7 @@ public final class IngestionOrchestrator {
       writer.setRetainedSourcePaths(retainedPaths);
       Set<Path> retainedPathSet = new HashSet<>(retainedPaths);
       Set<Path> refreshAfterDelete = new LinkedHashSet<>();
-      for (SourceLanguage language : languages()) {
+      for (SourceLanguage language : languagesForCleanup(writer, pathsByLanguage)) {
         List<Path> currentPaths = pathsByLanguage.getOrDefault(language, List.of());
         Set<Path> currentPathSet = new HashSet<>(currentPaths);
         writer.getFilePathsInSourceRoot(sourceRoot, language).stream()
@@ -679,7 +744,18 @@ public final class IngestionOrchestrator {
   }
 
   private List<SourceLanguage> languages() {
-    return languageAdapters.stream().map(LanguageAdapter::language).distinct().toList();
+    return languageAdapters.stream()
+        .flatMap(adapter -> adapter.staticLanguage().stream())
+        .distinct()
+        .toList();
+  }
+
+  private List<SourceLanguage> languagesForCleanup(
+      GraphWriter writer, Map<SourceLanguage, List<Path>> pathsByLanguage) {
+    Set<SourceLanguage> cleanupLanguages = new LinkedHashSet<>(languages());
+    cleanupLanguages.addAll(pathsByLanguage.keySet());
+    cleanupLanguages.addAll(writer.getLanguagesInSourceRoot(sourceRoot));
+    return List.copyOf(cleanupLanguages);
   }
 
   private Optional<LanguageAdapter<?>> adapterFor(Path file) {
@@ -689,6 +765,25 @@ public final class IngestionOrchestrator {
   private Optional<LanguageAdapter<?>> adapterFor(Path file, List<LanguageAdapter<?>> adapters) {
     Path localFile = LanguageAdapter.localPath(sourceRoot, file);
     return adapters.stream().filter(adapter -> adapter.accepts(localFile)).findFirst();
+  }
+
+  private Optional<LanguageAdapter<?>> adapterForWatchEvent(Path file, WatchEvent.Kind<?> kind) {
+    Optional<LanguageAdapter<?>> adapter = adapterFor(file);
+    if (adapter.isPresent()) {
+      return adapter;
+    }
+    if (kind == StandardWatchEventKinds.ENTRY_DELETE
+        || kind == StandardWatchEventKinds.ENTRY_MODIFY) {
+      return adapterForDeletedPath(file);
+    }
+    return Optional.empty();
+  }
+
+  private Optional<LanguageAdapter<?>> adapterForDeletedPath(Path file) {
+    Path localFile = LanguageAdapter.localPath(sourceRoot, file);
+    return languageAdapters.stream()
+        .filter(adapter -> adapter.acceptsDeletedPath(localFile))
+        .findFirst();
   }
 
   private Optional<SourceFile> sourceFileFor(
@@ -709,27 +804,21 @@ public final class IngestionOrchestrator {
   private <T> LanguageAdapter<T> rebaseAdapterForRetainedFile(
       Path file, LanguageAdapter<T> adapter, GraphWriter writer) {
     return writer
-        .getSourceRootHint(file, adapter.language())
-        .flatMap(hint -> sourceRootFromHint(file, adapter.language(), hint))
+        .getSourceRootHint(file, adapter.language(file))
+        .flatMap(hint -> sourceRootFromHint(file, adapter.language(file), hint))
         .map(adapter::forSourceRoot)
         .orElse(adapter);
   }
 
   private static Optional<Path> sourceRootFromHint(
       Path file, SourceLanguage language, String sourceRootHint) {
-    return switch (language) {
-      case JAVA ->
-          relativePathFromPackageName(file, sourceRootHint)
-              .flatMap(relativePath -> sourceRootFromRelativePath(file, relativePath));
-      case JAVASCRIPT ->
-          sourceRootHint.isBlank()
-              ? Optional.empty()
-              : sourceRootFromRelativePath(file, Path.of(sourceRootHint).normalize());
-      case PYTHON ->
-          sourceRootHint.isBlank()
-              ? Optional.empty()
-              : sourceRootFromRelativePath(file, Path.of(sourceRootHint).normalize());
-    };
+    if (SourceLanguage.JAVA.equals(language)) {
+      return relativePathFromPackageName(file, sourceRootHint)
+          .flatMap(relativePath -> sourceRootFromRelativePath(file, relativePath));
+    }
+    return sourceRootHint.isBlank()
+        ? Optional.empty()
+        : sourceRootFromRelativePath(file, Path.of(sourceRootHint).normalize());
   }
 
   private static Optional<Path> relativePathFromPackageName(Path file, String packageName) {
@@ -773,10 +862,9 @@ public final class IngestionOrchestrator {
       List<SourceFile> files,
       StoredFileState storedFiles,
       Collection<Path> retainedSourcePaths,
-      IngestionRunStats stats) {
+      IngestionRunStats stats,
+      IngestionProgress progress) {
     int failures = 0;
-    int total = files.size();
-    int step = Math.clamp(total / PROGRESS_DIVISOR, 1, 100);
     int done = 0;
     try (Session session = driver.session()) {
       GraphWriter writer = new GraphWriter(session, project, stats);
@@ -786,9 +874,7 @@ public final class IngestionOrchestrator {
           failures++;
         }
         done++;
-        if (done % step == 0 || done == total) {
-          log.info("Progress: {}/{} files", done, total);
-        }
+        progress.update(done);
       }
     }
     return failures;
@@ -905,9 +991,10 @@ public final class IngestionOrchestrator {
       List<SourceFile> files,
       StoredFileState storedFiles,
       Collection<Path> retainedSourcePaths,
-      IngestionRunStats stats) {
+      IngestionRunStats stats,
+      IngestionProgress progress) {
     try {
-      return ingestParallelTransactional(files, storedFiles, retainedSourcePaths, stats);
+      return ingestParallelTransactional(files, storedFiles, retainedSourcePaths, stats, progress);
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
       throw new ProcessingException("Interrupted during ingestion", e);
@@ -918,7 +1005,8 @@ public final class IngestionOrchestrator {
       List<SourceFile> files,
       StoredFileState storedFiles,
       Collection<Path> retainedSourcePaths,
-      IngestionRunStats stats)
+      IngestionRunStats stats,
+      IngestionProgress progress)
       throws InterruptedException {
     if (files.isEmpty()) {
       return 0;
@@ -948,7 +1036,6 @@ public final class IngestionOrchestrator {
     AtomicInteger done = new AtomicInteger();
     AtomicInteger failures = new AtomicInteger();
     int total = files.size();
-    int step = Math.clamp(total / PROGRESS_DIVISOR, 1, 100);
 
     try {
       CountDownLatch latch = new CountDownLatch(total);
@@ -956,7 +1043,7 @@ public final class IngestionOrchestrator {
         pool.submit(
             () ->
                 runFileIngestionTask(
-                    file, storedFiles, threadWriter.get(), failures, done, step, total, latch));
+                    file, storedFiles, threadWriter.get(), failures, done, progress, latch));
       }
       boolean completed = latch.await(SHUTDOWN_TIMEOUT_MINUTES, TimeUnit.MINUTES);
       pool.shutdown();
@@ -992,8 +1079,7 @@ public final class IngestionOrchestrator {
       GraphWriter writer,
       AtomicInteger failures,
       AtomicInteger done,
-      int step,
-      int total,
+      IngestionProgress progress,
       CountDownLatch latch) {
     try {
       if (!ingestFileBatched(writer, file, storedFiles)) {
@@ -1004,9 +1090,7 @@ public final class IngestionOrchestrator {
       failures.incrementAndGet();
     } finally {
       int n = done.incrementAndGet();
-      if (n % step == 0 || n == total) {
-        log.info("Progress: {}/{} files", n, total);
-      }
+      progress.update(n);
       latch.countDown();
     }
   }
@@ -1025,7 +1109,10 @@ public final class IngestionOrchestrator {
 
   /** Source file paired with the adapter selected by extension. */
   private record SourceFile(Path path, LanguageAdapter<?> adapter) {
-    // Record body intentionally empty.
+
+    SourceLanguage language() {
+      return adapter.language(path);
+    }
   }
 
   /** Source files and retained paths captured from one watch-cycle snapshot. */

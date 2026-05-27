@@ -5,8 +5,11 @@ import io.github.ousatov.tools.memgraph.def.Const.Params;
 import io.github.ousatov.tools.memgraph.exception.ProcessingException;
 import io.github.ousatov.tools.memgraph.exe.adapter.LanguageAdapter;
 import io.github.ousatov.tools.memgraph.exe.adapter.LanguageAdapterFactory;
+import io.github.ousatov.tools.memgraph.exe.analyze.CtagsAnalysis;
+import io.github.ousatov.tools.memgraph.exe.analyze.CtagsAnalyzer;
 import io.github.ousatov.tools.memgraph.exe.analyze.JsAnalysis;
 import io.github.ousatov.tools.memgraph.exe.analyze.JsAnalyzer;
+import io.github.ousatov.tools.memgraph.exe.analyze.ManagedCtagsRuntime;
 import io.github.ousatov.tools.memgraph.exe.analyze.ManagedNodeRuntime;
 import io.github.ousatov.tools.memgraph.exe.analyze.ManagedPythonRuntime;
 import io.github.ousatov.tools.memgraph.exe.analyze.ManagedTypescriptPackage;
@@ -14,6 +17,7 @@ import io.github.ousatov.tools.memgraph.exe.analyze.PythonAnalysis;
 import io.github.ousatov.tools.memgraph.exe.analyze.PythonAnalyzer;
 import io.github.ousatov.tools.memgraph.exe.analyze.RuntimeMode;
 import io.github.ousatov.tools.memgraph.exe.ingestion.IngestionOrchestrator;
+import io.github.ousatov.tools.memgraph.schema.MemgraphDriver;
 import io.github.ousatov.tools.memgraph.vo.Settings;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -21,9 +25,7 @@ import java.nio.file.Path;
 import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.Callable;
-import org.neo4j.driver.AuthTokens;
 import org.neo4j.driver.Driver;
-import org.neo4j.driver.GraphDatabase;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import picocli.CommandLine;
@@ -211,6 +213,36 @@ public final class IngesterCli implements Callable<Integer> {
   private boolean checkPythonRuntime;
 
   @Option(
+      names = {"--ctags-runtime-mode"},
+      defaultValue = "managed",
+      description =
+          "Universal Ctags runtime mode: managed downloads a verified ctags binary, system uses "
+              + "ctags from PATH, offline requires a warmed managed cache. Defaults to managed.")
+  @SuppressWarnings("unused")
+  private String ctagsRuntimeMode;
+
+  @Option(
+      names = {"--ctags-runtime-cache"},
+      description = "Cache directory for managed Universal Ctags downloads.")
+  @SuppressWarnings("unused")
+  private Path ctagsRuntimeCache;
+
+  @Option(
+      names = {"--ctags-version"},
+      defaultValue = ManagedCtagsRuntime.DEFAULT_CTAGS_VERSION,
+      description = "Universal Ctags release tag used for managed fallback parsing, or latest.")
+  @SuppressWarnings("unused")
+  private String ctagsVersion;
+
+  @Option(
+      names = {"--check-ctags-runtime"},
+      description =
+          "Download/cache the managed Universal Ctags runtime if needed and run a local parser "
+              + "smoke check without connecting to Memgraph.")
+  @SuppressWarnings("unused")
+  private boolean checkCtagsRuntime;
+
+  @Option(
       names = {"--init-instructions"},
       description =
           "Write or replace managed Memgraph agent instructions. Code guidance is included by "
@@ -261,20 +293,25 @@ public final class IngesterCli implements Callable<Integer> {
 
     RuntimeMode selectedJsRuntimeMode;
     RuntimeMode selectedPythonRuntimeMode;
+    RuntimeMode selectedCtagsRuntimeMode;
     try {
       selectedJsRuntimeMode = RuntimeMode.parse(jsRuntimeMode, "JS");
       selectedPythonRuntimeMode = RuntimeMode.parse(pythonRuntimeMode, "Python");
+      selectedCtagsRuntimeMode = RuntimeMode.parse(ctagsRuntimeMode, "ctags");
     } catch (IllegalArgumentException e) {
       log.error(e.getMessage());
       return 1;
     }
-    if (checkJsRuntime || checkPythonRuntime) {
+    if (checkJsRuntime || checkPythonRuntime || checkCtagsRuntime) {
       int checkExit = 0;
       if (checkJsRuntime) {
         checkExit = Math.max(checkExit, runJsRuntimeCheck(selectedJsRuntimeMode));
       }
       if (checkPythonRuntime) {
         checkExit = Math.max(checkExit, runPythonRuntimeCheck(selectedPythonRuntimeMode));
+      }
+      if (checkCtagsRuntime) {
+        checkExit = Math.max(checkExit, runCtagsRuntimeCheck(selectedCtagsRuntimeMode));
       }
       return checkExit;
     }
@@ -298,10 +335,13 @@ public final class IngesterCli implements Callable<Integer> {
       log.error("--project is required");
       return 1;
     }
-    log.info("Using next classpath entries: {}", classpath);
-    try (Driver driver = GraphDatabase.driver(boltUrl, AuthTokens.basic(user, pass))) {
+    log.debug("Using next classpath entries: {}", classpath);
+    try (Driver driver = MemgraphDriver.open(boltUrl, user, pass)) {
+      driver.verifyConnectivity();
+      log.info("Connected to Memgraph at {}", boltUrl);
       List<LanguageAdapter<?>> languageAdapters =
-          createLanguageAdapters(selectedJsRuntimeMode, selectedPythonRuntimeMode);
+          createLanguageAdapters(
+              selectedJsRuntimeMode, selectedPythonRuntimeMode, selectedCtagsRuntimeMode);
       log.info(
           "Enabled source language adapters: {}",
           languageAdapters.stream().map(LanguageAdapter::displayName).toList());
@@ -330,6 +370,7 @@ public final class IngesterCli implements Callable<Integer> {
   private boolean isFollowOnCliActionRequested() {
     return checkJsRuntime
         || checkPythonRuntime
+        || checkCtagsRuntime
         || sourceRoot != null
         || boltUrl != null
         || watch
@@ -554,6 +595,41 @@ public final class IngesterCli implements Callable<Integer> {
     }
   }
 
+  private Integer runCtagsRuntimeCheck(RuntimeMode selectedRuntimeMode) {
+    Path cacheRoot = resolvedCtagsRuntimeCache();
+    Path tempDir = null;
+    try {
+      tempDir = Files.createTempDirectory("memgraph-ingester-ctags-runtime-check-");
+      Path rubyFile = tempDir.resolve("service.rb");
+      Files.writeString(
+          rubyFile,
+          """
+          class Service
+            def call
+              1
+            end
+          end
+          """);
+
+      CtagsAnalyzer analyzer =
+          new CtagsAnalyzer(
+              tempDir, new ManagedCtagsRuntime(cacheRoot, ctagsVersion, selectedRuntimeMode));
+      CtagsAnalysis analysis = analyzer.analyze(rubyFile);
+      if (!"ruby".equals(analysis.language().graphName()) || analysis.types().isEmpty()) {
+        throw new ProcessingException("Universal Ctags Ruby smoke check did not emit types");
+      }
+      log.info("Universal Ctags runtime check succeeded using cache {}", cacheRoot);
+      return 0;
+    } catch (IOException | RuntimeException e) {
+      log.error("Universal Ctags runtime check failed: {}", e.getMessage());
+      return 1;
+    } finally {
+      if (tempDir != null) {
+        deleteDir(tempDir);
+      }
+    }
+  }
+
   private static void assertPythonExtends(PythonAnalysis analysis) {
     boolean extendsFound =
         analysis.relations().stream()
@@ -667,14 +743,18 @@ public final class IngesterCli implements Callable<Integer> {
   }
 
   private List<LanguageAdapter<?>> createLanguageAdapters(
-      RuntimeMode selectedJsRuntimeMode, RuntimeMode selectedPythonRuntimeMode) {
+      RuntimeMode selectedJsRuntimeMode,
+      RuntimeMode selectedPythonRuntimeMode,
+      RuntimeMode selectedCtagsRuntimeMode) {
     return LanguageAdapterFactory.create(
         sourceRoot,
         classpath,
         new LanguageAdapterFactory.JsRuntimeOptions(
             resolvedJsRuntimeCache(), jsNodeVersion, jsTypescriptVersion, selectedJsRuntimeMode),
         new LanguageAdapterFactory.PythonRuntimeOptions(
-            resolvedPythonRuntimeCache(), pythonVersion, pythonBuild, selectedPythonRuntimeMode));
+            resolvedPythonRuntimeCache(), pythonVersion, pythonBuild, selectedPythonRuntimeMode),
+        new LanguageAdapterFactory.CtagsRuntimeOptions(
+            resolvedCtagsRuntimeCache(), ctagsVersion, selectedCtagsRuntimeMode));
   }
 
   private Path resolvedJsRuntimeCache() {
@@ -683,6 +763,10 @@ public final class IngesterCli implements Callable<Integer> {
 
   private Path resolvedPythonRuntimeCache() {
     return resolvePythonRuntimeCache(pythonRuntimeCache);
+  }
+
+  private Path resolvedCtagsRuntimeCache() {
+    return ctagsRuntimeCache == null ? ManagedCtagsRuntime.defaultCacheRoot() : ctagsRuntimeCache;
   }
 
   static Path resolvePythonRuntimeCache(Path pythonRuntimeCache) {

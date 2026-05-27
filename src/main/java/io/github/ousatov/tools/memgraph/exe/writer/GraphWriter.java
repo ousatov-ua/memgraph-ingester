@@ -298,6 +298,8 @@ public final class GraphWriter {
             Cypher.CYPHER_RESOLVE_JAVASCRIPT_CODE_REFS_PACKAGE,
             Cypher.CYPHER_RESOLVE_PYTHON_CODE_REFS_CODE,
             Cypher.CYPHER_RESOLVE_PYTHON_CODE_REFS_PACKAGE,
+            Cypher.CYPHER_RESOLVE_DYNAMIC_CODE_REFS_CODE,
+            Cypher.CYPHER_RESOLVE_DYNAMIC_CODE_REFS_PACKAGE,
             Cypher.CYPHER_RESOLVE_CODE_REFS_FILE,
             Cypher.CYPHER_RESOLVE_CODE_REFS_CLASS,
             Cypher.CYPHER_RESOLVE_CODE_REFS_INTERFACE,
@@ -320,7 +322,7 @@ public final class GraphWriter {
     try {
       return cypher.read(
           getFilesLastModifiedCypher(language),
-          Map.of(Params.PATHS, paths),
+          Map.of(Params.PATHS, paths, Params.LANGUAGE, language.graphName()),
           result -> {
             Map<String, Long> mtimes = HashMap.newHashMap(files.size() * 2);
             while (result.hasNext()) {
@@ -368,6 +370,29 @@ public final class GraphWriter {
     return getFilePathsInSourceRoot(sourceRoot, Cypher.CYPHER_GET_FILES_IN_SOURCE_ROOT, Map.of());
   }
 
+  /** Returns graph languages with file paths under the active source root. */
+  public Set<SourceLanguage> getLanguagesInSourceRoot(Path sourceRoot) {
+    String sourceRootText = sourceRoot.toString();
+    String separator = sourceRoot.getFileSystem().getSeparator();
+    String sourceRootPrefix =
+        sourceRootText.endsWith(separator) ? sourceRootText : sourceRootText + separator;
+    return cypher.read(
+        Cypher.CYPHER_GET_LANGUAGES_IN_SOURCE_ROOT,
+        Map.of(Params.SOURCE_ROOT, sourceRootText, Params.SOURCE_ROOT_PREFIX, sourceRootPrefix),
+        result -> {
+          Set<SourceLanguage> languages = new HashSet<>();
+          while (result.hasNext()) {
+            var record = result.next();
+            String language = record.get(Params.LANGUAGE).asString(null);
+            String languageName = record.get(Params.LANGUAGE_NAME).asString(null);
+            if (language != null) {
+              languages.add(SourceLanguage.of(language, languageName));
+            }
+          }
+          return languages;
+        });
+  }
+
   /** Returns language-specific project file paths under the active source root. */
   public Set<Path> getFilePathsInSourceRoot(Path sourceRoot, SourceLanguage language) {
     return getFilePathsInSourceRoot(
@@ -404,7 +429,7 @@ public final class GraphWriter {
   public Optional<String> getSourceRootHint(Path file, SourceLanguage language) {
     return cypher.read(
         getSourceRootHintCypher(language),
-        Map.of(Params.PATH, file.toString()),
+        Map.of(Params.PATH, file.toString(), Params.LANGUAGE, language.graphName()),
         result -> {
           if (!result.hasNext()) {
             return Optional.empty();
@@ -443,27 +468,42 @@ public final class GraphWriter {
   }
 
   private static String getFilesLastModifiedCypher(SourceLanguage language) {
-    return switch (language) {
-      case JAVA -> Cypher.CYPHER_GET_JAVA_FILES_LAST_MODIFIED;
-      case JAVASCRIPT -> Cypher.CYPHER_GET_JAVASCRIPT_FILES_LAST_MODIFIED;
-      case PYTHON -> Cypher.CYPHER_GET_PYTHON_FILES_LAST_MODIFIED;
-    };
+    if (SourceLanguage.JAVA.equals(language)) {
+      return Cypher.CYPHER_GET_JAVA_FILES_LAST_MODIFIED;
+    }
+    if (SourceLanguage.JAVASCRIPT.equals(language)) {
+      return Cypher.CYPHER_GET_JAVASCRIPT_FILES_LAST_MODIFIED;
+    }
+    if (SourceLanguage.PYTHON.equals(language)) {
+      return Cypher.CYPHER_GET_PYTHON_FILES_LAST_MODIFIED;
+    }
+    return Cypher.CYPHER_GET_CTAGS_FILES_LAST_MODIFIED;
   }
 
   private static String getFilesInSourceRootCypher(SourceLanguage language) {
-    return switch (language) {
-      case JAVA -> Cypher.CYPHER_GET_JAVA_FILES_IN_SOURCE_ROOT;
-      case JAVASCRIPT -> Cypher.CYPHER_GET_JAVASCRIPT_FILES_IN_SOURCE_ROOT;
-      case PYTHON -> Cypher.CYPHER_GET_PYTHON_FILES_IN_SOURCE_ROOT;
-    };
+    if (SourceLanguage.JAVA.equals(language)) {
+      return Cypher.CYPHER_GET_JAVA_FILES_IN_SOURCE_ROOT;
+    }
+    if (SourceLanguage.JAVASCRIPT.equals(language)) {
+      return Cypher.CYPHER_GET_JAVASCRIPT_FILES_IN_SOURCE_ROOT;
+    }
+    if (SourceLanguage.PYTHON.equals(language)) {
+      return Cypher.CYPHER_GET_PYTHON_FILES_IN_SOURCE_ROOT;
+    }
+    return Cypher.CYPHER_GET_CTAGS_FILES_IN_SOURCE_ROOT;
   }
 
   private static String getSourceRootHintCypher(SourceLanguage language) {
-    return switch (language) {
-      case JAVA -> Cypher.CYPHER_GET_JAVA_SOURCE_ROOT_HINT_FOR_FILE;
-      case JAVASCRIPT -> Cypher.CYPHER_GET_JAVASCRIPT_SOURCE_ROOT_HINT_FOR_FILE;
-      case PYTHON -> Cypher.CYPHER_GET_PYTHON_SOURCE_ROOT_HINT_FOR_FILE;
-    };
+    if (SourceLanguage.JAVA.equals(language)) {
+      return Cypher.CYPHER_GET_JAVA_SOURCE_ROOT_HINT_FOR_FILE;
+    }
+    if (SourceLanguage.JAVASCRIPT.equals(language)) {
+      return Cypher.CYPHER_GET_JAVASCRIPT_SOURCE_ROOT_HINT_FOR_FILE;
+    }
+    if (SourceLanguage.PYTHON.equals(language)) {
+      return Cypher.CYPHER_GET_PYTHON_SOURCE_ROOT_HINT_FOR_FILE;
+    }
+    return Cypher.CYPHER_GET_CTAGS_SOURCE_ROOT_HINT_FOR_FILE;
   }
 
   /** Creates or refreshes all supported code-language roots and the {@code :Memory} anchor. */

@@ -14,15 +14,18 @@ import com.github.javaparser.symbolsolver.resolution.typesolvers.ReflectionTypeS
 import io.github.ousatov.tools.memgraph.exe.adapter.SourceFileDefinitions;
 import io.github.ousatov.tools.memgraph.exe.adapter.SourceLanguage;
 import io.github.ousatov.tools.memgraph.exe.analyze.ParseService;
+import io.github.ousatov.tools.memgraph.exe.writer.ctags.CtagsGraphWriter;
 import io.github.ousatov.tools.memgraph.exe.writer.java.JavaGraphWriter;
 import io.github.ousatov.tools.memgraph.exe.writer.js.JsGraphWriter;
 import io.github.ousatov.tools.memgraph.extension.MemgraphExtension;
 import io.github.ousatov.tools.memgraph.extension.MemgraphInstance;
+import io.github.ousatov.tools.memgraph.schema.MemgraphDriver;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
@@ -30,9 +33,7 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.neo4j.driver.AuthTokens;
 import org.neo4j.driver.Driver;
-import org.neo4j.driver.GraphDatabase;
 import org.neo4j.driver.Session;
 
 /**
@@ -59,7 +60,7 @@ class GraphWriterIT {
 
   @BeforeAll
   static void setupDriver(MemgraphInstance mg) {
-    driver = GraphDatabase.driver(mg.getBoltUrl(), AuthTokens.basic("", ""));
+    driver = MemgraphDriver.open(mg.getBoltUrl());
   }
 
   @AfterAll
@@ -200,6 +201,31 @@ class GraphWriterIT {
   }
 
   @Test
+  void upsertFileRemovesOldLanguageCodeLinkWhenLanguageChanges() throws IOException {
+    SourceLanguage ruby = SourceLanguage.of("ruby", "Ruby");
+    SourceLanguage go = SourceLanguage.of("go", "Go");
+    Path tempFile = Files.createTempFile("ctags-language-switch-", "");
+    try {
+      writer.upsertProject(SRC_ROOT, List.of(ruby, go));
+      writer.upsertFile(tempFile, ruby);
+      writer.upsertFile(tempFile, go);
+
+      List<String> codeLanguages =
+          session
+              .run(
+                  "MATCH (code:Code {project: $p})-[:CONTAINS]->"
+                      + "(:File {project: $p, path: $path})"
+                      + " RETURN code.language AS language ORDER BY language",
+                  Map.of("p", PROJECT, "path", tempFile.toString()))
+              .list(row -> row.get("language").asString());
+
+      assertEquals(List.of("go"), codeLanguages);
+    } finally {
+      Files.deleteIfExists(tempFile);
+    }
+  }
+
+  @Test
   void upsertFileWritesLastModified() throws IOException {
     Path tempFile = Files.createTempFile("widget-", ".java");
     try {
@@ -271,6 +297,83 @@ class GraphWriterIT {
           writer.getAllFileLastModified(List.of(tempFile), SourceLanguage.JAVASCRIPT);
 
       assertFalse(cache.containsKey(tempFile.toString()));
+    } finally {
+      Files.deleteIfExists(tempFile);
+    }
+  }
+
+  @Test
+  void getAllFileLastModifiedReadsCtagsLanguageFiles() throws IOException {
+    SourceLanguage ruby = SourceLanguage.of("ruby", "Ruby");
+    Path tempFile = Files.createTempFile("ctags-ruby-", ".rb");
+    try {
+      CtagsGraphWriter ctagsWriter = new CtagsGraphWriter(writer.dependencies());
+      writer.upsertProject(SRC_ROOT, List.of(ruby));
+      writer.upsertFile(tempFile, ruby);
+      writer.upsertPackage("ruby.test", ruby);
+      ctagsWriter.upsertModule(
+          tempFile, ruby, "ruby.test", "ruby.test.service", "service", "service.rb", 1, 2);
+
+      Map<String, Long> cache = writer.getAllFileLastModified(List.of(tempFile), ruby);
+
+      assertTrue(cache.containsKey(tempFile.toString()));
+    } finally {
+      Files.deleteIfExists(tempFile);
+    }
+  }
+
+  @Test
+  void getSourceRootHintReadsCtagsLanguageModulePath() throws IOException {
+    SourceLanguage ruby = SourceLanguage.of("ruby", "Ruby");
+    Path tempFile = Files.createTempFile("ctags-root-hint-", ".rb");
+    try {
+      CtagsGraphWriter ctagsWriter = new CtagsGraphWriter(writer.dependencies());
+      writer.upsertProject(SRC_ROOT, List.of(ruby));
+      writer.upsertFile(tempFile, ruby);
+      writer.upsertPackage("ruby.test", ruby);
+      ctagsWriter.upsertModule(
+          tempFile, ruby, "ruby.test", "ruby.test.service", "service", "lib/service.rb", 1, 2);
+
+      Optional<String> hint = writer.getSourceRootHint(tempFile, ruby);
+
+      assertEquals(Optional.of("lib/service.rb"), hint);
+    } finally {
+      Files.deleteIfExists(tempFile);
+    }
+  }
+
+  @Test
+  void upsertCtagsStructPreservesRawKindAndSkipsConstructor() throws IOException {
+    SourceLanguage go = SourceLanguage.of("go", "Go");
+    Path tempFile = Files.createTempFile("ctags-go-", ".go");
+    try {
+      CtagsGraphWriter ctagsWriter = new CtagsGraphWriter(writer.dependencies());
+      writer.upsertProject(SRC_ROOT, List.of(go));
+      writer.upsertFile(tempFile, go);
+      writer.upsertPackage("go.test", go);
+      ctagsWriter.upsertType(
+          tempFile,
+          go,
+          "go.test",
+          "go.test.main.Service",
+          "Service",
+          "class",
+          "struct",
+          false,
+          1,
+          1);
+
+      var row =
+          session
+              .run(
+                  "MATCH (c:Class {fqn: $fqn, project: $p}) "
+                      + "OPTIONAL MATCH (c)-[:DECLARES]->(m:Method {name: '<init>'}) "
+                      + "RETURN c.kind AS kind, count(m) AS constructors",
+                  Map.of("fqn", "go.test.main.Service", "p", PROJECT))
+              .single();
+
+      assertEquals("struct", row.get("kind").asString());
+      assertEquals(0, row.get("constructors").asLong());
     } finally {
       Files.deleteIfExists(tempFile);
     }

@@ -2,6 +2,7 @@ package io.github.ousatov.tools.memgraph.exe.analyze;
 
 import io.github.ousatov.tools.memgraph.def.Const.SystemParams;
 import io.github.ousatov.tools.memgraph.exception.ProcessingException;
+import io.github.ousatov.tools.memgraph.exe.output.ConsoleStatusLine;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -19,7 +20,6 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.util.HexFormat;
-import java.util.Locale;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -73,7 +73,7 @@ public final class ManagedPythonRuntime {
     if (runtimeMode == RuntimeMode.SYSTEM) {
       return Path.of(systemPythonExecutable());
     }
-    Platform platform = Platform.current();
+    ManagedRuntimePlatform platform = ManagedRuntimePlatform.current();
     Path installDir = installDir(platform);
     Path standaloneExecutable = standalonePythonExecutable(platform, installDir);
     if (!isStandalonePythonReady(standaloneExecutable, installDir)) {
@@ -97,11 +97,11 @@ public final class ManagedPythonRuntime {
     if (configured != null && !configured.isBlank()) {
       return configured;
     }
-    return isWindows() ? "python.exe" : "python3";
+    return ManagedRuntimePlatform.isCurrentWindows() ? "python.exe" : "python3";
   }
 
   private void ensureStandalonePythonInstalled(
-      Platform platform, Path installDir, Path executable) {
+      ManagedRuntimePlatform platform, Path installDir, Path executable) {
     try {
       Files.createDirectories(installDir);
       Object localLock = INSTALL_LOCKS.computeIfAbsent(lockKey(installDir), _ -> new Object());
@@ -165,32 +165,41 @@ public final class ManagedPythonRuntime {
     }
   }
 
-  private void installStandalonePython(Platform platform, Path installDir, Path executable)
-      throws IOException {
-    String archiveName = platform.archiveName(pythonVersion, pythonBuild);
+  private void installStandalonePython(
+      ManagedRuntimePlatform platform, Path installDir, Path executable) throws IOException {
+    String archiveName = pythonArchiveName(platform, pythonVersion, pythonBuild);
     URI archiveUri = URI.create(PYTHON_DIST + pythonBuild + "/" + encodeArchiveName(archiveName));
     URI sumsUri = URI.create(PYTHON_DIST + pythonBuild + "/SHA256SUMS");
-    log.atInfo()
-        .setMessage("Checking managed CPython {}+{} ({}) availability")
-        .addArgument(pythonVersion)
-        .addArgument(pythonBuild)
-        .addArgument(platform::id)
-        .log();
-    byte[] archive = download(archiveUri);
-    verifySha256(archive, archiveName, downloadText(sumsUri));
-    extractTgz(archive, installDir);
-    if (!Files.isExecutable(executable)) {
-      @SuppressWarnings("java:S899")
-      var _ = executable.toFile().setExecutable(true, true);
+    ConsoleStatusLine.withFinishedLine(
+        System.err,
+        () ->
+            log.atInfo()
+                .setMessage("Checking managed CPython {}+{} ({}) availability")
+                .addArgument(pythonVersion)
+                .addArgument(pythonBuild)
+                .addArgument(() -> pythonId(platform))
+                .log());
+    try (ManagedRuntimeLoadingIndicator indicator =
+        ManagedRuntimeLoadingIndicator.start(
+            "CPython " + pythonVersion + "+" + pythonBuild + " (" + pythonId(platform) + ")")) {
+      byte[] archive = download(archiveUri);
+      verifySha256(archive, archiveName, downloadText(sumsUri));
+      extractTgz(archive, installDir);
+      if (!Files.isExecutable(executable)) {
+        @SuppressWarnings("java:S899")
+        var _ = executable.toFile().setExecutable(true, true);
+      }
+      if (!Files.isExecutable(executable)) {
+        throw new ProcessingException("Managed CPython executable was not created: " + executable);
+      }
+      markStandalonePythonReady(installDir);
+      indicator.succeeded();
     }
-    if (!Files.isExecutable(executable)) {
-      throw new ProcessingException("Managed CPython executable was not created: " + executable);
-    }
-    markStandalonePythonReady(installDir);
   }
 
   private void createManagedVenv(Path standaloneExecutable, Path venvDir, Path executable) {
-    try {
+    try (ManagedRuntimeLoadingIndicator indicator =
+        ManagedRuntimeLoadingIndicator.steady("Python virtual environment")) {
       ProcessBuilder processBuilder =
           new ProcessBuilder(standaloneExecutable.toString(), "-m", "venv", venvDir.toString());
       processBuilder.redirectOutput(ProcessBuilder.Redirect.DISCARD);
@@ -213,6 +222,7 @@ public final class ManagedPythonRuntime {
             "Managed Python venv executable was not created: " + executable);
       }
       markManagedVenvReady(venvDir);
+      indicator.succeeded();
     } catch (IOException e) {
       throw new ProcessingException("Could not create managed Python venv at " + venvDir, e);
     } catch (InterruptedException e) {
@@ -222,28 +232,28 @@ public final class ManagedPythonRuntime {
     }
   }
 
-  private Path installDir(Platform platform) {
+  private Path installDir(ManagedRuntimePlatform platform) {
     return cacheRoot
         .resolve(SystemParams.PYTHON)
         .resolve("standalone")
         .resolve(pythonVersion + "+" + pythonBuild)
-        .resolve(platform.id());
+        .resolve(pythonId(platform));
   }
 
-  private Path venvDir(Platform platform) {
+  private Path venvDir(ManagedRuntimePlatform platform) {
     return cacheRoot
         .resolve(SystemParams.PYTHON)
         .resolve("venv")
         .resolve(pythonVersion + "+" + pythonBuild)
-        .resolve(platform.id());
+        .resolve(pythonId(platform));
   }
 
-  private Path standalonePythonExecutable(Platform platform, Path installDir) {
+  private Path standalonePythonExecutable(ManagedRuntimePlatform platform, Path installDir) {
     String executable = platform.isWindows() ? "python.exe" : "bin/" + pythonBinaryName();
     return installDir.resolve(executable);
   }
 
-  private Path venvPythonExecutable(Platform platform, Path venvDir) {
+  private Path venvPythonExecutable(ManagedRuntimePlatform platform, Path venvDir) {
     String executable = platform.isWindows() ? "Scripts/python.exe" : "bin/python";
     return venvDir.resolve(executable);
   }
@@ -407,54 +417,36 @@ public final class ManagedPythonRuntime {
     return archiveName.replace("+", "%2B");
   }
 
-  private static boolean isWindows() {
-    return System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win");
+  private static String pythonArchiveName(
+      ManagedRuntimePlatform platform, String version, String build) {
+    return "cpython-"
+        + version
+        + "+"
+        + build
+        + "-"
+        + pythonId(platform)
+        + "-install_only_stripped.tar.gz";
   }
 
-  private record Platform(String os, String arch) {
+  private static String pythonId(ManagedRuntimePlatform platform) {
+    return pythonArch(platform) + "-" + pythonOs(platform);
+  }
 
-    static Platform current() {
-      String osName = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
-      String archName = System.getProperty("os.arch", "").toLowerCase(Locale.ROOT);
-      String os =
-          switch (platformOs(osName)) {
-            case SystemParams.DARWIN -> SystemParams.APPLE_DARWIN;
-            case SystemParams.LINUX -> SystemParams.UNKNOWN_LINUX_GNU;
-            case "windows" -> "pc-windows-msvc";
-            default -> throw new ProcessingException("Unsupported operating system: " + osName);
-          };
-      String arch =
-          switch (archName) {
-            case SystemParams.AARCH_64, SystemParams.ARM_64 -> SystemParams.AARCH_64;
-            case SystemParams.AMD_64, SystemParams.X_86_64 -> SystemParams.X_86_64;
-            default -> throw new ProcessingException("Unsupported CPU architecture: " + archName);
-          };
-      return new Platform(os, arch);
+  private static String pythonOs(ManagedRuntimePlatform platform) {
+    if (platform.isMacos()) {
+      return SystemParams.APPLE_DARWIN;
     }
+    if (platform.isLinux()) {
+      return SystemParams.UNKNOWN_LINUX_GNU;
+    }
+    return "pc-windows-msvc";
+  }
 
-    String id() {
-      return arch + "-" + os;
-    }
-
-    boolean isWindows() {
-      return os.equals("pc-windows-msvc");
-    }
-
-    String archiveName(String version, String build) {
-      return "cpython-" + version + "+" + build + "-" + id() + "-install_only_stripped.tar.gz";
-    }
-
-    private static String platformOs(String osName) {
-      if (osName.contains("mac") || osName.contains(SystemParams.DARWIN)) {
-        return SystemParams.DARWIN;
-      }
-      if (osName.contains(SystemParams.LINUX)) {
-        return SystemParams.LINUX;
-      }
-      if (osName.contains("win")) {
-        return SystemParams.WINDOWS;
-      }
-      return osName;
-    }
+  private static String pythonArch(ManagedRuntimePlatform platform) {
+    return switch (platform.arch()) {
+      case SystemParams.ARM_64 -> SystemParams.AARCH_64;
+      case SystemParams.X_86_64 -> SystemParams.X_86_64;
+      default -> throw new ProcessingException("Unsupported CPU architecture: " + platform.arch());
+    };
   }
 }

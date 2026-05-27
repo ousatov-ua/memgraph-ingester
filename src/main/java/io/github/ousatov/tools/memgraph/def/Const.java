@@ -79,9 +79,25 @@ public final class Const {
     public static final String CYPHER_GET_RETAINED_FILES_OUTSIDE_SOURCE_ROOT =
         action("get-retained-files-outside-source-root.cypher");
 
+    /** Fetches graph languages represented under the active source root. */
+    public static final String CYPHER_GET_LANGUAGES_IN_SOURCE_ROOT =
+        action("get-languages-in-source-root.cypher");
+
     /** Fetches project file paths under the active source root. */
     public static final String CYPHER_GET_FILES_IN_SOURCE_ROOT =
         action("get-files-in-source-root.cypher");
+
+    /** Generic ctags last-modified lookup for dynamically detected languages. */
+    public static final String CYPHER_GET_CTAGS_FILES_LAST_MODIFIED =
+        action("Ctags/get-files-last-modified.cypher");
+
+    /** Generic ctags file lookup under the active source root. */
+    public static final String CYPHER_GET_CTAGS_FILES_IN_SOURCE_ROOT =
+        action("Ctags/get-files-in-source-root.cypher");
+
+    /** Generic ctags source-root reconstruction metadata for one source file. */
+    public static final String CYPHER_GET_CTAGS_SOURCE_ROOT_HINT_FOR_FILE =
+        action("Ctags/get-source-root-hint-for-file.cypher");
 
     /** Fetches retained files that define declarations shared with one source file. */
     public static final String CYPHER_GET_RETAINED_FILES_SHARING_DEFINITIONS_WITH_FILE =
@@ -103,6 +119,10 @@ public final class Const {
         action("Python/resolve-code-refs-code.cypher");
     public static final String CYPHER_RESOLVE_PYTHON_CODE_REFS_PACKAGE =
         action("Python/resolve-code-refs-package.cypher");
+    public static final String CYPHER_RESOLVE_DYNAMIC_CODE_REFS_CODE =
+        action("resolve-dynamic-code-refs-code.cypher");
+    public static final String CYPHER_RESOLVE_DYNAMIC_CODE_REFS_PACKAGE =
+        action("resolve-dynamic-code-refs-package.cypher");
     public static final String CYPHER_RESOLVE_CODE_REFS_FILE =
         action("resolve-code-refs-file.cypher");
     public static final String CYPHER_RESOLVE_CODE_REFS_CLASS =
@@ -318,6 +338,11 @@ public final class Const {
       // Empty
     }
 
+    public static final String MACOS = "macos";
+    public static final String X86 = "x86";
+    public static final String I_386 = "i386";
+    public static final String I_686 = "i686";
+    public static final String X_64 = "x64";
     public static final String DARWIN = "darwin";
     public static final String APPLE_DARWIN = "apple-darwin";
     public static final String LINUX = "linux";
