@@ -450,7 +450,7 @@ public final class IngestionOrchestrator {
       boolean changedGraph = false;
       Set<Path> refreshAfterDelete = new LinkedHashSet<>();
       for (Path file : files.stream().filter(file -> !Files.exists(file)).sorted().toList()) {
-        if (adapterFor(file).isPresent()) {
+        if (adapterForDeletedPath(file).isPresent()) {
           Optional<Set<Path>> sharedRetainedFiles =
               retainedFilesSharingDefinitionsWithRetry(
                   file, writer::getRetainedFilePathsSharingDefinitionsWith);

@@ -551,12 +551,24 @@ class IngestionOrchestratorIT {
 
     @Override
     public SourceLanguage language() {
-      return SourceLanguage.JAVA;
+      return delegate == null ? SourceLanguage.JAVA : delegate.language();
+    }
+
+    @Override
+    public Optional<SourceLanguage> staticLanguage() {
+      return delegate == null ? Optional.of(SourceLanguage.JAVA) : delegate.staticLanguage();
     }
 
     @Override
     public boolean accepts(Path file) {
-      return file.toString().endsWith(".java");
+      return delegate == null ? file.toString().endsWith(".java") : delegate.accepts(file);
+    }
+
+    @Override
+    public boolean acceptsDeletedPath(Path file) {
+      return delegate == null
+          ? file.toString().endsWith(".java")
+          : delegate.acceptsDeletedPath(file);
     }
 
     @Override
@@ -1406,6 +1418,31 @@ class IngestionOrchestratorIT {
 
     assertFalse(fileExistsInGraph(currentProject, deletedFile));
     assertFalse(classExists(currentProject, "Deleted"));
+  }
+
+  @Test
+  void watchModeReconcilesDeletedFallbackFilesWhenSourceSnapshotFails() throws Exception {
+    currentProject = PROJECT_BASE + "-watch-snapshot-failure-fallback-delete";
+    sourceDir = Files.createTempDirectory("orch-watch-snapshot-failure-fallback-delete-src-");
+    Path deletedFile = sourceDir.resolve("service.rb");
+    Files.writeString(deletedFile, "class Service\nend\n");
+    LanguageAdapter<?> delegate = new ContentDetectingRubyAdapter(sourceDir);
+    IngestionOrchestrator initial =
+        new IngestionOrchestrator(sourceDir, currentProject, 1, driver, delegate);
+    assertEquals(0, initial.run(Settings.def()));
+    assertTrue(fileExistsInGraph(currentProject, deletedFile));
+    assertTrue(classExists(currentProject, RUBY_SERVICE_FQN));
+    Files.delete(deletedFile);
+
+    SnapshotFailingWatchAdapter adapter = new SnapshotFailingWatchAdapter(delegate);
+    adapter.discoverFiles(sourceDir);
+    IngestionOrchestrator orchestrator =
+        new IngestionOrchestrator(sourceDir, currentProject, 1, driver, adapter);
+
+    orchestrator.ingestChangedFiles(Set.of(deletedFile));
+
+    assertFalse(fileExistsInGraph(currentProject, deletedFile));
+    assertFalse(classExists(currentProject, RUBY_SERVICE_FQN));
   }
 
   @Test
