@@ -32,13 +32,24 @@ Before vector search, verify a matching vector index exists:
 SHOW VECTOR INDEX INFO;
 ```
 
+If procedure discovery is needed, use `mg.procedures()` and filter after `WITH`; do not use
+`SHOW PROCEDURES`, and do not place `WHERE` immediately after `YIELD`:
+
+```cypher
+CALL mg.procedures() YIELD name
+WITH name
+WHERE name CONTAINS 'embeddings' OR name CONTAINS 'vector_search'
+RETURN name
+ORDER BY name;
+```
+
 Search semantically similar memory chunks with a query vector created by the same embedding model
 and dimension as the stored chunks:
 
 ```cypher
 CALL embeddings.text(['<task-specific semantic query from the user request>'], {}) YIELD embeddings
 WITH embeddings[0] AS queryVector
-CALL vector_search.search('memory_chunk_embedding_v1', 8, $queryVector)
+CALL vector_search.search('memory_chunk_embedding_v1', 8, queryVector)
 YIELD node AS chunk, similarity
 WITH chunk, similarity
 WHERE chunk.project = '{{PROJECT_NAME}}'

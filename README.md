@@ -1058,24 +1058,34 @@ RETURN labels(memory), memory.id, memory.title;
 │   │   └── ProcessingException.java            # Domain-level processing failure
 │   ├── exe/
 │   │   ├── adapter/
+│   │   │   ├── CtagsLanguageAdapter.java       # Universal Ctags fallback ingestion adapter
 │   │   │   ├── JavaLanguageAdapter.java        # JavaParser-backed Java ingestion adapter
 │   │   │   ├── JsLanguageAdapter.java          # Node/TypeScript-backed JS/TS ingestion adapter
 │   │   │   ├── LanguageAdapter.java            # Source-language adapter contract
+│   │   │   ├── LanguageAdapterFactory.java     # Adapter selection for configured source language
+│   │   │   ├── PythonLanguageAdapter.java      # CPython-backed Python ingestion adapter
 │   │   │   ├── SourceFileDefinitions.java      # Graph identities emitted for one source file
 │   │   │   └── SourceLanguage.java             # Supported source-language values
 │   │   ├── analyze/
+│   │   │   ├── CtagsAnalysis.java              # Neutral Ctags analyzer records
+│   │   │   ├── CtagsAnalyzer.java              # Java wrapper around the managed Ctags runtime
+│   │   │   ├── CtagsNames.java                 # Ctags symbol and language-name helpers
 │   │   │   ├── JavaTypeNames.java              # Java type-name helpers
 │   │   │   ├── JsAnalysis.java                 # Neutral JS analyzer records
 │   │   │   ├── JsAnalyzer.java                 # Java wrapper around the bundled JS analyzer
+│   │   │   ├── ManagedCtagsRuntime.java        # Downloaded/cached Universal Ctags runtime management
 │   │   │   ├── ManagedNodeRuntime.java         # Downloaded/cached Node.js runtime management
 │   │   │   ├── ManagedPythonRuntime.java       # Downloaded/cached CPython and venv management
+│   │   │   ├── ManagedRuntimeLoadingIndicator.java # Shared progress indicator for managed runtimes
+│   │   │   ├── ManagedRuntimePlatform.java     # OS/architecture detection for runtime downloads
 │   │   │   ├── ManagedTypescriptPackage.java   # Downloaded/cached TypeScript compiler management
 │   │   │   ├── ParseService.java               # JavaParser setup and parsing
 │   │   │   ├── PythonAnalysis.java             # Neutral Python analyzer records
 │   │   │   ├── PythonAnalyzer.java             # Java wrapper around the bundled Python analyzer
 │   │   │   └── RuntimeMode.java                # Parser runtime mode values
 │   │   ├── ingestion/
-│   │   │   └── IngestionOrchestrator.java      # Ingestion, wipe, incremental, and watch workflow
+│   │   │   ├── IngestionOrchestrator.java      # Ingestion, wipe, incremental, and watch workflow
+│   │   │   └── IngestionProgress.java          # Progress counters and status text for ingestion
 │   │   ├── metrics/
 │   │   │   ├── IngestionMetrics.java           # Metrics snapshot model
 │   │   │   ├── IngestionMetricsCollector.java  # Metrics collection from graph queries
@@ -1084,6 +1094,17 @@ RETURN labels(memory), memory.id, memory.title;
 │   │   │   ├── MarkdownMetricsTable.java       # Shared Markdown metrics table renderer
 │   │   │   ├── MetricsSnapshotValidator.java   # Metrics snapshot comparison helper
 │   │   │   └── MetricsValidationCli.java       # CLI for validating metrics snapshots
+│   │   ├── output/
+│   │   │   └── ConsoleStatusLine.java          # Terminal status-line rendering
+│   │   ├── rag/
+│   │   │   ├── CodeChunkAnalysis.java          # Code chunk planning records
+│   │   │   ├── CodeChunkAnalyzer.java          # Language-neutral code chunk orchestration
+│   │   │   ├── CommonCodeChunkBuilder.java     # Shared code chunk text builder helpers
+│   │   │   ├── CtagsCodeChunkBuilder.java      # Ctags-derived chunk text builder
+│   │   │   ├── JavaCodeChunkBuilder.java       # Java chunk text builder
+│   │   │   ├── JsCodeChunkBuilder.java         # JS/TS chunk text builder
+│   │   │   ├── MemoryChunkBuilder.java         # Memory graph chunk text builder
+│   │   │   └── PythonCodeChunkBuilder.java     # Python chunk text builder
 │   │   └── writer/
 │   │       ├── CallEdgeWriter.java             # Java call-edge extraction/writes
 │   │       ├── CommonGraphWriter.java          # Shared graph writer helpers for language writers
@@ -1091,6 +1112,8 @@ RETURN labels(memory), memory.id, memory.title;
 │   │       ├── GraphNodeWriter.java            # Batched low-level graph node/edge writes
 │   │       ├── GraphWrite.java                 # Shared graph write payload records
 │   │       ├── GraphWriter.java                # Stable writer facade over language-specific writers
+│   │       ├── ctags/
+│   │       │   └── CtagsGraphWriter.java       # Ctags fallback graph writes
 │   │       ├── java/
 │   │       │   └── JavaGraphWriter.java        # Java-specific graph writes
 │   │       ├── js/
@@ -1098,8 +1121,10 @@ RETURN labels(memory), memory.id, memory.title;
 │   │       └── python/
 │   │           └── PythonGraphWriter.java      # Python-specific graph writes
 │   ├── schema/
-│   │   └── Memgraph.java                       # Schema loader and global wipe helpers
+│   │   ├── Memgraph.java                       # Schema loader and global wipe helpers
+│   │   └── MemgraphDriver.java                 # Memgraph driver factory and connection lifecycle
 │   └── vo/
+│       ├── EmbeddingSettings.java              # Code and memory embedding refresh settings
 │       ├── Method.java                         # Method graph payload
 │       └── Settings.java                       # Ingestion settings payload
 ├── src/main/resources/
@@ -1108,12 +1133,20 @@ RETURN labels(memory), memory.id, memory.title;
 │   │       ├── reflect-config.json             # GraalVM reflection metadata
 │   │       └── resource-config.json            # GraalVM bundled resource patterns
 │   ├── io/github/ousatov/tools/memgraph/cypher/
-│   │   ├── action/                             # Shared upsert, delete, and resolve Cypher
+│   │   ├── Java/                               # Java-specific graph query resources
+│   │   ├── Js/                                 # JS/TS-specific graph query resources
+│   │   ├── Python/                             # Python-specific graph query resources
+│   │   ├── action/                             # Shared upsert, delete, resolve, and migration Cypher
+│   │   │   ├── Ctags/                          # Ctags fallback cleanup Cypher
+│   │   │   ├── Java/                           # Java-specific cleanup Cypher
 │   │   │   ├── Js/                             # JS/TS-specific cleanup Cypher
-│   │   │   └── Python/                         # Python-specific cleanup Cypher
+│   │   │   ├── Python/                         # Python-specific cleanup Cypher
+│   │   │   └── embedding/                      # CodeChunk and MemoryChunk embedding refresh Cypher
 │   │   ├── metrics/                            # Metrics snapshot Cypher queries
 │   │   ├── create-schema.cypher                # Constraints and indexes
 │   │   ├── drop-schema.cypher                  # Schema teardown
+│   │   ├── migrate-schema-cleanup.cypher       # Compatibility cleanup for older graph schemas
+│   │   ├── migrate-schema-legacy-constraints.cypher # Legacy constraint migration
 │   │   └── wipe-all-data.cypher                # Full data wipe
 │   ├── io/github/ousatov/tools/memgraph/js/
 │   │   ├── js-analyzer-ast.cjs                 # TypeScript AST extraction helpers
@@ -1130,7 +1163,8 @@ RETURN labels(memory), memory.id, memory.title;
 │   ├── exception/                              # Domain exception tests
 │   ├── extension/                              # Testcontainers Memgraph JUnit extension
 │   ├── exe/                                    # Parser, writer, orchestrator, and memory ITs
-│   └── schema/                                 # Schema loader tests
+│   ├── schema/                                 # Schema loader tests
+│   └── vo/                                     # Value-object settings tests
 ├── template/
 │   ├── AI-memgraph-code-template.md            # Default code graph agent instructions
 │   └── AI-memgraph-memory-template.md          # Optional Memory workflow agent instructions
