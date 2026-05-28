@@ -52,6 +52,7 @@ class AgentInstructionsInstallerTest {
     assertTrue(content.contains("### Memory RAG Vectors (only if RAG has embeddings)"));
     assertTrue(content.contains("memory_chunk_embedding_v1"));
     assertTrue(content.contains("When creating or materially updating a Memory node"));
+    assertTrue(content.contains("avoid top-level `createHash` declarations"));
     assertTrue(content.contains("MERGE (chunk:MemoryChunk"));
     assertTrue(content.contains("Session Memory embedding refresh"));
     assertTrue(content.contains("WHERE chunk.id IN $ids"));

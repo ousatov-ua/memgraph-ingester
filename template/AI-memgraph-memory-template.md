@@ -236,6 +236,9 @@ When creating or materially updating a Memory node, also create or refresh one d
 clear old embedding properties when the text changes, then create the embedding with Memgraph. Do
 not calculate embedding vectors outside Memgraph. Use the source Memory node as the authority. This
 agent workflow is only for MemoryChunks created or updated during the current session.
+When hashing chunk text in a persistent Node REPL, avoid top-level `createHash` declarations; use a
+block-scoped namespace import or a shell hash command so repeated memory updates do not redeclare
+identifiers.
 
 ```cypher
 MATCH (d:Decision {id: 'DEC-<topic>-<name>', project: '{{PROJECT_NAME}}'})
