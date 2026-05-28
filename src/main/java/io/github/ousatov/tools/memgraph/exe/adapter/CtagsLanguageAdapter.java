@@ -1,5 +1,6 @@
 package io.github.ousatov.tools.memgraph.exe.adapter;
 
+import io.github.ousatov.tools.memgraph.def.Const;
 import io.github.ousatov.tools.memgraph.def.Const.Labels;
 import io.github.ousatov.tools.memgraph.def.Const.Params;
 import io.github.ousatov.tools.memgraph.exception.ProcessingException;
@@ -40,7 +41,18 @@ public final class CtagsLanguageAdapter implements LanguageAdapter<CtagsAnalysis
 
   private static final Logger log = LoggerFactory.getLogger(CtagsLanguageAdapter.class);
   private static final Set<String> FIRST_CLASS_EXTENSIONS =
-      Set.of(".java", ".js", ".jsx", ".ts", ".tsx", ".mts", ".cts", ".mjs", ".cjs", ".py", ".pyi");
+      Set.of(
+          Const.Files.JAVA_EXTENSION,
+          Const.Files.JAVASCRIPT_EXTENSION,
+          Const.Files.JSX_EXTENSION,
+          Const.Files.TYPESCRIPT_EXTENSION,
+          Const.Files.TSX_EXTENSION,
+          Const.Files.TYPESCRIPT_MODULE_EXTENSION,
+          Const.Files.TYPESCRIPT_COMMONJS_EXTENSION,
+          Const.Files.JAVASCRIPT_MODULE_EXTENSION,
+          Const.Files.COMMONJS_EXTENSION,
+          Const.Files.PYTHON_EXTENSION,
+          Const.Files.PYTHON_STUB_EXTENSION);
   private static final Set<String> NON_CODE_EXTENSIONS =
       Set.of(
           ".adoc",
@@ -94,7 +106,7 @@ public final class CtagsLanguageAdapter implements LanguageAdapter<CtagsAnalysis
           "scss",
           "styl",
           "stylus",
-          "text",
+          Const.Params.TEXT,
           "toml",
           "xml",
           "yaml");
@@ -103,17 +115,17 @@ public final class CtagsLanguageAdapter implements LanguageAdapter<CtagsAnalysis
           ".git",
           ".hg",
           ".svn",
-          "node_modules",
-          "__pycache__",
-          ".venv",
-          "venv",
-          ".tox",
-          ".nox",
-          "site-packages",
-          "build",
-          "dist",
-          "target",
-          "out",
+          Const.Files.NODE_MODULES,
+          Const.Files.PYCACHE,
+          Const.Files.VIRTUAL_ENV,
+          Const.Files.VENV,
+          Const.Files.TOX,
+          Const.Files.NOX,
+          Const.Files.SITE_PACKAGES,
+          Const.Files.BUILD,
+          Const.Files.DIST,
+          Const.Files.TARGET,
+          Const.Files.OUT,
           "vendor");
 
   private final Path sourceRoot;
@@ -183,14 +195,15 @@ public final class CtagsLanguageAdapter implements LanguageAdapter<CtagsAnalysis
     Set<String> methodSignatures = new LinkedHashSet<>();
     Set<String> fieldFqns = new LinkedHashSet<>();
     classFqns.add(analysis.moduleFqn());
-    methodSignatures.add(analysis.moduleFqn() + "." + Labels.INIT + "()");
+    methodSignatures.add(
+        analysis.moduleFqn() + Const.Symbols.DOT + Labels.INIT + Const.Symbols.PARENS);
     for (CtagsAnalysis.TypeDecl type : analysis.types()) {
       if (type.interfaceLike()) {
         interfaceFqns.add(type.fqn());
       } else {
         classFqns.add(type.fqn());
         if (hasSyntheticConstructor(type)) {
-          methodSignatures.add(type.fqn() + "." + Labels.INIT + "()");
+          methodSignatures.add(type.fqn() + Const.Symbols.DOT + Labels.INIT + Const.Symbols.PARENS);
         }
       }
     }
@@ -410,7 +423,8 @@ public final class CtagsLanguageAdapter implements LanguageAdapter<CtagsAnalysis
   }
 
   private static boolean hasSyntheticConstructor(CtagsAnalysis.TypeDecl type) {
-    String rawKind = type.rawKind() == null ? "" : type.rawKind().toLowerCase(Locale.ROOT);
+    String rawKind =
+        type.rawKind() == null ? Const.Symbols.EMPTY : type.rawKind().toLowerCase(Locale.ROOT);
     return Params.CLASS.equals(type.graphKind()) && Params.CLASS.equals(rawKind);
   }
 

@@ -1,5 +1,6 @@
 package io.github.ousatov.tools.memgraph.exe.analyze;
 
+import io.github.ousatov.tools.memgraph.def.Const;
 import io.github.ousatov.tools.memgraph.def.Const.SystemParams;
 import io.github.ousatov.tools.memgraph.exception.ProcessingException;
 import io.github.ousatov.tools.memgraph.exe.output.ConsoleStatusLine;
@@ -7,19 +8,11 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.nio.channels.FileChannel;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
-import java.time.Duration;
-import java.util.HexFormat;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -38,27 +31,24 @@ import org.slf4j.LoggerFactory;
  *
  * @author Oleksii Usatov
  */
-public final class ManagedNodeRuntime {
+public final class ManagedNodeRuntime extends ManagedHttpInstaller {
 
   public static final String DEFAULT_NODE_VERSION = "22.11.0";
 
   private static final Logger log = LoggerFactory.getLogger(ManagedNodeRuntime.class);
   private static final String NODE_DIST = "https://nodejs.org/dist/";
-  private static final Duration HTTP_TIMEOUT = Duration.ofMinutes(5);
-  private static final String INSTALL_LOCK_FILE = ".install.lock";
-  private static final String INSTALL_READY_FILE = ".install-complete";
+  private static final String INSTALL_LOCK_FILE = Const.Files.INSTALL_LOCK;
+  private static final String INSTALL_READY_FILE = Const.Files.INSTALL_COMPLETE;
   private static final ConcurrentMap<Path, Object> INSTALL_LOCKS = new ConcurrentHashMap<>();
 
   private final Path cacheRoot;
   private final String nodeVersion;
   private final RuntimeMode runtimeMode;
-  private final HttpClient http;
 
   public ManagedNodeRuntime(Path cacheRoot, String nodeVersion, RuntimeMode runtimeMode) {
-    this.cacheRoot = Objects.requireNonNull(cacheRoot, "cacheRoot");
+    this.cacheRoot = Objects.requireNonNull(cacheRoot, Const.Params.CACHE_ROOT);
     this.nodeVersion = normalizeVersion(nodeVersion);
-    this.runtimeMode = Objects.requireNonNull(runtimeMode, "runtimeMode");
-    this.http = HttpClient.newBuilder().connectTimeout(HTTP_TIMEOUT).build();
+    this.runtimeMode = Objects.requireNonNull(runtimeMode, Const.Params.RUNTIME_MODE);
   }
 
   public Path nodeExecutable() {
@@ -76,7 +66,8 @@ public final class ManagedNodeRuntime {
   }
 
   private Path systemNode() {
-    return Path.of(ManagedRuntimePlatform.isCurrentWindows() ? "node.exe" : "node");
+    return Path.of(
+        ManagedRuntimePlatform.isCurrentWindows() ? Const.Files.NODE_EXE : Const.SystemParams.NODE);
   }
 
   private void ensureManagedNodeInstalled(
@@ -117,8 +108,15 @@ public final class ManagedNodeRuntime {
   private void installManagedNode(ManagedRuntimePlatform platform, Path installDir, Path executable)
       throws IOException {
     String archiveName = nodeArchiveName(platform, nodeVersion);
-    URI archiveUri = URI.create(NODE_DIST + "v" + nodeVersion + "/" + archiveName);
-    URI sumsUri = URI.create(NODE_DIST + "v" + nodeVersion + "/SHASUMS256.txt");
+    URI archiveUri =
+        URI.create(
+            NODE_DIST
+                + Const.SystemParams.VERSION_PREFIX
+                + nodeVersion
+                + Const.Symbols.SLASH
+                + archiveName);
+    URI sumsUri =
+        URI.create(NODE_DIST + Const.SystemParams.VERSION_PREFIX + nodeVersion + "/SHASUMS256.txt");
     ConsoleStatusLine.withFinishedLine(
         System.err,
         () ->
@@ -129,12 +127,16 @@ public final class ManagedNodeRuntime {
                 .log());
     try (ManagedRuntimeLoadingIndicator indicator =
         ManagedRuntimeLoadingIndicator.start(
-            "Node.js " + nodeVersion + " (" + nodeId(platform) + ")")) {
+            "Node.js "
+                + nodeVersion
+                + Const.Symbols.SPACE_LEFT_PAREN
+                + nodeId(platform)
+                + Const.Symbols.RIGHT_PAREN)) {
       byte[] archive = download(archiveUri);
-      verifySha256(archive, archiveName, downloadText(sumsUri));
+      verifySha256(archive, archiveName, downloadText(sumsUri), "Node.js");
       extractNodeArchive(archiveName, archive, installDir);
       if (!Files.isExecutable(executable)) {
-        @SuppressWarnings("java:S899")
+        @SuppressWarnings(Const.Warnings.IGNORED_RETURN_VALUE)
         var _ = executable.toFile().setExecutable(true, true);
       }
       if (!Files.isExecutable(executable)) {
@@ -146,11 +148,14 @@ public final class ManagedNodeRuntime {
   }
 
   private Path cachedNodeExecutable(ManagedRuntimePlatform platform, Path installDir) {
-    return installDir.resolve(platform.executableName("bin/node", "node.exe"));
+    return installDir.resolve(platform.executableName("bin/node", Const.Files.NODE_EXE));
   }
 
   private Path installDir(ManagedRuntimePlatform platform) {
-    return cacheRoot.resolve("node").resolve(nodeVersion).resolve(nodeId(platform));
+    return cacheRoot
+        .resolve(Const.SystemParams.NODE)
+        .resolve(nodeVersion)
+        .resolve(nodeId(platform));
   }
 
   private boolean isManagedNodeReady(Path executable, Path installDir) {
@@ -166,62 +171,9 @@ public final class ManagedNodeRuntime {
         StandardOpenOption.TRUNCATE_EXISTING);
   }
 
-  private static Path lockKey(Path installDir) {
-    return installDir.toAbsolutePath().normalize();
-  }
-
-  private byte[] download(URI uri) throws IOException {
-    try {
-      HttpRequest request = HttpRequest.newBuilder(uri).timeout(HTTP_TIMEOUT).GET().build();
-      HttpResponse<byte[]> response = http.send(request, HttpResponse.BodyHandlers.ofByteArray());
-      if (response.statusCode() / 100 != 2) {
-        throw new ProcessingException("Download failed (" + response.statusCode() + "): " + uri);
-      }
-      return response.body();
-    } catch (InterruptedException e) {
-      Thread.currentThread().interrupt();
-      throw new ProcessingException("Interrupted while downloading " + uri, e);
-    }
-  }
-
-  private String downloadText(URI uri) throws IOException {
-    return new String(download(uri), StandardCharsets.UTF_8);
-  }
-
-  private static void verifySha256(byte[] content, String archiveName, String shasums) {
-    String expected =
-        shasums
-            .lines()
-            .map(String::trim)
-            .filter(line -> line.endsWith("  " + archiveName))
-            .map(line -> line.substring(0, line.indexOf(' ')))
-            .findFirst()
-            .orElseThrow(
-                () -> new ProcessingException("No Node.js checksum found for " + archiveName));
-    String actual = sha256(content);
-    if (!expected.equalsIgnoreCase(actual)) {
-      throw new ProcessingException(
-          "Node.js checksum mismatch for "
-              + archiveName
-              + ": expected "
-              + expected
-              + ", got "
-              + actual);
-    }
-  }
-
-  private static String sha256(byte[] content) {
-    try {
-      MessageDigest digest = MessageDigest.getInstance("SHA-256");
-      return HexFormat.of().formatHex(digest.digest(content));
-    } catch (NoSuchAlgorithmException e) {
-      throw new ProcessingException("SHA-256 is not available", e);
-    }
-  }
-
   private static void extractNodeArchive(String archiveName, byte[] archive, Path installDir)
       throws IOException {
-    if (archiveName.endsWith(".zip")) {
+    if (archiveName.endsWith(Const.Files.ZIP)) {
       try (ZipInputStream in = new ZipInputStream(new ByteArrayInputStream(archive))) {
         ZipEntry entry;
         while ((entry = in.getNextEntry()) != null) {
@@ -245,7 +197,7 @@ public final class ManagedNodeRuntime {
 
   private static InputStream compressedInput(String archiveName, InputStream raw)
       throws IOException {
-    return archiveName.endsWith(".tar.xz")
+    return archiveName.endsWith(Const.Files.TAR_XZ)
         ? new XZCompressorInputStream(raw)
         : new GZIPInputStream(raw);
   }
@@ -283,29 +235,31 @@ public final class ManagedNodeRuntime {
     if (home == null || home.isBlank()) {
       return Path.of(".memgraph-ingester-cache");
     }
-    return Path.of(home, ".cache", "memgraph-ingester");
+    return Path.of(home, ".cache", Const.SystemParams.MEMGRAPH_INGESTER);
   }
 
   private static String normalizeVersion(String version) {
     String normalized =
         version == null || version.isBlank() ? DEFAULT_NODE_VERSION : version.trim();
-    return normalized.startsWith("v") ? normalized.substring(1) : normalized;
+    return normalized.startsWith(Const.SystemParams.VERSION_PREFIX)
+        ? normalized.substring(1)
+        : normalized;
   }
 
   private static String nodeArchiveName(ManagedRuntimePlatform platform, String version) {
-    return "node-v" + version + "-" + nodeId(platform) + nodeArchiveSuffix(platform);
+    return "node-v" + version + Const.Symbols.DASH + nodeId(platform) + nodeArchiveSuffix(platform);
   }
 
   private static String nodeId(ManagedRuntimePlatform platform) {
-    return nodeOs(platform) + "-" + nodeArch(platform);
+    return nodeOs(platform) + Const.Symbols.DASH + nodeArch(platform);
   }
 
   private static String nodeOs(ManagedRuntimePlatform platform) {
     if (platform.isWindows()) {
-      return "win";
+      return Const.SystemParams.WINDOWS_PREFIX;
     }
     if (platform.isMacos()) {
-      return "darwin";
+      return Const.SystemParams.DARWIN;
     }
     return "linux";
   }
@@ -319,10 +273,10 @@ public final class ManagedNodeRuntime {
   }
 
   private static @NonNull String nodeArchiveSuffix(ManagedRuntimePlatform platform) {
-    return platform.isWindows() ? ".zip" : getExtension(platform);
+    return platform.isWindows() ? Const.Files.ZIP : getExtension(platform);
   }
 
   private static @NonNull String getExtension(ManagedRuntimePlatform platform) {
-    return platform.isLinux() ? ".tar.xz" : ".tar.gz";
+    return platform.isLinux() ? Const.Files.TAR_XZ : Const.Files.TAR_GZ;
   }
 }

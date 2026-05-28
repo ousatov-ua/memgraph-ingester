@@ -1,5 +1,6 @@
 package io.github.ousatov.tools.memgraph.exe.adapter;
 
+import io.github.ousatov.tools.memgraph.def.Const;
 import io.github.ousatov.tools.memgraph.exception.ProcessingException;
 import io.github.ousatov.tools.memgraph.exe.writer.GraphWriter;
 import java.io.IOException;
@@ -60,7 +61,7 @@ public interface LanguageAdapter<T> {
   /** Returns true when discovery should descend into {@code directory}. */
   default boolean shouldVisitDirectory(Path directory) {
     Path fileName = directory.getFileName();
-    return fileName == null || !"node_modules".equals(fileName.toString());
+    return fileName == null || !Const.Files.NODE_MODULES.equals(fileName.toString());
   }
 
   /** Returns {@code path} as a source-root-local path when both paths are compatible. */

@@ -1,5 +1,6 @@
 package io.github.ousatov.tools.memgraph.exe.metrics;
 
+import io.github.ousatov.tools.memgraph.def.Const;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -62,6 +63,9 @@ public final class MetricsSnapshotValidator {
   }
 
   private static String normalize(String value) {
-    return value.replace("\r\n", "\n").replace('\r', '\n').stripTrailing();
+    return value
+        .replace(Const.Symbols.CRLF, Const.Symbols.NEW_LINE)
+        .replace('\r', '\n')
+        .stripTrailing();
   }
 }

@@ -1,5 +1,6 @@
 package io.github.ousatov.tools.memgraph.exe.rag;
 
+import io.github.ousatov.tools.memgraph.def.Const;
 import io.github.ousatov.tools.memgraph.def.Const.Params;
 import io.github.ousatov.tools.memgraph.exe.analyze.CtagsAnalysis;
 import io.github.ousatov.tools.memgraph.exe.rag.CodeChunkAnalysis.MemberChunk;
@@ -39,7 +40,7 @@ public final class CtagsCodeChunkBuilder extends CommonCodeChunkBuilder<CtagsAna
 
   private static TypeChunk typeChunk(CtagsAnalysis.TypeDecl type) {
     return new TypeChunk(
-        type.interfaceLike() ? "Interface" : "Class",
+        type.interfaceLike() ? Const.Labels.INTERFACE : Const.Labels.CLASS,
         type.fqn(),
         type.fqn(),
         type.name(),

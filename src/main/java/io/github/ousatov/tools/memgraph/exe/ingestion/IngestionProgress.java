@@ -1,5 +1,6 @@
 package io.github.ousatov.tools.memgraph.exe.ingestion;
 
+import io.github.ousatov.tools.memgraph.def.Const;
 import io.github.ousatov.tools.memgraph.exe.output.ConsoleStatusLine;
 import java.io.PrintStream;
 import java.util.Objects;
@@ -28,7 +29,7 @@ final class IngestionProgress implements AutoCloseable {
   private IngestionProgress(int total, PrintStream out, boolean interactive) {
     this.total = total;
     this.step = Math.clamp(total / PROGRESS_DIVISOR, 1, 100);
-    this.out = Objects.requireNonNull(out, "out");
+    this.out = Objects.requireNonNull(out, Const.Params.OUT);
     this.interactive = interactive;
     this.statusSession = interactive ? ConsoleStatusLine.openStatusSession(out) : null;
   }
@@ -37,7 +38,7 @@ final class IngestionProgress implements AutoCloseable {
     if (closed || total == 0 || (done % step != 0 && done != total)) {
       return;
     }
-    String text = "Progress: " + done + "/" + total;
+    String text = "Progress: " + done + Const.Symbols.SLASH + total;
     if (interactive) {
       if (ConsoleStatusLine.hasExclusiveStatus(out)) {
         return;

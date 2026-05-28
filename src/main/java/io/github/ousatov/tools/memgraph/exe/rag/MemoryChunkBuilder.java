@@ -1,5 +1,6 @@
 package io.github.ousatov.tools.memgraph.exe.rag;
 
+import io.github.ousatov.tools.memgraph.def.Const;
 import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.MemoryChunkWrite;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -49,13 +50,15 @@ public final class MemoryChunkBuilder {
   }
 
   private static String chunkId(MemorySource source) {
-    String existing = Objects.toString(source.existingChunkId(), "").strip();
-    return existing.isBlank() ? "MCH-" + source.sourceLabel() + "-" + source.sourceId() : existing;
+    String existing = Objects.toString(source.existingChunkId(), Const.Symbols.EMPTY).strip();
+    return existing.isBlank()
+        ? "MCH-" + source.sourceLabel() + Const.Symbols.DASH + source.sourceId()
+        : existing;
   }
 
   private static String text(MemorySource source) {
     StringBuilder builder = new StringBuilder();
-    builder.append(source.sourceLabel()).append(": ");
+    builder.append(source.sourceLabel()).append(Const.Symbols.COLON_SPACE);
     builder.append(blankToDefault(source.title(), source.sourceId())).append('\n');
     appendField(builder, "ID", source.sourceId());
     appendField(builder, "Topic", source.topic());
@@ -86,7 +89,10 @@ public final class MemoryChunkBuilder {
             ? List.of()
             : codeRefs.stream().filter(ref -> ref != null && !ref.isBlank()).sorted().toList();
     if (!refs.isEmpty()) {
-      builder.append("CodeRefs: ").append(String.join(", ", refs)).append('\n');
+      builder
+          .append("CodeRefs: ")
+          .append(String.join(Const.Symbols.COMMA_SPACE, refs))
+          .append('\n');
     }
   }
 
@@ -99,20 +105,20 @@ public final class MemoryChunkBuilder {
   }
 
   private static void append(StringBuilder builder, String label, String value) {
-    String cleaned = Objects.toString(value, "").strip();
+    String cleaned = Objects.toString(value, Const.Symbols.EMPTY).strip();
     if (!cleaned.isBlank()) {
-      builder.append(label).append(": ").append(cleaned).append('\n');
+      builder.append(label).append(Const.Symbols.COLON_SPACE).append(cleaned).append('\n');
     }
   }
 
   private static String blankToDefault(String value, String fallback) {
-    String cleaned = Objects.toString(value, "").strip();
+    String cleaned = Objects.toString(value, Const.Symbols.EMPTY).strip();
     return cleaned.isBlank() ? fallback : cleaned;
   }
 
   private static String sha256(String text) {
     try {
-      MessageDigest digest = MessageDigest.getInstance("SHA-256");
+      MessageDigest digest = MessageDigest.getInstance(Const.SystemParams.SHA_256);
       return HexFormat.of().formatHex(digest.digest(text.getBytes(StandardCharsets.UTF_8)));
     } catch (NoSuchAlgorithmException e) {
       throw new IllegalStateException("SHA-256 is unavailable", e);

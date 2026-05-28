@@ -1,5 +1,6 @@
 package io.github.ousatov.tools.memgraph.exe.metrics;
 
+import io.github.ousatov.tools.memgraph.def.Const;
 import io.github.ousatov.tools.memgraph.def.Const.Labels;
 import io.github.ousatov.tools.memgraph.def.Const.Params;
 import io.github.ousatov.tools.memgraph.exception.ProcessingException;
@@ -17,7 +18,7 @@ import org.neo4j.driver.Session;
  */
 public final class IngestionMetricsCollector {
 
-  private static final String VALUE = "value";
+  private static final String VALUE = Const.Params.VALUE;
   private static final String RESOURCE_BASE = "/io/github/ousatov/tools/memgraph/cypher/metrics/";
 
   private static final List<MetricQuery> QUERIES =

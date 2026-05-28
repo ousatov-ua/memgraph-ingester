@@ -1,5 +1,6 @@
 package io.github.ousatov.tools.memgraph.exe.analyze;
 
+import io.github.ousatov.tools.memgraph.def.Const;
 import io.github.ousatov.tools.memgraph.def.Const.SystemParams;
 import io.github.ousatov.tools.memgraph.exception.ProcessingException;
 import java.io.ByteArrayInputStream;
@@ -47,8 +48,8 @@ public final class ManagedCtagsRuntime {
   public static final String DEFAULT_CTAGS_VERSION = "latest";
   private static final String GITHUB_BASE_URL = "https://github.com";
   private static final String CTAGS_ENV = "MEMGRAPH_INGESTER_CTAGS";
-  private static final String INSTALL_LOCK_FILE = ".install.lock";
-  private static final String INSTALL_READY_FILE = ".install-complete";
+  private static final String INSTALL_LOCK_FILE = Const.Files.INSTALL_LOCK;
+  private static final String INSTALL_READY_FILE = Const.Files.INSTALL_COMPLETE;
   private static final Duration HTTP_TIMEOUT = Duration.ofSeconds(30);
   private static final Pattern RELEASE_TAG_PATTERN =
       Pattern.compile("\"tag_name\"\\s*:\\s*\"([^\"]+)\"");
@@ -73,8 +74,8 @@ public final class ManagedCtagsRuntime {
   private static final ConcurrentMap<String, Object> INSTALL_LOCKS = new ConcurrentHashMap<>();
   public static final String CTAGS_EXE = "ctags.exe";
   public static final String RELEASE = ".release";
-  public static final String CTAGS = "ctags";
-  public static final String MEMGRAPH_INGESTER = "memgraph-ingester";
+  public static final String CTAGS = Const.SystemParams.CTAGS;
+  public static final String MEMGRAPH_INGESTER = Const.SystemParams.MEMGRAPH_INGESTER;
   public static final String USER_AGENT = "User-Agent";
 
   private final Path cacheRoot;
@@ -83,9 +84,9 @@ public final class ManagedCtagsRuntime {
   private final HttpClient http;
 
   public ManagedCtagsRuntime(Path cacheRoot, String ctagsVersion, RuntimeMode runtimeMode) {
-    this.cacheRoot = Objects.requireNonNull(cacheRoot, "cacheRoot");
+    this.cacheRoot = Objects.requireNonNull(cacheRoot, Const.Params.CACHE_ROOT);
     this.ctagsVersion = normalizeVersion(ctagsVersion);
-    this.runtimeMode = Objects.requireNonNull(runtimeMode, "runtimeMode");
+    this.runtimeMode = Objects.requireNonNull(runtimeMode, Const.Params.RUNTIME_MODE);
     this.http =
         HttpClient.newBuilder()
             .connectTimeout(HTTP_TIMEOUT)
@@ -150,7 +151,11 @@ public final class ManagedCtagsRuntime {
     }
     try (ManagedRuntimeLoadingIndicator indicator =
         ManagedRuntimeLoadingIndicator.start(
-            "Universal Ctags " + ctagsVersion + " (" + ctagsId(platform) + ")")) {
+            "Universal Ctags "
+                + ctagsVersion
+                + Const.Symbols.SPACE_LEFT_PAREN
+                + ctagsId(platform)
+                + Const.Symbols.RIGHT_PAREN)) {
       ReleaseAsset asset = releaseAsset(platform);
       Path installDir = installDir(asset.tag(), platform);
       Path executable = cachedExecutable(asset.tag(), platform);
@@ -192,7 +197,8 @@ public final class ManagedCtagsRuntime {
 
   private Optional<Path> cachedCtagsInTagDir(Path tagDir, ManagedRuntimePlatform platform) {
     Path installDir = tagDir.resolve(ctagsId(platform));
-    Path executable = installDir.resolve("bin").resolve(platform.executableName(CTAGS, CTAGS_EXE));
+    Path executable =
+        installDir.resolve(Const.Files.BIN).resolve(platform.executableName(CTAGS, CTAGS_EXE));
     return isManagedCtagsReady(executable, installDir) ? Optional.of(executable) : Optional.empty();
   }
 
@@ -227,7 +233,10 @@ public final class ManagedCtagsRuntime {
           executable.toFile().setExecutable(true, true);
           Files.writeString(
               installDir.resolve(INSTALL_READY_FILE),
-              asset.name() + "\n" + asset.digest().orElse("") + "\n",
+              asset.name()
+                  + Const.Symbols.NEW_LINE
+                  + asset.digest().orElse(Const.Symbols.EMPTY)
+                  + Const.Symbols.NEW_LINE,
               StandardCharsets.UTF_8,
               StandardOpenOption.CREATE,
               StandardOpenOption.TRUNCATE_EXISTING);
@@ -306,7 +315,8 @@ public final class ManagedCtagsRuntime {
   }
 
   private Release fetchLatestReleaseFromGithubPage(String repository) {
-    URI latestUri = URI.create(GITHUB_BASE_URL + "/" + repository + "/releases/latest");
+    URI latestUri =
+        URI.create(GITHUB_BASE_URL + Const.Symbols.SLASH + repository + "/releases/latest");
     HttpRequest request =
         HttpRequest.newBuilder(latestUri)
             .timeout(HTTP_TIMEOUT)
@@ -339,7 +349,12 @@ public final class ManagedCtagsRuntime {
   private Release fetchReleaseAssetsFromGithubPage(String repository, String tag) {
     String encodedTag = URLEncoder.encode(tag, StandardCharsets.UTF_8);
     URI assetsUri =
-        URI.create(GITHUB_BASE_URL + "/" + repository + "/releases/expanded_assets/" + encodedTag);
+        URI.create(
+            GITHUB_BASE_URL
+                + Const.Symbols.SLASH
+                + repository
+                + "/releases/expanded_assets/"
+                + encodedTag);
     HttpRequest request =
         HttpRequest.newBuilder(assetsUri)
             .timeout(HTTP_TIMEOUT)
@@ -383,7 +398,7 @@ public final class ManagedCtagsRuntime {
     java.util.List<ReleaseAsset> assets = new java.util.ArrayList<>();
     while (assetMatcher.find()) {
       Optional<String> digest =
-          "null".equals(assetMatcher.group(2))
+          Const.SystemParams.NULL.equals(assetMatcher.group(2))
               ? Optional.empty()
               : Optional.of(assetMatcher.group(3));
       assets.add(
@@ -464,8 +479,8 @@ public final class ManagedCtagsRuntime {
     Optional<String> expected =
         asset
             .digest()
-            .filter(digest -> digest.startsWith("sha256:"))
-            .map(digest -> digest.substring("sha256:".length()));
+            .filter(digest -> digest.startsWith(Const.SystemParams.SHA_256_PREFIX))
+            .map(digest -> digest.substring(Const.SystemParams.SHA_256_PREFIX.length()));
     if (expected.isEmpty()) {
       log.warn(
           "Skipping checksum verification for Universal Ctags asset {} because the release did"
@@ -487,7 +502,8 @@ public final class ManagedCtagsRuntime {
 
   private static String sha256(byte[] bytes) {
     try {
-      return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes));
+      return HexFormat.of()
+          .formatHex(MessageDigest.getInstance(Const.SystemParams.SHA_256).digest(bytes));
     } catch (NoSuchAlgorithmException e) {
       throw new ProcessingException("SHA-256 is not available", e);
     }
@@ -495,14 +511,14 @@ public final class ManagedCtagsRuntime {
 
   private static void extractArchive(
       String name, byte[] archive, Path installDir, String executableName) throws IOException {
-    if (name.endsWith(".zip")) {
+    if (name.endsWith(Const.Files.ZIP)) {
       extractZip(archive, installDir, executableName);
-    } else if (name.endsWith(".tar.xz")) {
+    } else if (name.endsWith(Const.Files.TAR_XZ)) {
       extractTar(
           new XZCompressorInputStream(new ByteArrayInputStream(archive)),
           installDir,
           executableName);
-    } else if (name.endsWith(".tar.gz")) {
+    } else if (name.endsWith(Const.Files.TAR_GZ)) {
       extractTar(
           new java.util.zip.GZIPInputStream(new ByteArrayInputStream(archive)),
           installDir,
@@ -571,19 +587,19 @@ public final class ManagedCtagsRuntime {
 
   private Path cachedExecutable(String tag, ManagedRuntimePlatform platform) {
     return installDir(tag, platform)
-        .resolve("bin")
+        .resolve(Const.Files.BIN)
         .resolve(platform.executableName(CTAGS, CTAGS_EXE));
   }
 
   private static String ctagsId(ManagedRuntimePlatform platform) {
-    return platform.os() + "-" + platform.arch();
+    return platform.os() + Const.Symbols.DASH + platform.arch();
   }
 
   private static String ctagsAssetDescription(ManagedRuntimePlatform platform) {
     if (platform.isWindows()) {
       return platform.arch().equals(SystemParams.X86) ? "-x86.zip" : "-x64.zip";
     }
-    return platform.os() + "-" + ctagsReleaseArch(platform) + RELEASE;
+    return platform.os() + Const.Symbols.DASH + ctagsReleaseArch(platform) + RELEASE;
   }
 
   private static boolean ctagsAssetMatches(ManagedRuntimePlatform platform, String name) {
@@ -591,9 +607,10 @@ public final class ManagedCtagsRuntime {
       return name.contains(ctagsAssetDescription(platform));
     }
     if (platform.isMacos()) {
-      return name.contains("macos-") && name.contains("-" + ctagsReleaseArch(platform) + RELEASE);
+      return name.contains("macos-")
+          && name.contains(Const.Symbols.DASH + ctagsReleaseArch(platform) + RELEASE);
     }
-    return name.contains(platform.os() + "-" + ctagsReleaseArch(platform) + RELEASE);
+    return name.contains(platform.os() + Const.Symbols.DASH + ctagsReleaseArch(platform) + RELEASE);
   }
 
   private static String ctagsReleaseArch(ManagedRuntimePlatform platform) {
@@ -604,7 +621,7 @@ public final class ManagedCtagsRuntime {
   }
 
   private static String ctagsArchiveSuffix(ManagedRuntimePlatform platform) {
-    return platform.isWindows() ? ".zip" : ".tar.xz";
+    return platform.isWindows() ? Const.Files.ZIP : Const.Files.TAR_XZ;
   }
 
   private static String normalizeVersion(String version) {
@@ -616,11 +633,14 @@ public final class ManagedCtagsRuntime {
   }
 
   private static String unescapeJson(String value) {
-    return value.replace("\\/", "/").replace("\\\"", "\"").replace("\\\\", "\\");
+    return value
+        .replace("\\/", Const.Symbols.SLASH)
+        .replace("\\\"", Const.Symbols.DOUBLE_QUOTE)
+        .replace("\\\\", "\\");
   }
 
   private static String unescapeHtml(String value) {
-    return value.replace("&amp;", "&").replace("&quot;", "\"");
+    return value.replace("&amp;", "&").replace("&quot;", Const.Symbols.DOUBLE_QUOTE);
   }
 
   record Release(String tag, java.util.List<ReleaseAsset> assets) {}

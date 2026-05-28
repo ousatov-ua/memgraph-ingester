@@ -1,5 +1,6 @@
 package io.github.ousatov.tools.memgraph.exe.adapter;
 
+import io.github.ousatov.tools.memgraph.def.Const;
 import io.github.ousatov.tools.memgraph.exe.analyze.CtagsAnalyzer;
 import io.github.ousatov.tools.memgraph.exe.analyze.JsAnalyzer;
 import io.github.ousatov.tools.memgraph.exe.analyze.ManagedCtagsRuntime;
@@ -62,17 +63,17 @@ public final class LanguageAdapterFactory {
   }
 
   /** JavaScript parser runtime settings. */
-  @SuppressWarnings("java:S1186")
+  @SuppressWarnings(Const.Warnings.EMPTY_METHOD)
   public record JsRuntimeOptions(
       Path cacheRoot, String nodeVersion, String typescriptVersion, RuntimeMode runtimeMode) {}
 
   /** Python parser runtime settings. */
-  @SuppressWarnings("java:S1186")
+  @SuppressWarnings(Const.Warnings.EMPTY_METHOD)
   public record PythonRuntimeOptions(
       Path cacheRoot, String pythonVersion, String pythonBuild, RuntimeMode runtimeMode) {}
 
   /** Universal Ctags parser runtime settings. */
-  @SuppressWarnings("java:S1186")
+  @SuppressWarnings(Const.Warnings.EMPTY_METHOD)
   public record CtagsRuntimeOptions(Path cacheRoot, String ctagsVersion, RuntimeMode runtimeMode) {}
 
   private static List<Path> classpathEntries(String classpath) {

@@ -1,22 +1,18 @@
 package io.github.ousatov.tools.memgraph.exe.analyze;
 
+import io.github.ousatov.tools.memgraph.def.Const;
 import io.github.ousatov.tools.memgraph.exception.ProcessingException;
 import io.github.ousatov.tools.memgraph.exe.output.ConsoleStatusLine;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.nio.channels.FileChannel;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.time.Duration;
 import java.util.Base64;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
@@ -29,37 +25,34 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /** Downloads, verifies, and caches the pinned TypeScript compiler package used by the JS helper. */
-public final class ManagedTypescriptPackage {
+public final class ManagedTypescriptPackage extends ManagedHttpInstaller {
 
   public static final String DEFAULT_TYPESCRIPT_VERSION = "5.6.3";
 
   private static final Logger log = LoggerFactory.getLogger(ManagedTypescriptPackage.class);
-  private static final Duration HTTP_TIMEOUT = Duration.ofMinutes(5);
   private static final Pattern TARBALL_PATTERN =
       Pattern.compile("\"tarball\"\\s*:\\s*\"([^\"]+)\"");
   private static final Pattern INTEGRITY_PATTERN =
       Pattern.compile("\"integrity\"\\s*:\\s*\"sha512-([^\"]+)\"");
   public static final String PACKAGE = "package/";
-  private static final String INSTALL_LOCK_FILE = ".install.lock";
-  private static final String INSTALL_READY_FILE = ".install-complete";
+  private static final String INSTALL_LOCK_FILE = Const.Files.INSTALL_LOCK;
+  private static final String INSTALL_READY_FILE = Const.Files.INSTALL_COMPLETE;
   private static final String TYPESCRIPT_COMPILER = "lib/typescript.js";
   private static final ConcurrentMap<Path, Object> INSTALL_LOCKS = new ConcurrentHashMap<>();
 
   private final Path cacheRoot;
   private final String version;
   private final RuntimeMode runtimeMode;
-  private final HttpClient http;
 
   public ManagedTypescriptPackage(Path cacheRoot, String version, RuntimeMode runtimeMode) {
-    this.cacheRoot = Objects.requireNonNull(cacheRoot, "cacheRoot");
+    this.cacheRoot = Objects.requireNonNull(cacheRoot, Const.Params.CACHE_ROOT);
     this.version = normalizeVersion(version);
-    this.runtimeMode = Objects.requireNonNull(runtimeMode, "runtimeMode");
-    this.http = HttpClient.newBuilder().connectTimeout(HTTP_TIMEOUT).build();
+    this.runtimeMode = Objects.requireNonNull(runtimeMode, Const.Params.RUNTIME_MODE);
   }
 
   public Path nodeModulesDir() {
-    Path nodeModules = cacheRoot.resolve("node_modules").resolve("typescript-" + version);
-    Path typescriptDir = nodeModules.resolve("typescript");
+    Path nodeModules = cacheRoot.resolve(Const.Files.NODE_MODULES).resolve("typescript-" + version);
+    Path typescriptDir = nodeModules.resolve(Const.SystemParams.TYPESCRIPT);
     if (isTypescriptReady(typescriptDir)) {
       return nodeModules;
     }
@@ -115,14 +108,12 @@ public final class ManagedTypescriptPackage {
         StandardOpenOption.TRUNCATE_EXISTING);
   }
 
-  private static Path lockKey(Path typescriptDir) {
-    return typescriptDir.toAbsolutePath().normalize();
-  }
-
   private static String normalizeVersion(String version) {
     String normalized =
         version == null || version.isBlank() ? DEFAULT_TYPESCRIPT_VERSION : version.trim();
-    return normalized.startsWith("v") ? normalized.substring(1) : normalized;
+    return normalized.startsWith(Const.SystemParams.VERSION_PREFIX)
+        ? normalized.substring(1)
+        : normalized;
   }
 
   private void install(Path typescriptDir) throws IOException {
@@ -138,24 +129,6 @@ public final class ManagedTypescriptPackage {
       throw new ProcessingException("TypeScript compiler was not created: " + typescriptDir);
     }
     markTypescriptReady(typescriptDir);
-  }
-
-  private byte[] download(URI uri) throws IOException {
-    try {
-      HttpRequest request = HttpRequest.newBuilder(uri).timeout(HTTP_TIMEOUT).GET().build();
-      HttpResponse<byte[]> response = http.send(request, HttpResponse.BodyHandlers.ofByteArray());
-      if (response.statusCode() / 100 != 2) {
-        throw new ProcessingException("Download failed (" + response.statusCode() + "): " + uri);
-      }
-      return response.body();
-    } catch (InterruptedException e) {
-      Thread.currentThread().interrupt();
-      throw new ProcessingException("Interrupted while downloading " + uri, e);
-    }
-  }
-
-  private String downloadText(URI uri) throws IOException {
-    return new String(download(uri), StandardCharsets.UTF_8);
   }
 
   private static String extract(String input, Pattern pattern, String description) {
@@ -178,7 +151,7 @@ public final class ManagedTypescriptPackage {
     }
   }
 
-  @SuppressWarnings("java:S135")
+  @SuppressWarnings(Const.Warnings.LOOP_CONTROL)
   private static void extractTgz(byte[] archive, Path targetDir) throws IOException {
     Path targetRoot = targetDir.toAbsolutePath().normalize();
     try (var gzip = new GZIPInputStream(new ByteArrayInputStream(archive));

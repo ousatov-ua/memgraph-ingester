@@ -1,6 +1,7 @@
 package io.github.ousatov.tools.memgraph.exe.writer;
 
 import com.github.javaparser.ast.Node;
+import io.github.ousatov.tools.memgraph.def.Const;
 import io.github.ousatov.tools.memgraph.def.Const.Cypher;
 import io.github.ousatov.tools.memgraph.def.Const.Params;
 import io.github.ousatov.tools.memgraph.exe.adapter.SourceLanguage;
@@ -42,7 +43,7 @@ public class CommonGraphWriter {
     cypher.run(query, params);
   }
 
-  @SuppressWarnings("java:S107")
+  @SuppressWarnings(Const.Warnings.TOO_MANY_PARAMETERS)
   protected void upsertClassNode(
       Path file,
       String pkg,
@@ -75,7 +76,7 @@ public class CommonGraphWriter {
             Map.entry(Params.FRAMEWORK, framework)));
   }
 
-  @SuppressWarnings("java:S107")
+  @SuppressWarnings(Const.Warnings.TOO_MANY_PARAMETERS)
   protected void upsertClassNode(
       Path file,
       String pkg,
@@ -98,11 +99,11 @@ public class CommonGraphWriter {
         isFinal,
         JAVA_LANGUAGE,
         classKind(isEnum, isRecord),
-        "",
-        "");
+        Const.Symbols.EMPTY,
+        Const.Symbols.EMPTY);
   }
 
-  @SuppressWarnings("java:S107")
+  @SuppressWarnings(Const.Warnings.TOO_MANY_PARAMETERS)
   protected void upsertInterfaceNode(
       Path file,
       String pkg,
@@ -133,7 +134,16 @@ public class CommonGraphWriter {
   protected void upsertInterfaceNode(
       Path file, String pkg, String fqn, String name, boolean isAbstract, String visibility) {
     upsertInterfaceNode(
-        file, pkg, fqn, name, isAbstract, visibility, JAVA_LANGUAGE, Params.INTERFACE, "", "");
+        file,
+        pkg,
+        fqn,
+        name,
+        isAbstract,
+        visibility,
+        JAVA_LANGUAGE,
+        Params.INTERFACE,
+        Const.Symbols.EMPTY,
+        Const.Symbols.EMPTY);
   }
 
   protected void upsertAnnotationNode(
@@ -156,9 +166,9 @@ public class CommonGraphWriter {
             Params.KIND,
             Params.ANNOTATION,
             Params.MODULE_PATH,
-            "",
+            Const.Symbols.EMPTY,
             Params.FRAMEWORK,
-            ""));
+            Const.Symbols.EMPTY));
   }
 
   protected void upsertTypeRelation(

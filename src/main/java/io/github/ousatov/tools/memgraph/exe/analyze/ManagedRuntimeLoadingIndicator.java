@@ -1,5 +1,6 @@
 package io.github.ousatov.tools.memgraph.exe.analyze;
 
+import io.github.ousatov.tools.memgraph.def.Const;
 import io.github.ousatov.tools.memgraph.exe.output.ConsoleStatusLine;
 import java.io.PrintStream;
 import java.time.Duration;
@@ -60,7 +61,7 @@ final class ManagedRuntimeLoadingIndicator implements AutoCloseable {
   }
 
   private ManagedRuntimeLoadingIndicator(String runtimeName, PrintStream out, Duration interval) {
-    this.out = Objects.requireNonNull(out, "out");
+    this.out = Objects.requireNonNull(out, Const.Params.OUT);
     this.runtimeName = Objects.requireNonNull(runtimeName, "runtimeName");
     Objects.requireNonNull(interval, "interval");
     writeLine("Loading managed runtime: " + this.runtimeName + "...");
@@ -81,9 +82,9 @@ final class ManagedRuntimeLoadingIndicator implements AutoCloseable {
 
   private void writeFinal() {
     if (succeeded) {
-      writeLine("Loaded managed runtime: " + runtimeName + ".");
+      writeLine("Loaded managed runtime: " + runtimeName + Const.Symbols.DOT);
     } else {
-      writeLine("Failed to load managed runtime: " + runtimeName + ".");
+      writeLine("Failed to load managed runtime: " + runtimeName + Const.Symbols.DOT);
     }
   }
 

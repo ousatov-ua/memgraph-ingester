@@ -1,5 +1,6 @@
 package io.github.ousatov.tools.memgraph.exe.writer;
 
+import io.github.ousatov.tools.memgraph.def.Const;
 import io.github.ousatov.tools.memgraph.def.Const.Labels;
 import io.github.ousatov.tools.memgraph.exception.ProcessingException;
 import io.github.ousatov.tools.memgraph.exe.metrics.IngestionRunStats;
@@ -97,7 +98,7 @@ final class CypherExecutor {
     if (rows.isEmpty()) {
       return;
     }
-    Map<String, Object> allParams = paramsWithProject(Map.of("rows", rows));
+    Map<String, Object> allParams = paramsWithProject(Map.of(Const.Params.ROWS, rows));
     long backoffMs = INITIAL_BACKOFF_MS;
     for (int attempt = 1; attempt <= MAX_RETRY_ATTEMPTS; attempt++) {
       try {
@@ -141,7 +142,8 @@ final class CypherExecutor {
   }
 
   static boolean isRetryable(RuntimeException e) {
-    String msg = e.getMessage() == null ? "" : e.getMessage().toLowerCase(Locale.ROOT);
+    String msg =
+        e.getMessage() == null ? Const.Symbols.EMPTY : e.getMessage().toLowerCase(Locale.ROOT);
     return msg.contains("conflicting transactions")
         || msg.contains("deadlock")
         || msg.contains("serializationerror")

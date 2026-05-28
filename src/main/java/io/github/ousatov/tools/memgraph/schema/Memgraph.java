@@ -1,5 +1,6 @@
 package io.github.ousatov.tools.memgraph.schema;
 
+import io.github.ousatov.tools.memgraph.def.Const;
 import io.github.ousatov.tools.memgraph.def.Const.Labels;
 import io.github.ousatov.tools.memgraph.def.Const.Params;
 import io.github.ousatov.tools.memgraph.exception.ProcessingException;
@@ -125,7 +126,7 @@ public final class Memgraph {
     for (String raw : cypher.split(";[ \\t]*(?:\\r?\\n|$)")) {
       StringBuilder cleaned = new StringBuilder();
       for (String line : raw.split("\\r?\\n")) {
-        if (!line.stripLeading().startsWith("//")) {
+        if (!line.stripLeading().startsWith(Const.Symbols.DOUBLE_SLASH)) {
           if (!cleaned.isEmpty()) {
             cleaned.append('\n');
           }
@@ -166,28 +167,13 @@ public final class Memgraph {
    * @return true when the language-aware schema constraints are present
    */
   public static boolean hasLanguageScopedCodeSchema(Session session) {
-    boolean languageConstraint = false;
-    boolean codeConstraint = false;
-    boolean packageConstraint = false;
-    Result result = session.run("SHOW CONSTRAINT INFO");
-    while (result.hasNext()) {
-      var theRecord = result.next();
-      if (!"unique".equals(theRecord.get("constraint type").asString(""))) {
-        continue;
-      }
-      String label = theRecord.get("label").asString("");
-      List<String> properties = theRecord.get("properties").asList(Value::asString);
-      if (Labels.LANGUAGE.equals(label)
-          && hasSameProperties(properties, Labels.PROJECT, Params.NAME)) {
-        languageConstraint = true;
-      } else if (Labels.CODE.equals(label)
-          && hasSameProperties(properties, Labels.PROJECT, Params.LANGUAGE)) {
-        codeConstraint = true;
-      } else if (Labels.PACKAGE.equals(label)
-          && hasSameProperties(properties, Labels.PROJECT, Params.NAME, Params.LANGUAGE)) {
-        packageConstraint = true;
-      }
-    }
+    List<ConstraintInfo> constraints = uniqueConstraints(session);
+    boolean languageConstraint =
+        hasConstraint(constraints, Labels.LANGUAGE, Labels.PROJECT, Params.NAME);
+    boolean codeConstraint =
+        hasConstraint(constraints, Labels.CODE, Labels.PROJECT, Params.LANGUAGE);
+    boolean packageConstraint =
+        hasConstraint(constraints, Labels.PACKAGE, Labels.PROJECT, Params.NAME, Params.LANGUAGE);
     return languageConstraint && codeConstraint && packageConstraint;
   }
 
@@ -199,24 +185,11 @@ public final class Memgraph {
    *     present
    */
   public static boolean hasRagChunkSchema(Session session) {
-    boolean codeChunkConstraint = false;
-    boolean memoryChunkConstraint = false;
-    Result result = session.run("SHOW CONSTRAINT INFO");
-    while (result.hasNext()) {
-      var theRecord = result.next();
-      if (!"unique".equals(theRecord.get("constraint type").asString(""))) {
-        continue;
-      }
-      String label = theRecord.get("label").asString("");
-      List<String> properties = theRecord.get("properties").asList(Value::asString);
-      if (Labels.CODE_CHUNK.equals(label)
-          && hasSameProperties(properties, Params.ID, Labels.PROJECT)) {
-        codeChunkConstraint = true;
-      } else if (Labels.MEMORY_CHUNK.equals(label)
-          && hasSameProperties(properties, Params.ID, Labels.PROJECT)) {
-        memoryChunkConstraint = true;
-      }
-    }
+    List<ConstraintInfo> constraints = uniqueConstraints(session);
+    boolean codeChunkConstraint =
+        hasConstraint(constraints, Labels.CODE_CHUNK, Params.ID, Labels.PROJECT);
+    boolean memoryChunkConstraint =
+        hasConstraint(constraints, Labels.MEMORY_CHUNK, Params.ID, Labels.PROJECT);
     Set<String> indexes = labelPropertyIndexes(session);
     return codeChunkConstraint
         && memoryChunkConstraint
@@ -224,18 +197,18 @@ public final class Memgraph {
         && indexes.contains(indexKey(Labels.MEMORY_CHUNK, Params.SOURCE_LABEL))
         && indexes.contains(indexKey(Labels.MEMORY_CHUNK, Params.SOURCE_ID))
         && indexes.contains(indexKey(Labels.MEMORY_CHUNK, Params.TEXT_HASH))
-        && indexes.contains(indexKey(Labels.MEMORY_CHUNK, "embeddingModel"))
-        && indexes.contains(indexKey(Labels.MEMORY_CHUNK, "embeddingDimensions"))
+        && indexes.contains(indexKey(Labels.MEMORY_CHUNK, Const.Params.EMBEDDING_MODEL))
+        && indexes.contains(indexKey(Labels.MEMORY_CHUNK, Const.Params.EMBEDDING_DIMENSIONS))
         && indexes.contains(indexKey(Labels.CODE_CHUNK, Labels.PROJECT))
         && indexes.contains(indexKey(Labels.CODE_CHUNK, Params.SOURCE_LABEL))
         && indexes.contains(indexKey(Labels.CODE_CHUNK, Params.SOURCE_ID))
         && indexes.contains(indexKey(Labels.CODE_CHUNK, Params.TEXT_HASH))
-        && indexes.contains(indexKey(Labels.CODE_CHUNK, "embeddingModel"))
-        && indexes.contains(indexKey(Labels.CODE_CHUNK, "embeddingDimensions"))
+        && indexes.contains(indexKey(Labels.CODE_CHUNK, Const.Params.EMBEDDING_MODEL))
+        && indexes.contains(indexKey(Labels.CODE_CHUNK, Const.Params.EMBEDDING_DIMENSIONS))
         && indexes.contains(indexKey(Labels.CODE_CHUNK, Params.LANGUAGE))
         && indexes.contains(indexKey(Labels.CODE_CHUNK, Params.PATH))
         && indexes.contains(indexKey(Labels.CODE_CHUNK, Params.OWNER_FQN))
-        && indexes.contains(indexKey(Labels.CODE_CHUNK, "signature"));
+        && indexes.contains(indexKey(Labels.CODE_CHUNK, Const.Params.SIGNATURE));
   }
 
   /** Returns whether performance-critical single-property lookup indexes are present. */
@@ -249,14 +222,14 @@ public final class Memgraph {
         && indexes.contains(indexKey(Labels.CLASS, Params.FQN))
         && indexes.contains(indexKey(Labels.INTERFACE, Params.FQN))
         && indexes.contains(indexKey(Labels.ANNOTATION, Params.FQN))
-        && indexes.contains(indexKey(Labels.METHOD, "signature"))
+        && indexes.contains(indexKey(Labels.METHOD, Const.Params.SIGNATURE))
         && indexes.contains(indexKey(Labels.FIELD, Params.FQN))
         && indexes.contains(indexKey(Labels.PENDING_CALL, Params.CALLER_SIGNATURE))
         && indexes.contains(indexKey(Labels.PENDING_CALL, Params.CALLEE_NAME))
         && indexes.contains(indexKey(Labels.CODE_CHUNK, Params.ID))
-        && indexes.contains(indexKey(Labels.CODE_CHUNK, "embeddingDirty"))
+        && indexes.contains(indexKey(Labels.CODE_CHUNK, Const.Params.EMBEDDING_DIRTY))
         && indexes.contains(indexKey(Labels.MEMORY_CHUNK, Params.ID))
-        && indexes.contains(indexKey(Labels.MEMORY_CHUNK, "embeddingDirty"));
+        && indexes.contains(indexKey(Labels.MEMORY_CHUNK, Const.Params.EMBEDDING_DIRTY));
   }
 
   private static Set<String> labelPropertyIndexes(Session session) {
@@ -264,11 +237,11 @@ public final class Memgraph {
     Result result = session.run("SHOW INDEX INFO");
     while (result.hasNext()) {
       var record = result.next();
-      if (!"label+property".equals(record.get("index type").asString(""))) {
+      if (!"label+property".equals(record.get("index type").asString(Const.Symbols.EMPTY))) {
         continue;
       }
-      String label = record.get("label").asString("");
-      List<String> properties = record.get("property").asList(Value::asString);
+      String label = record.get(Const.Params.LABEL).asString(Const.Symbols.EMPTY);
+      List<String> properties = record.get(Const.Params.PROPERTY).asList(Value::asString);
       if (properties.size() == 1) {
         indexes.add(indexKey(label, properties.getFirst()));
       }
@@ -276,9 +249,37 @@ public final class Memgraph {
     return indexes;
   }
 
-  private static String indexKey(String label, String property) {
-    return label + "." + property;
+  private static List<ConstraintInfo> uniqueConstraints(Session session) {
+    List<ConstraintInfo> constraints = new ArrayList<>();
+    Result result = session.run(Const.Params.SHOW_CONSTRAINT_INFO);
+    while (result.hasNext()) {
+      var record = result.next();
+      if (!Const.Params.UNIQUE.equals(
+          record.get(Const.Params.CONSTRAINT_TYPE).asString(Const.Symbols.EMPTY))) {
+        continue;
+      }
+      constraints.add(
+          new ConstraintInfo(
+              record.get(Const.Params.LABEL).asString(Const.Symbols.EMPTY),
+              record.get(Const.Params.PROPERTIES).asList(Value::asString)));
+    }
+    return List.copyOf(constraints);
   }
+
+  private static boolean hasConstraint(
+      List<ConstraintInfo> constraints, String label, String... properties) {
+    return constraints.stream()
+        .anyMatch(
+            constraint ->
+                label.equals(constraint.label())
+                    && hasSameProperties(constraint.properties(), properties));
+  }
+
+  private static String indexKey(String label, String property) {
+    return label + Const.Symbols.DOT + property;
+  }
+
+  private record ConstraintInfo(String label, List<String> properties) {}
 
   static boolean hasSameProperties(List<String> actual, String... expected) {
     return actual.size() == expected.length && Set.copyOf(actual).equals(Set.of(expected));

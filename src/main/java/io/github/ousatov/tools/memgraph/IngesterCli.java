@@ -1,5 +1,6 @@
 package io.github.ousatov.tools.memgraph;
 
+import io.github.ousatov.tools.memgraph.def.Const;
 import io.github.ousatov.tools.memgraph.def.Const.Labels;
 import io.github.ousatov.tools.memgraph.def.Const.Params;
 import io.github.ousatov.tools.memgraph.exception.ProcessingException;
@@ -54,25 +55,25 @@ public final class IngesterCli implements Callable<Integer> {
   @Option(
       names = {"-s", "--source"},
       description = "Root source directory (e.g. src/main/java)")
-  @SuppressWarnings("unused")
+  @SuppressWarnings(Const.Warnings.UNUSED)
   private Path sourceRoot;
 
   @Option(
       names = {"-b", "--bolt"},
       description = "Bolt URL, e.g. bolt://host:7687")
-  @SuppressWarnings("unused")
+  @SuppressWarnings(Const.Warnings.UNUSED)
   private String boltUrl;
 
   @Option(
-      names = {"-u", "--user"},
-      defaultValue = "")
-  @SuppressWarnings("unused")
+      names = {Const.Cli.USER_SHORT, Const.Cli.USER},
+      defaultValue = Const.Symbols.EMPTY)
+  @SuppressWarnings(Const.Warnings.UNUSED)
   private String user;
 
   @Option(
-      names = {"-p", "--pass"},
-      defaultValue = "")
-  @SuppressWarnings("unused")
+      names = {Const.Cli.PASS_SHORT, Const.Cli.PASS},
+      defaultValue = Const.Symbols.EMPTY)
+  @SuppressWarnings(Const.Warnings.UNUSED)
   private String pass;
 
   @Option(
@@ -80,223 +81,223 @@ public final class IngesterCli implements Callable<Integer> {
       description =
           "Logical project name; namespaces all nodes so multiple "
               + "projects can share one Memgraph instance")
-  @SuppressWarnings("unused")
+  @SuppressWarnings(Const.Warnings.UNUSED)
   private String project;
 
   @Option(
       names = "--wipe-project-code",
       description = "Delete the code graph belonging to this project before ingesting")
-  @SuppressWarnings("unused")
+  @SuppressWarnings(Const.Warnings.UNUSED)
   private boolean wipeProjectCode;
 
   @Option(
       names = "--wipe-project-memories",
       description = "Delete the memory graph belonging to this project before ingesting")
-  @SuppressWarnings("unused")
+  @SuppressWarnings(Const.Warnings.UNUSED)
   private boolean wipeProjectMemories;
 
   @Option(
       names = "--wipe-code-rag",
       description = "Delete derived CodeChunk rows for this project before ingesting")
-  @SuppressWarnings("unused")
+  @SuppressWarnings(Const.Warnings.UNUSED)
   private boolean wipeCodeRag;
 
   @Option(
       names = "--wipe-memory-rag",
       description = "Delete derived MemoryChunk rows for this project before ingesting")
-  @SuppressWarnings("unused")
+  @SuppressWarnings(Const.Warnings.UNUSED)
   private boolean wipeMemoryRag;
 
   @Option(
-      names = {"-t", "--threads"},
-      defaultValue = "1",
+      names = {Const.Cli.THREADS_SHORT, Const.Cli.THREADS},
+      defaultValue = Const.Params.ONE,
       description =
           "Number of parser threads. Each thread gets its own Bolt session. "
               + "Defaults to 1 (sequential). Values above the number of CPU cores rarely help "
               + "because Memgraph serializes writes internally.")
-  @SuppressWarnings("unused")
+  @SuppressWarnings(Const.Warnings.UNUSED)
   private int threads;
 
   @Option(
       names = {"--apply-schema"},
       description = "Apply schema on Memgraph")
-  @SuppressWarnings("unused")
+  @SuppressWarnings(Const.Warnings.UNUSED)
   private boolean applySchema;
 
   @Option(
       names = {"--wipe-all"},
       description = "Wipe all data from Memgraph")
-  @SuppressWarnings("unused")
+  @SuppressWarnings(Const.Warnings.UNUSED)
   private boolean wipeAllData;
 
   @Option(
       names = {"--incremental"},
       description = "Skip files whose last-modified timestamp matches the stored value")
-  @SuppressWarnings("unused")
+  @SuppressWarnings(Const.Warnings.UNUSED)
   private boolean incremental;
 
   @Option(
       names = {"-w", "--watch"},
       description = "Watch for changes in the source directory and automatically re-ingest")
-  @SuppressWarnings("unused")
+  @SuppressWarnings(Const.Warnings.UNUSED)
   private boolean watch;
 
   @Option(
       names = {"--code-embeddings"},
-      defaultValue = "true",
+      defaultValue = Const.Params.TRUE,
       negatable = true,
       description =
           "Use Memgraph's embeddings module for stale :CodeChunk embeddings after"
               + " ingestion and watch updates.")
-  @SuppressWarnings("unused")
+  @SuppressWarnings(Const.Warnings.UNUSED)
   private boolean codeEmbeddings;
 
   @Option(
       names = {"--code-embedding-device"},
-      defaultValue = "",
+      defaultValue = Const.Symbols.EMPTY,
       description =
           "Memgraph embeddings device. Leave blank for Memgraph auto-selection, or use cpu, cuda, "
               + "all, cuda:0, etc.")
-  @SuppressWarnings("unused")
+  @SuppressWarnings(Const.Warnings.UNUSED)
   private String codeEmbeddingDevice;
 
   @Option(
       names = {"--code-embedding-batch-size"},
-      defaultValue = "" + EmbeddingSettings.DEFAULT_BATCH_SIZE,
+      defaultValue = Const.Symbols.EMPTY + EmbeddingSettings.DEFAULT_BATCH_SIZE,
       description =
           "Chunk nodes per Memgraph embedding call and local embedding batch size for CodeChunk"
               + " refresh.")
-  @SuppressWarnings("unused")
+  @SuppressWarnings(Const.Warnings.UNUSED)
   private int codeEmbeddingBatchSize;
 
   @Option(
       names = {"--code-embedding-chunk-size"},
-      defaultValue = "" + EmbeddingSettings.DEFAULT_CHUNK_SIZE,
+      defaultValue = Const.Symbols.EMPTY + EmbeddingSettings.DEFAULT_CHUNK_SIZE,
       description = "Memgraph embeddings chunk_size for local multi-GPU computation.")
-  @SuppressWarnings("unused")
+  @SuppressWarnings(Const.Warnings.UNUSED)
   private int codeEmbeddingChunkSize;
 
   @Option(
       names = {"--code-embedding-remote-batch-size"},
-      defaultValue = "0",
+      defaultValue = Const.Params.ZERO,
       description = "Optional Memgraph remote_batch_size; 0 keeps the embeddings module default.")
-  @SuppressWarnings("unused")
+  @SuppressWarnings(Const.Warnings.UNUSED)
   private int codeEmbeddingRemoteBatchSize;
 
   @Option(
       names = {"--code-embedding-concurrency"},
-      defaultValue = "0",
+      defaultValue = Const.Params.ZERO,
       description = "Optional Memgraph remote provider concurrency; 0 keeps the module default.")
-  @SuppressWarnings("unused")
+  @SuppressWarnings(Const.Warnings.UNUSED)
   private int codeEmbeddingConcurrency;
 
   @Option(
       names = {"--code-embedding-index-capacity"},
-      defaultValue = "0",
+      defaultValue = Const.Params.ZERO,
       description =
           "Optional vector index capacity; 0 uses the current CodeChunk count. The index uses "
               + "cosine metric and f16 scalar storage by default.")
-  @SuppressWarnings("unused")
+  @SuppressWarnings(Const.Warnings.UNUSED)
   private int codeEmbeddingIndexCapacity;
 
   @Option(
       names = {"--memory-embeddings"},
-      defaultValue = "true",
+      defaultValue = Const.Params.TRUE,
       negatable = true,
       description =
           "With --with-memories, sync :MemoryChunk rows and refresh stale embeddings after"
               + " ingestion and watch updates.")
-  @SuppressWarnings("unused")
+  @SuppressWarnings(Const.Warnings.UNUSED)
   private boolean memoryEmbeddings;
 
   @Option(
       names = {"--memory-embedding-device"},
-      defaultValue = "",
+      defaultValue = Const.Symbols.EMPTY,
       description =
           "Memgraph embeddings device for MemoryChunk refresh. Leave blank for Memgraph"
               + " auto-selection, or use cpu, cuda, all, cuda:0, etc.")
-  @SuppressWarnings("unused")
+  @SuppressWarnings(Const.Warnings.UNUSED)
   private String memoryEmbeddingDevice;
 
   @Option(
       names = {"--memory-embedding-batch-size"},
-      defaultValue = "" + EmbeddingSettings.DEFAULT_BATCH_SIZE,
+      defaultValue = Const.Symbols.EMPTY + EmbeddingSettings.DEFAULT_BATCH_SIZE,
       description =
           "Chunk nodes per Memgraph embedding call and local embedding batch size for MemoryChunk"
               + " refresh.")
-  @SuppressWarnings("unused")
+  @SuppressWarnings(Const.Warnings.UNUSED)
   private int memoryEmbeddingBatchSize;
 
   @Option(
       names = {"--memory-embedding-chunk-size"},
-      defaultValue = "" + EmbeddingSettings.DEFAULT_CHUNK_SIZE,
+      defaultValue = Const.Symbols.EMPTY + EmbeddingSettings.DEFAULT_CHUNK_SIZE,
       description = "Memgraph embeddings chunk_size for local MemoryChunk computation.")
-  @SuppressWarnings("unused")
+  @SuppressWarnings(Const.Warnings.UNUSED)
   private int memoryEmbeddingChunkSize;
 
   @Option(
       names = {"--memory-embedding-remote-batch-size"},
-      defaultValue = "0",
+      defaultValue = Const.Params.ZERO,
       description =
           "Optional Memgraph remote_batch_size for MemoryChunk refresh; 0 keeps the embeddings"
               + " module default.")
-  @SuppressWarnings("unused")
+  @SuppressWarnings(Const.Warnings.UNUSED)
   private int memoryEmbeddingRemoteBatchSize;
 
   @Option(
       names = {"--memory-embedding-concurrency"},
-      defaultValue = "0",
+      defaultValue = Const.Params.ZERO,
       description =
           "Optional Memgraph remote provider concurrency for MemoryChunk refresh; 0 keeps the"
               + " module default.")
-  @SuppressWarnings("unused")
+  @SuppressWarnings(Const.Warnings.UNUSED)
   private int memoryEmbeddingConcurrency;
 
   @Option(
       names = {"--memory-embedding-index-capacity"},
-      defaultValue = "0",
+      defaultValue = Const.Params.ZERO,
       description =
           "Optional MemoryChunk vector index capacity; 0 uses the current MemoryChunk count. The"
               + " index uses cosine metric and f16 scalar storage by default.")
-  @SuppressWarnings("unused")
+  @SuppressWarnings(Const.Warnings.UNUSED)
   private int memoryEmbeddingIndexCapacity;
 
   @Option(
-      names = {"--classpath"},
-      defaultValue = "",
+      names = {Const.Cli.CLASSPATH},
+      defaultValue = Const.Symbols.EMPTY,
       description =
           "Additional classpath entries (JARs) for symbol resolution, separated by "
               + "the platform path separator. Improves CALLS edge and type resolution coverage.")
-  @SuppressWarnings("unused")
+  @SuppressWarnings(Const.Warnings.UNUSED)
   private String classpath;
 
   @Option(
-      names = {"--js-runtime-mode"},
-      defaultValue = "managed",
+      names = {Const.Cli.JS_RUNTIME_MODE},
+      defaultValue = Const.SystemParams.MANAGED,
       description =
           "JavaScript runtime mode: managed downloads Node.js, system uses node from PATH,"
               + " offline requires a warmed managed cache. Defaults to managed.")
-  @SuppressWarnings("unused")
+  @SuppressWarnings(Const.Warnings.UNUSED)
   private String jsRuntimeMode;
 
   @Option(
-      names = {"--js-runtime-cache"},
+      names = {Const.Cli.JS_RUNTIME_CACHE},
       description = "Cache directory for managed Node.js and TypeScript downloads.")
-  @SuppressWarnings("unused")
+  @SuppressWarnings(Const.Warnings.UNUSED)
   private Path jsRuntimeCache;
 
   @Option(
-      names = {"--js-node-version"},
+      names = {Const.Cli.JS_NODE_VERSION},
       defaultValue = ManagedNodeRuntime.DEFAULT_NODE_VERSION,
       description = "Pinned Node.js version used for managed JavaScript parsing.")
-  @SuppressWarnings("unused")
+  @SuppressWarnings(Const.Warnings.UNUSED)
   private String jsNodeVersion;
 
   @Option(
-      names = {"--js-typescript-version"},
+      names = {Const.Cli.JS_TYPESCRIPT_VERSION},
       defaultValue = ManagedTypescriptPackage.DEFAULT_TYPESCRIPT_VERSION,
       description = "Pinned TypeScript compiler package used by the JavaScript analyzer.")
-  @SuppressWarnings("unused")
+  @SuppressWarnings(Const.Warnings.UNUSED)
   private String jsTypescriptVersion;
 
   @Option(
@@ -304,37 +305,37 @@ public final class IngesterCli implements Callable<Integer> {
       description =
           "Download/cache the managed JavaScript parser runtime if needed and run a local "
               + "parser smoke check without connecting to Memgraph.")
-  @SuppressWarnings("unused")
+  @SuppressWarnings(Const.Warnings.UNUSED)
   private boolean checkJsRuntime;
 
   @Option(
-      names = {"--python-runtime-mode"},
-      defaultValue = "managed",
+      names = {Const.Cli.PYTHON_RUNTIME_MODE},
+      defaultValue = Const.SystemParams.MANAGED,
       description =
           "Python runtime mode: managed downloads standalone CPython and creates a private venv,"
               + " system uses Python 3.9+ from PATH, offline requires a warmed managed cache."
               + " Defaults to managed.")
-  @SuppressWarnings("unused")
+  @SuppressWarnings(Const.Warnings.UNUSED)
   private String pythonRuntimeMode;
 
   @Option(
-      names = {"--python-runtime-cache"},
+      names = {Const.Cli.PYTHON_RUNTIME_CACHE},
       description = "Cache directory for managed CPython downloads and private Python venvs.")
-  @SuppressWarnings("unused")
+  @SuppressWarnings(Const.Warnings.UNUSED)
   private Path pythonRuntimeCache;
 
   @Option(
-      names = {"--python-version"},
+      names = {Const.Cli.PYTHON_VERSION},
       defaultValue = ManagedPythonRuntime.DEFAULT_PYTHON_VERSION,
       description = "Pinned CPython version used for managed Python parsing.")
-  @SuppressWarnings("unused")
+  @SuppressWarnings(Const.Warnings.UNUSED)
   private String pythonVersion;
 
   @Option(
-      names = {"--python-build"},
+      names = {Const.Cli.PYTHON_BUILD},
       defaultValue = ManagedPythonRuntime.DEFAULT_PYTHON_BUILD,
       description = "Pinned python-build-standalone release tag used for managed Python parsing.")
-  @SuppressWarnings("unused")
+  @SuppressWarnings(Const.Warnings.UNUSED)
   private String pythonBuild;
 
   @Option(
@@ -342,29 +343,29 @@ public final class IngesterCli implements Callable<Integer> {
       description =
           "Download/cache the managed Python parser runtime if needed and run a local parser "
               + "smoke check without connecting to Memgraph.")
-  @SuppressWarnings("unused")
+  @SuppressWarnings(Const.Warnings.UNUSED)
   private boolean checkPythonRuntime;
 
   @Option(
       names = {"--ctags-runtime-mode"},
-      defaultValue = "managed",
+      defaultValue = Const.SystemParams.MANAGED,
       description =
           "Universal Ctags runtime mode: managed downloads a verified ctags binary, system uses "
               + "ctags from PATH, offline requires a warmed managed cache. Defaults to managed.")
-  @SuppressWarnings("unused")
+  @SuppressWarnings(Const.Warnings.UNUSED)
   private String ctagsRuntimeMode;
 
   @Option(
       names = {"--ctags-runtime-cache"},
       description = "Cache directory for managed Universal Ctags downloads.")
-  @SuppressWarnings("unused")
+  @SuppressWarnings(Const.Warnings.UNUSED)
   private Path ctagsRuntimeCache;
 
   @Option(
       names = {"--ctags-version"},
       defaultValue = ManagedCtagsRuntime.DEFAULT_CTAGS_VERSION,
       description = "Universal Ctags release tag used for managed fallback parsing, or latest.")
-  @SuppressWarnings("unused")
+  @SuppressWarnings(Const.Warnings.UNUSED)
   private String ctagsVersion;
 
   @Option(
@@ -372,7 +373,7 @@ public final class IngesterCli implements Callable<Integer> {
       description =
           "Download/cache the managed Universal Ctags runtime if needed and run a local parser "
               + "smoke check without connecting to Memgraph.")
-  @SuppressWarnings("unused")
+  @SuppressWarnings(Const.Warnings.UNUSED)
   private boolean checkCtagsRuntime;
 
   @Option(
@@ -380,16 +381,16 @@ public final class IngesterCli implements Callable<Integer> {
       description =
           "Write or replace managed Memgraph agent instructions. Code guidance is included by "
               + "default; add --with-memories for Memory workflow guidance.")
-  @SuppressWarnings("unused")
+  @SuppressWarnings(Const.Warnings.UNUSED)
   private boolean initInstructions;
 
   @Option(
-      names = {"--instructions-agent"},
-      defaultValue = "codex",
+      names = {Const.Cli.INSTRUCTIONS_AGENT},
+      defaultValue = Const.SystemParams.CODEX,
       description =
           "Agent preset for instruction installation: codex, claude, gemini, github, or copilot. "
               + "Implies --init-instructions when explicitly provided. Defaults to codex.")
-  @SuppressWarnings("unused")
+  @SuppressWarnings(Const.Warnings.UNUSED)
   private String instructionsAgent;
 
   @Option(
@@ -397,7 +398,7 @@ public final class IngesterCli implements Callable<Integer> {
       description =
           "Instruction file to update for instruction installation. Overrides --instructions-agent "
               + "and implies --init-instructions.")
-  @SuppressWarnings("unused")
+  @SuppressWarnings(Const.Warnings.UNUSED)
   private Path instructionsFile;
 
   @Option(
@@ -406,7 +407,7 @@ public final class IngesterCli implements Callable<Integer> {
           "Apply managed agent instructions with optional Memory workflow guidance, and enable"
               + " MemoryChunk refresh for ingestion runs. Uses the default instructions agent"
               + " unless --instructions-agent or --instructions-file is provided.")
-  @SuppressWarnings("unused")
+  @SuppressWarnings(Const.Warnings.UNUSED)
   private boolean withMemories;
 
   /** Entry point. */
@@ -429,8 +430,9 @@ public final class IngesterCli implements Callable<Integer> {
     RuntimeMode selectedCtagsRuntimeMode;
     try {
       selectedJsRuntimeMode = RuntimeMode.parse(jsRuntimeMode, "JS");
-      selectedPythonRuntimeMode = RuntimeMode.parse(pythonRuntimeMode, "Python");
-      selectedCtagsRuntimeMode = RuntimeMode.parse(ctagsRuntimeMode, "ctags");
+      selectedPythonRuntimeMode =
+          RuntimeMode.parse(pythonRuntimeMode, Const.SystemParams.PYTHON_DISPLAY);
+      selectedCtagsRuntimeMode = RuntimeMode.parse(ctagsRuntimeMode, Const.SystemParams.CTAGS);
     } catch (IllegalArgumentException e) {
       log.error(e.getMessage());
       return 1;
@@ -541,7 +543,7 @@ public final class IngesterCli implements Callable<Integer> {
     return initInstructions
         || withMemories
         || instructionsFile != null
-        || optionWasMatched("--instructions-agent");
+        || optionWasMatched(Const.Cli.INSTRUCTIONS_AGENT);
   }
 
   private boolean isFollowOnCliActionRequested() {
@@ -558,21 +560,21 @@ public final class IngesterCli implements Callable<Integer> {
         || wipeCodeRag
         || wipeMemoryRag
         || incremental
-        || optionWasMatched("--threads")
-        || optionWasMatched("-t")
-        || optionWasMatched("--user")
-        || optionWasMatched("-u")
-        || optionWasMatched("--pass")
-        || optionWasMatched("-p")
-        || optionWasMatched("--classpath")
-        || optionWasMatched("--js-runtime-mode")
-        || optionWasMatched("--js-runtime-cache")
-        || optionWasMatched("--js-node-version")
-        || optionWasMatched("--js-typescript-version")
-        || optionWasMatched("--python-runtime-mode")
-        || optionWasMatched("--python-runtime-cache")
-        || optionWasMatched("--python-version")
-        || optionWasMatched("--python-build");
+        || optionWasMatched(Const.Cli.THREADS)
+        || optionWasMatched(Const.Cli.THREADS_SHORT)
+        || optionWasMatched(Const.Cli.USER)
+        || optionWasMatched(Const.Cli.USER_SHORT)
+        || optionWasMatched(Const.Cli.PASS)
+        || optionWasMatched(Const.Cli.PASS_SHORT)
+        || optionWasMatched(Const.Cli.CLASSPATH)
+        || optionWasMatched(Const.Cli.JS_RUNTIME_MODE)
+        || optionWasMatched(Const.Cli.JS_RUNTIME_CACHE)
+        || optionWasMatched(Const.Cli.JS_NODE_VERSION)
+        || optionWasMatched(Const.Cli.JS_TYPESCRIPT_VERSION)
+        || optionWasMatched(Const.Cli.PYTHON_RUNTIME_MODE)
+        || optionWasMatched(Const.Cli.PYTHON_RUNTIME_CACHE)
+        || optionWasMatched(Const.Cli.PYTHON_VERSION)
+        || optionWasMatched(Const.Cli.PYTHON_BUILD);
   }
 
   private boolean optionWasMatched(String optionName) {

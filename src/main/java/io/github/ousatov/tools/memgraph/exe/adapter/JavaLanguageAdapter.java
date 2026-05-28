@@ -11,6 +11,7 @@ import com.github.javaparser.ast.body.FieldDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.body.Parameter;
 import com.github.javaparser.ast.body.RecordDeclaration;
+import io.github.ousatov.tools.memgraph.def.Const;
 import io.github.ousatov.tools.memgraph.def.Const.Labels;
 import io.github.ousatov.tools.memgraph.exe.analyze.JavaTypeNames;
 import io.github.ousatov.tools.memgraph.exe.analyze.ParseService;
@@ -48,7 +49,7 @@ public final class JavaLanguageAdapter implements LanguageAdapter<CompilationUni
 
   @Override
   public boolean accepts(Path file) {
-    return file.toString().endsWith(".java");
+    return file.toString().endsWith(Const.Files.JAVA_EXTENSION);
   }
 
   @Override
@@ -63,13 +64,15 @@ public final class JavaLanguageAdapter implements LanguageAdapter<CompilationUni
 
   @Override
   public SourceFileDefinitions collectDefinitions(CompilationUnit cu) {
-    String pkg = cu.getPackageDeclaration().map(pd -> pd.getName().asString()).orElse("");
+    String pkg =
+        cu.getPackageDeclaration().map(pd -> pd.getName().asString()).orElse(Const.Symbols.EMPTY);
     return collectDefinitions(pkg, cu);
   }
 
   @Override
   public boolean write(GraphWriter writer, Path file, CompilationUnit cu) {
-    String pkg = cu.getPackageDeclaration().map(pd -> pd.getName().asString()).orElse("");
+    String pkg =
+        cu.getPackageDeclaration().map(pd -> pd.getName().asString()).orElse(Const.Symbols.EMPTY);
     JavaGraphWriter javaWriter = new JavaGraphWriter(writer.dependencies());
     try {
       writer.upsertFile(file, language());
@@ -151,7 +154,7 @@ public final class JavaLanguageAdapter implements LanguageAdapter<CompilationUni
     collectFields(fqn, decl.getFields(), fieldFqns);
     collectMethods(fqn, decl.getMethods(), decl.getConstructors(), methodSignatures);
     if (!decl.isInterface() && decl.getConstructors().isEmpty()) {
-      methodSignatures.add(fqn + "." + Labels.INIT + "()");
+      methodSignatures.add(fqn + Const.Symbols.DOT + Labels.INIT + Const.Symbols.PARENS);
     }
     collectNestedClasses(
         pkg, fqn, decl.getMembers(), classFqns, interfaceFqns, methodSignatures, fieldFqns);
@@ -168,7 +171,7 @@ public final class JavaLanguageAdapter implements LanguageAdapter<CompilationUni
     classFqns.add(fqn);
     decl.getEntries().stream()
         .map(EnumConstantDeclaration::getNameAsString)
-        .map(name -> fqn + "#" + name)
+        .map(name -> fqn + Const.Symbols.HASH + name)
         .forEach(fieldFqns::add);
     collectFields(fqn, decl.getFields(), fieldFqns);
     collectMethods(fqn, decl.getMethods(), decl.getConstructors(), methodSignatures);
@@ -188,7 +191,7 @@ public final class JavaLanguageAdapter implements LanguageAdapter<CompilationUni
     collectFields(fqn, decl.getFields(), fieldFqns);
     decl.getParameters().stream()
         .map(Parameter::getNameAsString)
-        .map(name -> fqn + "#" + name)
+        .map(name -> fqn + Const.Symbols.HASH + name)
         .forEach(fieldFqns::add);
     collectMethods(fqn, decl.getMethods(), decl.getConstructors(), methodSignatures);
     collectRecordCanonicalConstructor(fqn, decl, methodSignatures);
@@ -202,7 +205,7 @@ public final class JavaLanguageAdapter implements LanguageAdapter<CompilationUni
     fields.forEach(
         field ->
             field.getVariables().stream()
-                .map(v -> ownerFqn + "#" + v.getNameAsString())
+                .map(v -> ownerFqn + Const.Symbols.HASH + v.getNameAsString())
                 .forEach(fieldFqns::add));
   }
 
@@ -218,16 +221,8 @@ public final class JavaLanguageAdapter implements LanguageAdapter<CompilationUni
 
   private static void collectRecordCanonicalConstructor(
       String fqn, RecordDeclaration decl, Set<String> methodSignatures) {
-    String canonicalParams =
-        decl.getParameters().stream()
-            .map(JavaTypeNames::resolveParamType)
-            .collect(Collectors.joining(", "));
-    String canonicalSig = fqn + "." + Labels.INIT + "(" + canonicalParams + ")";
-    boolean hasCanonical =
-        decl.getConstructors().stream()
-            .anyMatch(c -> JavaTypeNames.buildConstructorSignature(fqn, c).equals(canonicalSig));
-    if (!hasCanonical) {
-      methodSignatures.add(canonicalSig);
+    if (!JavaTypeNames.hasExplicitCanonicalConstructor(fqn, decl)) {
+      methodSignatures.add(JavaTypeNames.buildRecordCanonicalConstructorSignature(fqn, decl));
     }
   }
 
@@ -241,7 +236,7 @@ public final class JavaLanguageAdapter implements LanguageAdapter<CompilationUni
     decl.getParameters().stream()
         .map(Parameter::getNameAsString)
         .filter(name -> !explicitMethods.contains(name))
-        .map(name -> fqn + "." + name + "()")
+        .map(name -> fqn + Const.Symbols.DOT + name + Const.Symbols.PARENS)
         .forEach(methodSignatures::add);
   }
 
@@ -263,6 +258,8 @@ public final class JavaLanguageAdapter implements LanguageAdapter<CompilationUni
   }
 
   private static String typeFqn(String pkg, String outerFqn, String simpleName) {
-    return outerFqn != null ? outerFqn + "$" + simpleName : JavaTypeNames.buildFqn(pkg, simpleName);
+    return outerFqn != null
+        ? outerFqn + Const.Symbols.DOLLAR + simpleName
+        : JavaTypeNames.buildFqn(pkg, simpleName);
   }
 }

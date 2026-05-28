@@ -1,5 +1,6 @@
 package io.github.ousatov.tools.memgraph.exe.output;
 
+import io.github.ousatov.tools.memgraph.def.Const;
 import java.io.PrintStream;
 import java.util.IdentityHashMap;
 import java.util.Map;
@@ -26,19 +27,19 @@ public final class ConsoleStatusLine {
 
   public static boolean hasActiveLine(PrintStream out) {
     synchronized (LOCK) {
-      return active && activeOut == Objects.requireNonNull(out, "out");
+      return active && activeOut == Objects.requireNonNull(out, Const.Params.OUT);
     }
   }
 
   public static boolean hasActiveStatus(PrintStream out) {
     synchronized (LOCK) {
-      return hasActiveStatusFor(Objects.requireNonNull(out, "out"));
+      return hasActiveStatusFor(Objects.requireNonNull(out, Const.Params.OUT));
     }
   }
 
   public static boolean hasExclusiveStatus(PrintStream out) {
     synchronized (LOCK) {
-      return exclusiveStatusSessions.containsKey(Objects.requireNonNull(out, "out"));
+      return exclusiveStatusSessions.containsKey(Objects.requireNonNull(out, Const.Params.OUT));
     }
   }
 
@@ -51,7 +52,7 @@ public final class ConsoleStatusLine {
   }
 
   private static StatusSession openStatusSession(PrintStream out, boolean exclusive) {
-    PrintStream stream = Objects.requireNonNull(out, "out");
+    PrintStream stream = Objects.requireNonNull(out, Const.Params.OUT);
     synchronized (LOCK) {
       statusSessions.merge(stream, 1, Integer::sum);
       if (exclusive) {
@@ -62,14 +63,14 @@ public final class ConsoleStatusLine {
   }
 
   public static void update(PrintStream out, String text) {
-    Objects.requireNonNull(text, "text");
+    Objects.requireNonNull(text, Const.Params.TEXT);
     synchronized (LOCK) {
-      PrintStream stream = Objects.requireNonNull(out, "out");
+      PrintStream stream = Objects.requireNonNull(out, Const.Params.OUT);
       clearDifferentActiveStream(stream);
       stream.print('\r');
       stream.print(text);
       if (lastLength > text.length()) {
-        stream.print(" ".repeat(lastLength - text.length()));
+        stream.print(Const.Symbols.SPACE.repeat(lastLength - text.length()));
       }
       lastLength = text.length();
       active = true;
@@ -79,9 +80,9 @@ public final class ConsoleStatusLine {
   }
 
   public static void line(PrintStream out, String text) {
-    Objects.requireNonNull(text, "text");
+    Objects.requireNonNull(text, Const.Params.TEXT);
     synchronized (LOCK) {
-      PrintStream stream = Objects.requireNonNull(out, "out");
+      PrintStream stream = Objects.requireNonNull(out, Const.Params.OUT);
       clearActiveLine(stream);
       stream.println(text);
       stream.flush();
@@ -94,7 +95,7 @@ public final class ConsoleStatusLine {
 
   public static boolean finishIfActive(PrintStream out) {
     synchronized (LOCK) {
-      PrintStream stream = Objects.requireNonNull(out, "out");
+      PrintStream stream = Objects.requireNonNull(out, Const.Params.OUT);
       return finishActiveLine(stream);
     }
   }
@@ -102,7 +103,7 @@ public final class ConsoleStatusLine {
   public static boolean withFinishedLine(PrintStream out, Runnable action) {
     Objects.requireNonNull(action, "action");
     synchronized (LOCK) {
-      PrintStream stream = Objects.requireNonNull(out, "out");
+      PrintStream stream = Objects.requireNonNull(out, Const.Params.OUT);
       boolean hadStatus = hasActiveStatusFor(stream);
       finishActiveLine(stream);
       action.run();
@@ -139,7 +140,7 @@ public final class ConsoleStatusLine {
     }
     if (activeOut == stream) {
       stream.print('\r');
-      stream.print(" ".repeat(lastLength));
+      stream.print(Const.Symbols.SPACE.repeat(lastLength));
       stream.print('\r');
     } else {
       activeOut.println();

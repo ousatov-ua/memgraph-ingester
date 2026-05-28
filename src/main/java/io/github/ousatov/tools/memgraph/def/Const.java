@@ -388,6 +388,135 @@ public final class Const {
     }
   }
 
+  /** Reusable literal values that carry formatting or syntax meaning. */
+  public static class Symbols {
+
+    public static final String EMPTY = "";
+    public static final String SPACE = " ";
+    public static final String TWO_SPACES = "  ";
+    public static final String DOT = ".";
+    public static final String HASH = "#";
+    public static final String LEFT_PAREN = "(";
+    public static final String RIGHT_PAREN = ")";
+    public static final String PARENS = "()";
+    public static final String COMMA_SPACE = ", ";
+    public static final String COLON_SPACE = ": ";
+    public static final String NEW_LINE = "\n";
+    public static final String DASH = "-";
+    public static final String PLUS = "+";
+    public static final String SLASH = "/";
+    public static final String DOUBLE_COLON = "::";
+    public static final String DOT_REGEX = "\\.";
+    public static final String SINGLE_QUOTE = "'";
+    public static final String DOUBLE_QUOTE = "\"";
+    public static final String CRLF = "\r\n";
+    public static final String DOLLAR = "$";
+    public static final String SPACE_LEFT_PAREN = " (";
+    public static final String RIGHT_PAREN_COLON_SPACE = "): ";
+    public static final String COMMA_GOT = ", got ";
+    public static final String COMMA_PREVIEW = ", preview=";
+    public static final String COMMA_SOURCE = ", source=";
+    public static final String DOUBLE_SLASH = "//";
+    public static final String PIPE_PREFIX = "| ";
+    public static final String PIPE = "|";
+    public static final String PIPE_SEPARATOR = " | ";
+    public static final String TABLE_ROW_SUFFIX = " |";
+    public static final String DOUBLE_DASH = "--";
+
+    private Symbols() {
+
+      // Empty
+    }
+  }
+
+  /** Sonar and compiler warning identifiers. */
+  public static class Warnings {
+
+    public static final String UNUSED = "unused";
+    public static final String TOO_MANY_PARAMETERS = "java:S107";
+    public static final String EMPTY_METHOD = "java:S1186";
+    public static final String STANDARD_OUTPUT = "java:S106";
+    public static final String IGNORED_RETURN_VALUE = "java:S899";
+    public static final String BROAD_EXCEPTION = "java:S1181";
+    public static final String LOOP_CONTROL = "java:S135";
+    public static final String COGNITIVE_COMPLEXITY = "java:S3776";
+
+    private Warnings() {
+
+      // Empty
+    }
+  }
+
+  /** Shared file and directory names. */
+  public static class Files {
+
+    public static final String NODE_MODULES = "node_modules";
+    public static final String PYCACHE = "__pycache__";
+    public static final String BIN = "bin";
+    public static final String BUILD = "build";
+    public static final String DIST = "dist";
+    public static final String VENV = "venv";
+    public static final String VIRTUAL_ENV = ".venv";
+    public static final String TOX = ".tox";
+    public static final String NOX = ".nox";
+    public static final String INSTALL_COMPLETE = ".install-complete";
+    public static final String INSTALL_LOCK = ".install.lock";
+    public static final String ZIP = ".zip";
+    public static final String TAR_GZ = ".tar.gz";
+    public static final String TAR_XZ = ".tar.xz";
+    public static final String JAVA_EXTENSION = ".java";
+    public static final String PYTHON_EXTENSION = ".py";
+    public static final String PYTHON_STUB_EXTENSION = ".pyi";
+    public static final String JAVASCRIPT_EXTENSION = ".js";
+    public static final String JAVASCRIPT_MODULE_EXTENSION = ".mjs";
+    public static final String TYPESCRIPT_EXTENSION = ".ts";
+    public static final String TYPESCRIPT_MODULE_EXTENSION = ".mts";
+    public static final String TYPESCRIPT_COMMONJS_EXTENSION = ".cts";
+    public static final String JSX_EXTENSION = ".jsx";
+    public static final String TSX_EXTENSION = ".tsx";
+    public static final String COMMONJS_EXTENSION = ".cjs";
+    public static final String NODE_EXE = "node.exe";
+    public static final String PYTHON_EXE = "python.exe";
+    public static final String PYTHON3 = "python3";
+    public static final String SITE_PACKAGES = "site-packages";
+    public static final String TARGET = "target";
+    public static final String OUT = "out";
+
+    private Files() {
+
+      // Empty
+    }
+  }
+
+  /** Command line option names and aliases. */
+  public static class Cli {
+
+    public static final String USER_SHORT = "-u";
+    public static final String USER = "--user";
+    public static final String PASS_SHORT = "-p";
+    public static final String PASS = "--pass";
+    public static final String THREADS_SHORT = "-t";
+    public static final String THREADS = "--threads";
+    public static final String CLASSPATH = "--classpath";
+    public static final String INSTRUCTIONS_AGENT = "--instructions-agent";
+    public static final String JS_RUNTIME_MODE = "--js-runtime-mode";
+    public static final String JS_RUNTIME_CACHE = "--js-runtime-cache";
+    public static final String JS_NODE_VERSION = "--js-node-version";
+    public static final String JS_TYPESCRIPT_VERSION = "--js-typescript-version";
+    public static final String PYTHON_RUNTIME_MODE = "--python-runtime-mode";
+    public static final String PYTHON_RUNTIME_CACHE = "--python-runtime-cache";
+    public static final String PYTHON_VERSION = "--python-version";
+    public static final String PYTHON_BUILD = "--python-build";
+    public static final String ROOT = "--root";
+    public static final String FILE = "--file";
+    public static final String CTAGS_OPTIONS_NONE = "--options=NONE";
+
+    private Cli() {
+
+      // Empty
+    }
+  }
+
   public static class Rag {
 
     public static final String DIMENSION = "dimension";
@@ -425,6 +554,23 @@ public final class Const {
     public static final String X_86_64 = "x86_64";
     public static final String WINDOWS = "windows";
     public static final String PYTHON = "python";
+    public static final String PYTHON_DISPLAY = "Python";
+    public static final String JAVA = "java";
+    public static final String CTAGS = "ctags";
+    public static final String NODE = "node";
+    public static final String MANAGED = "managed";
+    public static final String VERSION_PREFIX = "v";
+    public static final String CODEX = "codex";
+    public static final String MEMGRAPH_INGESTER = "memgraph-ingester";
+    public static final String SHA_256 = "SHA-256";
+    public static final String CPP = "cpp";
+    public static final String CSHARP = "csharp";
+    public static final String FSHARP = "fsharp";
+    public static final String NULL = "null";
+    public static final String TYPESCRIPT = "typescript";
+    public static final String WINDOWS_PREFIX = "win";
+    public static final String SHA_256_PREFIX = "sha256:";
+    public static final String OS_NAME = "os.name";
   }
 
   /** Graph node label constants. */
@@ -456,6 +602,7 @@ public final class Const {
   public static class Params {
 
     public static final String CALLER = "caller";
+    public static final String OUT = "out";
     public static final String CALLER_SIGNATURE = "callerSignature";
     public static final String CALL = "call";
     public static final String CALL_BY_NAME = "callByName";
@@ -492,6 +639,45 @@ public final class Const {
     public static final String IS_STATIC = "isStatic";
     public static final String RET = "ret";
     public static final String ID = "id";
+    public static final String ID_EQUALS = "id=";
+    public static final String ZERO = "0";
+    public static final String ONE = "1";
+    public static final String MODEL_NAME = "modelName";
+    public static final String EMBEDDING_MODEL = "embeddingModel";
+    public static final String EMBEDDING_DIMENSIONS = "embeddingDimensions";
+    public static final String COUNT = "count";
+    public static final String CONFIG = "config";
+    public static final String LABEL = "label";
+    public static final String PROPERTY = "property";
+    public static final String SIGNATURE = "signature";
+    public static final String STDOUT = "stdout";
+    public static final String STDERR = "stderr";
+    public static final String CACHE_ROOT = "cacheRoot";
+    public static final String RUNTIME_MODE = "runtimeMode";
+    public static final String BATCH_SIZE = "batchSize";
+    public static final String DELETED = "deleted";
+    public static final String CREATED_AT = "createdAt";
+    public static final String EMBEDDING_DIRTY = "embeddingDirty";
+    public static final String EMBEDDING_PROPERTY = "embedding_property";
+    public static final String EXCLUDED_PROPERTIES = "excluded_properties";
+    public static final String LIMIT = "limit";
+    public static final String PREVIEW = "preview";
+    public static final String PROPERTIES = "properties";
+    public static final String RECORD_COMPONENT = "record-component";
+    public static final String RETURN_EMBEDDINGS = "return_embeddings";
+    public static final String ROWS = "rows";
+    public static final String TAG = "tag";
+    public static final String TARGET = "target";
+    public static final String TRUE = "true";
+    public static final String UNIQUE = "unique";
+    public static final String UPDATED_AT = "updatedAt";
+    public static final String VALUE = "value";
+    public static final String SHOW_CONSTRAINT_INFO = "SHOW CONSTRAINT INFO";
+    public static final String CONSTRAINT_TYPE = "constraint type";
+    public static final String CODE_EMBEDDING_INDEX_NAME = "code embedding index name";
+    public static final String MEMORY_EMBEDDING_INDEX_NAME = "memory embedding index name";
+    public static final String INDEX_NAME_PLACEHOLDER = "__INDEX_NAME__";
+    public static final String EMBEDDING_PROPERTY_PLACEHOLDER = "__EMBEDDING_PROPERTY__";
     public static final String RECORD = "record";
     public static final String START = "start";
     public static final String END = "end";

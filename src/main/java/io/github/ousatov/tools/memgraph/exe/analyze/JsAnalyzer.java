@@ -1,6 +1,6 @@
 package io.github.ousatov.tools.memgraph.exe.analyze;
 
-import io.github.ousatov.tools.memgraph.def.Const.Params;
+import io.github.ousatov.tools.memgraph.def.Const;
 import io.github.ousatov.tools.memgraph.exception.ProcessingException;
 import java.io.IOException;
 import java.io.InputStream;
@@ -8,10 +8,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
-import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -83,108 +80,13 @@ public final class JsAnalyzer {
   }
 
   private static JsAnalysis parse(String stdout, Path file) {
-    String moduleFqn = null;
-    String moduleName = null;
-    String packageName = null;
-    String modulePath = null;
-    int startLine = 1;
-    int endLine = 1;
-    List<JsAnalysis.TypeDecl> types = new ArrayList<>();
-    List<JsAnalysis.RelationDecl> relations = new ArrayList<>();
-    List<JsAnalysis.MemberDecl> members = new ArrayList<>();
-    List<JsAnalysis.AnnotationDecl> annotations = new ArrayList<>();
-    List<JsAnalysis.CallDecl> calls = new ArrayList<>();
-
-    for (String line : stdout.lines().filter(l -> !l.isBlank()).toList()) {
-      Map<String, String> obj = parseObject(line);
-      switch (value(obj, Params.RECORD)) {
-        case Params.MODULE -> {
-          moduleFqn = value(obj, Params.MODULE_FQN);
-          moduleName = value(obj, Params.MODULE_NAME);
-          packageName = value(obj, Params.PACKAGE_NAME);
-          modulePath = value(obj, Params.MODULE_PATH);
-          startLine = intValue(obj, Params.START_LINE);
-          endLine = intValue(obj, Params.END_LINE);
-        }
-        case Params.TYPE ->
-            types.add(
-                new JsAnalysis.TypeDecl(
-                    value(obj, Params.KIND),
-                    value(obj, Params.FQN),
-                    value(obj, Params.NAME),
-                    value(obj, Params.FRAMEWORK),
-                    booleanValue(obj, Params.HAS_CONSTRUCTOR),
-                    booleanValue(obj, Params.IS_ABSTRACT),
-                    intValue(obj, Params.START_LINE),
-                    intValue(obj, Params.END_LINE)));
-        case Params.RELATION ->
-            relations.add(
-                new JsAnalysis.RelationDecl(
-                    value(obj, Params.KIND),
-                    value(obj, Params.CHILD_FQN),
-                    value(obj, Params.TARGET_FQN)));
-        case Params.MEMBER ->
-            members.add(
-                new JsAnalysis.MemberDecl(
-                    value(obj, Params.OWNER_FQN),
-                    value(obj, Params.MEMBER_TYPE),
-                    value(obj, Params.KIND),
-                    value(obj, Params.KEY),
-                    value(obj, Params.NAME),
-                    value(obj, Params.DATA_TYPE),
-                    booleanValue(obj, Params.IS_STATIC),
-                    intValue(obj, Params.START_LINE),
-                    intValue(obj, Params.END_LINE)));
-        case Params.ANNOTATION ->
-            annotations.add(
-                new JsAnalysis.AnnotationDecl(
-                    value(obj, Params.OWNER_KIND),
-                    value(obj, Params.OWNER_KEY),
-                    value(obj, Params.FQN),
-                    value(obj, Params.NAME)));
-        case Params.CALL, Params.CALL_BY_NAME ->
-            calls.add(
-                new JsAnalysis.CallDecl(
-                    value(obj, Params.CALLER_SIGNATURE),
-                    value(obj, Params.CALLEE_SIGNATURE),
-                    value(obj, Params.CALLEE_OWNER_FQN),
-                    value(obj, Params.CALLEE_NAME)));
-        default -> log.debug("Ignoring unknown JavaScript analyzer record: {}", line);
-      }
-    }
-    if (moduleFqn == null) {
-      throw new ProcessingException("JavaScript analyzer produced no module record for " + file);
-    }
-    return new JsAnalysis(
-        moduleFqn,
-        moduleName,
-        packageName,
-        modulePath,
-        startLine,
-        endLine,
-        List.copyOf(types),
-        List.copyOf(relations),
-        List.copyOf(members),
-        List.copyOf(annotations),
-        List.copyOf(calls));
-  }
-
-  private static String value(Map<String, String> obj, String key) {
-    return obj.getOrDefault(key, "");
-  }
-
-  private static int intValue(Map<String, String> obj, String key) {
-    String value = value(obj, key);
-    return value.isBlank() ? 0 : Integer.parseInt(value);
-  }
-
-  private static boolean booleanValue(Map<String, String> obj, String key) {
-    return Boolean.parseBoolean(value(obj, key));
-  }
-
-  private static Map<String, String> parseObject(String line) {
-    JsonCursor cursor = new JsonCursor(line);
-    return cursor.object();
+    return ModuleAnalysisParser.parse(
+        stdout,
+        file,
+        "JavaScript",
+        FlatJsonObjectParser::parse,
+        JsAnalysis::new,
+        line -> log.debug("Ignoring unknown JavaScript analyzer record: {}", line));
   }
 
   private static Path extractHelperScript() {
@@ -215,25 +117,28 @@ public final class JsAnalyzer {
         new ProcessBuilder(
             node.toString(),
             helperScript.toString(),
-            "--file",
+            Const.Cli.FILE,
             file.toString(),
-            "--root",
+            Const.Cli.ROOT,
             sourceRoot.toString());
     processBuilder.environment().put("NODE_PATH", nodeModules.toString());
     try {
       Process process = processBuilder.start();
-      CompletableFuture<String> stdout = readAsync(process.getInputStream(), "stdout");
-      CompletableFuture<String> stderr = readAsync(process.getErrorStream(), "stderr");
+      CompletableFuture<String> stdout = readAsync(process.getInputStream(), Const.Params.STDOUT);
+      CompletableFuture<String> stderr = readAsync(process.getErrorStream(), Const.Params.STDERR);
       if (!process.waitFor(PROCESS_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS)) {
         process.destroyForcibly();
         throw new ProcessingException("JavaScript analyzer timed out for " + file);
       }
-      String stderrText = outputOf(stderr, file, "stderr");
+      String stderrText = outputOf(stderr, file, Const.Params.STDERR);
       if (process.exitValue() != 0) {
         throw new ProcessingException(
-            "JavaScript analyzer failed for " + file + ": " + stderrText.trim());
+            "JavaScript analyzer failed for "
+                + file
+                + Const.Symbols.COLON_SPACE
+                + stderrText.trim());
       }
-      return parse(outputOf(stdout, file, "stdout"), file);
+      return parse(outputOf(stdout, file, Const.Params.STDOUT), file);
     } catch (IOException e) {
       throw new ProcessingException("Could not run JavaScript analyzer for " + file, e);
     } catch (InterruptedException e) {
@@ -244,131 +149,5 @@ public final class JsAnalyzer {
 
   public JsAnalyzer withSourceRoot(Path sourceRoot) {
     return new JsAnalyzer(sourceRoot, nodeRuntime, typescriptPackage, helperScript);
-  }
-
-  private static final class JsonCursor {
-
-    private final String input;
-    private int pos;
-
-    private JsonCursor(String input) {
-      this.input = input;
-    }
-
-    Map<String, String> object() {
-      Map<String, String> result = new HashMap<>();
-      skipWhitespace();
-      expect('{');
-      skipWhitespace();
-      if (peek() == '}') {
-        pos++;
-        return result;
-      }
-      while (true) {
-        String key = string();
-        skipWhitespace();
-        expect(':');
-        skipWhitespace();
-        result.put(key, primitiveValue());
-        skipWhitespace();
-        char next = peek();
-        if (next == ',') {
-          pos++;
-          skipWhitespace();
-        } else if (next == '}') {
-          pos++;
-          return result;
-        } else {
-          throw error("Expected ',' or '}'");
-        }
-      }
-    }
-
-    private String primitiveValue() {
-      if (peek() == '"') {
-        return string();
-      }
-      int start = pos;
-      while (pos < input.length()) {
-        char c = input.charAt(pos);
-        if (c == ',' || c == '}') {
-          break;
-        }
-        pos++;
-      }
-      return input.substring(start, pos).trim();
-    }
-
-    private String string() {
-      expect('"');
-      StringBuilder out = new StringBuilder();
-      while (pos < input.length()) {
-        char c = input.charAt(pos++);
-        if (c == '"') {
-          return out.toString();
-        }
-        if (c != '\\') {
-          out.append(c);
-          continue;
-        }
-        if (pos >= input.length()) {
-          throw error("Unterminated escape sequence");
-        }
-        char escaped = input.charAt(pos++);
-        switch (escaped) {
-          case '"', '\\', '/' -> out.append(escaped);
-          case 'b' -> out.append('\b');
-          case 'f' -> out.append('\f');
-          case 'n' -> out.append('\n');
-          case 'r' -> out.append('\r');
-          case 't' -> out.append('\t');
-          case 'u' -> out.append(unicodeEscape());
-          default -> throw error("Unknown escape sequence");
-        }
-      }
-      throw error("Unterminated string");
-    }
-
-    private void skipWhitespace() {
-      while (pos < input.length() && Character.isWhitespace(input.charAt(pos))) {
-        pos++;
-      }
-    }
-
-    private char peek() {
-      if (pos >= input.length()) {
-        throw error("Unexpected end of JSON");
-      }
-      return input.charAt(pos);
-    }
-
-    private char unicodeEscape() {
-      if (pos + 4 > input.length()) {
-        throw error("Incomplete unicode escape");
-      }
-      String hex = input.substring(pos, pos + 4);
-      try {
-        int value = Integer.parseInt(hex, 16);
-        pos += 4;
-        return (char) value;
-      } catch (NumberFormatException e) {
-        throw error("Invalid unicode escape", e);
-      }
-    }
-
-    private void expect(char expected) {
-      if (peek() != expected) {
-        throw error("Expected '" + expected + "'");
-      }
-      pos++;
-    }
-
-    private ProcessingException error(String message) {
-      return new ProcessingException(message + " at position " + pos + " in " + input);
-    }
-
-    private ProcessingException error(String message, Throwable cause) {
-      return new ProcessingException(message + " at position " + pos + " in " + input, cause);
-    }
   }
 }

@@ -1,5 +1,6 @@
 package io.github.ousatov.tools.memgraph.exe.analyze;
 
+import io.github.ousatov.tools.memgraph.def.Const;
 import io.github.ousatov.tools.memgraph.exe.adapter.SourceLanguage;
 import java.util.List;
 
@@ -8,7 +9,7 @@ import java.util.List;
  *
  * @author Oleksii Usatov
  */
-@SuppressWarnings("java:S107")
+@SuppressWarnings(Const.Warnings.TOO_MANY_PARAMETERS)
 public record CtagsAnalysis(
     SourceLanguage language,
     String moduleFqn,

@@ -1,5 +1,6 @@
 package io.github.ousatov.tools.memgraph.vo;
 
+import io.github.ousatov.tools.memgraph.def.Const;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -34,33 +35,33 @@ public record EmbeddingSettings(
 
   private static final List<String> CODE_CHUNK_METADATA_PROPERTIES =
       List.of(
-          "id",
-          "project",
-          "sourceLabel",
-          "sourceId",
+          Const.Params.ID,
+          Const.Labels.PROJECT,
+          Const.Params.SOURCE_LABEL,
+          Const.Params.SOURCE_ID,
           "language",
-          "path",
+          Const.Params.PATH,
           "ownerFqn",
-          "signature",
-          "textHash",
+          Const.Params.SIGNATURE,
+          Const.Params.TEXT_HASH,
           DEFAULT_EMBEDDING_PROPERTY,
-          "embeddingModel",
-          "embeddingDimensions",
-          "createdAt",
-          "updatedAt");
+          Const.Params.EMBEDDING_MODEL,
+          Const.Params.EMBEDDING_DIMENSIONS,
+          Const.Params.CREATED_AT,
+          Const.Params.UPDATED_AT);
 
   private static final List<String> MEMORY_CHUNK_METADATA_PROPERTIES =
       List.of(
-          "id",
-          "project",
-          "sourceLabel",
-          "sourceId",
-          "textHash",
+          Const.Params.ID,
+          Const.Labels.PROJECT,
+          Const.Params.SOURCE_LABEL,
+          Const.Params.SOURCE_ID,
+          Const.Params.TEXT_HASH,
           DEFAULT_EMBEDDING_PROPERTY,
-          "embeddingModel",
-          "embeddingDimensions",
-          "createdAt",
-          "updatedAt");
+          Const.Params.EMBEDDING_MODEL,
+          Const.Params.EMBEDDING_DIMENSIONS,
+          Const.Params.CREATED_AT,
+          Const.Params.UPDATED_AT);
 
   /** Normalizes defaults and validates numeric options. */
   public EmbeddingSettings {
@@ -68,7 +69,7 @@ public record EmbeddingSettings(
     modelName = defaultIfBlank(modelName, DEFAULT_MODEL_NAME);
     metric = defaultIfBlank(metric, DEFAULT_METRIC);
     scalarKind = defaultIfBlank(scalarKind, DEFAULT_SCALAR_KIND);
-    device = device == null ? "" : device.strip();
+    device = device == null ? Const.Symbols.EMPTY : device.strip();
     batchSize = batchSize == 0 ? DEFAULT_BATCH_SIZE : batchSize;
     chunkSize = chunkSize == 0 ? DEFAULT_CHUNK_SIZE : chunkSize;
     requirePositive(batchSize, "embedding batch size");
@@ -82,35 +83,36 @@ public record EmbeddingSettings(
   /** Enabled defaults for {@code :CodeChunk} embeddings. */
   public static EmbeddingSettings codeDefaults() {
     return new EmbeddingSettings(
-        true, DEFAULT_CODE_INDEX_NAME, null, null, null, 0, 0, "", 0, 0, 0, 0);
+        true, DEFAULT_CODE_INDEX_NAME, null, null, null, 0, 0, Const.Symbols.EMPTY, 0, 0, 0, 0);
   }
 
   /** Enabled defaults for {@code :MemoryChunk} embeddings. */
   public static EmbeddingSettings memoryDefaults() {
     return new EmbeddingSettings(
-        true, DEFAULT_MEMORY_INDEX_NAME, null, null, null, 0, 0, "", 0, 0, 0, 0);
+        true, DEFAULT_MEMORY_INDEX_NAME, null, null, null, 0, 0, Const.Symbols.EMPTY, 0, 0, 0, 0);
   }
 
   /** Disabled default used by callers that opt out of embedding refresh. */
   public static EmbeddingSettings disabled() {
-    return new EmbeddingSettings(false, null, null, null, null, 0, 0, "", 0, 0, 0, 0);
+    return new EmbeddingSettings(
+        false, null, null, null, null, 0, 0, Const.Symbols.EMPTY, 0, 0, 0, 0);
   }
 
   /** Returns the Memgraph embeddings module configuration for {@code embeddings.node_sentence}. */
   public Map<String, Object> codeNodeSentenceConfiguration() {
     Map<String, Object> config = modelConfiguration();
-    config.put("embedding_property", DEFAULT_EMBEDDING_PROPERTY);
-    config.put("excluded_properties", CODE_CHUNK_METADATA_PROPERTIES);
-    config.put("return_embeddings", false);
+    config.put(Const.Params.EMBEDDING_PROPERTY, DEFAULT_EMBEDDING_PROPERTY);
+    config.put(Const.Params.EXCLUDED_PROPERTIES, CODE_CHUNK_METADATA_PROPERTIES);
+    config.put(Const.Params.RETURN_EMBEDDINGS, false);
     return config;
   }
 
   /** Returns the Memgraph embeddings module configuration for {@code :MemoryChunk} nodes. */
   public Map<String, Object> memoryNodeSentenceConfiguration() {
     Map<String, Object> config = modelConfiguration();
-    config.put("embedding_property", DEFAULT_EMBEDDING_PROPERTY);
-    config.put("excluded_properties", MEMORY_CHUNK_METADATA_PROPERTIES);
-    config.put("return_embeddings", false);
+    config.put(Const.Params.EMBEDDING_PROPERTY, DEFAULT_EMBEDDING_PROPERTY);
+    config.put(Const.Params.EXCLUDED_PROPERTIES, MEMORY_CHUNK_METADATA_PROPERTIES);
+    config.put(Const.Params.RETURN_EMBEDDINGS, false);
     return config;
   }
 
@@ -141,13 +143,15 @@ public record EmbeddingSettings(
 
   private static void requirePositive(int value, String name) {
     if (value < 1) {
-      throw new IllegalArgumentException("--" + name.replace(' ', '-') + " must be >= 1");
+      throw new IllegalArgumentException(
+          Const.Symbols.DOUBLE_DASH + name.replace(' ', '-') + " must be >= 1");
     }
   }
 
   private static void requireNonNegative(int value, String name) {
     if (value < 0) {
-      throw new IllegalArgumentException("--" + name.replace(' ', '-') + " must be >= 0");
+      throw new IllegalArgumentException(
+          Const.Symbols.DOUBLE_DASH + name.replace(' ', '-') + " must be >= 0");
     }
   }
 }

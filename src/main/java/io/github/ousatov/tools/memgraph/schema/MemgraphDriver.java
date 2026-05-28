@@ -1,5 +1,6 @@
 package io.github.ousatov.tools.memgraph.schema;
 
+import io.github.ousatov.tools.memgraph.def.Const;
 import java.util.logging.Level;
 import org.neo4j.driver.AuthTokens;
 import org.neo4j.driver.Config;
@@ -28,6 +29,6 @@ public final class MemgraphDriver {
 
   /** Opens a Bolt driver for Memgraph test containers that do not require credentials. */
   public static Driver open(String boltUrl) {
-    return open(boltUrl, "", "");
+    return open(boltUrl, Const.Symbols.EMPTY, Const.Symbols.EMPTY);
   }
 }

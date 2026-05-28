@@ -1,5 +1,7 @@
 package io.github.ousatov.tools.memgraph.exe.analyze;
 
+import io.github.ousatov.tools.memgraph.def.Const;
+
 /**
  * How managed parser runtimes obtain executable dependencies.
  *
@@ -21,7 +23,7 @@ public enum RuntimeMode {
       return MANAGED;
     }
     return switch (value.trim().toLowerCase()) {
-      case "managed" -> MANAGED;
+      case Const.SystemParams.MANAGED -> MANAGED;
       case "system" -> SYSTEM;
       case "offline" -> OFFLINE;
       default ->

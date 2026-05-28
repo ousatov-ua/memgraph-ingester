@@ -1,5 +1,6 @@
 package io.github.ousatov.tools.memgraph.exe.analyze;
 
+import io.github.ousatov.tools.memgraph.def.Const;
 import io.github.ousatov.tools.memgraph.def.Const.SystemParams;
 import io.github.ousatov.tools.memgraph.exception.ProcessingException;
 import java.util.Locale;
@@ -12,7 +13,9 @@ import java.util.Locale;
 record ManagedRuntimePlatform(String os, String arch) {
 
   static ManagedRuntimePlatform current() {
-    return from(System.getProperty("os.name", ""), System.getProperty("os.arch", ""));
+    return from(
+        System.getProperty(Const.SystemParams.OS_NAME, Const.Symbols.EMPTY),
+        System.getProperty("os.arch", Const.Symbols.EMPTY));
   }
 
   static ManagedRuntimePlatform from(String osName, String archName) {
@@ -20,15 +23,15 @@ record ManagedRuntimePlatform(String os, String arch) {
   }
 
   static boolean isCurrentWindows() {
-    return isWindowsName(System.getProperty("os.name", ""));
+    return isWindowsName(System.getProperty(Const.SystemParams.OS_NAME, Const.Symbols.EMPTY));
   }
 
   private static String normalizeOs(String rawName) {
-    String osName = rawName == null ? "" : rawName.toLowerCase(Locale.ROOT);
+    String osName = rawName == null ? Const.Symbols.EMPTY : rawName.toLowerCase(Locale.ROOT);
     if (isWindowsName(rawName)) {
       return SystemParams.WINDOWS;
     }
-    if (osName.contains("mac") || osName.contains("darwin")) {
+    if (osName.contains("mac") || osName.contains(Const.SystemParams.DARWIN)) {
       return SystemParams.MACOS;
     }
     if (osName.contains(SystemParams.LINUX)) {
@@ -38,11 +41,12 @@ record ManagedRuntimePlatform(String os, String arch) {
   }
 
   private static boolean isWindowsName(String rawName) {
-    return rawName != null && rawName.toLowerCase(Locale.ROOT).startsWith("win");
+    return rawName != null
+        && rawName.toLowerCase(Locale.ROOT).startsWith(Const.SystemParams.WINDOWS_PREFIX);
   }
 
   private static String normalizeArch(String rawName) {
-    String archName = rawName == null ? "" : rawName.toLowerCase(Locale.ROOT);
+    String archName = rawName == null ? Const.Symbols.EMPTY : rawName.toLowerCase(Locale.ROOT);
     return switch (archName) {
       case SystemParams.AARCH_64, SystemParams.ARM_64 -> SystemParams.ARM_64;
       case SystemParams.AMD_64, SystemParams.X_86_64 -> SystemParams.X_86_64;

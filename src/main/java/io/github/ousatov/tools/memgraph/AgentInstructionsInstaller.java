@@ -1,5 +1,6 @@
 package io.github.ousatov.tools.memgraph;
 
+import io.github.ousatov.tools.memgraph.def.Const;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -35,11 +36,11 @@ final class AgentInstructionsInstaller {
   }
 
   static Path defaultInstructionFile(String agent) {
-    String normalized = agent == null ? "codex" : agent.toLowerCase(Locale.ROOT);
+    String normalized = agent == null ? Const.SystemParams.CODEX : agent.toLowerCase(Locale.ROOT);
     return switch (normalized) {
       case "claude" -> Path.of("CLAUDE.md");
       case "gemini" -> Path.of("GEMINI.md");
-      case "codex", "github", "copilot" -> Path.of("AGENTS.md");
+      case Const.SystemParams.CODEX, "github", "copilot" -> Path.of("AGENTS.md");
       default -> throw new IllegalArgumentException("Unsupported instructions agent: " + agent);
     };
   }
@@ -54,7 +55,10 @@ final class AgentInstructionsInstaller {
     }
 
     String block = managedBlock(renderInstructions(project, includeMemories));
-    String existing = Files.exists(target) ? Files.readString(target, StandardCharsets.UTF_8) : "";
+    String existing =
+        Files.exists(target)
+            ? Files.readString(target, StandardCharsets.UTF_8)
+            : Const.Symbols.EMPTY;
     String updated = replaceManagedBlock(existing, block);
     Path parent = target.toAbsolutePath().getParent();
     if (parent != null) {
@@ -90,7 +94,8 @@ final class AgentInstructionsInstaller {
     StringBuffer updated = new StringBuffer();
     boolean inserted = false;
     do {
-      legacyMatcher.appendReplacement(updated, inserted ? "" : Matcher.quoteReplacement(block));
+      legacyMatcher.appendReplacement(
+          updated, inserted ? Const.Symbols.EMPTY : Matcher.quoteReplacement(block));
       inserted = true;
     } while (legacyMatcher.find());
     legacyMatcher.appendTail(updated);
@@ -98,10 +103,10 @@ final class AgentInstructionsInstaller {
   }
 
   private static int skipFollowingLineBreak(String content, int offset) {
-    if (content.startsWith("\r\n", offset)) {
+    if (content.startsWith(Const.Symbols.CRLF, offset)) {
       return offset + 2;
     }
-    if (content.startsWith("\n", offset) || content.startsWith("\r", offset)) {
+    if (content.startsWith(Const.Symbols.NEW_LINE, offset) || content.startsWith("\r", offset)) {
       return offset + 1;
     }
     return offset;

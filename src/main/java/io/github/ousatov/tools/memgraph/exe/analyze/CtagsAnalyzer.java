@@ -1,5 +1,6 @@
 package io.github.ousatov.tools.memgraph.exe.analyze;
 
+import io.github.ousatov.tools.memgraph.def.Const;
 import io.github.ousatov.tools.memgraph.def.Const.Params;
 import io.github.ousatov.tools.memgraph.exception.ProcessingException;
 import io.github.ousatov.tools.memgraph.exe.adapter.SourceLanguage;
@@ -10,7 +11,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -44,7 +44,7 @@ public final class CtagsAnalyzer {
           "record",
           "package");
   private static final Set<String> INTERFACE_KINDS =
-      Set.of("interface", "protocol", "type", "typedef", "alias");
+      Set.of("interface", "protocol", Const.Params.TYPE, "typedef", "alias");
   private static final Set<String> METHOD_KINDS =
       Set.of(
           "function",
@@ -53,15 +53,15 @@ public final class CtagsAnalyzer {
           "subroutine",
           "macro",
           "task",
-          "target",
+          Const.Params.TARGET,
           "func",
-          "constructor");
+          Const.Params.CONSTRUCTOR);
   private static final Set<String> FIELD_KINDS =
       Set.of(
           "variable",
           "constant",
           "field",
-          "property",
+          Const.Params.PROPERTY,
           "member",
           "parameter",
           "key",
@@ -81,7 +81,8 @@ public final class CtagsAnalyzer {
 
   /** Detects the ctags language for one file. */
   public Optional<SourceLanguage> detectLanguage(Path file) {
-    ProcessResult result = runCtags(List.of("--options=NONE", "--print-language", file.toString()));
+    ProcessResult result =
+        runCtags(List.of(Const.Cli.CTAGS_OPTIONS_NONE, "--print-language", file.toString()));
     if (result.exitCode() != 0) {
       return Optional.empty();
     }
@@ -97,15 +98,16 @@ public final class CtagsAnalyzer {
     ProcessResult result =
         runCtags(
             List.of(
-                "--options=NONE",
+                Const.Cli.CTAGS_OPTIONS_NONE,
                 "--output-format=json",
                 "--fields=+nKlsSe",
                 "--extras=-F",
                 "-f",
-                "-",
+                Const.Symbols.DASH,
                 file.toString()));
     if (result.exitCode() != 0) {
-      throw new ProcessingException("Ctags failed for " + file + ": " + result.stderr().trim());
+      throw new ProcessingException(
+          "Ctags failed for " + file + Const.Symbols.COLON_SPACE + result.stderr().trim());
     }
     return analysisFromTags(file, language, parseTags(result.stdout()));
   }
@@ -207,7 +209,7 @@ public final class CtagsAnalyzer {
     if (scope == null || scope.isBlank()) {
       return moduleFqn;
     }
-    String normalized = scope.replace("::", ".");
+    String normalized = scope.replace(Const.Symbols.DOUBLE_COLON, Const.Symbols.DOT);
     String direct = typeFqnsByScope.get(normalized);
     if (direct != null) {
       return direct;
@@ -222,7 +224,7 @@ public final class CtagsAnalyzer {
     if (scope == null || scope.isBlank()) {
       return Optional.of(moduleFqn);
     }
-    String normalized = scope.replace("::", ".");
+    String normalized = scope.replace(Const.Symbols.DOUBLE_COLON, Const.Symbols.DOT);
     String direct = typeFqnsByScope.get(normalized);
     if (direct != null) {
       return Optional.of(direct);
@@ -233,7 +235,9 @@ public final class CtagsAnalyzer {
   }
 
   private static String scopeKey(String scope, String name) {
-    return scope == null || scope.isBlank() ? name : scope.replace("::", ".") + "." + name;
+    return scope == null || scope.isBlank()
+        ? name
+        : scope.replace(Const.Symbols.DOUBLE_COLON, Const.Symbols.DOT) + Const.Symbols.DOT + name;
   }
 
   private static String graphKind(String rawKind) {
@@ -245,7 +249,7 @@ public final class CtagsAnalyzer {
       return kind.equals(Params.ENUM) ? Params.ENUM : Params.CLASS;
     }
     if (METHOD_KINDS.contains(kind)) {
-      return kind.equals("constructor") ? Params.CONSTRUCTOR : Params.METHOD;
+      return kind.equals(Const.Params.CONSTRUCTOR) ? Params.CONSTRUCTOR : Params.METHOD;
     }
     if (ENUM_MEMBER_KINDS.contains(kind)) {
       return Params.ENUM_MEMBER;
@@ -253,7 +257,7 @@ public final class CtagsAnalyzer {
     if (FIELD_KINDS.contains(kind)) {
       return kind;
     }
-    return "";
+    return Const.Symbols.EMPTY;
   }
 
   private static boolean isTypeGraphKind(String graphKind) {
@@ -274,7 +278,7 @@ public final class CtagsAnalyzer {
 
   private static String normalizeKind(String rawKind) {
     if (rawKind == null || rawKind.isBlank()) {
-      return "";
+      return Const.Symbols.EMPTY;
     }
     return rawKind.trim().toLowerCase(Locale.ROOT);
   }
@@ -347,8 +351,8 @@ public final class CtagsAnalyzer {
         .forEach(
             line -> {
               try {
-                Map<String, String> obj = new JsonCursor(line).object();
-                if (!"tag".equals(obj.getOrDefault("_type", "tag"))) {
+                Map<String, String> obj = FlatJsonObjectParser.parse(line);
+                if (!Const.Params.TAG.equals(obj.getOrDefault("_type", Const.Params.TAG))) {
                   return;
                 }
                 String name = value(obj, "name");
@@ -363,7 +367,7 @@ public final class CtagsAnalyzer {
                         value(obj, "kind"),
                         value(obj, "scope"),
                         value(obj, "scopeKind"),
-                        value(obj, "signature"),
+                        value(obj, Const.Params.SIGNATURE),
                         value(obj, "typeref"),
                         value(obj, "access"),
                         booleanValue(obj.get("static")),
@@ -378,11 +382,11 @@ public final class CtagsAnalyzer {
 
   private static String value(Map<String, String> obj, String key) {
     String value = obj.get(key);
-    return value == null || "null".equals(value) ? "" : value;
+    return value == null || Const.SystemParams.NULL.equals(value) ? Const.Symbols.EMPTY : value;
   }
 
   private static int intValue(String raw, int defaultValue) {
-    if (raw == null || raw.isBlank() || "null".equals(raw)) {
+    if (raw == null || raw.isBlank() || Const.SystemParams.NULL.equals(raw)) {
       return defaultValue;
     }
     try {
@@ -409,130 +413,4 @@ public final class CtagsAnalyzer {
       boolean isStatic,
       int line,
       int endLine) {}
-
-  private static final class JsonCursor {
-
-    private final String input;
-    private int pos;
-
-    private JsonCursor(String input) {
-      this.input = input;
-    }
-
-    Map<String, String> object() {
-      Map<String, String> result = new HashMap<>();
-      skipWhitespace();
-      expect('{');
-      skipWhitespace();
-      if (peek() == '}') {
-        pos++;
-        return result;
-      }
-      while (true) {
-        String key = string();
-        skipWhitespace();
-        expect(':');
-        skipWhitespace();
-        result.put(key, primitiveValue());
-        skipWhitespace();
-        char next = peek();
-        if (next == ',') {
-          pos++;
-          skipWhitespace();
-        } else if (next == '}') {
-          pos++;
-          return result;
-        } else {
-          throw error("Expected ',' or '}'");
-        }
-      }
-    }
-
-    private String primitiveValue() {
-      if (peek() == '"') {
-        return string();
-      }
-      int start = pos;
-      while (pos < input.length()) {
-        char current = input.charAt(pos);
-        if (current == ',' || current == '}') {
-          break;
-        }
-        pos++;
-      }
-      return input.substring(start, pos).trim();
-    }
-
-    private String string() {
-      expect('"');
-      StringBuilder out = new StringBuilder();
-      while (pos < input.length()) {
-        char current = input.charAt(pos++);
-        if (current == '"') {
-          return out.toString();
-        }
-        if (current != '\\') {
-          out.append(current);
-          continue;
-        }
-        if (pos >= input.length()) {
-          throw error("Unterminated escape sequence");
-        }
-        char escaped = input.charAt(pos++);
-        switch (escaped) {
-          case '"', '\\', '/' -> out.append(escaped);
-          case 'b' -> out.append('\b');
-          case 'f' -> out.append('\f');
-          case 'n' -> out.append('\n');
-          case 'r' -> out.append('\r');
-          case 't' -> out.append('\t');
-          case 'u' -> out.append(unicodeEscape());
-          default -> throw error("Unknown escape sequence");
-        }
-      }
-      throw error("Unterminated string");
-    }
-
-    private void skipWhitespace() {
-      while (pos < input.length() && Character.isWhitespace(input.charAt(pos))) {
-        pos++;
-      }
-    }
-
-    private char peek() {
-      if (pos >= input.length()) {
-        throw error("Unexpected end of JSON");
-      }
-      return input.charAt(pos);
-    }
-
-    private char unicodeEscape() {
-      if (pos + 4 > input.length()) {
-        throw error("Incomplete unicode escape");
-      }
-      String hex = input.substring(pos, pos + 4);
-      try {
-        int value = Integer.parseInt(hex, 16);
-        pos += 4;
-        return (char) value;
-      } catch (NumberFormatException e) {
-        throw error("Invalid unicode escape", e);
-      }
-    }
-
-    private void expect(char expected) {
-      if (peek() != expected) {
-        throw error("Expected '" + expected + "'");
-      }
-      pos++;
-    }
-
-    private ProcessingException error(String message) {
-      return new ProcessingException(message + " at position " + pos + " in " + input);
-    }
-
-    private ProcessingException error(String message, Throwable cause) {
-      return new ProcessingException(message + " at position " + pos + " in " + input, cause);
-    }
-  }
 }

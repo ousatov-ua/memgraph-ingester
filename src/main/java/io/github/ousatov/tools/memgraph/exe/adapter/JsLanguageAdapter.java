@@ -1,22 +1,14 @@
 package io.github.ousatov.tools.memgraph.exe.adapter;
 
-import io.github.ousatov.tools.memgraph.def.Const.Labels;
+import io.github.ousatov.tools.memgraph.def.Const;
 import io.github.ousatov.tools.memgraph.def.Const.Params;
 import io.github.ousatov.tools.memgraph.exe.analyze.JsAnalysis;
 import io.github.ousatov.tools.memgraph.exe.analyze.JsAnalyzer;
+import io.github.ousatov.tools.memgraph.exe.analyze.ModuleAnalysis;
 import io.github.ousatov.tools.memgraph.exe.rag.JsCodeChunkBuilder;
-import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.AnnotationWrite;
-import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.CallWrite;
-import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.FieldWrite;
-import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.PendingCallWrite;
 import io.github.ousatov.tools.memgraph.exe.writer.GraphWriter;
 import io.github.ousatov.tools.memgraph.exe.writer.js.JsGraphWriter;
-import io.github.ousatov.tools.memgraph.vo.Method;
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.LinkedHashSet;
-import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
@@ -28,11 +20,19 @@ import org.slf4j.LoggerFactory;
  *
  * @author Oleksii Usatov
  */
-public final class JsLanguageAdapter implements LanguageAdapter<JsAnalysis> {
+public final class JsLanguageAdapter extends AbstractModuleLanguageAdapter<JsAnalysis> {
 
   private static final Logger log = LoggerFactory.getLogger(JsLanguageAdapter.class);
   private static final Set<String> EXTENSIONS =
-      Set.of(".js", ".jsx", ".ts", ".tsx", ".mts", ".cts", ".mjs", ".cjs");
+      Set.of(
+          Const.Files.JAVASCRIPT_EXTENSION,
+          Const.Files.JSX_EXTENSION,
+          Const.Files.TYPESCRIPT_EXTENSION,
+          Const.Files.TSX_EXTENSION,
+          Const.Files.TYPESCRIPT_MODULE_EXTENSION,
+          Const.Files.TYPESCRIPT_COMMONJS_EXTENSION,
+          Const.Files.JAVASCRIPT_MODULE_EXTENSION,
+          Const.Files.COMMONJS_EXTENSION);
 
   private final JsAnalyzer analyzer;
   private final JsCodeChunkBuilder codeChunks = new JsCodeChunkBuilder();
@@ -77,11 +77,6 @@ public final class JsLanguageAdapter implements LanguageAdapter<JsAnalysis> {
   }
 
   @Override
-  public SourceFileDefinitions collectDefinitions(JsAnalysis analysis) {
-    return buildDefinitions(analysis);
-  }
-
-  @Override
   public boolean write(GraphWriter writer, Path file, JsAnalysis analysis) {
     JsGraphWriter jsWriter = new JsGraphWriter(writer.dependencies());
     try {
@@ -104,7 +99,7 @@ public final class JsLanguageAdapter implements LanguageAdapter<JsAnalysis> {
       analysis.relations().forEach(relation -> upsertRelation(jsWriter, relation));
       upsertMembers(jsWriter, file, analysis.members());
       upsertAnnotations(writer, analysis.annotations());
-      upsertCalls(writer, analysis.calls());
+      upsertCalls(writer, analysis.calls(), false);
       writer.replaceCodeChunksForFile(file, codeChunks.build(file, analysis));
       return true;
     } catch (RuntimeException e) {
@@ -116,47 +111,12 @@ public final class JsLanguageAdapter implements LanguageAdapter<JsAnalysis> {
     }
   }
 
-  private static SourceFileDefinitions buildDefinitions(JsAnalysis analysis) {
-    Set<String> classFqns = new LinkedHashSet<>();
-    Set<String> interfaceFqns = new LinkedHashSet<>();
-    Set<String> methodSignatures = new LinkedHashSet<>();
-    Set<String> fieldFqns = new LinkedHashSet<>();
-
-    classFqns.add(analysis.moduleFqn());
-    methodSignatures.add(analysis.moduleFqn() + "." + Labels.INIT + "()");
-    analysis
-        .types()
-        .forEach(
-            type -> {
-              if (Params.CLASS.equals(type.kind()) || Params.ENUM.equals(type.kind())) {
-                classFqns.add(type.fqn());
-                if (Params.CLASS.equals(type.kind()) && !type.hasConstructor()) {
-                  methodSignatures.add(type.fqn() + "." + Labels.INIT + "()");
-                }
-              } else {
-                interfaceFqns.add(type.fqn());
-              }
-            });
-    analysis
-        .members()
-        .forEach(
-            member -> {
-              if (Params.METHOD.equals(member.memberType())) {
-                methodSignatures.add(member.key());
-              } else {
-                fieldFqns.add(member.key());
-              }
-            });
-    return SourceFileDefinitions.of(
-        classFqns, interfaceFqns, Set.of(), methodSignatures, fieldFqns);
-  }
-
   private static void upsertType(
       JsGraphWriter writer,
       Path file,
       String packageName,
       String modulePath,
-      JsAnalysis.TypeDecl type) {
+      ModuleAnalysis.TypeDecl type) {
     if (Params.CLASS.equals(type.kind())) {
       writer.upsertClass(
           file,
@@ -178,7 +138,7 @@ public final class JsLanguageAdapter implements LanguageAdapter<JsAnalysis> {
     }
   }
 
-  private static void upsertRelation(JsGraphWriter writer, JsAnalysis.RelationDecl relation) {
+  private static void upsertRelation(JsGraphWriter writer, ModuleAnalysis.RelationDecl relation) {
     switch (relation.kind()) {
       case Params.CLASS_EXTENDS ->
           writer.upsertExtendsClass(relation.childFqn(), relation.targetFqn());
@@ -189,81 +149,14 @@ public final class JsLanguageAdapter implements LanguageAdapter<JsAnalysis> {
     }
   }
 
-  private static void upsertMembers(
-      JsGraphWriter writer, Path file, Collection<JsAnalysis.MemberDecl> members) {
-    List<FieldWrite> fields = new ArrayList<>();
-    List<Method> methods = new ArrayList<>();
-    for (JsAnalysis.MemberDecl member : members) {
-      if (Params.METHOD.equals(member.memberType())) {
-        methods.add(
-            new Method(
-                member.ownerFqn(),
-                member.key(),
-                member.name(),
-                member.dataType(),
-                member.isStatic(),
-                "",
-                member.startLine(),
-                member.endLine(),
-                false,
-                SourceLanguage.JAVASCRIPT.graphName(),
-                member.kind()));
-      } else {
-        fields.add(
-            new FieldWrite(
-                member.ownerFqn(),
-                member.key(),
-                member.name(),
-                member.dataType(),
-                member.isStatic(),
-                "",
-                SourceLanguage.JAVASCRIPT.graphName(),
-                member.kind()));
-      }
-    }
-    writer.upsertMembers(file, fields, methods);
-  }
-
-  private static void upsertAnnotations(
-      GraphWriter writer, Collection<JsAnalysis.AnnotationDecl> annotations) {
-    List<AnnotationWrite> ownerAnnotations = new ArrayList<>();
-    List<AnnotationWrite> methodAnnotations = new ArrayList<>();
-    for (JsAnalysis.AnnotationDecl annotation : annotations) {
-      AnnotationWrite write =
-          new AnnotationWrite(
-              annotation.ownerKey(),
-              annotation.fqn(),
-              annotation.name(),
-              SourceLanguage.JAVASCRIPT.graphName(),
-              Params.DECORATOR);
-      if (Params.SIG.equals(annotation.ownerKind())) {
-        methodAnnotations.add(write);
-      } else {
-        ownerAnnotations.add(write);
-      }
-    }
-    writer.upsertAnnotationReferencesByFqn(ownerAnnotations);
-    writer.upsertAnnotationReferencesBySig(methodAnnotations);
-  }
-
-  private static void upsertCalls(GraphWriter writer, Collection<JsAnalysis.CallDecl> calls) {
-    List<CallWrite> resolvedCalls = new ArrayList<>();
-    List<PendingCallWrite> pendingCalls = new ArrayList<>();
-    for (JsAnalysis.CallDecl call : calls) {
-      if (!call.calleeSignature().isBlank()) {
-        resolvedCalls.add(new CallWrite(call.callerSignature(), call.calleeSignature()));
-      } else {
-        pendingCalls.add(
-            new PendingCallWrite(call.callerSignature(), call.calleeOwnerFqn(), call.calleeName()));
-      }
-    }
-    writer.upsertCalls(resolvedCalls);
-    writer.upsertPendingCallsByName(pendingCalls);
+  @Override
+  protected boolean isClassDefinition(ModuleAnalysis.TypeDecl type) {
+    return Params.CLASS.equals(type.kind()) || Params.ENUM.equals(type.kind());
   }
 
   private static boolean isInNodeModules(Path path) {
     for (Path part : path) {
-      if ("node_modules".equals(part.toString())) {
+      if (Const.Files.NODE_MODULES.equals(part.toString())) {
         return true;
       }
     }

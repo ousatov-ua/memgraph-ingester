@@ -1,5 +1,6 @@
 package io.github.ousatov.tools.memgraph.exe.rag;
 
+import io.github.ousatov.tools.memgraph.def.Const;
 import io.github.ousatov.tools.memgraph.def.Const.Labels;
 import io.github.ousatov.tools.memgraph.def.Const.Params;
 import java.util.List;
@@ -42,7 +43,7 @@ public record CodeChunkAnalysis(
           ownerFqn,
           Params.CONSTRUCTOR,
           Params.CONSTRUCTOR,
-          ownerFqn + "." + Labels.INIT + "()",
+          ownerFqn + Const.Symbols.DOT + Labels.INIT + Const.Symbols.PARENS,
           Labels.INIT,
           startLine,
           endLine);

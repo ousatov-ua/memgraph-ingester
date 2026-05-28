@@ -12,6 +12,7 @@ import com.github.javaparser.ast.body.RecordDeclaration;
 import com.github.javaparser.ast.nodeTypes.NodeWithAnnotations;
 import com.github.javaparser.ast.nodeTypes.NodeWithImplements;
 import com.github.javaparser.ast.type.ClassOrInterfaceType;
+import io.github.ousatov.tools.memgraph.def.Const;
 import io.github.ousatov.tools.memgraph.def.Const.Cypher;
 import io.github.ousatov.tools.memgraph.def.Const.Labels;
 import io.github.ousatov.tools.memgraph.def.Const.Params;
@@ -136,7 +137,9 @@ public final class JavaGraphWriter extends CommonGraphWriter {
   }
 
   private static String typeFqn(String pkg, String outerFqn, String simpleName) {
-    return outerFqn != null ? outerFqn + "$" + simpleName : JavaTypeNames.buildFqn(pkg, simpleName);
+    return outerFqn != null
+        ? outerFqn + Const.Symbols.DOLLAR + simpleName
+        : JavaTypeNames.buildFqn(pkg, simpleName);
   }
 
   private void upsertTypeCallEdgesInternal(
@@ -255,17 +258,17 @@ public final class JavaGraphWriter extends CommonGraphWriter {
       fields.add(
           new FieldWrite(
               ownerFqn,
-              ownerFqn + "#" + param.getNameAsString(),
+              ownerFqn + Const.Symbols.HASH + param.getNameAsString(),
               param.getNameAsString(),
               JavaTypeNames.resolveType(param.getType()),
               false,
               "private",
               JAVA_LANGUAGE,
-              "record-component"));
+              Const.Params.RECORD_COMPONENT));
     }
     upsertFieldNodes(file, fields);
     for (Parameter param : decl.getParameters()) {
-      String fqn = ownerFqn + "#" + param.getNameAsString();
+      String fqn = ownerFqn + Const.Symbols.HASH + param.getNameAsString();
       upsertAnnotationsByFqn(fqn, param);
     }
   }
@@ -277,7 +280,7 @@ public final class JavaGraphWriter extends CommonGraphWriter {
                 v ->
                     new FieldWrite(
                         ownerFqn,
-                        ownerFqn + "#" + v.getNameAsString(),
+                        ownerFqn + Const.Symbols.HASH + v.getNameAsString(),
                         v.getNameAsString(),
                         JavaTypeNames.resolveType(v.getType()),
                         field.isStatic(),
@@ -295,7 +298,7 @@ public final class JavaGraphWriter extends CommonGraphWriter {
         List.of(
             new FieldWrite(
                 ownerFqn,
-                ownerFqn + "#" + entry.getNameAsString(),
+                ownerFqn + Const.Symbols.HASH + entry.getNameAsString(),
                 entry.getNameAsString(),
                 ownerFqn,
                 true,
@@ -347,20 +350,12 @@ public final class JavaGraphWriter extends CommonGraphWriter {
   }
 
   private void upsertRecordCanonicalConstructor(Path file, String fqn, RecordDeclaration decl) {
-    String canonicalParams =
-        decl.getParameters().stream()
-            .map(JavaTypeNames::resolveParamType)
-            .collect(Collectors.joining(", "));
-    String canonicalSig = fqn + "." + Labels.INIT + "(" + canonicalParams + ")";
-    boolean hasCanonical =
-        decl.getConstructors().stream()
-            .anyMatch(c -> JavaTypeNames.buildConstructorSignature(fqn, c).equals(canonicalSig));
-    if (!hasCanonical) {
+    if (!JavaTypeNames.hasExplicitCanonicalConstructor(fqn, decl)) {
       upsertMethodNode(
           file,
           new Method(
               fqn,
-              canonicalSig,
+              JavaTypeNames.buildRecordCanonicalConstructorSignature(fqn, decl),
               Labels.INIT,
               Labels.VOID,
               false,
@@ -377,7 +372,7 @@ public final class JavaGraphWriter extends CommonGraphWriter {
         file,
         new Method(
             fqn,
-            fqn + "." + Labels.INIT + "()",
+            fqn + Const.Symbols.DOT + Labels.INIT + Const.Symbols.PARENS,
             Labels.INIT,
             Labels.VOID,
             false,
@@ -397,7 +392,7 @@ public final class JavaGraphWriter extends CommonGraphWriter {
     for (Parameter param : decl.getParameters()) {
       String accessorName = param.getNameAsString();
       if (!explicitMethods.contains(accessorName)) {
-        String sig = fqn + "." + accessorName + "()";
+        String sig = fqn + Const.Symbols.DOT + accessorName + Const.Symbols.PARENS;
         upsertMethodNode(
             file,
             new Method(

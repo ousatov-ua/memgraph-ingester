@@ -1,5 +1,6 @@
 package io.github.ousatov.tools.memgraph.exe.writer;
 
+import io.github.ousatov.tools.memgraph.def.Const;
 import io.github.ousatov.tools.memgraph.def.Const.Params;
 import io.github.ousatov.tools.memgraph.exe.analyze.JavaTypeNames;
 import io.github.ousatov.tools.memgraph.vo.Method;
@@ -58,7 +59,7 @@ public final class GraphWrite {
   }
 
   /** Derived code RAG chunk write payload. */
-  @SuppressWarnings("java:S107")
+  @SuppressWarnings(Const.Warnings.TOO_MANY_PARAMETERS)
   public record CodeChunkWrite(
       String id,
       String sourceLabel,

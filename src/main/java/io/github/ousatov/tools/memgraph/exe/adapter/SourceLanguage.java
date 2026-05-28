@@ -1,5 +1,6 @@
 package io.github.ousatov.tools.memgraph.exe.adapter;
 
+import io.github.ousatov.tools.memgraph.def.Const;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
@@ -11,9 +12,10 @@ import java.util.Objects;
  */
 public final class SourceLanguage {
 
-  public static final SourceLanguage JAVA = new SourceLanguage("java", "Java");
+  public static final SourceLanguage JAVA = new SourceLanguage(Const.SystemParams.JAVA, "Java");
   public static final SourceLanguage JAVASCRIPT = new SourceLanguage("js", "Js");
-  public static final SourceLanguage PYTHON = new SourceLanguage("python", "Python");
+  public static final SourceLanguage PYTHON =
+      new SourceLanguage(Const.SystemParams.PYTHON, Const.SystemParams.PYTHON_DISPLAY);
 
   private final String graphName;
   private final String nodeName;
@@ -42,21 +44,21 @@ public final class SourceLanguage {
 
   /** Normalizes a Universal Ctags language name into a graph language identity. */
   public static SourceLanguage fromCtagsName(String ctagsLanguageName) {
-    String displayName = ctagsLanguageName == null ? "" : ctagsLanguageName.trim();
+    String displayName = ctagsLanguageName == null ? Const.Symbols.EMPTY : ctagsLanguageName.trim();
     String graphName =
         switch (displayName.toLowerCase(Locale.ROOT)) {
-          case "c++" -> "cpp";
-          case "c#" -> "csharp";
-          case "f#" -> "fsharp";
+          case "c++" -> Const.SystemParams.CPP;
+          case "c#" -> Const.SystemParams.CSHARP;
+          case "f#" -> Const.SystemParams.FSHARP;
           case "javascript" -> JAVASCRIPT.graphName;
-          case "typescript" -> JAVASCRIPT.graphName;
+          case Const.SystemParams.TYPESCRIPT -> JAVASCRIPT.graphName;
           default -> normalizeGraphName(displayName);
         };
     String nodeName =
         switch (graphName) {
-          case "cpp" -> "C++";
-          case "csharp" -> "C#";
-          case "fsharp" -> "F#";
+          case Const.SystemParams.CPP -> "C++";
+          case Const.SystemParams.CSHARP -> "C#";
+          case Const.SystemParams.FSHARP -> "F#";
           default -> displayName.isBlank() ? graphName : displayName;
         };
     return of(graphName, nodeName);
@@ -96,7 +98,7 @@ public final class SourceLanguage {
   }
 
   private static String normalizeGraphName(String rawName) {
-    String lower = rawName == null ? "" : rawName.trim().toLowerCase(Locale.ROOT);
+    String lower = rawName == null ? Const.Symbols.EMPTY : rawName.trim().toLowerCase(Locale.ROOT);
     StringBuilder out = new StringBuilder();
     boolean previousSeparator = false;
     for (int index = 0; index < lower.length(); index++) {

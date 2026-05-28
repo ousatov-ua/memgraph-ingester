@@ -1,6 +1,7 @@
 package io.github.ousatov.tools.memgraph.exe.ingestion;
 
 import io.github.ousatov.tools.memgraph.IngesterCli;
+import io.github.ousatov.tools.memgraph.def.Const;
 import io.github.ousatov.tools.memgraph.exception.ProcessingException;
 import io.github.ousatov.tools.memgraph.exe.adapter.JavaLanguageAdapter;
 import io.github.ousatov.tools.memgraph.exe.adapter.LanguageAdapter;
@@ -238,7 +239,7 @@ public final class IngestionOrchestrator {
     return failures;
   }
 
-  @SuppressWarnings({"java:S3776", "java:S135"})
+  @SuppressWarnings({Const.Warnings.COGNITIVE_COMPLEXITY, Const.Warnings.LOOP_CONTROL})
   private void startWatchLoop() {
     log.debug("Starting watch mode for {}...", sourceRoot);
     try (WatchService watcher = FileSystems.getDefault().newWatchService()) {
@@ -624,7 +625,7 @@ public final class IngestionOrchestrator {
     }
   }
 
-  @SuppressWarnings({"java:S106", "java:S1181"})
+  @SuppressWarnings({Const.Warnings.STANDARD_OUTPUT, Const.Warnings.BROAD_EXCEPTION})
   private void printMetrics(Session session) {
     try {
       System.out.print(IngestionMetricsCollector.collect(session, project).toMarkdownTable());
@@ -633,7 +634,7 @@ public final class IngestionOrchestrator {
     }
   }
 
-  @SuppressWarnings({"java:S106", "java:S1181"})
+  @SuppressWarnings({Const.Warnings.STANDARD_OUTPUT, Const.Warnings.BROAD_EXCEPTION})
   private void printPerformance(IngestionRunStats stats) {
     try {
       System.out.print(stats.snapshot().toMarkdownTable());
@@ -919,7 +920,7 @@ public final class IngestionOrchestrator {
     }
     Path relativePath = fileName;
     if (!packageName.isBlank()) {
-      String[] packageParts = packageName.split("\\.");
+      String[] packageParts = packageName.split(Const.Symbols.DOT_REGEX);
       for (int index = packageParts.length - 1; index >= 0; index--) {
         if (packageParts[index].isBlank()) {
           return Optional.empty();
@@ -1100,7 +1101,7 @@ public final class IngestionOrchestrator {
     return Math.min(backoffMs * 2, FILE_TX_MAX_BACKOFF_MS);
   }
 
-  @SuppressWarnings(value = {"java:S3776"})
+  @SuppressWarnings(value = {Const.Warnings.COGNITIVE_COMPLEXITY})
   private int ingestParallel(
       List<SourceFile> files,
       StoredFileState storedFiles,

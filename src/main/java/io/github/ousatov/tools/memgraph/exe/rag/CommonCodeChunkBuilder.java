@@ -1,6 +1,7 @@
 package io.github.ousatov.tools.memgraph.exe.rag;
 
 import com.github.javaparser.ast.Node;
+import io.github.ousatov.tools.memgraph.def.Const;
 import io.github.ousatov.tools.memgraph.def.Const.Params;
 import io.github.ousatov.tools.memgraph.exe.rag.CodeChunkAnalysis.MemberChunk;
 import io.github.ousatov.tools.memgraph.exe.rag.CodeChunkAnalysis.TypeChunk;
@@ -46,12 +47,12 @@ public abstract class CommonCodeChunkBuilder<T> {
     if (!analysis.moduleFqn().isBlank()) {
       chunks.add(
           chunk(
-              "Class",
+              Const.Labels.CLASS,
               analysis.moduleFqn(),
               analysis.language(),
               file,
               analysis.moduleFqn(),
-              "",
+              Const.Symbols.EMPTY,
               analysis.moduleName(),
               Params.MODULE,
               analysis.startLine(),
@@ -74,7 +75,7 @@ public abstract class CommonCodeChunkBuilder<T> {
             language,
             file,
             type.ownerFqn(),
-            "",
+            Const.Symbols.EMPTY,
             type.name(),
             type.kind(),
             type.startLine(),
@@ -118,8 +119,8 @@ public abstract class CommonCodeChunkBuilder<T> {
             file.toString(),
             language,
             file,
-            "",
-            "",
+            Const.Symbols.EMPTY,
+            Const.Symbols.EMPTY,
             file.getFileName() == null ? file.toString() : file.getFileName().toString(),
             "file",
             1,
@@ -127,7 +128,7 @@ public abstract class CommonCodeChunkBuilder<T> {
             lines));
   }
 
-  @SuppressWarnings("java:S107")
+  @SuppressWarnings(Const.Warnings.TOO_MANY_PARAMETERS)
   protected final void addMember(
       List<CodeChunkWrite> chunks,
       Path file,
@@ -148,7 +149,7 @@ public abstract class CommonCodeChunkBuilder<T> {
             language,
             file,
             ownerFqn,
-            method ? key : "",
+            method ? key : Const.Symbols.EMPTY,
             name,
             kind,
             startLine,
@@ -163,7 +164,7 @@ public abstract class CommonCodeChunkBuilder<T> {
         || Params.MODULE.equals(memberType);
   }
 
-  @SuppressWarnings("java:S107")
+  @SuppressWarnings(Const.Warnings.TOO_MANY_PARAMETERS)
   protected final CodeChunkWrite chunk(
       String sourceLabel,
       String sourceId,
@@ -209,7 +210,7 @@ public abstract class CommonCodeChunkBuilder<T> {
     return node.getEnd().map(position -> position.line).orElse(0);
   }
 
-  @SuppressWarnings("java:S107")
+  @SuppressWarnings(Const.Warnings.TOO_MANY_PARAMETERS)
   private static String text(
       String language,
       Path file,
@@ -236,13 +237,13 @@ public abstract class CommonCodeChunkBuilder<T> {
 
   private static String excerpt(List<String> lines, int startLine, int endLine) {
     if (lines.isEmpty()) {
-      return "";
+      return Const.Symbols.EMPTY;
     }
     int safeStart = startLine <= 0 ? 1 : Math.min(startLine, lines.size());
     int safeEnd = endLine <= 0 ? safeStart : Math.max(safeStart, Math.min(endLine, lines.size()));
     int docStart = documentationStart(lines, safeStart);
     int limitedEnd = Math.min(safeEnd, docStart + MAX_EXCERPT_LINES - 1);
-    return String.join("\n", lines.subList(docStart - 1, limitedEnd));
+    return String.join(Const.Symbols.NEW_LINE, lines.subList(docStart - 1, limitedEnd));
   }
 
   private static int documentationStart(List<String> lines, int startLine) {
@@ -285,25 +286,27 @@ public abstract class CommonCodeChunkBuilder<T> {
   }
 
   private static boolean isLineDocComment(String trimmed) {
-    return trimmed.startsWith("///") || trimmed.startsWith("//") || trimmed.startsWith("#");
+    return trimmed.startsWith("///")
+        || trimmed.startsWith(Const.Symbols.DOUBLE_SLASH)
+        || trimmed.startsWith(Const.Symbols.HASH);
   }
 
   private static void appendField(StringBuilder builder, String label, String value) {
     if (value != null && !value.isBlank()) {
-      builder.append(label).append(": ").append(value).append('\n');
+      builder.append(label).append(Const.Symbols.COLON_SPACE).append(value).append('\n');
     }
   }
 
   private static String id(String sourceLabel, String sourceId) {
     return "CCH-"
         + sourceLabel.toLowerCase(Locale.ROOT)
-        + "-"
+        + Const.Symbols.DASH
         + sha256(sourceId).substring(0, ID_HASH_LENGTH);
   }
 
   private static String sha256(String text) {
     try {
-      MessageDigest digest = MessageDigest.getInstance("SHA-256");
+      MessageDigest digest = MessageDigest.getInstance(Const.SystemParams.SHA_256);
       return HexFormat.of().formatHex(digest.digest(text.getBytes(StandardCharsets.UTF_8)));
     } catch (NoSuchAlgorithmException e) {
       throw new IllegalStateException("SHA-256 is unavailable", e);

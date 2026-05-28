@@ -74,7 +74,7 @@ public final class ParseService {
     try {
       var result = parserForCurrentThread().parse(file);
       if (!result.isSuccessful() || result.getResult().isEmpty()) {
-        log.warn("Failed to parse {}: {}", file, result.getProblems());
+        log.debug("Failed to parse {}: {}", file, result.getProblems());
         return Optional.empty();
       }
       return result.getResult();

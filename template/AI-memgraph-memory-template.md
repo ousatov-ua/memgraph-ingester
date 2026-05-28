@@ -254,6 +254,8 @@ not calculate embedding vectors outside Memgraph. Use the source Memory node as 
 agent workflow is only for MemoryChunks created or updated during the current session.
 Compute `textHash` outside Cypher with any SHA-256 tool/library as the hex digest of the exact UTF-8
 `chunk.text`; when using MCP, pass it as a parameter. Do not call `sha256()` in Memgraph.
+When using Node.js snippets, avoid top-level `createHash` declarations; keep imports and helpers
+scoped to the snippet so repeated calls do not redeclare persistent REPL bindings.
 
 ```cypher
 MATCH (d:Decision {id: 'DEC-<topic>-<name>', project: '{{PROJECT_NAME}}'})

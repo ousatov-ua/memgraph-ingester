@@ -12,6 +12,7 @@ import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.body.Parameter;
 import com.github.javaparser.ast.body.RecordDeclaration;
 import com.github.javaparser.ast.body.TypeDeclaration;
+import io.github.ousatov.tools.memgraph.def.Const;
 import io.github.ousatov.tools.memgraph.def.Const.Labels;
 import io.github.ousatov.tools.memgraph.def.Const.Params;
 import io.github.ousatov.tools.memgraph.exe.adapter.SourceLanguage;
@@ -56,12 +57,19 @@ public final class JavaCodeChunkBuilder extends CommonCodeChunkBuilder<Compilati
 
     @Override
     public CodeChunkAnalysis analyze(CompilationUnit cu) {
-      String pkg = cu.getPackageDeclaration().map(pd -> pd.getName().asString()).orElse("");
+      String pkg =
+          cu.getPackageDeclaration().map(pd -> pd.getName().asString()).orElse(Const.Symbols.EMPTY);
       List<TypeChunk> types = new ArrayList<>();
       List<MemberChunk> members = new ArrayList<>();
       cu.getTypes().forEach(typeDecl -> addTopLevelType(types, members, pkg, typeDecl));
       return new CodeChunkAnalysis(
-          LANGUAGE, "", "", 0, 0, List.copyOf(types), List.copyOf(members));
+          LANGUAGE,
+          Const.Symbols.EMPTY,
+          Const.Symbols.EMPTY,
+          0,
+          0,
+          List.copyOf(types),
+          List.copyOf(members));
     }
   }
 
@@ -72,7 +80,7 @@ public final class JavaCodeChunkBuilder extends CommonCodeChunkBuilder<Compilati
       String outerFqn,
       ClassOrInterfaceDeclaration decl) {
     String fqn = typeFqn(pkg, outerFqn, decl.getNameAsString());
-    String label = decl.isInterface() ? "Interface" : "Class";
+    String label = decl.isInterface() ? Const.Labels.INTERFACE : Const.Labels.CLASS;
     types.add(typeChunk(label, fqn, decl, decl.getNameAsString()));
     decl.getFields().forEach(field -> addField(members, fqn, field));
     decl.getMethods().forEach(method -> addMethod(members, fqn, method));
@@ -87,7 +95,7 @@ public final class JavaCodeChunkBuilder extends CommonCodeChunkBuilder<Compilati
   private static void addEnum(
       List<TypeChunk> types, List<MemberChunk> members, String pkg, EnumDeclaration decl) {
     String fqn = JavaTypeNames.buildFqn(pkg, decl.getNameAsString());
-    types.add(typeChunk("Class", fqn, decl, decl.getNameAsString()));
+    types.add(typeChunk(Const.Labels.CLASS, fqn, decl, decl.getNameAsString()));
     decl.getEntries().forEach(entry -> addEnumConstant(members, fqn, entry));
     decl.getFields().forEach(field -> addField(members, fqn, field));
     decl.getMethods().forEach(method -> addMethod(members, fqn, method));
@@ -99,7 +107,7 @@ public final class JavaCodeChunkBuilder extends CommonCodeChunkBuilder<Compilati
   private static void addRecord(
       List<TypeChunk> types, List<MemberChunk> members, String pkg, RecordDeclaration decl) {
     String fqn = JavaTypeNames.buildFqn(pkg, decl.getNameAsString());
-    types.add(typeChunk("Class", fqn, decl, decl.getNameAsString()));
+    types.add(typeChunk(Const.Labels.CLASS, fqn, decl, decl.getNameAsString()));
     decl.getParameters().forEach(param -> addRecordComponent(members, fqn, param));
     decl.getFields().forEach(field -> addField(members, fqn, field));
     decl.getMethods().forEach(method -> addMethod(members, fqn, method));
@@ -132,7 +140,7 @@ public final class JavaCodeChunkBuilder extends CommonCodeChunkBuilder<Compilati
                         ownerFqn,
                         Params.FIELD,
                         Params.FIELD,
-                        ownerFqn + "#" + variable.getNameAsString(),
+                        ownerFqn + Const.Symbols.HASH + variable.getNameAsString(),
                         variable.getNameAsString(),
                         beginLineOf(field),
                         endLineOf(field))));
@@ -144,8 +152,8 @@ public final class JavaCodeChunkBuilder extends CommonCodeChunkBuilder<Compilati
         new MemberChunk(
             ownerFqn,
             Params.FIELD,
-            "record-component",
-            ownerFqn + "#" + param.getNameAsString(),
+            Const.Params.RECORD_COMPONENT,
+            ownerFqn + Const.Symbols.HASH + param.getNameAsString(),
             param.getNameAsString(),
             beginLineOf(param),
             endLineOf(param)));
@@ -158,7 +166,7 @@ public final class JavaCodeChunkBuilder extends CommonCodeChunkBuilder<Compilati
             ownerFqn,
             Params.FIELD,
             Params.ENUM_MEMBER,
-            ownerFqn + "#" + entry.getNameAsString(),
+            ownerFqn + Const.Symbols.HASH + entry.getNameAsString(),
             entry.getNameAsString(),
             beginLineOf(entry),
             endLineOf(entry)));
@@ -198,7 +206,7 @@ public final class JavaCodeChunkBuilder extends CommonCodeChunkBuilder<Compilati
             ownerFqn,
             Params.CONSTRUCTOR,
             Params.CONSTRUCTOR,
-            ownerFqn + "." + Labels.INIT + "()",
+            ownerFqn + Const.Symbols.DOT + Labels.INIT + Const.Symbols.PARENS,
             Labels.INIT,
             0,
             0));
@@ -209,8 +217,14 @@ public final class JavaCodeChunkBuilder extends CommonCodeChunkBuilder<Compilati
     String canonicalParams =
         decl.getParameters().stream()
             .map(JavaTypeNames::resolveParamType)
-            .collect(Collectors.joining(", "));
-    String canonicalSig = ownerFqn + "." + Labels.INIT + "(" + canonicalParams + ")";
+            .collect(Collectors.joining(Const.Symbols.COMMA_SPACE));
+    String canonicalSig =
+        ownerFqn
+            + Const.Symbols.DOT
+            + Labels.INIT
+            + Const.Symbols.LEFT_PAREN
+            + canonicalParams
+            + Const.Symbols.RIGHT_PAREN;
     boolean hasCanonical =
         decl.getConstructors().stream()
             .anyMatch(
@@ -248,7 +262,7 @@ public final class JavaCodeChunkBuilder extends CommonCodeChunkBuilder<Compilati
             ownerFqn,
             Params.METHOD,
             Params.METHOD,
-            ownerFqn + "." + accessorName + "()",
+            ownerFqn + Const.Symbols.DOT + accessorName + Const.Symbols.PARENS,
             accessorName,
             beginLineOf(param),
             endLineOf(param)));
@@ -262,7 +276,9 @@ public final class JavaCodeChunkBuilder extends CommonCodeChunkBuilder<Compilati
   }
 
   private static String typeFqn(String pkg, String outerFqn, String simpleName) {
-    return outerFqn == null ? JavaTypeNames.buildFqn(pkg, simpleName) : outerFqn + "$" + simpleName;
+    return outerFqn == null
+        ? JavaTypeNames.buildFqn(pkg, simpleName)
+        : outerFqn + Const.Symbols.DOLLAR + simpleName;
   }
 
   private static int beginLineOf(com.github.javaparser.ast.Node node) {

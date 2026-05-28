@@ -1,5 +1,6 @@
 package io.github.ousatov.tools.memgraph.exe.metrics;
 
+import io.github.ousatov.tools.memgraph.def.Const;
 import java.util.List;
 
 /**
@@ -10,8 +11,8 @@ import java.util.List;
 final class MarkdownMetricsTable {
 
   private static final String METRIC_COLUMN = "metric";
-  private static final String VALUE_COLUMN = "value";
-  private static final String LF = "\n";
+  private static final String VALUE_COLUMN = Const.Params.VALUE;
+  private static final String LF = Const.Symbols.NEW_LINE;
 
   private MarkdownMetricsTable() {
     throw new UnsupportedOperationException("Utility class");
@@ -26,37 +27,37 @@ final class MarkdownMetricsTable {
     valueWidth = Math.max(valueWidth, VALUE_COLUMN.length());
     StringBuilder table = new StringBuilder("# ").append(title).append(LF).append(LF);
     table
-        .append("| ")
+        .append(Const.Symbols.PIPE_PREFIX)
         .append(padRight(METRIC_COLUMN, metricWidth))
-        .append(" | ")
+        .append(Const.Symbols.PIPE_SEPARATOR)
         .append(padLeft(VALUE_COLUMN, valueWidth))
-        .append(" |")
+        .append(Const.Symbols.TABLE_ROW_SUFFIX)
         .append(LF);
     table
-        .append("|")
-        .append("-".repeat(metricWidth + 2))
-        .append("|")
-        .append("-".repeat(valueWidth + 1))
+        .append(Const.Symbols.PIPE)
+        .append(Const.Symbols.DASH.repeat(metricWidth + 2))
+        .append(Const.Symbols.PIPE)
+        .append(Const.Symbols.DASH.repeat(valueWidth + 1))
         .append(":|")
         .append(LF);
     for (Row row : rows) {
       table
-          .append("| ")
+          .append(Const.Symbols.PIPE_PREFIX)
           .append(padRight(row.name(), metricWidth))
-          .append(" | ")
+          .append(Const.Symbols.PIPE_SEPARATOR)
           .append(padLeft(row.value(), valueWidth))
-          .append(" |")
+          .append(Const.Symbols.TABLE_ROW_SUFFIX)
           .append(LF);
     }
     return table.toString();
   }
 
   private static String padLeft(String value, int width) {
-    return " ".repeat(Math.max(0, width - value.length())) + value;
+    return Const.Symbols.SPACE.repeat(Math.max(0, width - value.length())) + value;
   }
 
   private static String padRight(String value, int width) {
-    return value + " ".repeat(Math.max(0, width - value.length()));
+    return value + Const.Symbols.SPACE.repeat(Math.max(0, width - value.length()));
   }
 
   /**

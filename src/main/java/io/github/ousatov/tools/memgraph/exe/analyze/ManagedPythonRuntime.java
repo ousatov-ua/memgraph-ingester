@@ -1,5 +1,6 @@
 package io.github.ousatov.tools.memgraph.exe.analyze;
 
+import io.github.ousatov.tools.memgraph.def.Const;
 import io.github.ousatov.tools.memgraph.def.Const.SystemParams;
 import io.github.ousatov.tools.memgraph.exception.ProcessingException;
 import io.github.ousatov.tools.memgraph.exe.output.ConsoleStatusLine;
@@ -7,19 +8,12 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.nio.channels.FileChannel;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
-import java.util.HexFormat;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -35,7 +29,7 @@ import org.slf4j.LoggerFactory;
  *
  * @author Oleksii Usatov
  */
-public final class ManagedPythonRuntime {
+public final class ManagedPythonRuntime extends ManagedHttpInstaller {
 
   public static final String DEFAULT_PYTHON_VERSION = "3.14.5";
   public static final String DEFAULT_PYTHON_BUILD = "20260510";
@@ -43,10 +37,9 @@ public final class ManagedPythonRuntime {
   private static final Logger log = LoggerFactory.getLogger(ManagedPythonRuntime.class);
   private static final String PYTHON_DIST =
       "https://github.com/astral-sh/python-build-standalone/releases/download/";
-  private static final Duration HTTP_TIMEOUT = Duration.ofMinutes(5);
   private static final Duration VENV_TIMEOUT = Duration.ofMinutes(2);
-  private static final String INSTALL_LOCK_FILE = ".install.lock";
-  private static final String INSTALL_READY_FILE = ".install-complete";
+  private static final String INSTALL_LOCK_FILE = Const.Files.INSTALL_LOCK;
+  private static final String INSTALL_READY_FILE = Const.Files.INSTALL_COMPLETE;
   private static final String VENV_READY_FILE = ".venv-complete";
   private static final ConcurrentMap<Path, Object> INSTALL_LOCKS = new ConcurrentHashMap<>();
 
@@ -54,19 +47,14 @@ public final class ManagedPythonRuntime {
   private final String pythonVersion;
   private final String pythonBuild;
   private final RuntimeMode runtimeMode;
-  private final HttpClient http;
 
   public ManagedPythonRuntime(
       Path cacheRoot, String pythonVersion, String pythonBuild, RuntimeMode runtimeMode) {
-    this.cacheRoot = Objects.requireNonNull(cacheRoot, "cacheRoot");
+    super(true);
+    this.cacheRoot = Objects.requireNonNull(cacheRoot, Const.Params.CACHE_ROOT);
     this.pythonVersion = normalizeVersion(pythonVersion);
     this.pythonBuild = normalizeBuild(pythonBuild);
-    this.runtimeMode = Objects.requireNonNull(runtimeMode, "runtimeMode");
-    this.http =
-        HttpClient.newBuilder()
-            .connectTimeout(HTTP_TIMEOUT)
-            .followRedirects(HttpClient.Redirect.NORMAL)
-            .build();
+    this.runtimeMode = Objects.requireNonNull(runtimeMode, Const.Params.RUNTIME_MODE);
   }
 
   public Path pythonExecutable() {
@@ -97,7 +85,7 @@ public final class ManagedPythonRuntime {
     if (configured != null && !configured.isBlank()) {
       return configured;
     }
-    return ManagedRuntimePlatform.isCurrentWindows() ? "python.exe" : "python3";
+    return ManagedRuntimePlatform.isCurrentWindows() ? Const.Files.PYTHON_EXE : Const.Files.PYTHON3;
   }
 
   private void ensureStandalonePythonInstalled(
@@ -123,7 +111,7 @@ public final class ManagedPythonRuntime {
             throw new ProcessingException(
                 "Managed CPython "
                     + pythonVersion
-                    + "+"
+                    + Const.Symbols.PLUS
                     + pythonBuild
                     + " is not cached at "
                     + executable
@@ -134,7 +122,8 @@ public final class ManagedPythonRuntime {
       }
     } catch (IOException e) {
       throw new ProcessingException(
-          "Could not install managed CPython " + pythonVersion + "+" + pythonBuild, e);
+          "Could not install managed CPython " + pythonVersion + Const.Symbols.PLUS + pythonBuild,
+          e);
     }
   }
 
@@ -168,7 +157,9 @@ public final class ManagedPythonRuntime {
   private void installStandalonePython(
       ManagedRuntimePlatform platform, Path installDir, Path executable) throws IOException {
     String archiveName = pythonArchiveName(platform, pythonVersion, pythonBuild);
-    URI archiveUri = URI.create(PYTHON_DIST + pythonBuild + "/" + encodeArchiveName(archiveName));
+    URI archiveUri =
+        URI.create(
+            PYTHON_DIST + pythonBuild + Const.Symbols.SLASH + encodeArchiveName(archiveName));
     URI sumsUri = URI.create(PYTHON_DIST + pythonBuild + "/SHA256SUMS");
     ConsoleStatusLine.withFinishedLine(
         System.err,
@@ -181,12 +172,18 @@ public final class ManagedPythonRuntime {
                 .log());
     try (ManagedRuntimeLoadingIndicator indicator =
         ManagedRuntimeLoadingIndicator.start(
-            "CPython " + pythonVersion + "+" + pythonBuild + " (" + pythonId(platform) + ")")) {
+            "CPython "
+                + pythonVersion
+                + Const.Symbols.PLUS
+                + pythonBuild
+                + Const.Symbols.SPACE_LEFT_PAREN
+                + pythonId(platform)
+                + Const.Symbols.RIGHT_PAREN)) {
       byte[] archive = download(archiveUri);
-      verifySha256(archive, archiveName, downloadText(sumsUri));
+      verifySha256(archive, archiveName, downloadText(sumsUri), "CPython");
       extractTgz(archive, installDir);
       if (!Files.isExecutable(executable)) {
-        @SuppressWarnings("java:S899")
+        @SuppressWarnings(Const.Warnings.IGNORED_RETURN_VALUE)
         var _ = executable.toFile().setExecutable(true, true);
       }
       if (!Files.isExecutable(executable)) {
@@ -201,10 +198,11 @@ public final class ManagedPythonRuntime {
     try (ManagedRuntimeLoadingIndicator indicator =
         ManagedRuntimeLoadingIndicator.steady("Python virtual environment")) {
       ProcessBuilder processBuilder =
-          new ProcessBuilder(standaloneExecutable.toString(), "-m", "venv", venvDir.toString());
+          new ProcessBuilder(
+              standaloneExecutable.toString(), "-m", Const.Files.VENV, venvDir.toString());
       processBuilder.redirectOutput(ProcessBuilder.Redirect.DISCARD);
       processBuilder.redirectError(ProcessBuilder.Redirect.DISCARD);
-      processBuilder.environment().put("PYTHONNOUSERSITE", "1");
+      processBuilder.environment().put("PYTHONNOUSERSITE", Const.Params.ONE);
       Process process = processBuilder.start();
       if (!process.waitFor(VENV_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS)) {
         process.destroyForcibly();
@@ -214,7 +212,7 @@ public final class ManagedPythonRuntime {
         throw new ProcessingException("Creating managed Python venv failed at " + venvDir);
       }
       if (!Files.isExecutable(executable)) {
-        @SuppressWarnings("java:S899")
+        @SuppressWarnings(Const.Warnings.IGNORED_RETURN_VALUE)
         var _ = executable.toFile().setExecutable(true, true);
       }
       if (!Files.isExecutable(executable)) {
@@ -236,20 +234,20 @@ public final class ManagedPythonRuntime {
     return cacheRoot
         .resolve(SystemParams.PYTHON)
         .resolve("standalone")
-        .resolve(pythonVersion + "+" + pythonBuild)
+        .resolve(pythonVersion + Const.Symbols.PLUS + pythonBuild)
         .resolve(pythonId(platform));
   }
 
   private Path venvDir(ManagedRuntimePlatform platform) {
     return cacheRoot
         .resolve(SystemParams.PYTHON)
-        .resolve("venv")
-        .resolve(pythonVersion + "+" + pythonBuild)
+        .resolve(Const.Files.VENV)
+        .resolve(pythonVersion + Const.Symbols.PLUS + pythonBuild)
         .resolve(pythonId(platform));
   }
 
   private Path standalonePythonExecutable(ManagedRuntimePlatform platform, Path installDir) {
-    String executable = platform.isWindows() ? "python.exe" : "bin/" + pythonBinaryName();
+    String executable = platform.isWindows() ? Const.Files.PYTHON_EXE : "bin/" + pythonBinaryName();
     return installDir.resolve(executable);
   }
 
@@ -270,7 +268,7 @@ public final class ManagedPythonRuntime {
   private void markStandalonePythonReady(Path installDir) throws IOException {
     Files.writeString(
         installDir.resolve(INSTALL_READY_FILE),
-        "cpython " + pythonVersion + "+" + pythonBuild + System.lineSeparator(),
+        "cpython " + pythonVersion + Const.Symbols.PLUS + pythonBuild + System.lineSeparator(),
         StandardOpenOption.CREATE,
         StandardOpenOption.TRUNCATE_EXISTING);
   }
@@ -278,62 +276,9 @@ public final class ManagedPythonRuntime {
   private void markManagedVenvReady(Path venvDir) throws IOException {
     Files.writeString(
         venvDir.resolve(VENV_READY_FILE),
-        "cpython-venv " + pythonVersion + "+" + pythonBuild + System.lineSeparator(),
+        "cpython-venv " + pythonVersion + Const.Symbols.PLUS + pythonBuild + System.lineSeparator(),
         StandardOpenOption.CREATE,
         StandardOpenOption.TRUNCATE_EXISTING);
-  }
-
-  private static Path lockKey(Path installDir) {
-    return installDir.toAbsolutePath().normalize();
-  }
-
-  private byte[] download(URI uri) throws IOException {
-    try {
-      HttpRequest request = HttpRequest.newBuilder(uri).timeout(HTTP_TIMEOUT).GET().build();
-      HttpResponse<byte[]> response = http.send(request, HttpResponse.BodyHandlers.ofByteArray());
-      if (response.statusCode() / 100 != 2) {
-        throw new ProcessingException("Download failed (" + response.statusCode() + "): " + uri);
-      }
-      return response.body();
-    } catch (InterruptedException e) {
-      Thread.currentThread().interrupt();
-      throw new ProcessingException("Interrupted while downloading " + uri, e);
-    }
-  }
-
-  private String downloadText(URI uri) throws IOException {
-    return new String(download(uri), StandardCharsets.UTF_8);
-  }
-
-  private static void verifySha256(byte[] content, String archiveName, String shasums) {
-    String expected =
-        shasums
-            .lines()
-            .map(String::trim)
-            .filter(line -> line.endsWith("  " + archiveName))
-            .map(line -> line.substring(0, line.indexOf(' ')))
-            .findFirst()
-            .orElseThrow(
-                () -> new ProcessingException("No CPython checksum found for " + archiveName));
-    String actual = sha256(content);
-    if (!expected.equalsIgnoreCase(actual)) {
-      throw new ProcessingException(
-          "CPython checksum mismatch for "
-              + archiveName
-              + ": expected "
-              + expected
-              + ", got "
-              + actual);
-    }
-  }
-
-  private static String sha256(byte[] content) {
-    try {
-      MessageDigest digest = MessageDigest.getInstance("SHA-256");
-      return HexFormat.of().formatHex(digest.digest(content));
-    } catch (NoSuchAlgorithmException e) {
-      throw new ProcessingException("SHA-256 is not available", e);
-    }
   }
 
   static void extractTgz(byte[] archive, Path installDir) throws IOException {
@@ -397,7 +342,9 @@ public final class ManagedPythonRuntime {
   private static String normalizeVersion(String version) {
     String normalized =
         version == null || version.isBlank() ? DEFAULT_PYTHON_VERSION : version.trim();
-    return normalized.startsWith("v") ? normalized.substring(1) : normalized;
+    return normalized.startsWith(Const.SystemParams.VERSION_PREFIX)
+        ? normalized.substring(1)
+        : normalized;
   }
 
   private static String normalizeBuild(String build) {
@@ -408,28 +355,28 @@ public final class ManagedPythonRuntime {
     int firstDot = pythonVersion.indexOf('.');
     int secondDot = pythonVersion.indexOf('.', firstDot + 1);
     if (firstDot < 0 || secondDot < 0) {
-      return "python3";
+      return Const.Files.PYTHON3;
     }
-    return "python" + pythonVersion.substring(0, secondDot);
+    return Const.SystemParams.PYTHON + pythonVersion.substring(0, secondDot);
   }
 
   private static String encodeArchiveName(String archiveName) {
-    return archiveName.replace("+", "%2B");
+    return archiveName.replace(Const.Symbols.PLUS, "%2B");
   }
 
   private static String pythonArchiveName(
       ManagedRuntimePlatform platform, String version, String build) {
     return "cpython-"
         + version
-        + "+"
+        + Const.Symbols.PLUS
         + build
-        + "-"
+        + Const.Symbols.DASH
         + pythonId(platform)
         + "-install_only_stripped.tar.gz";
   }
 
   private static String pythonId(ManagedRuntimePlatform platform) {
-    return pythonArch(platform) + "-" + pythonOs(platform);
+    return pythonArch(platform) + Const.Symbols.DASH + pythonOs(platform);
   }
 
   private static String pythonOs(ManagedRuntimePlatform platform) {

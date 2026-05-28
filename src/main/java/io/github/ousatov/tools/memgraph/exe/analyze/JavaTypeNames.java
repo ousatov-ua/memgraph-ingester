@@ -4,11 +4,13 @@ import com.github.javaparser.ast.Node;
 import com.github.javaparser.ast.body.ConstructorDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.body.Parameter;
+import com.github.javaparser.ast.body.RecordDeclaration;
 import com.github.javaparser.ast.expr.MethodCallExpr;
 import com.github.javaparser.ast.type.ClassOrInterfaceType;
 import com.github.javaparser.resolution.declarations.ResolvedMethodDeclaration;
 import com.github.javaparser.resolution.declarations.ResolvedTypeDeclaration;
 import com.github.javaparser.resolution.types.ResolvedReferenceType;
+import io.github.ousatov.tools.memgraph.def.Const;
 import io.github.ousatov.tools.memgraph.def.Const.Labels;
 import java.util.Optional;
 import java.util.function.Consumer;
@@ -54,8 +56,13 @@ public final class JavaTypeNames {
       String params =
           method.getParameters().stream()
               .map(JavaTypeNames::resolveParamType)
-              .collect(Collectors.joining(", "));
-      return ownerFqn + "." + method.getNameAsString() + "(" + params + ")";
+              .collect(Collectors.joining(Const.Symbols.COMMA_SPACE));
+      return ownerFqn
+          + Const.Symbols.DOT
+          + method.getNameAsString()
+          + Const.Symbols.LEFT_PAREN
+          + params
+          + Const.Symbols.RIGHT_PAREN;
     }
   }
 
@@ -63,7 +70,7 @@ public final class JavaTypeNames {
   public static String buildMethodSignature(
       String ownerFqn, String methodName, String qualifiedSignature) {
     int parenIdx = qualifiedSignature.indexOf('(');
-    return ownerFqn + "." + methodName + qualifiedSignature.substring(parenIdx);
+    return ownerFqn + Const.Symbols.DOT + methodName + qualifiedSignature.substring(parenIdx);
   }
 
   /** Builds a graph method signature from a resolved JavaParser method declaration. */
@@ -82,8 +89,13 @@ public final class JavaTypeNames {
       String params =
           ctor.getParameters().stream()
               .map(JavaTypeNames::resolveParamType)
-              .collect(Collectors.joining(", "));
-      return ownerFqn + "." + Labels.INIT + "(" + params + ")";
+              .collect(Collectors.joining(Const.Symbols.COMMA_SPACE));
+      return ownerFqn
+          + Const.Symbols.DOT
+          + Labels.INIT
+          + Const.Symbols.LEFT_PAREN
+          + params
+          + Const.Symbols.RIGHT_PAREN;
     }
   }
 
@@ -91,7 +103,35 @@ public final class JavaTypeNames {
   public static String buildInitCallSig(String ownerFqn, String qualifiedSignature) {
     int parenIdx = qualifiedSignature.indexOf('(');
     String params = qualifiedSignature.substring(parenIdx + 1, qualifiedSignature.length() - 1);
-    return ownerFqn + "." + Labels.INIT + "(" + params + ")";
+    return ownerFqn
+        + Const.Symbols.DOT
+        + Labels.INIT
+        + Const.Symbols.LEFT_PAREN
+        + params
+        + Const.Symbols.RIGHT_PAREN;
+  }
+
+  /** Builds the canonical constructor signature for a Java record declaration. */
+  public static String buildRecordCanonicalConstructorSignature(
+      String ownerFqn, RecordDeclaration record) {
+    String params =
+        record.getParameters().stream()
+            .map(JavaTypeNames::resolveParamType)
+            .collect(Collectors.joining(Const.Symbols.COMMA_SPACE));
+    return ownerFqn
+        + Const.Symbols.DOT
+        + Labels.INIT
+        + Const.Symbols.LEFT_PAREN
+        + params
+        + Const.Symbols.RIGHT_PAREN;
+  }
+
+  /** Returns true when a record declares the canonical constructor explicitly. */
+  public static boolean hasExplicitCanonicalConstructor(String ownerFqn, RecordDeclaration record) {
+    String canonicalSignature = buildRecordCanonicalConstructorSignature(ownerFqn, record);
+    return record.getConstructors().stream()
+        .anyMatch(
+            c -> JavaTypeNames.buildConstructorSignature(ownerFqn, c).equals(canonicalSignature));
   }
 
   /** Resolves a single parameter type, falling back to the source-level type name. */
@@ -105,7 +145,7 @@ public final class JavaTypeNames {
 
   /** Constructs a fully qualified name from {@code pkg} and {@code simpleName}. */
   public static String buildFqn(String pkg, String simpleName) {
-    return pkg.isEmpty() ? simpleName : pkg + "." + simpleName;
+    return pkg.isEmpty() ? simpleName : pkg + Const.Symbols.DOT + simpleName;
   }
 
   /** Extracts the simple name from a fully qualified name. */
@@ -117,15 +157,15 @@ public final class JavaTypeNames {
   /** Extracts the package name from a fully qualified name. */
   public static String packageFromFqn(String fqn) {
     int dot = fqn.lastIndexOf('.');
-    return dot < 0 ? "" : fqn.substring(0, dot);
+    return dot < 0 ? Const.Symbols.EMPTY : fqn.substring(0, dot);
   }
 
   /** Converts dot-separated nested class FQNs to the graph's {@code $}-separated convention. */
   public static String normalizeNestedFqn(String fqn) {
-    if (fqn == null || !fqn.contains(".")) {
+    if (fqn == null || !fqn.contains(Const.Symbols.DOT)) {
       return fqn;
     }
-    String[] parts = fqn.split("\\.");
+    String[] parts = fqn.split(Const.Symbols.DOT_REGEX);
     StringBuilder sb = new StringBuilder(parts[0]);
     boolean seenClass = !parts[0].isEmpty() && Character.isUpperCase(parts[0].charAt(0));
     for (int i = 1; i < parts.length; i++) {
