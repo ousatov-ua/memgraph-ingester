@@ -35,7 +35,8 @@ class AgentInstructionsInstallerTest {
     assertTrue(content.contains("## Code RAG Vectors (only if RAG has embeddings)"));
     assertTrue(content.contains("code_chunk_embedding_v1"));
     assertTrue(content.contains("CALL mg.procedures() YIELD name"));
-    assertTrue(content.contains("vector_search.search('code_chunk_embedding_v1', 10, queryVector)"));
+    assertTrue(
+        content.contains("vector_search.search('code_chunk_embedding_v1', 10, queryVector)"));
     assertFalse(content.contains("SHOW PROCEDURES YIELD"));
     assertFalse(content.contains("code_chunk_embedding_v1', 10, $queryVector"));
     assertTrue(content.contains("documentation comments attached to the code symbol"));
@@ -56,7 +57,8 @@ class AgentInstructionsInstallerTest {
     assertTrue(content.contains("### Memory RAG Vectors (only if RAG has embeddings)"));
     assertTrue(content.contains("memory_chunk_embedding_v1"));
     assertTrue(content.contains("CALL mg.procedures() YIELD name"));
-    assertTrue(content.contains("vector_search.search('memory_chunk_embedding_v1', 8, queryVector)"));
+    assertTrue(
+        content.contains("vector_search.search('memory_chunk_embedding_v1', 8, queryVector)"));
     assertFalse(content.contains("SHOW PROCEDURES YIELD"));
     assertFalse(content.contains("memory_chunk_embedding_v1', 8, $queryVector"));
     assertTrue(content.contains("When creating or materially updating a Memory node"));
