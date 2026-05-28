@@ -140,6 +140,24 @@ ORDER BY c.id;
 **Strict:** no extra properties.
 
 Use `datetime()` for all property `createdAt` and `updatedAt` values; do not use `localDateTime()` for memory timestamps.
+Existing graphs may contain legacy timestamp strings. Do not sort or compare raw timestamp
+properties across rows. Normalize first, for example:
+
+```cypher
+MATCH (t:Task {project: '{{PROJECT_NAME}}'})
+WITH t, toString(coalesce(t.updatedAt, t.createdAt, '')) AS changedAt
+RETURN t.id, t.title, changedAt
+ORDER BY changedAt DESC
+LIMIT 20;
+```
+
+Cypher drops variables not named in a `WITH` or `RETURN`. After `CALL ... YIELD`, carry every
+variable needed later through the next `WITH`, for example:
+
+```cypher
+CALL util_module.md5(text) YIELD result
+WITH taskId, chunkId, text, result AS textHash
+```
 
 | Label       | Key props                      | Additional properties                                                                        |
 |-------------|--------------------------------|----------------------------------------------------------------------------------------------|
@@ -318,16 +336,16 @@ Do not run a whole-project MemoryChunk embedding backfill from these agent instr
 Memory embeddings after code re-ingest are handled by the re-ingest flow only when ingestion is run
 with `--with-memories`, using the same missing-embedding batch pattern as CodeChunks.
 
-Verify recent memory and its code link before the final response. Adapt `HAS_DECISION`,
-`:Decision`, and `d` to the memory type just created:
+Verify the memory node you just wrote and its code link before the final response. Adapt
+`HAS_DECISION`, `:Decision`, `d`, and the id to the memory type just created:
 
 ```cypher
 MATCH (m:Memory {project: '{{PROJECT_NAME}}'})-[:HAS_DECISION]->(d:Decision)
-WHERE d.updatedAt >= datetime() - duration('PT5M')
+WHERE d.id = 'DEC-<topic>-<name>'
 RETURN d.id AS id, labels(d) AS type;
 
 MATCH (d:Decision {project: '{{PROJECT_NAME}}'})-[:REFERS_TO]->(ref:CodeRef)-[:RESOLVES_TO]->(target)
-WHERE d.updatedAt >= datetime() - duration('PT5M')
+WHERE d.id = 'DEC-<topic>-<name>'
 RETURN d.id AS id, ref.targetType AS targetType, ref.key AS key, labels(target) AS targetLabels;
 ```
 
