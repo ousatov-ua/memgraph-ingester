@@ -40,6 +40,14 @@ For Cypher queries:
 
 Report which query tool was used.
 
+### Writeable Procedure Rule
+
+Memgraph allows only a `RETURN` clause after calling a writeable procedure in the same Cypher
+statement. Do not put `SET`, `MERGE`, `CREATE`, `DELETE`, `REMOVE`, or any other update clause after
+a writeable procedure call such as `embeddings.node_sentence(...)` or `node2vec.set_embeddings(...)`.
+Split the workflow into separate statements: prepare or update input nodes first, call the writeable
+procedure with a final `RETURN`, then run any follow-up metadata updates in a later statement.
+
 ### `mgconsole` Rules
 
 **BLOCKING:** Use one interactive `mgconsole --no_history --output-format=csv` session per task and reuse it for all Memgraph queries until the task is finished. Close it with `:quit` before final response.

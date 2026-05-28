@@ -15,7 +15,7 @@ MUST include `project: '{{PROJECT_NAME}}'`.
 - **Multi-step work tracking:** for multi-step implementation, debugging, refactoring, documentation, dependency, test, or coverage work, create/update a `Task` as `doing` before edits, even if you expect to finish in the same response.
 - **Task close:** set any task you created or updated to `done`, `blocked`, or `cancelled` before final response and verify it. Also save durable findings/decisions when useful.
 - **Memory lifecycle changes:** immediately update Task/Risk/Question/Decision/ADR/Idea status in Memgraph before proceeding.
-- **Session Memory embedding refresh:** every time you create or materially update a Memory node in the current session, create/update its `MemoryChunk`, clear stale embedding properties when the text changes, and then create the embedding for that MemoryChunk with Memgraph's `embeddings.node_sentence()` batch flow. Do not calculate embedding vectors outside Memgraph.
+- **Session Memory embedding refresh:** every time you create or materially update a Memory node in the current session, create/update its `MemoryChunk`, clear stale embedding properties when the text changes, and then create the embedding for that MemoryChunk with Memgraph's `embeddings.node_sentence()` batch flow. Do not calculate embedding vectors outside Memgraph. Because `embeddings.node_sentence()` is writeable, its Cypher statement must end with `RETURN`; stamp embedding metadata in a separate statement.
 - **Code-related memory:** when creating Task/Decision/Finding/Rule/ADR/Risk/Idea nodes related to code, create at least one `CodeRef` and link `(:Decision|:ADR|:Rule|:Context|:Finding|:Task|:Risk|:Question|:Idea)-[:REFERS_TO]->(:CodeRef)-[:RESOLVES_TO]->(:Code|:Package|:File|:Class|:Interface|:Annotation|:Method|:Field)`.
 
 ### Memory RAG Vectors (only if RAG has embeddings)
@@ -282,7 +282,8 @@ Use the same batch shape as `refresh-code-chunk-embedding-batch.cypher`, adapted
 `:MemoryChunk`, after every MemoryChunk create/update in the current session. Set `$ids` to the
 MemoryChunk ids created or updated by the session. The query below embeds only those chunks when
 their embedding is missing or their recorded model/dimension no longer matches the configured
-embedding model:
+embedding model. It intentionally ends with `RETURN` immediately after `embeddings.node_sentence()`;
+do not append `SET`, `MERGE`, `CREATE`, `DELETE`, or `REMOVE` to this statement:
 
 ```cypher
 MATCH (chunk:MemoryChunk {project: '{{PROJECT_NAME}}'})
@@ -303,7 +304,7 @@ RETURN success AS success, dimension AS dimension, embeddedIds AS ids;
 ```
 
 When the batch returns `success = true`, stamp the MemoryChunk embedding metadata for the returned
-ids, mirroring `update-code-chunk-embedding-metadata.cypher`:
+ids in a separate statement, mirroring `update-code-chunk-embedding-metadata.cypher`:
 
 ```cypher
 MATCH (chunk:MemoryChunk {project: '{{PROJECT_NAME}}'})
