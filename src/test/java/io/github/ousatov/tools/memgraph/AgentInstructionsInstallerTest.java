@@ -58,9 +58,15 @@ class AgentInstructionsInstallerTest {
     assertTrue(content.contains("memory_chunk_embedding_v1"));
     assertTrue(content.contains("CALL mg.procedures() YIELD name"));
     assertTrue(
-        content.contains("vector_search.search('memory_chunk_embedding_v1', 8, queryVector)"));
+        content.contains("vector_search.search('memory_chunk_embedding_v1', 5, queryVector)"));
     assertFalse(content.contains("SHOW PROCEDURES YIELD"));
-    assertFalse(content.contains("memory_chunk_embedding_v1', 8, $queryVector"));
+    assertFalse(content.contains("memory_chunk_embedding_v1', 5, $queryVector"));
+    assertTrue(content.contains("Memory investigation budget"));
+    assertTrue(content.contains("Initial Memory RAG is index-only"));
+    assertTrue(content.contains("not `chunk.text` or full body fields"));
+    assertTrue(content.contains("Memory records by ID only for selected hits"));
+    assertTrue(content.contains("chunk.sourceLabel AS sourceLabel"));
+    assertFalse(content.contains("memory.status AS status, chunk.text AS text"));
     assertTrue(content.contains("When creating or materially updating a Memory node"));
     assertTrue(content.contains("avoid top-level `createHash` declarations"));
     assertTrue(content.contains("MERGE (chunk:MemoryChunk"));
@@ -68,6 +74,20 @@ class AgentInstructionsInstallerTest {
     assertTrue(content.contains("WHERE chunk.id IN $ids"));
     assertTrue(content.contains("CALL embeddings.node_sentence(chunks, $config)"));
     assertFalse(content.contains("shouldBootstrapMemoryEmbeddings"));
+  }
+
+  @Test
+  void memoryInstructionsKeepInitialAgentActivityIndexOnly() throws IOException {
+    Path target = tempDir.resolve("AGENTS.md");
+
+    AgentInstructionsInstaller.install(target, "memory-project", true);
+
+    String content = Files.readString(target);
+    assertTrue(content.contains("Memory investigation budget"));
+    assertTrue(content.contains("Initial Memory RAG is index-only"));
+    assertTrue(content.contains("Start with at most 5 hits"));
+    assertTrue(content.contains("chunk.sourceLabel AS sourceLabel"));
+    assertFalse(content.contains("memory.status AS status, chunk.text AS text"));
   }
 
   @Test

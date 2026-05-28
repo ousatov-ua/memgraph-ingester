@@ -11,6 +11,7 @@ MUST include `project: '{{PROJECT_NAME}}'`.
 - **RAG-first memory discovery:** use Memory RAG only to find relevant project knowledge for broad history/context prompts: prior/similar work, task history, status/pending work, "when was this changed", or unfamiliar-subsystem context. For known Memory ids, exact status/type lists, lifecycle updates, task close, `CodeRef` follow-up, and scoped Orientation queries, skip RAG and use exact Memory queries. RAG hits are discovery only: fetch exact Memory nodes and linked `CodeRef` targets before claims or edits. If no compatible `memory_chunk_embedding_v1` index exists or hits are not relevant, fall back to scoped exact Orientation queries and state why.
 - **RAG as an intelligence boost:** for broad or ambiguous work, proactively turn the prompt, errors, symbols, and verified findings into small semantic queries. Use RAG to surface non-obvious context, similar work, and prior decisions before broad exact scans; then verify every useful hit with exact Memory/CodeRef/source lookups.
 - **Self-formulated RAG bounds:** agents may write their own semantic queries from the prompt, observed symbols/errors, and current hypothesis. Each query must aim at one next exact Memory/CodeRef lookup or source read. Count a search as useful only if it names a concrete Memory id, CodeRef, or code target to verify. After two unhelpful RAG searches for the same question, stop RAG and switch to exact Memory orientation or text search. The two-search limit resets only after exact verification changes the question or reveals a new concrete clue; do not chain RAG searches from RAG hits alone.
+- **Memory investigation budget:** do not run Memory RAG or Orientation for ordinary code implementation/debugging unless the user asks for prior history, status, pending work, existing Memory ids, or unfamiliar-subsystem context. Initial Memory RAG is index-only: return ids, titles, statuses, labels, and similarity, not `chunk.text` or full body fields. Start with at most 5 hits, then fetch exact Memory records only for selected IDs that are relevant to the current task. Create/update the active Task when required, but do not enumerate unrelated Memory nodes just to begin code work.
 - **Multi-step work tracking:** for multi-step implementation, debugging, refactoring, documentation, dependency, test, or coverage work, create/update a `Task` as `doing` before edits, even if you expect to finish in the same response.
 - **Task close:** set any task you created or updated to `done`, `blocked`, or `cancelled` before final response and verify it. Also save durable findings/decisions when useful.
 - **Memory lifecycle changes:** immediately update Task/Risk/Question/Decision/ADR/Idea status in Memgraph before proceeding.
@@ -49,20 +50,21 @@ and dimension as the stored chunks:
 ```cypher
 CALL embeddings.text(['<task-specific semantic query from the user request>'], {}) YIELD embeddings
 WITH embeddings[0] AS queryVector
-CALL vector_search.search('memory_chunk_embedding_v1', 8, queryVector)
+CALL vector_search.search('memory_chunk_embedding_v1', 5, queryVector)
 YIELD node AS chunk, similarity
 WITH chunk, similarity
 WHERE chunk.project = '{{PROJECT_NAME}}'
 MATCH (memory {project: '{{PROJECT_NAME}}'})-[:HAS_RAG_CHUNK]->(chunk)
 RETURN labels(memory) AS type, memory.id AS id, memory.title AS title,
-       memory.status AS status, chunk.text AS text, similarity
+       memory.status AS status, chunk.sourceLabel AS sourceLabel,
+       chunk.sourceId AS sourceId, similarity
 ORDER BY similarity DESC;
 ```
 
 Use the user's wording plus likely domain terms in the semantic query, for example:
 "JS/TS parser synthetic constructors constructor declarations previous analyzer fixes". Prefer the
-top relevant hits, then fetch exact Memory records by ID and follow `CodeRef` links when code context
-matters.
+top relevant hits, then fetch exact Memory records by ID only for selected hits and follow `CodeRef`
+links when code context matters.
 
 After a RAG hit, follow `CodeRef` links when code context matters:
 
@@ -80,8 +82,9 @@ Run at task start when required.
 #### If Memgraph RAG has embeddings
 
 For broad project-knowledge prompts, search semantically similar memory chunks first for relevant
-Context, Findings, Rules, Tasks, Questions, Risks, Ideas, ADRs, or Decisions.
-Then run exact Memory queries for those specific IDs.
+Context, Findings, Rules, Tasks, Questions, Risks, Ideas, ADRs, or Decisions. Keep this search
+index-only; do not return `chunk.text` or full Memory body fields during discovery. Then run exact
+Memory queries for the selected IDs only.
 Finally, fetch linked `CodeRef` targets and use code-graph/source queries when code context matters.
 For known Memory ids, lifecycle updates, `CodeRef` follow-ups, or scoped Orientation queries, use
 exact Memory queries directly. Do not answer broad project-knowledge prompts from an exact
