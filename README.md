@@ -165,14 +165,14 @@ Memgraph Bolt listens on `bolt://localhost:7687`.
 
 ### 2. Download the Ingester
 
-Version in this repository: `12.0.8`.
+Version in this repository: `12.0.11`.
 
-| Platform | Download                                                                                                                                             |
-|---|------------------------------------------------------------------------------------------------------------------------------------------------------|
-| Java shaded JAR | [memgraph-ingester.jar](https://github.com/ousatov-ua/memgraph-ingester/releases/download/v12.0.8/memgraph-ingester.jar)                             |
-| Linux AMD64 | [memgraph-ingester-linux-amd64.zip](https://github.com/ousatov-ua/memgraph-ingester/releases/download/v12.0.8/memgraph-ingester-linux-amd64.zip)     |
-| macOS ARM64 | [memgraph-ingester-macos-arm64.zip](https://github.com/ousatov-ua/memgraph-ingester/releases/download/v12.0.8/memgraph-ingester-macos-arm64.zip)     |
-| Windows AMD64 | [memgraph-ingester-windows-amd64.zip](https://github.com/ousatov-ua/memgraph-ingester/releases/download/v12.0.8/memgraph-ingester-windows-amd64.zip) |
+| Platform | Download                                                                                                                                              |
+|---|-------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Java shaded JAR | [memgraph-ingester.jar](https://github.com/ousatov-ua/memgraph-ingester/releases/download/v12.0.11/memgraph-ingester.jar)                             |
+| Linux AMD64 | [memgraph-ingester-linux-amd64.zip](https://github.com/ousatov-ua/memgraph-ingester/releases/download/v12.0.11/memgraph-ingester-linux-amd64.zip)     |
+| macOS ARM64 | [memgraph-ingester-macos-arm64.zip](https://github.com/ousatov-ua/memgraph-ingester/releases/download/v12.0.11/memgraph-ingester-macos-arm64.zip)     |
+| Windows AMD64 | [memgraph-ingester-windows-amd64.zip](https://github.com/ousatov-ua/memgraph-ingester/releases/download/v12.0.11/memgraph-ingester-windows-amd64.zip) |
 
 For native downloads:
 
@@ -1247,6 +1247,6 @@ Use the profile that matches your operating system.
 <dependency>
   <groupId>io.github.ousatov-ua</groupId>
   <artifactId>memgraph-ingester</artifactId>
-  <version>12.0.8</version>
+  <version>12.0.11</version>
 </dependency>
 ```
