@@ -64,7 +64,7 @@ class AgentInstructionsInstallerTest {
     assertTrue(content.contains("Memory investigation budget"));
     assertTrue(content.contains("Initial Memory RAG is index-only"));
     assertTrue(content.contains("not `chunk.text` or full body fields"));
-    assertTrue(content.contains("Memory records by ID only for selected hits"));
+    assertTrue(content.contains("Hypothesis-driven RAG"));
     assertTrue(content.contains("chunk.sourceLabel AS sourceLabel"));
     assertFalse(content.contains("memory.status AS status, chunk.text AS text"));
     assertTrue(content.contains("When creating or materially updating a Memory node"));
