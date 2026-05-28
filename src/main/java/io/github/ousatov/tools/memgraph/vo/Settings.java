@@ -6,6 +6,8 @@ package io.github.ousatov.tools.memgraph.vo;
  * @param applySchema if true, applies schema first
  * @param wipeProjectCode if true, deletes this project's code graph before ingesting
  * @param wipeProjectMemories if true, deletes this project's memory graph before ingesting
+ * @param wipeCodeRag if true, deletes this project's derived CodeChunk rows before ingesting
+ * @param wipeMemoryRag if true, deletes this project's derived MemoryChunk rows before ingesting
  * @param incremental if true, skips files whose lastModified matches the stored value; silently
  *     disabled when {@code wipeAllData} or {@code wipeProjectCode} is set, because wiping removes
  *     all stored timestamps making incremental comparison impossible
@@ -18,6 +20,8 @@ public record Settings(
     boolean applySchema,
     boolean wipeProjectCode,
     boolean wipeProjectMemories,
+    boolean wipeCodeRag,
+    boolean wipeMemoryRag,
     boolean incremental,
     boolean watch,
     EmbeddingSettings codeEmbeddings,
@@ -35,10 +39,34 @@ public record Settings(
         applySchema,
         wipeProjectCode,
         wipeProjectMemories,
+        false,
+        false,
         incremental,
         watch,
         EmbeddingSettings.disabled(),
         EmbeddingSettings.disabled());
+  }
+
+  public Settings(
+      boolean wipeAllData,
+      boolean applySchema,
+      boolean wipeProjectCode,
+      boolean wipeProjectMemories,
+      boolean incremental,
+      boolean watch,
+      EmbeddingSettings codeEmbeddings,
+      EmbeddingSettings memoryEmbeddings) {
+    this(
+        wipeAllData,
+        applySchema,
+        wipeProjectCode,
+        wipeProjectMemories,
+        false,
+        false,
+        incremental,
+        watch,
+        codeEmbeddings,
+        memoryEmbeddings);
   }
 
   /** Ensures embedding settings are never null. */

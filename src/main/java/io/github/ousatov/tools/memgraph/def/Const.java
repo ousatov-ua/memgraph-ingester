@@ -35,6 +35,8 @@ public final class Const {
     public static final String CYPHER_WIPE_PROJECT_CODE = action("wipe-project-code.cypher");
     public static final String CYPHER_WIPE_PROJECT_CODE_BATCH =
         action("wipe-project-code-batch.cypher");
+    public static final String CYPHER_WIPE_CODE_RAG_BATCH =
+        action("embedding/wipe-code-rag-batch.cypher");
     public static final String CYPHER_DELETE_CODE_CHUNKS_FOR_FILE =
         action("delete-code-chunks-for-file.cypher");
     public static final String CYPHER_DELETE_CODE_CHUNKS_FOR_FILES =
@@ -71,6 +73,8 @@ public final class Const {
         action("embedding/list-memory-chunk-sources.cypher");
     public static final String CYPHER_DELETE_STALE_MEMORY_CHUNKS =
         action("embedding/delete-stale-memory-chunks.cypher");
+    public static final String CYPHER_WIPE_MEMORY_RAG_BATCH =
+        action("embedding/wipe-memory-rag-batch.cypher");
     public static final String CYPHER_UPSERT_MEMORY_CHUNKS_BATCH =
         action("embedding/upsert-memory-chunks-batch.cypher");
     public static final String CYPHER_COUNT_STALE_MEMORY_CHUNK_EMBEDDINGS =

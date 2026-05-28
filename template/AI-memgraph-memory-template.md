@@ -67,6 +67,7 @@ RETURN labels(memory) AS type, memory.id AS id,
 Run at task start when required. 
 
 #### If Memgraph RAG has embeddings
+
 For broad project-knowledge prompts, search semantically similar memory chunks first for relevant
 Context, Findings, Rules, Tasks, Questions, Risks, Ideas, ADRs, or Decisions.
 Then run exact Memory queries for those specific IDs.
@@ -80,7 +81,7 @@ explicitly.
 
 Run at task start when required.
 
-**BLOCKING** Don't just fetch all. Fetch only the relevant subset of Memory nodes for the current task.
+**BLOCKING** Don't just fetch all. Use RAG first if available. Fetch only the relevant subset of Memory nodes for the current task.
 Use the following queries as templates, adapting filters and ordering to the task scope and needs. 
 Empty results are valid.
 

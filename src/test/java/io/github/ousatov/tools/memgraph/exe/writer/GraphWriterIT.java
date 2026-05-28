@@ -1288,6 +1288,75 @@ class GraphWriterIT {
   }
 
   @Test
+  void wipeRagDeletesOnlyDerivedChunkNodes() {
+    writer.upsertFile(TEST_FILE);
+    writer.upsertPackage(PKG);
+    session
+        .run(
+            "MATCH (file:File {project: $p, path: $path})"
+                + " MERGE (chunk:CodeChunk {id: 'CCH-test-wipe-rag', project: $p})"
+                + " SET chunk.sourceLabel = 'File',"
+                + "     chunk.sourceId = $path,"
+                + "     chunk.language = 'java',"
+                + "     chunk.path = $path,"
+                + "     chunk.text = 'File docs and source excerpt',"
+                + "     chunk.textHash = 'code-rag-hash',"
+                + "     chunk.embeddingModel = 'test-model',"
+                + "     chunk.embeddingDimensions = 3,"
+                + "     chunk.createdAt = datetime(),"
+                + "     chunk.updatedAt = datetime()"
+                + " MERGE (file)-[:HAS_RAG_CHUNK]->(chunk)",
+            Map.of("p", PROJECT, "path", TEST_FILE.toString()))
+        .consume();
+    session
+        .run(
+            "MATCH (m:Memory {project: $p})"
+                + " MERGE (d:Decision {id: 'DEC-test-wipe-rag', project: $p})"
+                + " SET d.status = 'accepted', d.title = 'Preserved decision'"
+                + " MERGE (m)-[:HAS_DECISION]->(d)"
+                + " MERGE (chunk:MemoryChunk {id: 'MCH-test-wipe-rag', project: $p})"
+                + " SET chunk.sourceLabel = 'Decision',"
+                + "     chunk.sourceId = d.id,"
+                + "     chunk.text = 'Decision memory text',"
+                + "     chunk.textHash = 'memory-rag-hash',"
+                + "     chunk.embeddingModel = 'test-model',"
+                + "     chunk.embeddingDimensions = 3,"
+                + "     chunk.createdAt = datetime(),"
+                + "     chunk.updatedAt = datetime()"
+                + " MERGE (d)-[:HAS_RAG_CHUNK]->(chunk)",
+            Map.of("p", PROJECT))
+        .consume();
+
+    writer.wipeCodeRag();
+    writer.wipeMemoryRag();
+
+    long chunkCount =
+        session
+            .run(
+                "MATCH (n) WHERE n.project = $p AND (n:CodeChunk OR n:MemoryChunk)"
+                    + " RETURN count(n) AS n",
+                Map.of("p", PROJECT))
+            .single()
+            .get("n")
+            .asLong();
+
+    assertEquals(0, chunkCount);
+
+    long preservedCount =
+        session
+            .run(
+                "MATCH (file:File {project: $p, path: $path})"
+                    + " MATCH (:Decision {id: 'DEC-test-wipe-rag', project: $p})"
+                    + " RETURN count(file) AS n",
+                Map.of("p", PROJECT, "path", TEST_FILE.toString()))
+            .single()
+            .get("n")
+            .asLong();
+
+    assertEquals(1, preservedCount);
+  }
+
+  @Test
   void upsertEnumCreatesFieldNodes() {
     writer.upsertFile(TEST_FILE);
     writer.upsertPackage(PKG);

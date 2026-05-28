@@ -11,6 +11,7 @@ import io.github.ousatov.tools.memgraph.exe.metrics.IngestionMetricsCollector;
 import io.github.ousatov.tools.memgraph.exe.metrics.IngestionRunStats;
 import io.github.ousatov.tools.memgraph.exe.output.ConsoleStatusLine;
 import io.github.ousatov.tools.memgraph.exe.writer.GraphWriter;
+import io.github.ousatov.tools.memgraph.exe.writer.GraphWriter.EmbeddingRefreshResult;
 import io.github.ousatov.tools.memgraph.schema.Memgraph;
 import io.github.ousatov.tools.memgraph.vo.EmbeddingSettings;
 import io.github.ousatov.tools.memgraph.vo.Settings;
@@ -170,6 +171,14 @@ public final class IngestionOrchestrator {
         log.info("Wiping existing memory graph for project '{}'...", project);
         bootstrapWriter.wipeMemories();
       }
+      if (settings.wipeCodeRag()) {
+        log.info("Wiping existing CodeChunk RAG rows for project '{}'...", project);
+        bootstrapWriter.wipeCodeRag();
+      }
+      if (settings.wipeMemoryRag()) {
+        log.info("Wiping existing MemoryChunk RAG rows for project '{}'...", project);
+        bootstrapWriter.wipeMemoryRag();
+      }
       bootstrapWriter.upsertProject(sourceRoot, languages());
       log.debug(
           "Upserted :Project -> :Language -> :Code and :Project -> :Memory anchors for '{}'",
@@ -217,7 +226,7 @@ public final class IngestionOrchestrator {
     try (Session session = driver.session()) {
       GraphWriter postWriter = new GraphWriter(session, project, stats);
       refreshDerivedGraphArtifacts(postWriter);
-      refreshChunkEmbeddings(postWriter);
+      refreshChunkEmbeddings(postWriter, false);
       printMetrics(session);
       printPerformance(stats);
     }
@@ -382,7 +391,7 @@ public final class IngestionOrchestrator {
       refreshRetainedFilesAfterDelete(writer, refreshAfterDelete, currentFilesByPath);
       if (changedGraph) {
         refreshDerivedGraphArtifacts(writer);
-        refreshChunkEmbeddings(writer);
+        refreshChunkEmbeddings(writer, true);
       }
     }
   }
@@ -546,25 +555,32 @@ public final class IngestionOrchestrator {
     log.debug("Refreshed :CodeRef resolution edges for '{}'", project);
   }
 
-  private void refreshChunkEmbeddings(GraphWriter writer) {
+  private void refreshChunkEmbeddings(GraphWriter writer, boolean watchMode) {
     if (codeEmbeddings.enabled()) {
-      refreshCodeChunkEmbeddings(writer);
+      refreshCodeChunkEmbeddings(writer, watchMode);
     }
     if (!memoryEmbeddings.enabled()) {
       return;
     }
     long memoryChunkCount = writer.upsertMemoryChunks();
     log.debug("Upserted {} MemoryChunk row(s) for '{}'", memoryChunkCount, project);
-    refreshMemoryChunkEmbeddings(writer);
+    refreshMemoryChunkEmbeddings(writer, watchMode);
   }
 
-  private void refreshCodeChunkEmbeddings(GraphWriter writer) {
-    log.debug(
+  private void refreshCodeChunkEmbeddings(GraphWriter writer, boolean watchMode) {
+    logEmbeddingRefresh(
+        watchMode,
         "Refreshing CodeChunk embeddings for project '{}' with Memgraph model '{}'...",
         project,
         codeEmbeddings.modelName());
     try {
-      writer.refreshCodeChunkEmbeddings(codeEmbeddings);
+      EmbeddingRefreshResult result = writer.refreshCodeChunkEmbeddings(codeEmbeddings);
+      logEmbeddingRefresh(
+          watchMode,
+          "Refreshed {} CodeChunk embedding(s) using model '{}' ({} dimensions).",
+          result.embedded(),
+          codeEmbeddings.modelName(),
+          result.dimension());
     } catch (RuntimeException e) {
       log.warn(
           "Skipping CodeChunk embedding refresh for project '{}': {}. Ingestion completed; use"
@@ -575,13 +591,20 @@ public final class IngestionOrchestrator {
     }
   }
 
-  private void refreshMemoryChunkEmbeddings(GraphWriter writer) {
-    log.debug(
+  private void refreshMemoryChunkEmbeddings(GraphWriter writer, boolean watchMode) {
+    logEmbeddingRefresh(
+        watchMode,
         "Refreshing MemoryChunk embeddings for project '{}' with Memgraph model '{}'...",
         project,
         memoryEmbeddings.modelName());
     try {
-      writer.refreshMemoryChunkEmbeddings(memoryEmbeddings);
+      EmbeddingRefreshResult result = writer.refreshMemoryChunkEmbeddings(memoryEmbeddings);
+      logEmbeddingRefresh(
+          watchMode,
+          "Refreshed {} MemoryChunk embedding(s) using model '{}' ({} dimensions).",
+          result.embedded(),
+          memoryEmbeddings.modelName(),
+          result.dimension());
     } catch (RuntimeException e) {
       log.warn(
           "Skipping MemoryChunk embedding refresh for project '{}': {}. MemoryChunk rows were"
@@ -589,6 +612,14 @@ public final class IngestionOrchestrator {
               + " image with embeddings and vector-index support.",
           project,
           e.getMessage());
+    }
+  }
+
+  private void logEmbeddingRefresh(boolean watchMode, String message, Object... arguments) {
+    if (watchMode) {
+      log.debug(message, arguments);
+    } else {
+      log.info(message, arguments);
     }
   }
 

@@ -54,7 +54,8 @@ RAG support is built on derived graph nodes, not detached text blobs.
 - `MemoryChunk` rows are generated from optional Memory records such as decisions, rules, findings,
   tasks, risks, and questions, including their `CodeRef` links.
 - Code embeddings are enabled by default. Memory embeddings are enabled by default when
-  `--with-memories` is used. Use `--no-code-embeddings` or `--no-memory-embeddings` to skip them.
+  `--with-memories` or `--wipe-memory-rag` is used. Use `--no-code-embeddings` or
+  `--no-memory-embeddings` to skip them.
 
 Agents can search semantically first, then verify the result through exact graph relationships and
 source locations.
@@ -782,6 +783,8 @@ Options:
 | `--threads` | `-t` | no | `1` | Parser threads. Each thread gets its own Bolt session. |
 | `--wipe-project-code` |  | no | `false` | Delete this project's code graph before ingesting. |
 | `--wipe-project-memories` |  | no | `false` | Delete this project's memory graph before ingesting. |
+| `--wipe-code-rag` |  | no | `false` | Delete this project's derived `:CodeChunk` rows before ingesting. |
+| `--wipe-memory-rag` |  | no | `false` | Delete this project's derived `:MemoryChunk` rows before ingesting. |
 | `--apply-schema` |  | no | `false` | Apply Memgraph constraints and indexes before ingesting. |
 | `--wipe-all` |  | no | `false` | Delete all data from Memgraph. |
 | `--incremental` |  | no | `false` | Skip files whose last-modified timestamp matches the graph. |
@@ -793,7 +796,7 @@ Options:
 | `--code-embedding-remote-batch-size` |  | no | `0` | Remote provider batch size override; `0` keeps Memgraph's default. |
 | `--code-embedding-concurrency` |  | no | `0` | Remote provider concurrency override; `0` keeps Memgraph's default. |
 | `--code-embedding-index-capacity` |  | no | `0` | Vector index capacity; `0` uses automatic headroom for current and future CodeChunk rows. |
-| `--[no-]memory-embeddings` |  | no | `true` | With `--with-memories`, sync `:MemoryChunk` rows and compute stale embeddings after ingestion/watch updates. |
+| `--[no-]memory-embeddings` |  | no | `true` | With `--with-memories` or `--wipe-memory-rag`, sync `:MemoryChunk` rows and compute stale embeddings after ingestion/watch updates. |
 | `--memory-embedding-device` |  | no | auto | Memgraph embeddings device for MemoryChunk refresh. |
 | `--memory-embedding-batch-size` |  | no | `1024` | MemoryChunk nodes per embedding call and local embedding batch size. |
 | `--memory-embedding-chunk-size` |  | no | `48` | Memgraph local MemoryChunk `chunk_size`. |
@@ -956,11 +959,15 @@ source excerpt.
 
 The ingester refreshes `CodeChunk` rows after successful re-ingest and watch-mode code updates.
 Incremental runs re-ingest unchanged files whose `CodeChunk` rows are missing so older graphs are
-backfilled. With `--with-memories --memory-embeddings`, the ingester syncs `MemoryChunk` rows for
+backfilled. `--wipe-code-rag` deletes this project's derived CodeChunks before the run, so the next
+successful ingestion recreates them and refreshes their embeddings unless `--no-code-embeddings` is
+passed. With `--with-memories --memory-embeddings`, the ingester syncs `MemoryChunk` rows for
 current Memory records, deletes stale chunks for removed Memory records, and uses Memgraph's
-`embeddings.node_sentence()` procedure for MemoryChunk vectors. With `--code-embeddings`, it uses
-the same procedure for CodeChunk vectors. Metadata is excluded so only derived chunk text is
-embedded. If the connected Memgraph instance does not support embeddings or vector indexes,
+`embeddings.node_sentence()` procedure for MemoryChunk vectors. `--wipe-memory-rag` deletes this
+project's derived MemoryChunks before the run, then syncs them again unless
+`--no-memory-embeddings` is passed. With `--code-embeddings`, it uses the same procedure for
+CodeChunk vectors. Metadata is excluded so only derived chunk text is embedded. If the connected
+Memgraph instance does not support embeddings or vector indexes,
 ingestion still completes and logs a warning; disable refresh with `--no-code-embeddings` or
 `--no-memory-embeddings`.
 

@@ -62,6 +62,9 @@ public final class GraphWriter {
   private final IngestionRunStats stats;
   private List<String> retainedSourcePaths = List.of();
 
+  /** Result counters for one embedding refresh pass. */
+  public record EmbeddingRefreshResult(long embedded, int dimension) {}
+
   /**
    * @param session Bolt session — must not be shared with other threads
    * @param project project name used to scope all Cypher operations
@@ -148,6 +151,26 @@ public final class GraphWriter {
   /** Deletes the project-scoped {@code :Memory} graph while keeping the {@code :Project} anchor. */
   public void wipeMemories() {
     cypher.run(Cypher.CYPHER_WIPE_PROJECT_MEMORIES, Map.of());
+  }
+
+  /** Deletes project-scoped derived {@code :CodeChunk} rows in batches. */
+  public void wipeCodeRag() {
+    long deleted;
+    do {
+      deleted =
+          cypher.runCount(
+              Cypher.CYPHER_WIPE_CODE_RAG_BATCH, "batchSize", WIPE_BATCH_SIZE, "deleted");
+    } while (deleted > 0);
+  }
+
+  /** Deletes project-scoped derived {@code :MemoryChunk} rows in batches. */
+  public void wipeMemoryRag() {
+    long deleted;
+    do {
+      deleted =
+          cypher.runCount(
+              Cypher.CYPHER_WIPE_MEMORY_RAG_BATCH, "batchSize", WIPE_BATCH_SIZE, "deleted");
+    } while (deleted > 0);
   }
 
   /**
@@ -671,9 +694,9 @@ public final class GraphWriter {
   }
 
   /** Refreshes stale {@code :CodeChunk.embedding} values with Memgraph's embeddings module. */
-  public void refreshCodeChunkEmbeddings(EmbeddingSettings settings) {
+  public EmbeddingRefreshResult refreshCodeChunkEmbeddings(EmbeddingSettings settings) {
     if (!settings.enabled()) {
-      return;
+      return new EmbeddingRefreshResult(0L, 0);
     }
     validateCypherIdentifier(settings.indexName(), "code embedding index name");
 
@@ -705,17 +728,13 @@ public final class GraphWriter {
       embedded += batchCount;
       stale -= batchCount;
     }
-    log.debug(
-        "Refreshed {} CodeChunk embedding(s) using model '{}' ({} dimensions).",
-        embedded,
-        settings.modelName(),
-        dimension);
+    return new EmbeddingRefreshResult(embedded, dimension);
   }
 
   /** Refreshes stale {@code :MemoryChunk.embedding} values with Memgraph's embeddings module. */
-  public void refreshMemoryChunkEmbeddings(EmbeddingSettings settings) {
+  public EmbeddingRefreshResult refreshMemoryChunkEmbeddings(EmbeddingSettings settings) {
     if (!settings.enabled()) {
-      return;
+      return new EmbeddingRefreshResult(0L, 0);
     }
     validateCypherIdentifier(settings.indexName(), "memory embedding index name");
 
@@ -747,11 +766,7 @@ public final class GraphWriter {
       embedded += batchCount;
       stale -= batchCount;
     }
-    log.debug(
-        "Refreshed {} MemoryChunk embedding(s) using model '{}' ({} dimensions).",
-        embedded,
-        settings.modelName(),
-        dimension);
+    return new EmbeddingRefreshResult(embedded, dimension);
   }
 
   private int embeddingDimension(EmbeddingSettings settings) {

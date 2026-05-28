@@ -96,6 +96,18 @@ public final class IngesterCli implements Callable<Integer> {
   private boolean wipeProjectMemories;
 
   @Option(
+      names = "--wipe-code-rag",
+      description = "Delete derived CodeChunk rows for this project before ingesting")
+  @SuppressWarnings("unused")
+  private boolean wipeCodeRag;
+
+  @Option(
+      names = "--wipe-memory-rag",
+      description = "Delete derived MemoryChunk rows for this project before ingesting")
+  @SuppressWarnings("unused")
+  private boolean wipeMemoryRag;
+
+  @Option(
       names = {"-t", "--threads"},
       defaultValue = "1",
       description =
@@ -459,7 +471,7 @@ public final class IngesterCli implements Callable<Integer> {
               codeEmbeddingIndexCapacity);
       memoryEmbeddingSettings =
           new EmbeddingSettings(
-              withMemories && memoryEmbeddings,
+              (withMemories || wipeMemoryRag) && memoryEmbeddings,
               EmbeddingSettings.DEFAULT_MEMORY_INDEX_NAME,
               EmbeddingSettings.DEFAULT_MODEL_NAME,
               EmbeddingSettings.DEFAULT_METRIC,
@@ -509,6 +521,8 @@ public final class IngesterCli implements Callable<Integer> {
               applySchema,
               wipeProjectCode,
               wipeProjectMemories,
+              wipeCodeRag,
+              wipeMemoryRag,
               incremental,
               watch,
               codeEmbeddingSettings,
@@ -541,6 +555,8 @@ public final class IngesterCli implements Callable<Integer> {
         || wipeAllData
         || wipeProjectCode
         || wipeProjectMemories
+        || wipeCodeRag
+        || wipeMemoryRag
         || incremental
         || optionWasMatched("--threads")
         || optionWasMatched("-t")
