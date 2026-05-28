@@ -9,8 +9,8 @@ MUST include `project: '{{PROJECT_NAME}}'`.
 - **Status/pending-work requests:** run Orientation queries first, then check Git if local changes are relevant. Never answer from Git alone unless the user explicitly asks for Git-only status.
 - **Orientation reuse:** Orientation queries are session-scoped. If they were already run for `{{PROJECT_NAME}}` in this assistant session, reuse those results for follow-up work and skip rerunning them unless memory was changed, the user asks for a refresh, or the task scope is unrelated.
 - **RAG-first memory discovery:** use Memory RAG only to find relevant project knowledge for broad history/context prompts: prior/similar work, task history, status/pending work, "when was this changed", or unfamiliar-subsystem context. For known Memory ids, exact status/type lists, lifecycle updates, task close, `CodeRef` follow-up, and scoped Orientation queries, skip RAG and use exact Memory queries. RAG hits are discovery only: fetch exact Memory nodes and linked `CodeRef` targets before claims or edits. If no compatible `memory_chunk_embedding_v1` index exists or hits are not relevant, fall back to scoped exact Orientation queries and state why.
-- **RAG as an intelligence boost:** for broad or ambiguous work, proactively turn the prompt, errors, symbols, and verified findings into small semantic queries. Use RAG to surface non-obvious context, similar work, and prior decisions before broad exact scans; then verify every useful hit with exact Memory/CodeRef/source lookups.
-- **Self-formulated RAG bounds:** agents may write their own semantic queries from the prompt, observed symbols/errors, and current hypothesis. Each query must aim at one next exact Memory/CodeRef lookup or source read. Count a search as useful only if it names a concrete Memory id, CodeRef, or code target to verify. After two unhelpful RAG searches for the same question, stop RAG and switch to exact Memory orientation or text search. The two-search limit resets only after exact verification changes the question or reveals a new concrete clue; do not chain RAG searches from RAG hits alone.
+- **Hypothesis-driven RAG:** for broad or ambiguous work, do not merely rephrase the user prompt. Generate 1-3 concise semantic queries from your own current hypotheses, observed symbols/errors, suspected prior decisions, likely task history, and verified findings. Use RAG to surface non-obvious context, similar work, and prior decisions before broad exact scans; then verify every useful hit with exact Memory/CodeRef/source lookups.
+- **Self-formulated RAG bounds:** each semantic query must aim at one next exact Memory/CodeRef lookup or source read. Count a search as useful only if it names a concrete Memory id, CodeRef, or code target to verify. After two unhelpful RAG searches for the same question, stop RAG and switch to exact Memory orientation or text search. The two-search limit resets only after exact verification changes the question or reveals a new concrete clue; do not chain RAG searches from RAG hits alone. When RAG materially shaped the result, briefly report the prompts used.
 - **Memory investigation budget:** do not run Memory RAG or Orientation for ordinary code implementation/debugging unless the user asks for prior history, status, pending work, existing Memory ids, or unfamiliar-subsystem context. Initial Memory RAG is index-only: return ids, titles, statuses, labels, and similarity, not `chunk.text` or full body fields. Start with at most 5 hits, then fetch exact Memory records only for selected IDs that are relevant to the current task. Create/update the active Task when required, but do not enumerate unrelated Memory nodes just to begin code work.
 - **Multi-step work tracking:** for multi-step implementation, debugging, refactoring, documentation, dependency, test, or coverage work, create/update a `Task` as `doing` before edits, even if you expect to finish in the same response.
 - **Task close:** set any task you created or updated to `done`, `blocked`, or `cancelled` before final response and verify it. Also save durable findings/decisions when useful.
@@ -61,10 +61,10 @@ RETURN labels(memory) AS type, memory.id AS id, memory.title AS title,
 ORDER BY similarity DESC;
 ```
 
-Use the user's wording plus likely domain terms in the semantic query, for example:
-"JS/TS parser synthetic constructors constructor declarations previous analyzer fixes". Prefer the
-top relevant hits, then fetch exact Memory records by ID only for selected hits and follow `CodeRef`
-links when code context matters.
+Use the user's wording only as a seed. Prefer hypothesis-driven queries with suspected decisions,
+task history, risks, or code targets, for example: "prior decision serializing Memgraph writes" or
+"open perf task analyzer process reuse". Prefer the top relevant hits, then fetch exact Memory
+records by ID only for selected hits and follow `CodeRef` links when code context matters.
 
 After a RAG hit, follow `CodeRef` links when code context matters:
 

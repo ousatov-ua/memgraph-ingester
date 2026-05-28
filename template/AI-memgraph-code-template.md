@@ -21,8 +21,8 @@ When Memgraph returns no relevant rows, fall back to text search and state why.
 - **No ritual Codebase Analysis:** do not run Codebase Analysis queries just to have context. Run them only when a trigger below applies or code structure/relationships are needed.
 - **Orientation reuse:** Memgraph query results are session-scoped. Reuse relevant results unless the user asks for a refresh, source files changed, memory changed, or the task scope is unrelated.
 - **RAG-first code discovery:** use Code RAG only to find starting points for broad or unfamiliar code work: implementation/debugging/refactoring entry points, code explanation, "how is this implemented", or "find similar code". For prior-work/task-history use Memory RAG. For known targets (class/file/method/signature), skip RAG and use exact Code queries for members, callers/callees, hierarchy, imports/exports, annotations, fields, and source ranges. RAG hits are discovery only: resolve them to canonical Code nodes and exact source ranges before claims or edits. If no compatible `code_chunk_embedding_v1` index exists or hits are not relevant, fall back to focused exact Memgraph queries and state why.
-- **RAG as an intelligence boost:** for broad or ambiguous work, proactively turn the prompt, errors, symbols, and verified findings into small semantic queries. Use RAG to surface non-obvious files, similar code, and prior decisions before broad exact scans; then verify every useful hit with exact Memgraph/source lookups.
-- **Self-formulated RAG bounds:** agents may write their own semantic queries from the prompt, observed symbols/errors, and current hypothesis. Each query must aim at one next exact Memgraph lookup or source read. Count a search as useful only if it names a concrete node, file, or symbol to verify. After two unhelpful RAG searches for the same question, stop RAG and switch to exact Memgraph queries or text search. The two-search limit resets only after exact verification changes the question or reveals a new concrete clue; do not chain RAG searches from RAG hits alone.
+- **Hypothesis-driven RAG:** for broad or ambiguous work, do not merely rephrase the user prompt. Generate 1-3 concise semantic queries from your own current hypotheses, observed symbols/errors, suspected mechanisms, likely failure modes, and verified findings. Use RAG to surface non-obvious files, similar code, and prior decisions before broad exact scans; then verify every useful hit with exact Memgraph/source lookups.
+- **Self-formulated RAG bounds:** each semantic query must aim at one next exact Memgraph lookup or source read. Count a search as useful only if it names a concrete node, file, or symbol to verify. After two unhelpful RAG searches for the same question, stop RAG and switch to exact Memgraph queries or text search. The two-search limit resets only after exact verification changes the question or reveals a new concrete clue; do not chain RAG searches from RAG hits alone. When RAG materially shaped the result, briefly report the prompts used.
 - **Relationship refresh after edits:** if source files changed during the session, re-query Memgraph relationships before relying on earlier relationship results; live ingestion may make cached relationships stale.
 - **Code changes:** before source-code changes, follow RAG-first code discovery when the target is broad or unfamiliar. For known targets, start with the smallest useful exact Memgraph query set. Run full Codebase Analysis only for broad, ambiguous, cross-cutting, inheritance-heavy, or unfamiliar-subsystem work. Empty results are valid; fall back to text search and state why.
 - **Class/interface work:** query hierarchy before changing class/interface declarations, inheritance, `implements`/`extends`, constructor contracts, or overridden/inherited APIs. For small body-only edits inside a known class, hierarchy lookup is optional unless inheritance could affect behavior.
@@ -203,9 +203,10 @@ RETURN labels(source) AS sourceType, chunk.sourceId AS sourceId,
 ORDER BY similarity DESC;
 ```
 
-Use the user's wording plus likely domain terms in the semantic query, for example:
-"JS/TS parser should not emit synthetic constructors but should preserve constructor calls and class
-re-export behavior". Prefer 5-10 hits, inspect the source type/path/signature, then query the exact
+Use the user's wording only as a seed. Prefer hypothesis-driven queries with suspected mechanisms,
+symbols, failure modes, or tradeoffs, for example: "serial graph writes after parallel parse
+bottleneck" or "JS/TS parser synthetic constructors re-export constructor calls". Prefer 5-10 hits,
+inspect the source type/path/signature, then query the exact
 `Class`, `Interface`, `Method`, or `File` nodes needed for line ranges and relationships.
 
 `CodeChunk` text is derived search material. It should include language, path, symbol name, owner,
