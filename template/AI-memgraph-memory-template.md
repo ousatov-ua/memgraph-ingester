@@ -252,9 +252,8 @@ When creating or materially updating a Memory node, also create or refresh one d
 clear old embedding properties when the text changes, then create the embedding with Memgraph. Do
 not calculate embedding vectors outside Memgraph. Use the source Memory node as the authority. This
 agent workflow is only for MemoryChunks created or updated during the current session.
-When hashing chunk text in a persistent Node REPL, avoid top-level `createHash` declarations; use a
-block-scoped namespace import or a shell hash command so repeated memory updates do not redeclare
-identifiers.
+Compute `textHash` outside Cypher with any SHA-256 tool/library as the hex digest of the exact UTF-8
+`chunk.text`; when using MCP, pass it as a parameter. Do not call `sha256()` in Memgraph.
 
 ```cypher
 MATCH (d:Decision {id: 'DEC-<topic>-<name>', project: '{{PROJECT_NAME}}'})
@@ -262,7 +261,7 @@ MERGE (chunk:MemoryChunk {id: 'MCH-DEC-<topic>-<name>', project: '{{PROJECT_NAME
 SET chunk.sourceLabel = 'Decision',
     chunk.sourceId = d.id,
     chunk.text = '<type/title/topic/status/body/code-ref-summary text>',
-    chunk.textHash = '<stable-hash-of-text>',
+    chunk.textHash = $textHash,
     chunk.createdAt = coalesce(chunk.createdAt, datetime()),
     chunk.updatedAt = datetime()
 REMOVE chunk.embedding, chunk.embeddingModel, chunk.embeddingDimensions
