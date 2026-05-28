@@ -14,6 +14,7 @@ DROP CONSTRAINT ON (q:Question) ASSERT q.id, q.project IS UNIQUE;
 DROP CONSTRAINT ON (risk:Risk) ASSERT risk.id, risk.project IS UNIQUE;
 DROP CONSTRAINT ON (adr:ADR) ASSERT adr.id, adr.project IS UNIQUE;
 DROP CONSTRAINT ON (ref:CodeRef) ASSERT ref.project, ref.targetType, ref.key IS UNIQUE;
+DROP CONSTRAINT ON (mc:MemoryChunk) ASSERT mc.id, mc.project IS UNIQUE;
 
 
 // =====================================================
@@ -34,6 +35,7 @@ DROP CONSTRAINT ON (m:Method) ASSERT m.signature, m.project IS UNIQUE;
 DROP CONSTRAINT ON (f:Field) ASSERT f.fqn, f.project IS UNIQUE;
 DROP CONSTRAINT ON (file:File) ASSERT file.path, file.project IS UNIQUE;
 DROP CONSTRAINT ON (pc:PendingCall) ASSERT pc.project, pc.callerSignature, pc.calleeOwnerFqn, pc.calleeName IS UNIQUE;
+DROP CONSTRAINT ON (cc:CodeChunk) ASSERT cc.id, cc.project IS UNIQUE;
 
 
 // =====================================================
@@ -80,6 +82,13 @@ DROP INDEX ON :Risk(status);
 DROP INDEX ON :ADR(project);
 DROP INDEX ON :ADR(status);
 
+DROP INDEX ON :MemoryChunk(project);
+DROP INDEX ON :MemoryChunk(sourceLabel);
+DROP INDEX ON :MemoryChunk(sourceId);
+DROP INDEX ON :MemoryChunk(textHash);
+DROP INDEX ON :MemoryChunk(embeddingModel);
+DROP INDEX ON :MemoryChunk(embeddingDimensions);
+
 
 // =====================================================
 // DROP CODE INDEXES
@@ -111,3 +120,14 @@ DROP INDEX ON :Class(packageName);
 DROP INDEX ON :Package(language);
 DROP INDEX ON :PendingCall(project);
 DROP INDEX ON :PendingCall(calleeOwnerFqn);
+
+DROP INDEX ON :CodeChunk(project);
+DROP INDEX ON :CodeChunk(sourceLabel);
+DROP INDEX ON :CodeChunk(sourceId);
+DROP INDEX ON :CodeChunk(textHash);
+DROP INDEX ON :CodeChunk(embeddingModel);
+DROP INDEX ON :CodeChunk(embeddingDimensions);
+DROP INDEX ON :CodeChunk(language);
+DROP INDEX ON :CodeChunk(path);
+DROP INDEX ON :CodeChunk(ownerFqn);
+DROP INDEX ON :CodeChunk(signature);

@@ -77,6 +77,9 @@ public final class JavaCodeChunkBuilder extends CommonCodeChunkBuilder<Compilati
     decl.getFields().forEach(field -> addField(members, fqn, field));
     decl.getMethods().forEach(method -> addMethod(members, fqn, method));
     decl.getConstructors().forEach(ctor -> addConstructor(members, fqn, ctor));
+    if (!decl.isInterface() && decl.getConstructors().isEmpty()) {
+      addImplicitDefaultConstructor(members, fqn);
+    }
     nestedClassDeclarationsOf(decl.getMembers())
         .forEach(nested -> addClassOrInterface(types, members, pkg, fqn, nested));
   }
@@ -187,6 +190,18 @@ public final class JavaCodeChunkBuilder extends CommonCodeChunkBuilder<Compilati
             Labels.INIT,
             beginLineOf(ctor),
             endLineOf(ctor)));
+  }
+
+  private static void addImplicitDefaultConstructor(List<MemberChunk> members, String ownerFqn) {
+    members.add(
+        new MemberChunk(
+            ownerFqn,
+            Params.CONSTRUCTOR,
+            Params.CONSTRUCTOR,
+            ownerFqn + "." + Labels.INIT + "()",
+            Labels.INIT,
+            0,
+            0));
   }
 
   private static void addRecordCanonicalConstructor(

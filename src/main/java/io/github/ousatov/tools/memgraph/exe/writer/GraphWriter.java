@@ -52,6 +52,8 @@ public final class GraphWriter {
   private static final Logger log = LoggerFactory.getLogger(GraphWriter.class);
 
   private static final int WIPE_BATCH_SIZE = 10_000;
+  private static final int MIN_VECTOR_INDEX_CAPACITY = 8192;
+  private static final int VECTOR_INDEX_HEADROOM_MULTIPLIER = 2;
   private static final Pattern CYPHER_IDENTIFIER = Pattern.compile("[A-Za-z_][A-Za-z0-9_]*");
   private final CypherExecutor cypher;
   private final GraphNodeWriter nodes;
@@ -771,42 +773,58 @@ public final class GraphWriter {
   }
 
   private void ensureCodeChunkVectorIndex(EmbeddingSettings settings, int dimension) {
+    int capacity = vectorIndexCapacity(settings, countCodeChunks());
     Optional<VectorIndexInfo> existing = vectorIndexInfo(settings.indexName());
     if (existing.isPresent()) {
       verifyCodeChunkVectorIndex(settings, dimension, existing.get());
+      if (existing.get().capacity() >= capacity) {
+        return;
+      }
+      recreateVectorIndex(
+          settings.indexName(),
+          createCodeChunkVectorIndexCypher(settings),
+          settings,
+          dimension,
+          capacity);
       return;
     }
 
-    long chunkCount = countCodeChunks();
-    int capacity =
-        settings.capacity() > 0
-            ? settings.capacity()
-            : Math.max(1, Math.toIntExact(Math.min(Integer.MAX_VALUE, chunkCount)));
-    Map<String, Object> config =
-        Map.of(
-            Rag.DIMENSION,
-            dimension,
-            Rag.CAPACITY,
-            capacity,
-            Rag.METRIC,
-            settings.metric(),
-            Rag.SCALAR_KIND,
-            settings.scalarKind());
-    cypher.run(createCodeChunkVectorIndexCypher(settings), Map.of("config", config));
+    createVectorIndex(createCodeChunkVectorIndexCypher(settings), settings, dimension, capacity);
   }
 
   private void ensureMemoryChunkVectorIndex(EmbeddingSettings settings, int dimension) {
+    int capacity = vectorIndexCapacity(settings, countMemoryChunks());
     Optional<VectorIndexInfo> existing = vectorIndexInfo(settings.indexName());
     if (existing.isPresent()) {
       verifyMemoryChunkVectorIndex(settings, dimension, existing.get());
+      if (existing.get().capacity() >= capacity) {
+        return;
+      }
+      recreateVectorIndex(
+          settings.indexName(),
+          createMemoryChunkVectorIndexCypher(settings),
+          settings,
+          dimension,
+          capacity);
       return;
     }
 
-    long chunkCount = countMemoryChunks();
-    int capacity =
-        settings.capacity() > 0
-            ? settings.capacity()
-            : Math.max(1, Math.toIntExact(Math.min(Integer.MAX_VALUE, chunkCount)));
+    createVectorIndex(createMemoryChunkVectorIndexCypher(settings), settings, dimension, capacity);
+  }
+
+  private void recreateVectorIndex(
+      String indexName,
+      String createIndexCypher,
+      EmbeddingSettings settings,
+      int dimension,
+      int capacity) {
+    log.info("Recreating vector index '{}' with capacity {}", indexName, capacity);
+    cypher.run("DROP VECTOR INDEX " + indexName, Map.of());
+    createVectorIndex(createIndexCypher, settings, dimension, capacity);
+  }
+
+  private void createVectorIndex(
+      String createIndexCypher, EmbeddingSettings settings, int dimension, int capacity) {
     Map<String, Object> config =
         Map.of(
             Rag.DIMENSION,
@@ -817,7 +835,20 @@ public final class GraphWriter {
             settings.metric(),
             Rag.SCALAR_KIND,
             settings.scalarKind());
-    cypher.run(createMemoryChunkVectorIndexCypher(settings), Map.of("config", config));
+    cypher.run(createIndexCypher, Map.of("config", config));
+  }
+
+  static int defaultVectorIndexCapacity(long chunkCount) {
+    long safeChunkCount = Math.max(1L, chunkCount);
+    long withHeadroom =
+        safeChunkCount > Integer.MAX_VALUE / VECTOR_INDEX_HEADROOM_MULTIPLIER
+            ? Integer.MAX_VALUE
+            : safeChunkCount * VECTOR_INDEX_HEADROOM_MULTIPLIER;
+    return (int) Math.min(Integer.MAX_VALUE, Math.max(MIN_VECTOR_INDEX_CAPACITY, withHeadroom));
+  }
+
+  private static int vectorIndexCapacity(EmbeddingSettings settings, long chunkCount) {
+    return settings.capacity() > 0 ? settings.capacity() : defaultVectorIndexCapacity(chunkCount);
   }
 
   private Optional<VectorIndexInfo> vectorIndexInfo(String indexName) {
@@ -833,6 +864,7 @@ public final class GraphWriter {
                       row.get("label").asString(""),
                       row.get("property").asString(""),
                       row.get(Rag.DIMENSION).asInt(0),
+                      row.get(Rag.CAPACITY).asInt(0),
                       row.get(Rag.METRIC).asString(""),
                       row.get(Rag.SCALAR_KIND).asString("")));
             }
@@ -1117,7 +1149,12 @@ public final class GraphWriter {
   }
 
   private record VectorIndexInfo(
-      String label, String property, int dimension, String metric, String scalarKind) {}
+      String label,
+      String property,
+      int dimension,
+      int capacity,
+      String metric,
+      String scalarKind) {}
 
   private record EmbeddingBatchResult(boolean success, List<String> ids) {}
 }

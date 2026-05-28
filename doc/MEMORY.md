@@ -70,8 +70,8 @@ investigations, or implementation work.
 `MemoryChunk` nodes are derived semantic-search records for Memory. They do not replace `Rule`,
 `Decision`, `Finding`, `Context`, or other canonical Memory nodes. Use them to find candidate
 memories, then read the source Memory node and apply status/severity filters before acting.
-Agents create or refresh `MemoryChunk` rows when they create or materially update Memory nodes; the
-ingester refreshes only Code chunks.
+Agents create or refresh `MemoryChunk` rows when they create or materially update Memory nodes. With
+`--with-memories`, the ingester also syncs current Memory chunks and prunes stale ones.
 
 Recommended `MemoryChunk.text` content:
 

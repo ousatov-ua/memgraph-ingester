@@ -792,14 +792,14 @@ Options:
 | `--code-embedding-chunk-size` |  | no | `48` | Memgraph local multi-GPU `chunk_size`. |
 | `--code-embedding-remote-batch-size` |  | no | `0` | Remote provider batch size override; `0` keeps Memgraph's default. |
 | `--code-embedding-concurrency` |  | no | `0` | Remote provider concurrency override; `0` keeps Memgraph's default. |
-| `--code-embedding-index-capacity` |  | no | `0` | Vector index capacity; `0` uses the current CodeChunk count. |
+| `--code-embedding-index-capacity` |  | no | `0` | Vector index capacity; `0` uses automatic headroom for current and future CodeChunk rows. |
 | `--[no-]memory-embeddings` |  | no | `true` | With `--with-memories`, sync `:MemoryChunk` rows and compute stale embeddings after ingestion/watch updates. |
 | `--memory-embedding-device` |  | no | auto | Memgraph embeddings device for MemoryChunk refresh. |
 | `--memory-embedding-batch-size` |  | no | `1024` | MemoryChunk nodes per embedding call and local embedding batch size. |
 | `--memory-embedding-chunk-size` |  | no | `48` | Memgraph local MemoryChunk `chunk_size`. |
 | `--memory-embedding-remote-batch-size` |  | no | `0` | Remote provider batch size override for MemoryChunk refresh; `0` keeps Memgraph's default. |
 | `--memory-embedding-concurrency` |  | no | `0` | Remote provider concurrency override for MemoryChunk refresh; `0` keeps Memgraph's default. |
-| `--memory-embedding-index-capacity` |  | no | `0` | MemoryChunk vector index capacity; `0` uses the current MemoryChunk count. |
+| `--memory-embedding-index-capacity` |  | no | `0` | MemoryChunk vector index capacity; `0` uses automatic headroom for current and future MemoryChunk rows. |
 | `--classpath` |  | no | empty | Platform-separated JAR paths for Java symbol resolution. |
 | `--js-runtime-mode` |  | no | `managed` | `managed`, `system`, or `offline`. |
 | `--js-runtime-cache` |  | no | `~/.cache/memgraph-ingester` | Cache directory for managed Node.js and TypeScript downloads. |
@@ -936,7 +936,8 @@ RAG vector indexes are created automatically for the ingester-managed defaults. 
 examples use 1024-dimensional embeddings and cosine similarity. Code chunk embeddings are computed
 by Memgraph during ingestion unless `--no-code-embeddings` is passed; the ingester discovers the
 selected model dimension, creates `code_chunk_embedding_v1` if needed, and refreshes only stale
-`:CodeChunk` vectors.
+`:CodeChunk` vectors. Default index capacity includes growth headroom because Memgraph vector
+indexes are label-wide and may be reused by later projects or watch updates.
 
 ```cypher
 CREATE VECTOR INDEX memory_chunk_embedding_v1

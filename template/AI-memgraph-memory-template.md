@@ -8,7 +8,7 @@ MUST include `project: '{{PROJECT_NAME}}'`.
 - **NO DELEGATION:** Never delegate memory state queries or updates to subagents. You MUST use Memgraph.
 - **Status/pending-work requests:** run Orientation queries first, then check Git if local changes are relevant. Never answer from Git alone unless the user explicitly asks for Git-only status.
 - **Orientation reuse:** Orientation queries are session-scoped. If they were already run for `{{PROJECT_NAME}}` in this assistant session, reuse those results for follow-up work and skip rerunning them unless memory was changed, the user asks for a refresh, or the task scope is unrelated.
-- **RAG-first memory discovery:** for implementation, debugging, refactoring, code explanation, "how is this implemented", "when was this changed", prior-work, similar-work, task-history, status/pending-work, or unfamiliar-subsystem prompts, check for a compatible `memory_chunk_embedding_v1` index and run Memory RAG before choosing Context/Task/Decision/Finding/Rule/Question/Risk records by exact filters. Use RAG hits only as discovery; then fetch exact Memory nodes and linked `CodeRef` targets before making claims or edits. If no compatible memory RAG index exists or hits are not relevant, fall back to scoped exact Orientation queries and state why.
+- **RAG-first memory discovery:** use Memory RAG only to find relevant project knowledge for broad history/context prompts: prior/similar work, task history, status/pending work, "when was this changed", or unfamiliar-subsystem context. For known Memory ids, exact status/type lists, lifecycle updates, task close, `CodeRef` follow-up, and scoped Orientation queries, skip RAG and use exact Memory queries. RAG hits are discovery only: fetch exact Memory nodes and linked `CodeRef` targets before claims or edits. If no compatible `memory_chunk_embedding_v1` index exists or hits are not relevant, fall back to scoped exact Orientation queries and state why.
 - **Code changes:** before any code-change task, run Orientation queries for Rules, open Findings, Context, active Tasks, open Questions, and open Risks. Empty results are valid. Skip only if already run in this session.
 - **Multi-step work tracking:** for multi-step implementation, debugging, refactoring, documentation, dependency, test, or coverage work, create/update a `Task` as `doing` before edits, even if you expect to finish in the same response.
 - **Task close:** set any task you created or updated to `done`, `blocked`, or `cancelled` before final response and verify it. Also save durable findings/decisions when useful.
@@ -18,10 +18,12 @@ MUST include `project: '{{PROJECT_NAME}}'`.
 
 ### Memory RAG Vectors (only if RAG has embeddings)
 
-Use `:MemoryChunk` as the mandatory semantic discovery layer for implementation, debugging,
-refactoring, code explanation, prior-work, similar-work, task-history, status/pending-work, or
-unfamiliar-subsystem prompts whenever a compatible embedding index exists. The source of truth
-remains the canonical Memory node and its status/severity fields.
+Use `:MemoryChunk` as the mandatory semantic discovery layer only to find relevant project
+knowledge for broad history/context prompts: prior/similar work, task history, status/pending work,
+"when was this changed", or unfamiliar-subsystem context whenever a compatible embedding index
+exists. Known Memory ids, lifecycle updates, `CodeRef` follow-ups, and scoped Orientation queries use
+exact Memory queries directly. The source of truth remains the canonical Memory node and its
+status/severity fields.
 
 Before vector search, verify a matching vector index exists:
 
@@ -64,14 +66,14 @@ RETURN labels(memory) AS type, memory.id AS id,
 Run at task start when required. 
 
 #### If Memgraph RAG has embeddings
-For implementation, debugging, refactoring, code explanation, prior-work, similar-work,
-task-history, status/pending-work, or unfamiliar-subsystem prompts, search semantically similar
-memory chunks first for relevant Context, Findings, Rules, Tasks, Questions, Risks, Ideas, ADRs, or
-Decisions.
+For broad project-knowledge prompts, search semantically similar memory chunks first for relevant
+Context, Findings, Rules, Tasks, Questions, Risks, Ideas, ADRs, or Decisions.
 Then run exact Memory queries for those specific IDs.
 Finally, fetch linked `CodeRef` targets and use code-graph/source queries when code context matters.
-Do not answer these prompt classes from an exact Context/Task list alone unless Memory RAG is absent
-or produced no relevant rows; state that fallback explicitly.
+For known Memory ids, lifecycle updates, `CodeRef` follow-ups, or scoped Orientation queries, use
+exact Memory queries directly. Do not answer broad project-knowledge prompts from an exact
+Context/Task list alone unless Memory RAG is absent or produced no relevant rows; state that fallback
+explicitly.
 
 #### If Memgraph RAG has no embeddings
 

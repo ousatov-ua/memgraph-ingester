@@ -90,6 +90,18 @@ class CypherResourceTest {
   }
 
   @Test
+  void dropSchemaContainsChunkConstraintsAndIndexes() {
+    String schema = resource("drop-schema.cypher");
+
+    assertTrue(schema.contains("DROP CONSTRAINT ON (mc:MemoryChunk)"));
+    assertTrue(schema.contains("DROP CONSTRAINT ON (cc:CodeChunk)"));
+    assertTrue(schema.contains("DROP INDEX ON :MemoryChunk(project)"));
+    assertTrue(schema.contains("DROP INDEX ON :MemoryChunk(sourceId)"));
+    assertTrue(schema.contains("DROP INDEX ON :CodeChunk(project)"));
+    assertTrue(schema.contains("DROP INDEX ON :CodeChunk(signature)"));
+  }
+
+  @Test
   void wipeProjectCodeResourcePreservesMemoryLabels() {
     String cypher = Const.Cypher.CYPHER_WIPE_PROJECT_CODE;
 
@@ -174,6 +186,7 @@ class CypherResourceTest {
     assertTrue(createIndex.contains("CREATE VECTOR INDEX __INDEX_NAME__"));
     assertTrue(showIndex.contains("SHOW VECTOR INDEX INFO"));
     assertTrue(countChunks.contains("RETURN count(chunk) AS count"));
+    assertFalse(countChunks.contains("{project: $project}"));
     assertTrue(countStaleEmbeddings.contains("RETURN count(chunk) AS count"));
     assertTrue(countStaleEmbeddings.contains("chunk.embeddingModel <> $modelName"));
     assertTrue(refreshEmbeddings.contains("CALL embeddings.node_sentence(chunks, $config)"));
@@ -184,6 +197,7 @@ class CypherResourceTest {
     assertTrue(createMemoryIndex.contains("CREATE VECTOR INDEX __INDEX_NAME__"));
     assertTrue(createMemoryIndex.contains("ON :MemoryChunk"));
     assertTrue(countMemoryChunks.contains("MATCH (chunk:MemoryChunk"));
+    assertFalse(countMemoryChunks.contains("{project: $project}"));
     assertTrue(listMemorySources.contains("MATCH (root:Memory"));
     assertTrue(listMemorySources.contains("HAS_RAG_CHUNK"));
     assertTrue(deleteStaleMemoryChunks.contains("DETACH DELETE chunk"));

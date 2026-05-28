@@ -7,6 +7,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
@@ -71,7 +72,8 @@ public final class Memgraph {
       try {
         session.run(stmt).consume();
       } catch (RuntimeException e) {
-        if (!ignoreMissingSchemaDrops || !isMissingSchemaDrop(stmt, e)) {
+        if ((!ignoreMissingSchemaDrops || !isMissingSchemaDrop(stmt, e))
+            && !isExistingSchemaCreate(stmt, e)) {
           throw e;
         }
       }
@@ -80,7 +82,9 @@ public final class Memgraph {
 
   static boolean isMissingSchemaDrop(String stmt, RuntimeException e) {
     String normalizedStmt = stmt.stripLeading().toUpperCase(Locale.ROOT);
-    if (!normalizedStmt.startsWith("DROP INDEX") && !normalizedStmt.startsWith("DROP CONSTRAINT")) {
+    if (!normalizedStmt.startsWith("DROP INDEX")
+        && !normalizedStmt.startsWith("DROP CONSTRAINT")
+        && !normalizedStmt.startsWith("DROP VECTOR INDEX")) {
       return false;
     }
     String message = e.getMessage();
@@ -92,6 +96,24 @@ public final class Memgraph {
         || normalizedMessage.contains("does not exist")
         || normalizedMessage.contains("not found")
         || normalizedMessage.contains("no such");
+  }
+
+  static boolean isExistingSchemaCreate(String stmt, RuntimeException e) {
+    String normalizedStmt = stmt.stripLeading().toUpperCase(Locale.ROOT);
+    if (!normalizedStmt.startsWith("CREATE INDEX")
+        && !normalizedStmt.startsWith("CREATE CONSTRAINT")
+        && !normalizedStmt.startsWith("CREATE VECTOR INDEX")) {
+      return false;
+    }
+    String message = e.getMessage();
+    if (message == null) {
+      return false;
+    }
+    String normalizedMessage = message.toLowerCase(Locale.ROOT);
+    return normalizedMessage.contains("already exists")
+        || normalizedMessage.contains("exists already")
+        || normalizedMessage.contains("equivalent index already exists")
+        || normalizedMessage.contains("equivalent constraint already exists");
   }
 
   /**
@@ -167,6 +189,74 @@ public final class Memgraph {
       }
     }
     return languageConstraint && codeConstraint && packageConstraint;
+  }
+
+  /**
+   * Returns whether the active schema contains derived RAG chunk constraints and indexes.
+   *
+   * @param session session to use
+   * @return true when CodeChunk and MemoryChunk uniqueness constraints and property indexes are
+   *     present
+   */
+  public static boolean hasRagChunkSchema(Session session) {
+    boolean codeChunkConstraint = false;
+    boolean memoryChunkConstraint = false;
+    Result result = session.run("SHOW CONSTRAINT INFO");
+    while (result.hasNext()) {
+      var theRecord = result.next();
+      if (!"unique".equals(theRecord.get("constraint type").asString(""))) {
+        continue;
+      }
+      String label = theRecord.get("label").asString("");
+      List<String> properties = theRecord.get("properties").asList(Value::asString);
+      if (Labels.CODE_CHUNK.equals(label)
+          && hasSameProperties(properties, Params.ID, Labels.PROJECT)) {
+        codeChunkConstraint = true;
+      } else if (Labels.MEMORY_CHUNK.equals(label)
+          && hasSameProperties(properties, Params.ID, Labels.PROJECT)) {
+        memoryChunkConstraint = true;
+      }
+    }
+    Set<String> indexes = labelPropertyIndexes(session);
+    return codeChunkConstraint
+        && memoryChunkConstraint
+        && indexes.contains(indexKey(Labels.MEMORY_CHUNK, Labels.PROJECT))
+        && indexes.contains(indexKey(Labels.MEMORY_CHUNK, Params.SOURCE_LABEL))
+        && indexes.contains(indexKey(Labels.MEMORY_CHUNK, Params.SOURCE_ID))
+        && indexes.contains(indexKey(Labels.MEMORY_CHUNK, Params.TEXT_HASH))
+        && indexes.contains(indexKey(Labels.MEMORY_CHUNK, "embeddingModel"))
+        && indexes.contains(indexKey(Labels.MEMORY_CHUNK, "embeddingDimensions"))
+        && indexes.contains(indexKey(Labels.CODE_CHUNK, Labels.PROJECT))
+        && indexes.contains(indexKey(Labels.CODE_CHUNK, Params.SOURCE_LABEL))
+        && indexes.contains(indexKey(Labels.CODE_CHUNK, Params.SOURCE_ID))
+        && indexes.contains(indexKey(Labels.CODE_CHUNK, Params.TEXT_HASH))
+        && indexes.contains(indexKey(Labels.CODE_CHUNK, "embeddingModel"))
+        && indexes.contains(indexKey(Labels.CODE_CHUNK, "embeddingDimensions"))
+        && indexes.contains(indexKey(Labels.CODE_CHUNK, Params.LANGUAGE))
+        && indexes.contains(indexKey(Labels.CODE_CHUNK, Params.PATH))
+        && indexes.contains(indexKey(Labels.CODE_CHUNK, Params.OWNER_FQN))
+        && indexes.contains(indexKey(Labels.CODE_CHUNK, "signature"));
+  }
+
+  private static Set<String> labelPropertyIndexes(Session session) {
+    Set<String> indexes = new HashSet<>();
+    Result result = session.run("SHOW INDEX INFO");
+    while (result.hasNext()) {
+      var record = result.next();
+      if (!"label+property".equals(record.get("index type").asString(""))) {
+        continue;
+      }
+      String label = record.get("label").asString("");
+      List<String> properties = record.get("property").asList(Value::asString);
+      if (properties.size() == 1) {
+        indexes.add(indexKey(label, properties.getFirst()));
+      }
+    }
+    return indexes;
+  }
+
+  private static String indexKey(String label, String property) {
+    return label + "." + property;
   }
 
   static boolean hasSameProperties(List<String> actual, String... expected) {

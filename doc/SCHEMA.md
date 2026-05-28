@@ -159,7 +159,8 @@ updates. Incremental runs re-ingest unchanged files whose `CodeChunk` rows are m
 records and prunes stale chunks. When embedding flags are enabled, the ingester creates the relevant
 vector index if needed, computes only stale or missing embeddings, and stores `embeddingModel` plus
 `embeddingDimensions`. It excludes chunk metadata properties from `embeddings.node_sentence()` so
-vectors represent the derived `text` field.
+vectors represent the derived `text` field. Default vector-index capacity includes headroom for
+later projects and watch updates.
 
 The ingester auto-creates vector indexes for its managed embedding defaults. Manual vector indexes
 are useful when embedding dimension and capacity come from a client-chosen model or corpus size. For

@@ -1,2 +1,2 @@
-MATCH (chunk:MemoryChunk {project: $project})
+MATCH (chunk:MemoryChunk)
 RETURN count(chunk) AS count

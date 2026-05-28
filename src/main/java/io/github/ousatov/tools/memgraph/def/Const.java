@@ -420,8 +420,10 @@ public final class Const {
   public static class Labels {
 
     public static final String CODE = "Code";
+    public static final String CODE_CHUNK = "CodeChunk";
     public static final String INIT = "<init>";
     public static final String LANGUAGE = "Language";
+    public static final String MEMORY_CHUNK = "MemoryChunk";
     public static final String PACKAGE = "Package";
     public static final String PROJECT = "project";
     public static final String VOID = "void";

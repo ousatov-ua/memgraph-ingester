@@ -1,5 +1,6 @@
 package io.github.ousatov.tools.memgraph.exe.writer;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -30,5 +31,13 @@ class GraphWriterTest {
   @Test
   void doesNotRetryUnrelatedErrors() {
     assertFalse(GraphWriter.isRetryable(new RuntimeException("syntax error in Cypher")));
+  }
+
+  @Test
+  void defaultVectorIndexCapacityUsesHeadroomAndMinimum() {
+    assertEquals(8192, GraphWriter.defaultVectorIndexCapacity(0));
+    assertEquals(8192, GraphWriter.defaultVectorIndexCapacity(100));
+    assertEquals(20_000, GraphWriter.defaultVectorIndexCapacity(10_000));
+    assertEquals(Integer.MAX_VALUE, GraphWriter.defaultVectorIndexCapacity(Long.MAX_VALUE));
   }
 }
