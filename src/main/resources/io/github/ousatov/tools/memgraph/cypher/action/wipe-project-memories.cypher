@@ -12,5 +12,6 @@ WHERE n.project = $project
     OR n:Risk
     OR n:ADR
     OR n:CodeRef
+    OR n:MemoryChunk
   )
 DETACH DELETE n

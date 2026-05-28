@@ -14,6 +14,7 @@ import com.github.javaparser.symbolsolver.resolution.typesolvers.ReflectionTypeS
 import io.github.ousatov.tools.memgraph.exe.adapter.SourceFileDefinitions;
 import io.github.ousatov.tools.memgraph.exe.adapter.SourceLanguage;
 import io.github.ousatov.tools.memgraph.exe.analyze.ParseService;
+import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.CodeChunkWrite;
 import io.github.ousatov.tools.memgraph.exe.writer.ctags.CtagsGraphWriter;
 import io.github.ousatov.tools.memgraph.exe.writer.java.JavaGraphWriter;
 import io.github.ousatov.tools.memgraph.exe.writer.js.JsGraphWriter;
@@ -198,6 +199,61 @@ class GraphWriterIT {
             .asLong();
 
     assertEquals(1, count);
+  }
+
+  @Test
+  void replaceCodeChunksForFileUpsertsLinksAndPrunesStaleChunks() {
+    writer.upsertFile(TEST_FILE);
+
+    writer.replaceCodeChunksForFile(
+        TEST_FILE,
+        List.of(
+            new CodeChunkWrite(
+                "CCH-old",
+                "File",
+                TEST_FILE.toString(),
+                SourceLanguage.JAVA.graphName(),
+                TEST_FILE.toString(),
+                "",
+                "",
+                "old docs",
+                "old-hash")));
+    writer.replaceCodeChunksForFile(
+        TEST_FILE,
+        List.of(
+            new CodeChunkWrite(
+                "CCH-current",
+                "File",
+                TEST_FILE.toString(),
+                SourceLanguage.JAVA.graphName(),
+                TEST_FILE.toString(),
+                "",
+                "",
+                "new docs",
+                "new-hash")));
+
+    List<String> texts =
+        session
+            .run(
+                "MATCH (chunk:CodeChunk {project: $p, path: $path})"
+                    + " RETURN chunk.text AS text ORDER BY text",
+                Map.of("p", PROJECT, "path", TEST_FILE.toString()))
+            .list(row -> row.get("text").asString());
+
+    assertEquals(List.of("new docs"), texts);
+
+    long linkCount =
+        session
+            .run(
+                "MATCH (:File {project: $p, path: $path})"
+                    + "-[:HAS_RAG_CHUNK]->(:CodeChunk {project: $p})"
+                    + " RETURN count(*) AS n",
+                Map.of("p", PROJECT, "path", TEST_FILE.toString()))
+            .single()
+            .get("n")
+            .asLong();
+
+    assertEquals(1, linkCount);
   }
 
   @Test
@@ -1159,6 +1215,23 @@ class GraphWriterIT {
     writer.upsertPackage(PKG);
     session
         .run(
+            "MATCH (file:File {project: $p, path: $path})"
+                + " MERGE (chunk:CodeChunk {id: 'CCH-test-wipe-code', project: $p})"
+                + " SET chunk.sourceLabel = 'File',"
+                + "     chunk.sourceId = $path,"
+                + "     chunk.language = 'java',"
+                + "     chunk.path = $path,"
+                + "     chunk.text = 'File docs and source excerpt',"
+                + "     chunk.textHash = 'code-wipe-hash',"
+                + "     chunk.embeddingModel = 'test-model',"
+                + "     chunk.embeddingDimensions = 3,"
+                + "     chunk.createdAt = datetime(),"
+                + "     chunk.updatedAt = datetime()"
+                + " MERGE (file)-[:HAS_RAG_CHUNK]->(chunk)",
+            Map.of("p", PROJECT, "path", TEST_FILE.toString()))
+        .consume();
+    session
+        .run(
             "MATCH (m:Memory {project: $p})"
                 + " MERGE (d:Decision {id: 'DEC-test-preserved', project: $p})"
                 + " SET d.status = 'accepted', d.title = 'Preserved decision'"
@@ -1182,7 +1255,7 @@ class GraphWriterIT {
             .run(
                 "MATCH (n) WHERE n.project = $p"
                     + " AND (n:Code OR n:Package OR n:File OR n:Class OR n:Interface"
-                    + " OR n:Annotation OR n:Method OR n:Field OR n:Language)"
+                    + " OR n:Annotation OR n:Method OR n:Field OR n:Language OR n:CodeChunk)"
                     + " RETURN count(n) AS n",
                 Map.of("p", PROJECT))
             .single()

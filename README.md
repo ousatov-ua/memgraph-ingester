@@ -1,4 +1,4 @@
-# Memgraph Ingester
+# memgraph-ingester: structure-aware RAG for code and project knowledge
 
 [![Build](https://github.com/ousatov-ua/memgraph-ingester/actions/workflows/maven.yml/badge.svg)](https://github.com/ousatov-ua/memgraph-ingester/actions/workflows/maven.yml)
 [![Maven Central](https://img.shields.io/maven-central/v/io.github.ousatov-ua/memgraph-ingester)](https://central.sonatype.com/artifact/io.github.ousatov-ua/memgraph-ingester)
@@ -13,9 +13,10 @@
 
 ![memgraph-ingester-readme-banner-640x320.svg](image/memgraph-ingester-readme-banner-640x320.svg)
 
-Memgraph Ingester indexes source files into
-[Memgraph](https://memgraph.com/) so AI agents can query a real code graph instead of repeatedly
-scanning raw files.
+`memgraph-ingester` indexes source files into [Memgraph](https://memgraph.com/) so AI agents can
+query a real code graph instead of repeatedly scanning raw files. It is RAG-enabled, but not as a
+loose pile of text chunks: retrieval is derived from code structure and connected back to files,
+symbols, relationships, and durable project knowledge.
 
 Languages supported:
 - **Java**
@@ -43,6 +44,20 @@ The normal path is simple:
 
 No source code is uploaded by the ingester. It reads local files, writes graph nodes to your
 Memgraph instance over Bolt, and exits.
+
+## Structure-Aware RAG
+
+RAG support is built on derived graph nodes, not detached text blobs.
+
+- `CodeChunk` rows are generated from parsed code structure and linked back to canonical `File`,
+  `Class`, `Interface`, `Annotation`, `Method`, and `Field` nodes.
+- `MemoryChunk` rows are generated from optional Memory records such as decisions, rules, findings,
+  tasks, risks, and questions, including their `CodeRef` links.
+- Code embeddings are enabled by default. Memory embeddings are enabled by default when
+  `--with-memories` is used. Use `--no-code-embeddings` or `--no-memory-embeddings` to skip them.
+
+Agents can search semantically first, then verify the result through exact graph relationships and
+source locations.
 
 ## Safety First
 
@@ -771,6 +786,20 @@ Options:
 | `--wipe-all` |  | no | `false` | Delete all data from Memgraph. |
 | `--incremental` |  | no | `false` | Skip files whose last-modified timestamp matches the graph. |
 | `--watch` | `-w` | no | `false` | Watch the source directory and re-ingest changes. |
+| `--[no-]code-embeddings` |  | no | `true` | Ask Memgraph to compute stale `:CodeChunk.embedding` values after ingestion/watch updates. |
+| `--code-embedding-device` |  | no | auto | Memgraph embeddings device, for example `cpu`, `cuda`, `cuda:0`, or `all`. |
+| `--code-embedding-batch-size` |  | no | `1024` | CodeChunk nodes per embedding call and local embedding batch size. Larger values are retried with smaller batches if Memgraph reports a failed embedding batch. |
+| `--code-embedding-chunk-size` |  | no | `48` | Memgraph local multi-GPU `chunk_size`. |
+| `--code-embedding-remote-batch-size` |  | no | `0` | Remote provider batch size override; `0` keeps Memgraph's default. |
+| `--code-embedding-concurrency` |  | no | `0` | Remote provider concurrency override; `0` keeps Memgraph's default. |
+| `--code-embedding-index-capacity` |  | no | `0` | Vector index capacity; `0` uses automatic headroom for current and future CodeChunk rows. |
+| `--[no-]memory-embeddings` |  | no | `true` | With `--with-memories`, sync `:MemoryChunk` rows and compute stale embeddings after ingestion/watch updates. |
+| `--memory-embedding-device` |  | no | auto | Memgraph embeddings device for MemoryChunk refresh. |
+| `--memory-embedding-batch-size` |  | no | `1024` | MemoryChunk nodes per embedding call and local embedding batch size. |
+| `--memory-embedding-chunk-size` |  | no | `48` | Memgraph local MemoryChunk `chunk_size`. |
+| `--memory-embedding-remote-batch-size` |  | no | `0` | Remote provider batch size override for MemoryChunk refresh; `0` keeps Memgraph's default. |
+| `--memory-embedding-concurrency` |  | no | `0` | Remote provider concurrency override for MemoryChunk refresh; `0` keeps Memgraph's default. |
+| `--memory-embedding-index-capacity` |  | no | `0` | MemoryChunk vector index capacity; `0` uses automatic headroom for current and future MemoryChunk rows. |
 | `--classpath` |  | no | empty | Platform-separated JAR paths for Java symbol resolution. |
 | `--js-runtime-mode` |  | no | `managed` | `managed`, `system`, or `offline`. |
 | `--js-runtime-cache` |  | no | `~/.cache/memgraph-ingester` | Cache directory for managed Node.js and TypeScript downloads. |
@@ -785,7 +814,7 @@ Options:
 | `--init-instructions` |  | no | `false` | Write or replace managed agent instructions and exit. Includes Code guidance by default. |
 | `--instructions-agent` |  | no | `codex` | Agent preset: `codex`, `claude`, `gemini`, `github`, or `copilot`. Implies `--init-instructions` when explicitly provided. |
 | `--instructions-file` |  | no | preset file | Instruction file to update. Overrides `--instructions-agent` and implies `--init-instructions`. |
-| `--with-memories` |  | no | `false` | Include optional Memory workflow instructions when initializing agents. |
+| `--with-memories` |  | no | `false` | Include optional Memory workflow instructions when initializing agents, and enable MemoryChunk refresh for ingestion runs. |
 | `--help` |  | no |  | Print CLI help. |
 | `--version` |  | no |  | Print CLI version. |
 
@@ -811,6 +840,10 @@ Memgraph Ingester creates two project-scoped graph roots:
 Every code and memory node uses the same `project` namespace. Code is grouped by language nodes
 named `Java` and `Js`.
 
+Optional RAG vector chunks can be linked from Code and Memory nodes. They are derived search data,
+not canonical source data; use them to discover candidate records, then traverse back to the
+source graph node.
+
 ### Code Nodes
 
 | Label | Identity | Key properties |
@@ -826,6 +859,7 @@ named `Java` and `Js`.
 | `:Method` | `(signature, project)` | `name`, `returnType`, `visibility`, `isStatic`, `startLine`, `endLine`, `ownerFqn`, `ownerDisplayName`, `language`, `kind`. |
 | `:Field` | `(fqn, project)` | `name`, `type`, `visibility`, `isStatic`, `language`, `kind`. |
 | `:PendingCall` | `(project, callerSignature, calleeOwnerFqn, calleeName)` | Temporary owner/name call record resolved after ingestion. |
+| `:CodeChunk` | `(id, project)` | Derived RAG text/vector node linked from code nodes. |
 
 ### Code Relationships
 
@@ -863,6 +897,7 @@ Only the properties listed here should be used.
 | `:Question` | `(id, project)` | `id`, `project`, `title`, `status`, `answer`, `createdAt`, `updatedAt` |
 | `:Idea` | `(id, project)` | `id`, `project`, `title`, `topic`, `status`, `notes`, `createdAt`, `updatedAt` |
 | `:CodeRef` | `(project, targetType, key)` | `project`, `targetType`, `key` |
+| `:MemoryChunk` | `(id, project)` | `id`, `project`, `sourceLabel`, `sourceId`, `text`, `textHash`, `embedding`, `embeddingModel`, `embeddingDimensions`, `createdAt`, `updatedAt` |
 
 Controlled values:
 
@@ -890,10 +925,44 @@ Controlled values:
 | `(:Memory)-[:HAS_IDEA]->(:Idea)` | Memory item ownership. |
 | `(:Decision \| :ADR \| :Rule \| :Context \| :Finding \| :Task \| :Risk \| :Idea)-[:REFERS_TO]->(:CodeRef)` | Stable memory-to-code reference. |
 | `(:CodeRef)-[:RESOLVES_TO]->(:Code \| :Package \| :File \| :Class \| :Interface \| :Annotation \| :Method \| :Field)` | Current code node resolved after ingestion. |
+| `(:Decision \| :ADR \| :Rule \| :Context \| :Finding \| :Task \| :Risk \| :Question \| :Idea)-[:HAS_RAG_CHUNK]->(:MemoryChunk)` | Optional Memory RAG vector text. |
+| `(:Code \| :Package \| :File \| :Class \| :Interface \| :Annotation \| :Method \| :Field)-[:HAS_RAG_CHUNK]->(:CodeChunk)` | Optional Code RAG vector text. |
 
 For `:CodeRef`, use `key: 'java'`, `key: 'js'`, or `key: 'python'` for `targetType: 'Code'`,
 and `key: 'java:<package>'`, `key: 'js:<package>'`, or `key: 'python:<package>'` for
 `targetType: 'Package'`.
+
+RAG vector indexes are created automatically for the ingester-managed defaults. Recommended manual
+examples use 1024-dimensional embeddings and cosine similarity. Code chunk embeddings are computed
+by Memgraph during ingestion unless `--no-code-embeddings` is passed; the ingester discovers the
+selected model dimension, creates `code_chunk_embedding_v1` if needed, and refreshes only stale
+`:CodeChunk` vectors. Default index capacity includes growth headroom because Memgraph vector
+indexes are label-wide and may be reused by later projects or watch updates.
+
+```cypher
+CREATE VECTOR INDEX memory_chunk_embedding_v1
+ON :MemoryChunk(embedding)
+WITH CONFIG {'dimension': 1024, 'capacity': 10000, 'metric': 'cos'};
+
+CREATE VECTOR INDEX code_chunk_embedding_v1
+ON :CodeChunk(embedding)
+WITH CONFIG {'dimension': 1024, 'capacity': 50000, 'metric': 'cos', 'scalar_kind': 'f16'};
+```
+
+`MemoryChunk.text` should include memory type, title, topic, lifecycle fields, body fields, and
+linked CodeRef summaries. `CodeChunk.text` should include language, path, symbol name, owner,
+signature, documentation comments attached to the code symbol (JavaDoc for Java), and a bounded
+source excerpt.
+
+The ingester refreshes `CodeChunk` rows after successful re-ingest and watch-mode code updates.
+Incremental runs re-ingest unchanged files whose `CodeChunk` rows are missing so older graphs are
+backfilled. With `--with-memories --memory-embeddings`, the ingester syncs `MemoryChunk` rows for
+current Memory records, deletes stale chunks for removed Memory records, and uses Memgraph's
+`embeddings.node_sentence()` procedure for MemoryChunk vectors. With `--code-embeddings`, it uses
+the same procedure for CodeChunk vectors. Metadata is excluded so only derived chunk text is
+embedded. If the connected Memgraph instance does not support embeddings or vector indexes,
+ingestion still completes and logs a warning; disable refresh with `--no-code-embeddings` or
+`--no-memory-embeddings`.
 
 See [`doc/MEMORY.md`](doc/MEMORY.md) for Memory examples and Cypher recipes.
 See [`doc/SCHEMA.md`](doc/SCHEMA.md) for the full graph model.

@@ -117,6 +117,34 @@ class MemgraphMigrationIT {
     }
   }
 
+  @Test
+  void applySchemaIsIdempotentForExistingSchemas() {
+    try (Session session = driver.session()) {
+      Memgraph.applySchema(session);
+      Memgraph.applySchema(session);
+
+      assertTrue(Memgraph.hasLanguageScopedCodeSchema(session));
+      assertTrue(Memgraph.hasRagChunkSchema(session));
+    }
+  }
+
+  @Test
+  void applySchemaAddsChunkSchemaToExistingLanguageScopedSchema() {
+    try (Session session = driver.session()) {
+      session.run("CREATE CONSTRAINT ON (l:Language) ASSERT l.project, l.name IS UNIQUE").consume();
+      session.run("CREATE CONSTRAINT ON (c:Code) ASSERT c.project, c.language IS UNIQUE").consume();
+      session
+          .run("CREATE CONSTRAINT ON (p:Package) ASSERT p.name, p.project, p.language IS UNIQUE")
+          .consume();
+
+      assertTrue(Memgraph.hasLanguageScopedCodeSchema(session));
+
+      Memgraph.applySchema(session);
+
+      assertTrue(Memgraph.hasRagChunkSchema(session));
+    }
+  }
+
   private static String languageFileQuery(String languageName, String graphName) {
     return "MATCH (:Project {name: $project})-[:CONTAINS]->"
         + "(:Language {name: '"

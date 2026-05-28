@@ -95,6 +95,102 @@ class MemoryGraphIT {
   }
 
   @Test
+  void upsertMemoryChunksBackfillsAndClearsEmbeddingsOnlyWhenTextChanges() {
+    writer.upsertFile(TEST_FILE);
+    session
+        .run(
+            "MATCH (m:Memory {project: $p})"
+                + " MERGE (d:Decision {id: 'DEC-test-memory-chunk', project: $p})"
+                + " SET d.title = 'Use memory chunks',"
+                + "     d.status = 'accepted',"
+                + "     d.rationale = 'Memory RAG needs derived text'"
+                + " MERGE (ref:CodeRef {project: $p, targetType: 'File', key: $path})"
+                + " MERGE (m)-[:HAS_DECISION]->(d)"
+                + " MERGE (d)-[:REFERS_TO]->(ref)",
+            Map.of("p", PROJECT, "path", TEST_FILE.toString()))
+        .consume();
+    writer.resolveCodeRefs();
+
+    assertEquals(1, writer.upsertMemoryChunks());
+    session
+        .run(
+            "MATCH (chunk:MemoryChunk {project: $p, sourceId: 'DEC-test-memory-chunk'})"
+                + " SET chunk.embeddingModel = 'test-model', chunk.embeddingDimensions = 3",
+            Map.of("p", PROJECT))
+        .consume();
+
+    assertEquals(1, writer.upsertMemoryChunks());
+    long preserved =
+        session
+            .run(
+                "MATCH (:Decision {project: $p, id: 'DEC-test-memory-chunk'})"
+                    + "-[:HAS_RAG_CHUNK]->(chunk:MemoryChunk {embeddingModel: 'test-model'})"
+                    + " WHERE chunk.text CONTAINS 'Decision: Use memory chunks'"
+                    + " AND chunk.text CONTAINS $codeRef"
+                    + " RETURN count(chunk) AS n",
+                Map.of("p", PROJECT, "codeRef", "CodeRefs: File " + TEST_FILE))
+            .single()
+            .get("n")
+            .asLong();
+    assertEquals(1, preserved);
+
+    session
+        .run(
+            "MATCH (d:Decision {project: $p, id: 'DEC-test-memory-chunk'})"
+                + " SET d.rationale = 'Memory RAG text changed'",
+            Map.of("p", PROJECT))
+        .consume();
+    assertEquals(1, writer.upsertMemoryChunks());
+
+    long cleared =
+        session
+            .run(
+                "MATCH (:Decision {project: $p, id: 'DEC-test-memory-chunk'})"
+                    + "-[:HAS_RAG_CHUNK]->(chunk:MemoryChunk)"
+                    + " WHERE chunk.embeddingModel IS NULL"
+                    + " RETURN count(chunk) AS n",
+                Map.of("p", PROJECT))
+            .single()
+            .get("n")
+            .asLong();
+    assertEquals(1, cleared);
+  }
+
+  @Test
+  void upsertMemoryChunksDeletesChunksWithoutCurrentMemorySource() {
+    session
+        .run(
+            "MATCH (m:Memory {project: $p})"
+                + " MERGE (d:Decision {id: 'DEC-stale-memory-chunk', project: $p})"
+                + " SET d.title = 'Stale memory chunk',"
+                + "     d.status = 'accepted',"
+                + "     d.rationale = 'This source will be detached'"
+                + " MERGE (m)-[:HAS_DECISION]->(d)",
+            Map.of("p", PROJECT))
+        .consume();
+
+    assertEquals(1, writer.upsertMemoryChunks());
+    session
+        .run(
+            "MATCH (:Memory {project: $p})-[rel:HAS_DECISION]->"
+                + "(:Decision {project: $p, id: 'DEC-stale-memory-chunk'}) DELETE rel",
+            Map.of("p", PROJECT))
+        .consume();
+
+    assertEquals(0, writer.upsertMemoryChunks());
+    long staleChunks =
+        session
+            .run(
+                "MATCH (chunk:MemoryChunk {project: $p, sourceId: 'DEC-stale-memory-chunk'})"
+                    + " RETURN count(chunk) AS n",
+                Map.of("p", PROJECT))
+            .single()
+            .get("n")
+            .asLong();
+    assertEquals(0, staleChunks);
+  }
+
+  @Test
   void memoryItemsCanReferToCodeRefsResolvedToCodeNodes() {
     writer.upsertFile(TEST_FILE);
 
@@ -308,8 +404,18 @@ class MemoryGraphIT {
                 + " MERGE (d:Decision {id: 'DEC-test-wipe-memories', project: $p})"
                 + " SET d.status = 'accepted'"
                 + " MERGE (ref:CodeRef {project: $p, targetType: 'File', key: $path})"
+                + " MERGE (chunk:MemoryChunk {id: 'MCH-test-wipe-memories', project: $p})"
+                + " SET chunk.sourceLabel = 'Decision',"
+                + "     chunk.sourceId = 'DEC-test-wipe-memories',"
+                + "     chunk.text = 'Decision: wipe memory graph',"
+                + "     chunk.textHash = 'memory-wipe-hash',"
+                + "     chunk.embeddingModel = 'test-model',"
+                + "     chunk.embeddingDimensions = 3,"
+                + "     chunk.createdAt = datetime(),"
+                + "     chunk.updatedAt = datetime()"
                 + " MERGE (m)-[:HAS_DECISION]->(d)"
-                + " MERGE (d)-[:REFERS_TO]->(ref)",
+                + " MERGE (d)-[:REFERS_TO]->(ref)"
+                + " MERGE (d)-[:HAS_RAG_CHUNK]->(chunk)",
             Map.of("p", PROJECT, "path", TEST_FILE.toString()))
         .consume();
 
@@ -321,7 +427,7 @@ class MemoryGraphIT {
                 "MATCH (n) WHERE n.project = $p"
                     + " AND (n:Memory OR n:Decision OR n:Idea OR n:Context OR n:Rule"
                     + " OR n:Task OR n:Finding OR n:Question OR n:Risk OR n:ADR"
-                    + " OR n:CodeRef)"
+                    + " OR n:CodeRef OR n:MemoryChunk)"
                     + " RETURN count(n) AS n",
                 Map.of("p", PROJECT))
             .single()

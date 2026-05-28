@@ -32,6 +32,10 @@ class AgentInstructionsInstallerTest {
     assertTrue(content.contains("<!-- memgraph-ingester:start -->"));
     assertTrue(content.contains("Repo is indexed in Memgraph as **`sample-project`**"));
     assertTrue(content.contains("## Codebase Analysis Queries"));
+    assertTrue(content.contains("## Code RAG Vectors (only if RAG has embeddings)"));
+    assertTrue(content.contains("code_chunk_embedding_v1"));
+    assertTrue(content.contains("documentation comments attached to the code symbol"));
+    assertTrue(content.contains("The ingester creates and refreshes `CodeChunk` rows"));
     assertFalse(content.contains("## Memory Schema"));
   }
 
@@ -45,6 +49,15 @@ class AgentInstructionsInstallerTest {
     assertTrue(content.contains("Repo is indexed in Memgraph as **`memory-project`**"));
     assertTrue(content.contains("## Memories"));
     assertTrue(content.contains("MATCH (m:Memory {project: 'memory-project'})"));
+    assertTrue(content.contains("### Memory RAG Vectors (only if RAG has embeddings)"));
+    assertTrue(content.contains("memory_chunk_embedding_v1"));
+    assertTrue(content.contains("When creating or materially updating a Memory node"));
+    assertTrue(content.contains("avoid top-level `createHash` declarations"));
+    assertTrue(content.contains("MERGE (chunk:MemoryChunk"));
+    assertTrue(content.contains("Session Memory embedding refresh"));
+    assertTrue(content.contains("WHERE chunk.id IN $ids"));
+    assertTrue(content.contains("CALL embeddings.node_sentence(chunks, $config)"));
+    assertFalse(content.contains("shouldBootstrapMemoryEmbeddings"));
   }
 
   @Test

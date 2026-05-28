@@ -5,6 +5,7 @@ import io.github.ousatov.tools.memgraph.def.Const.Params;
 import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.AnnotationWrite;
 import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.BatchWrite;
 import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.CallWrite;
+import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.CodeChunkWrite;
 import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.FieldWrite;
 import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.MethodWrite;
 import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.PendingCallWrite;
@@ -61,6 +62,11 @@ final class GraphNodeWriter {
 
   void upsertPendingCallsByName(Collection<PendingCallWrite> calls) {
     runBatch(Cypher.CYPHER_UPSERT_PENDING_CALLS_BY_NAME_BATCH, calls);
+  }
+
+  void upsertCodeChunks(Collection<CodeChunkWrite> chunks) {
+    runBatch(Cypher.CYPHER_UPSERT_CODE_CHUNKS_BATCH, chunks);
+    runBatch(Cypher.CYPHER_LINK_CODE_CHUNKS_BATCH, chunks);
   }
 
   private void runBatch(String query, Collection<? extends BatchWrite> writes) {

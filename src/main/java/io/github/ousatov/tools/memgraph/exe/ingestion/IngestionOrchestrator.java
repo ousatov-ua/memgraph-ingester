@@ -12,6 +12,7 @@ import io.github.ousatov.tools.memgraph.exe.metrics.IngestionRunStats;
 import io.github.ousatov.tools.memgraph.exe.output.ConsoleStatusLine;
 import io.github.ousatov.tools.memgraph.exe.writer.GraphWriter;
 import io.github.ousatov.tools.memgraph.schema.Memgraph;
+import io.github.ousatov.tools.memgraph.vo.EmbeddingSettings;
 import io.github.ousatov.tools.memgraph.vo.Settings;
 import java.io.IOException;
 import java.nio.file.FileSystems;
@@ -64,8 +65,8 @@ public final class IngestionOrchestrator {
   private static final Logger log = LoggerFactory.getLogger(IngestionOrchestrator.class);
 
   private static final long SHUTDOWN_TIMEOUT_MINUTES = 10L;
-  private static final int FILE_TX_RETRY_ATTEMPTS = 16;
-  private static final long FILE_TX_INITIAL_BACKOFF_MS = 10L;
+  private static final int FILE_TX_RETRY_ATTEMPTS = 64;
+  private static final long FILE_TX_INITIAL_BACKOFF_MS = 40L;
   private static final long FILE_TX_MAX_BACKOFF_MS = 1_000L;
   private final Path sourceRoot;
   private final String project;
@@ -74,6 +75,8 @@ public final class IngestionOrchestrator {
   private final List<LanguageAdapter<?>> languageAdapters;
   private final Set<Path> pendingWatchFiles = new LinkedHashSet<>();
   private boolean incremental;
+  private EmbeddingSettings codeEmbeddings = EmbeddingSettings.disabled();
+  private EmbeddingSettings memoryEmbeddings = EmbeddingSettings.disabled();
 
   /**
    * @param sourceRoot root directory to walk for {@code .java} files
@@ -135,6 +138,8 @@ public final class IngestionOrchestrator {
   public int run(Settings settings) {
     log.debug("Proceeding with ingestion, settings: {}", settings);
     this.incremental = settings.incremental();
+    this.codeEmbeddings = settings.codeEmbeddings();
+    this.memoryEmbeddings = settings.memoryEmbeddings();
     IngestionRunStats stats = new IngestionRunStats(threads);
     if (incremental && (settings.wipeAllData() || settings.wipeProjectCode())) {
       log.info(
@@ -152,9 +157,10 @@ public final class IngestionOrchestrator {
         log.info("Applying schema to Memgraph ...");
         Memgraph.applySchema(bootstrap);
         log.info("Applied schema to Memgraph");
-      } else if (!Memgraph.hasLanguageScopedCodeSchema(bootstrap)) {
+      } else if (!Memgraph.hasLanguageScopedCodeSchema(bootstrap)
+          || !Memgraph.hasRagChunkSchema(bootstrap)) {
         Memgraph.applySchema(bootstrap);
-        log.info("Applied language-scoped schema migration to Memgraph");
+        log.info("Applied schema migrations to Memgraph");
       }
       if (settings.wipeProjectCode()) {
         log.info("Wiping existing code graph for project '{}'...", project);
@@ -211,6 +217,7 @@ public final class IngestionOrchestrator {
     try (Session session = driver.session()) {
       GraphWriter postWriter = new GraphWriter(session, project, stats);
       refreshDerivedGraphArtifacts(postWriter);
+      refreshChunkEmbeddings(postWriter);
       printMetrics(session);
       printPerformance(stats);
     }
@@ -375,6 +382,7 @@ public final class IngestionOrchestrator {
       refreshRetainedFilesAfterDelete(writer, refreshAfterDelete, currentFilesByPath);
       if (changedGraph) {
         refreshDerivedGraphArtifacts(writer);
+        refreshChunkEmbeddings(writer);
       }
     }
   }
@@ -538,6 +546,52 @@ public final class IngestionOrchestrator {
     log.debug("Refreshed :CodeRef resolution edges for '{}'", project);
   }
 
+  private void refreshChunkEmbeddings(GraphWriter writer) {
+    if (codeEmbeddings.enabled()) {
+      refreshCodeChunkEmbeddings(writer);
+    }
+    if (!memoryEmbeddings.enabled()) {
+      return;
+    }
+    long memoryChunkCount = writer.upsertMemoryChunks();
+    log.debug("Upserted {} MemoryChunk row(s) for '{}'", memoryChunkCount, project);
+    refreshMemoryChunkEmbeddings(writer);
+  }
+
+  private void refreshCodeChunkEmbeddings(GraphWriter writer) {
+    log.debug(
+        "Refreshing CodeChunk embeddings for project '{}' with Memgraph model '{}'...",
+        project,
+        codeEmbeddings.modelName());
+    try {
+      writer.refreshCodeChunkEmbeddings(codeEmbeddings);
+    } catch (RuntimeException e) {
+      log.warn(
+          "Skipping CodeChunk embedding refresh for project '{}': {}. Ingestion completed; use"
+              + " --no-code-embeddings to suppress this warning or run a Memgraph image with"
+              + " embeddings and vector-index support.",
+          project,
+          e.getMessage());
+    }
+  }
+
+  private void refreshMemoryChunkEmbeddings(GraphWriter writer) {
+    log.debug(
+        "Refreshing MemoryChunk embeddings for project '{}' with Memgraph model '{}'...",
+        project,
+        memoryEmbeddings.modelName());
+    try {
+      writer.refreshMemoryChunkEmbeddings(memoryEmbeddings);
+    } catch (RuntimeException e) {
+      log.warn(
+          "Skipping MemoryChunk embedding refresh for project '{}': {}. MemoryChunk rows were"
+              + " synced; use --no-memory-embeddings to suppress this warning or run a Memgraph"
+              + " image with embeddings and vector-index support.",
+          project,
+          e.getMessage());
+    }
+  }
+
   @SuppressWarnings({"java:S106", "java:S1181"})
   private void printMetrics(Session session) {
     try {
@@ -645,6 +699,7 @@ public final class IngestionOrchestrator {
     try (Session session = driver.session()) {
       GraphWriter writer = new GraphWriter(session, project);
       Map<String, Long> preloaded = new HashMap<>();
+      Set<String> pathsMissingCodeChunks = new HashSet<>();
       Map<SourceLanguage, List<Path>> pathsByLanguage = new LinkedHashMap<>();
       for (SourceFile file : files) {
         pathsByLanguage
@@ -653,8 +708,11 @@ public final class IngestionOrchestrator {
       }
       for (var entry : pathsByLanguage.entrySet()) {
         preloaded.putAll(writer.getAllFileLastModified(entry.getValue(), entry.getKey()));
+        writer.getFilePathsMissingCodeChunks(entry.getValue()).stream()
+            .map(Path::toString)
+            .forEach(pathsMissingCodeChunks::add);
       }
-      return new StoredFileState(Map.copyOf(preloaded), true);
+      return new StoredFileState(Map.copyOf(preloaded), Set.copyOf(pathsMissingCodeChunks), true);
     } catch (RuntimeException e) {
       log.warn(
           "Could not batch-fetch stored source files; changed files will be ingested"
@@ -893,6 +951,9 @@ public final class IngestionOrchestrator {
     if (storedModified == null || storedModified <= 0) {
       return false;
     }
+    if (storedFiles.pathsMissingCodeChunks().contains(file.toString())) {
+      return false;
+    }
     try {
       return Files.getLastModifiedTime(file).toMillis() == storedModified;
     } catch (IOException _) {
@@ -1097,14 +1158,16 @@ public final class IngestionOrchestrator {
   }
 
   private record StoredFileState(
-      Map<String, Long> lastModifiedByPath, boolean reliableExistingPaths) {
+      Map<String, Long> lastModifiedByPath,
+      Set<String> pathsMissingCodeChunks,
+      boolean reliableExistingPaths) {
 
     static StoredFileState empty() {
-      return new StoredFileState(Map.of(), true);
+      return new StoredFileState(Map.of(), Set.of(), true);
     }
 
     static StoredFileState unreliable() {
-      return new StoredFileState(Map.of(), false);
+      return new StoredFileState(Map.of(), Set.of(), false);
     }
   }
 

@@ -28,6 +28,7 @@ isn't obvious from the source?"*
 | `:Question` | `id`, `project`                | `id`, `project`, `title`, `status`, `answer`, `createdAt`, `updatedAt`                          |
 | `:Idea`     | `id`, `project`                | `id`, `project`, `title`, `topic`, `status`, `notes`, `createdAt`, `updatedAt`                  |
 | `:CodeRef`  | `project`, `targetType`, `key` | `project`, `targetType`, `key`                                                                  |
+| `:MemoryChunk` | `id`, `project`             | `id`, `project`, `sourceLabel`, `sourceId`, `text`, `textHash`, `embedding`, `embeddingModel`, `embeddingDimensions`, `createdAt`, `updatedAt` |
 
 ### Controlled values
 
@@ -61,6 +62,56 @@ timestamps.
 
 Memory is not a changelog. Store only information that will help future decisions,
 investigations, or implementation work.
+
+---
+
+## Optional RAG vectors
+
+`MemoryChunk` nodes are derived semantic-search records for Memory. They do not replace `Rule`,
+`Decision`, `Finding`, `Context`, or other canonical Memory nodes. Use them to find candidate
+memories, then read the source Memory node and apply status/severity filters before acting.
+Agents create or refresh `MemoryChunk` rows when they create or materially update Memory nodes. With
+`--with-memories`, the ingester also syncs current Memory chunks and prunes stale ones.
+
+Recommended `MemoryChunk.text` content:
+
+- Memory label, `id`, `title`, and `topic`.
+- Lifecycle fields such as `status`, `severity`, `type`, or `priority`.
+- Main body fields such as `description`, `rationale`, `consequences`, `content`, `summary`,
+  `evidence`, `mitigation`, `answer`, or `notes`.
+- Linked `CodeRef` target summaries such as target type, key, and resolved labels.
+
+Do not embed `project`, timestamps, or generated vector metadata as semantic content. Keep those as
+properties for filtering and stale-chunk detection.
+
+Manual vector indexes are useful when clients choose their own embedding model, dimension, and
+capacity:
+
+```cypher
+CREATE VECTOR INDEX memory_chunk_embedding_v1
+ON :MemoryChunk(embedding)
+WITH CONFIG {'dimension': 1024, 'capacity': 10000, 'metric': 'cos'};
+```
+
+Query flow:
+
+```cypher
+CALL vector_search.search('memory_chunk_embedding_v1', 8, $queryVector)
+YIELD node AS chunk, similarity
+WHERE chunk.project = 'my-project'
+MATCH (memory {project: 'my-project'})-[:HAS_RAG_CHUNK]->(chunk)
+RETURN labels(memory) AS type, memory.id AS id, memory.title AS title,
+       memory.status AS status, chunk.text AS text, similarity
+ORDER BY similarity DESC;
+```
+
+Use one embedding model and dimension per vector index. Store the model identifier in
+`embeddingModel`, the vector length in `embeddingDimensions`, and a stable hash of the embedded
+text in `textHash`.
+
+Agent-authored chunks should omit embedding fields until an external embedder fills them. If the
+agent changes `MemoryChunk.text`, it must update `textHash` and clear `embedding`,
+`embeddingModel`, and `embeddingDimensions`.
 
 ---
 

@@ -4,6 +4,7 @@ import io.github.ousatov.tools.memgraph.def.Const.Labels;
 import io.github.ousatov.tools.memgraph.def.Const.Params;
 import io.github.ousatov.tools.memgraph.exe.analyze.PythonAnalysis;
 import io.github.ousatov.tools.memgraph.exe.analyze.PythonAnalyzer;
+import io.github.ousatov.tools.memgraph.exe.rag.PythonCodeChunkBuilder;
 import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.AnnotationWrite;
 import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.CallWrite;
 import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.FieldWrite;
@@ -43,6 +44,7 @@ public final class PythonLanguageAdapter implements LanguageAdapter<PythonAnalys
           "dist");
 
   private final PythonAnalyzer analyzer;
+  private final PythonCodeChunkBuilder codeChunks = new PythonCodeChunkBuilder();
 
   public PythonLanguageAdapter(PythonAnalyzer analyzer) {
     this.analyzer = analyzer;
@@ -125,6 +127,7 @@ public final class PythonLanguageAdapter implements LanguageAdapter<PythonAnalys
       upsertMembers(pythonWriter, file, analysis.members());
       upsertAnnotations(writer, analysis.annotations());
       upsertCalls(writer, analysis.calls());
+      writer.replaceCodeChunksForFile(file, codeChunks.build(file, analysis));
       return true;
     } catch (RuntimeException e) {
       if (GraphWriter.isRetryable(e)) {

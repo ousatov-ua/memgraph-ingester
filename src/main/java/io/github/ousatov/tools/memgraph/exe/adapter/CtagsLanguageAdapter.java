@@ -5,6 +5,7 @@ import io.github.ousatov.tools.memgraph.def.Const.Params;
 import io.github.ousatov.tools.memgraph.exception.ProcessingException;
 import io.github.ousatov.tools.memgraph.exe.analyze.CtagsAnalysis;
 import io.github.ousatov.tools.memgraph.exe.analyze.CtagsAnalyzer;
+import io.github.ousatov.tools.memgraph.exe.rag.CtagsCodeChunkBuilder;
 import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.FieldWrite;
 import io.github.ousatov.tools.memgraph.exe.writer.GraphWriter;
 import io.github.ousatov.tools.memgraph.exe.writer.ctags.CtagsGraphWriter;
@@ -117,6 +118,7 @@ public final class CtagsLanguageAdapter implements LanguageAdapter<CtagsAnalysis
 
   private final Path sourceRoot;
   private final CtagsAnalyzer analyzer;
+  private final CtagsCodeChunkBuilder codeChunks = new CtagsCodeChunkBuilder();
   private final Map<Path, DetectedLanguage> detectedLanguages = new ConcurrentHashMap<>();
 
   public CtagsLanguageAdapter(Path sourceRoot, CtagsAnalyzer analyzer) {
@@ -235,6 +237,7 @@ public final class CtagsLanguageAdapter implements LanguageAdapter<CtagsAnalysis
                       type.startLine(),
                       type.endLine()));
       upsertMembers(ctagsWriter, file, analysis.language(), analysis.members());
+      writer.replaceCodeChunksForFile(file, codeChunks.build(file, analysis));
       return true;
     } catch (RuntimeException e) {
       if (GraphWriter.isRetryable(e)) {

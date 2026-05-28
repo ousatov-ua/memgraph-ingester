@@ -11,5 +11,6 @@ WHERE n.project = $project
     OR n:Method
     OR n:Field
     OR n:PendingCall
+    OR n:CodeChunk
   )
 DETACH DELETE n

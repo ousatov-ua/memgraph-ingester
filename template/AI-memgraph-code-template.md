@@ -20,8 +20,9 @@ When Memgraph returns no relevant rows, fall back to text search and state why.
 - **Status/pending-work requests:** query Memgraph staleness or relevant structure first, then check Git when local changes are relevant. Never answer from Git alone unless the user explicitly asks for Git-only status.
 - **No ritual Codebase Analysis:** do not run Codebase Analysis queries just to have context. Run them only when a trigger below applies or code structure/relationships are needed.
 - **Orientation reuse:** Memgraph query results are session-scoped. Reuse relevant results unless the user asks for a refresh, source files changed, memory changed, or the task scope is unrelated.
+- **RAG-first code discovery:** use Code RAG only to find starting points for broad or unfamiliar code work: implementation/debugging/refactoring entry points, code explanation, "how is this implemented", or "find similar code". For prior-work/task-history use Memory RAG. For known targets (class/file/method/signature), skip RAG and use exact Code queries for members, callers/callees, hierarchy, imports/exports, annotations, fields, and source ranges. RAG hits are discovery only: resolve them to canonical Code nodes and exact source ranges before claims or edits. If no compatible `code_chunk_embedding_v1` index exists or hits are not relevant, fall back to focused exact Memgraph queries and state why.
 - **Relationship refresh after edits:** if source files changed during the session, re-query Memgraph relationships before relying on earlier relationship results; live ingestion may make cached relationships stale.
-- **Code changes:** before source-code changes, run the smallest useful Memgraph query set. Use focused symbol/file/method queries for known targets. Run full Codebase Analysis only for broad, ambiguous, cross-cutting, inheritance-heavy, or unfamiliar-subsystem work. Empty results are valid; fall back to text search and state why.
+- **Code changes:** before source-code changes, follow RAG-first code discovery when the target is broad or unfamiliar. For known targets, start with the smallest useful exact Memgraph query set. Run full Codebase Analysis only for broad, ambiguous, cross-cutting, inheritance-heavy, or unfamiliar-subsystem work. Empty results are valid; fall back to text search and state why.
 - **Class/interface work:** query hierarchy before changing class/interface declarations, inheritance, `implements`/`extends`, constructor contracts, or overridden/inherited APIs. For small body-only edits inside a known class, hierarchy lookup is optional unless inheritance could affect behavior.
 - **Symbol work:** for investigations involving symbols, fields, methods, callers, implementations, inheritance, decorators/annotations, imports, exports, or type usages, query Memgraph before source inspection, filesystem search, IDE/LSP, or runtime introspection. JavaScript/TypeScript and Python CALLS edges are best-effort.
 - **Method body reads:** when the target method is known, first query `startLine` and `endLine`, then read only that source range. If the method is not known, use a focused symbol query by class/name before reading source.
@@ -149,6 +150,51 @@ ORDER BY caller.signature LIMIT 100;
 
 Use full Codebase Analysis only when focused queries do not identify the target or broad relationship context is needed.
 
+## Code RAG Vectors (only if RAG has embeddings)
+
+Use `:CodeChunk` as the semantic discovery layer only to find starting points for broad or
+unfamiliar code work: implementation/debugging/refactoring entry points, code explanation, or
+similar-code prompts whenever a compatible embedding index exists. Use Memory RAG for prior-work or
+task-history questions. After any vector hit, return to exact Memgraph structure queries and source
+ranges before making claims or edits. For exact known-target lookups, use the focused Code queries
+above.
+
+Check whether a compatible vector index exists:
+
+```cypher
+SHOW VECTOR INDEX INFO;
+```
+
+Search semantically similar code chunks with a query vector created by the same embedding model and
+dimension as stored chunks:
+
+```cypher
+CALL embeddings.text(['<task-specific semantic query from the user request>'], {}) YIELD embeddings
+WITH embeddings[0] AS queryVector
+CALL vector_search.search('code_chunk_embedding_v1', 10, $queryVector)
+YIELD node AS chunk, similarity
+WITH chunk, similarity
+WHERE chunk.project = '{{PROJECT_NAME}}'
+MATCH (source {project: '{{PROJECT_NAME}}'})-[:HAS_RAG_CHUNK]->(chunk)
+RETURN labels(source) AS sourceType, chunk.sourceId AS sourceId,
+       chunk.path AS path, chunk.ownerFqn AS ownerFqn, chunk.signature AS signature,
+       chunk.text AS text, similarity
+ORDER BY similarity DESC;
+```
+
+Use the user's wording plus likely domain terms in the semantic query, for example:
+"JS/TS parser should not emit synthetic constructors but should preserve constructor calls and class
+re-export behavior". Prefer 5-10 hits, inspect the source type/path/signature, then query the exact
+`Class`, `Interface`, `Method`, or `File` nodes needed for line ranges and relationships.
+
+`CodeChunk` text is derived search material. It should include language, path, symbol name, owner,
+signature, documentation comments attached to the code symbol (JavaDoc for Java), and a bounded
+source excerpt.
+
+The ingester creates and refreshes `CodeChunk` rows during successful re-ingest and watch-mode file
+updates. Agents should not hand-author `CodeChunk` rows; use them only for semantic discovery, then
+verify against canonical Code nodes and source ranges.
+
 ## Schema
 
 ### Code Nodes
@@ -166,6 +212,7 @@ Use full Codebase Analysis only when focused queries do not identify the target 
 | `:Method`     | `(signature, project)` | `name`, `ownerFqn`, `ownerDisplayName`, `returnType`, `visibility`, `isStatic`, `startLine`, `endLine`, `isSynthetic`, `language`, `kind` |
 | `:Field`      | `(fqn, project)`       | `name`, `type`, `visibility`, `isStatic`, `language`, `kind`                                                          |
 | `:PendingCall`| `(project, callerSignature, calleeOwnerFqn, calleeName)` | temporary owner/name call record resolved after ingestion                                      |
+| `:CodeChunk`  | `(id, project)`        | derived RAG text/vector node: `sourceLabel`, `sourceId`, `language`, `path`, `ownerFqn`, `signature`, `text`, `textHash`, `embedding`, `embeddingModel`, `embeddingDimensions` |
 
 ### Code Relationships
 
@@ -180,6 +227,7 @@ Use full Codebase Analysis only when focused queries do not identify the target 
 (:Method)-[:CALLS]->(:Method)
 (:Method)-[:PENDING_CALL]->(:PendingCall)
 (:*)-[:ANNOTATED_WITH]->(:Annotation)
+(:Code|:Package|:File|:Class|:Interface|:Annotation|:Method|:Field)-[:HAS_RAG_CHUNK]->(:CodeChunk)
 ```
 
 ### Query Caveats

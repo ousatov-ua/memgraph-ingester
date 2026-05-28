@@ -17,6 +17,10 @@ Memory data hangs below `(:Project)-[:HAS_MEMORY]->(:Memory)`. `:Memory` and eve
 carry the same `project` property. Code nodes are produced by the ingester; memory nodes are
 intended for durable agent/client-authored decisions, context, and follow-up work.
 
+Optional RAG vector data is stored as derived chunk nodes linked from canonical Code or Memory
+nodes. Chunk nodes carry the same `project` property but are not authoritative source data; they
+exist only to support semantic discovery before graph traversal and source inspection.
+
 ## Code nodes
 
 | Label | Key | Other properties |
@@ -51,6 +55,18 @@ All memory item labels are unique by `(id, project)`. Most memory items also use
 | `:Question` | `id`, `project` | `title`, `status`, `answer`, `createdAt`, `updatedAt` |
 | `:Idea` | `id`, `project` | `title`, `topic`, `status`, `notes`, `createdAt`, `updatedAt` |
 | `:CodeRef` | `project`, `targetType`, `key` | Stable code reference resolved after ingestion |
+
+## RAG vector nodes
+
+RAG chunk nodes are derived from Code and Memory nodes. The ingester can refresh `CodeChunk`
+embeddings with Memgraph's built-in `embeddings.node_sentence()` procedure when
+`--code-embeddings` is enabled. With `--with-memories --memory-embeddings`, it syncs current
+`MemoryChunk` rows, prunes stale rows, and refreshes MemoryChunk embeddings.
+
+| Label | Key | Other properties |
+|---|---|---|
+| `:MemoryChunk` | `id`, `project` | `sourceLabel`, `sourceId`, `text`, `textHash`, `embedding`, `embeddingModel`, `embeddingDimensions`, `createdAt`, `updatedAt` |
+| `:CodeChunk` | `id`, `project` | `sourceLabel`, `sourceId`, `language`, `path`, `ownerFqn`, `signature`, `text`, `textHash`, `embedding`, `embeddingModel`, `embeddingDimensions`, `createdAt`, `updatedAt` |
 
 ## Code relationships
 
@@ -121,6 +137,49 @@ Common memory-to-memory links:
 (Question) -[:ANSWERED_BY]->  (Decision | Context | Finding | ADR)
 (ADR)      -[:SUPERSEDES]->   (ADR)
 ```
+
+## RAG vector relationships
+
+```
+(Decision | ADR | Rule | Context | Finding | Task | Risk | Question | Idea)
+  -[:HAS_RAG_CHUNK]-> (MemoryChunk)
+
+(Code | Package | File | Class | Interface | Annotation | Method | Field)
+  -[:HAS_RAG_CHUNK]-> (CodeChunk)
+```
+
+`MemoryChunk.text` should include the memory type, title, topic, status/severity/type/priority,
+body fields, and linked CodeRef summaries. `CodeChunk.text` should include language, path, symbol
+name, owner, signature, documentation comments attached to the code symbol (JavaDoc for Java), and
+a bounded source excerpt.
+
+`CodeChunk` rows are refreshed by the ingester after successful file re-ingest and watch-mode
+updates. Incremental runs re-ingest unchanged files whose `CodeChunk` rows are missing. With
+`--with-memories --memory-embeddings`, the ingester syncs `MemoryChunk` rows from current Memory
+records and prunes stale chunks. When embedding flags are enabled, the ingester creates the relevant
+vector index if needed, computes only stale or missing embeddings, and stores `embeddingModel` plus
+`embeddingDimensions`. It excludes chunk metadata properties from `embeddings.node_sentence()` so
+vectors represent the derived `text` field. Default vector-index capacity includes headroom for
+later projects and watch updates.
+
+The ingester auto-creates vector indexes for its managed embedding defaults. Manual vector indexes
+are useful when embedding dimension and capacity come from a client-chosen model or corpus size. For
+manual setup, use:
+
+```cypher
+CREATE VECTOR INDEX memory_chunk_embedding_v1
+ON :MemoryChunk(embedding)
+WITH CONFIG {'dimension': 1024, 'capacity': 10000, 'metric': 'cos'};
+
+CREATE VECTOR INDEX code_chunk_embedding_v1
+ON :CodeChunk(embedding)
+WITH CONFIG {'dimension': 1024, 'capacity': 50000, 'metric': 'cos', 'scalar_kind': 'f16'};
+```
+
+Use one embedding model and dimension per vector index. The ingester defaults to cosine similarity
+and `f16` scalar storage for CodeChunk embeddings to reduce vector-index memory. Store the
+provider/model identifier in `embeddingModel`, the vector length in `embeddingDimensions`, and a
+stable hash of `text` in `textHash` so clients can detect stale chunks.
 
 ## Notes on constraints
 
