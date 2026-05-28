@@ -42,6 +42,7 @@ class IngesterCliInstructionsTest {
     String content = Files.readString(target);
     assertEquals(0, exitCode);
     assertTrue(content.contains("Repo is indexed in Memgraph as **`cli-code-project`**"));
+    assertTrue(content.contains("RAG as an intelligence boost"));
     assertFalse(content.contains("## Memory Schema"));
   }
 
@@ -68,6 +69,7 @@ class IngesterCliInstructionsTest {
     assertEquals(0, result.exitCode(), result.output());
     assertTrue(content.contains("Repo is indexed in Memgraph as **`cli-default-memory-project`**"));
     assertTrue(content.contains("## Memories"));
+    assertTrue(content.contains("exact verification changes the question"));
   }
 
   @Test
