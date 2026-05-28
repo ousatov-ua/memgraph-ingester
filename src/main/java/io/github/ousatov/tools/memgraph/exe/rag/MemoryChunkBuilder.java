@@ -50,7 +50,7 @@ public final class MemoryChunkBuilder {
 
   private static String chunkId(MemorySource source) {
     String existing = Objects.toString(source.existingChunkId(), "").strip();
-    return existing.isBlank() ? "MCH-" + source.sourceId() : existing;
+    return existing.isBlank() ? "MCH-" + source.sourceLabel() + "-" + source.sourceId() : existing;
   }
 
   private static String text(MemorySource source) {
