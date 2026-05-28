@@ -161,9 +161,9 @@ vector index if needed, computes only stale or missing embeddings, and stores `e
 `embeddingDimensions`. It excludes chunk metadata properties from `embeddings.node_sentence()` so
 vectors represent the derived `text` field.
 
-Vector indexes are opt-in because embedding dimension and capacity depend on the chosen embedding
-model and corpus size. The ingester auto-creates the code chunk index when `--code-embeddings` is
-enabled. For manual setup, use:
+The ingester auto-creates vector indexes for its managed embedding defaults. Manual vector indexes
+are useful when embedding dimension and capacity come from a client-chosen model or corpus size. For
+manual setup, use:
 
 ```cypher
 CREATE VECTOR INDEX memory_chunk_embedding_v1

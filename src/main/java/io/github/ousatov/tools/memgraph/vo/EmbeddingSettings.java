@@ -29,7 +29,7 @@ public record EmbeddingSettings(
   public static final String DEFAULT_EMBEDDING_PROPERTY = "embedding";
   public static final String DEFAULT_METRIC = "cos";
   public static final String DEFAULT_SCALAR_KIND = "f16";
-  public static final int DEFAULT_BATCH_SIZE = 1_024;
+  public static final int DEFAULT_BATCH_SIZE = 512;
   public static final int DEFAULT_CHUNK_SIZE = 48;
 
   private static final List<String> CODE_CHUNK_METADATA_PROPERTIES =

@@ -131,10 +131,10 @@ public final class IngesterCli implements Callable<Integer> {
 
   @Option(
       names = {"--code-embeddings"},
-      defaultValue = "false",
+      defaultValue = "true",
       negatable = true,
       description =
-          "Opt in to Memgraph's embeddings module for stale :CodeChunk embeddings after"
+          "Use Memgraph's embeddings module for stale :CodeChunk embeddings after"
               + " ingestion and watch updates.")
   @SuppressWarnings("unused")
   private boolean codeEmbeddings;
@@ -189,10 +189,10 @@ public final class IngesterCli implements Callable<Integer> {
 
   @Option(
       names = {"--memory-embeddings"},
-      defaultValue = "false",
+      defaultValue = "true",
       negatable = true,
       description =
-          "With --with-memories, sync :MemoryChunk rows and opt in to stale embeddings after"
+          "With --with-memories, sync :MemoryChunk rows and refresh stale embeddings after"
               + " ingestion and watch updates.")
   @SuppressWarnings("unused")
   private boolean memoryEmbeddings;

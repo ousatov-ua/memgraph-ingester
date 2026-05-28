@@ -193,10 +193,6 @@ The ingester creates and refreshes `CodeChunk` rows during successful re-ingest 
 updates. Agents should not hand-author `CodeChunk` rows; use them only for semantic discovery, then
 verify against canonical Code nodes and source ranges.
 
-When ingestion runs with `--code-embeddings`, the ingester uses Memgraph's
-`embeddings.node_sentence()` procedure to refresh stale `CodeChunk.embedding` values and creates the
-`code_chunk_embedding_v1` vector index when needed.
-
 ## Schema
 
 ### Code Nodes

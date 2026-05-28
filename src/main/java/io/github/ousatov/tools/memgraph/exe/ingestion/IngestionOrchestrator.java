@@ -547,22 +547,48 @@ public final class IngestionOrchestrator {
 
   private void refreshChunkEmbeddings(GraphWriter writer) {
     if (codeEmbeddings.enabled()) {
-      log.debug(
-          "Refreshing CodeChunk embeddings for project '{}' with Memgraph model '{}'...",
-          project,
-          codeEmbeddings.modelName());
-      writer.refreshCodeChunkEmbeddings(codeEmbeddings);
+      refreshCodeChunkEmbeddings(writer);
     }
     if (!memoryEmbeddings.enabled()) {
       return;
     }
     long memoryChunkCount = writer.upsertMemoryChunks();
     log.debug("Upserted {} MemoryChunk row(s) for '{}'", memoryChunkCount, project);
+    refreshMemoryChunkEmbeddings(writer);
+  }
+
+  private void refreshCodeChunkEmbeddings(GraphWriter writer) {
+    log.debug(
+        "Refreshing CodeChunk embeddings for project '{}' with Memgraph model '{}'...",
+        project,
+        codeEmbeddings.modelName());
+    try {
+      writer.refreshCodeChunkEmbeddings(codeEmbeddings);
+    } catch (RuntimeException e) {
+      log.warn(
+          "Skipping CodeChunk embedding refresh for project '{}': {}. Ingestion completed; use"
+              + " --no-code-embeddings to suppress this warning or run a Memgraph image with"
+              + " embeddings and vector-index support.",
+          project,
+          e.getMessage());
+    }
+  }
+
+  private void refreshMemoryChunkEmbeddings(GraphWriter writer) {
     log.debug(
         "Refreshing MemoryChunk embeddings for project '{}' with Memgraph model '{}'...",
         project,
         memoryEmbeddings.modelName());
-    writer.refreshMemoryChunkEmbeddings(memoryEmbeddings);
+    try {
+      writer.refreshMemoryChunkEmbeddings(memoryEmbeddings);
+    } catch (RuntimeException e) {
+      log.warn(
+          "Skipping MemoryChunk embedding refresh for project '{}': {}. MemoryChunk rows were"
+              + " synced; use --no-memory-embeddings to suppress this warning or run a Memgraph"
+              + " image with embeddings and vector-index support.",
+          project,
+          e.getMessage());
+    }
   }
 
   @SuppressWarnings({"java:S106", "java:S1181"})

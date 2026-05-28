@@ -53,7 +53,8 @@ RAG support is built on derived graph nodes, not detached text blobs.
   `Class`, `Interface`, `Annotation`, `Method`, and `Field` nodes.
 - `MemoryChunk` rows are generated from optional Memory records such as decisions, rules, findings,
   tasks, risks, and questions, including their `CodeRef` links.
-- Embeddings are opt-in with `--code-embeddings` and `--with-memories --memory-embeddings`.
+- Code embeddings are enabled by default. Memory embeddings are enabled by default when
+  `--with-memories` is used. Use `--no-code-embeddings` or `--no-memory-embeddings` to skip them.
 
 Agents can search semantically first, then verify the result through exact graph relationships and
 source locations.
@@ -785,14 +786,14 @@ Options:
 | `--wipe-all` |  | no | `false` | Delete all data from Memgraph. |
 | `--incremental` |  | no | `false` | Skip files whose last-modified timestamp matches the graph. |
 | `--watch` | `-w` | no | `false` | Watch the source directory and re-ingest changes. |
-| `--[no-]code-embeddings` |  | no | `false` | Ask Memgraph to compute stale `:CodeChunk.embedding` values after ingestion/watch updates. |
+| `--[no-]code-embeddings` |  | no | `true` | Ask Memgraph to compute stale `:CodeChunk.embedding` values after ingestion/watch updates. |
 | `--code-embedding-device` |  | no | auto | Memgraph embeddings device, for example `cpu`, `cuda`, `cuda:0`, or `all`. |
 | `--code-embedding-batch-size` |  | no | `1024` | CodeChunk nodes per embedding call and local embedding batch size. Larger values are retried with smaller batches if Memgraph reports a failed embedding batch. |
 | `--code-embedding-chunk-size` |  | no | `48` | Memgraph local multi-GPU `chunk_size`. |
 | `--code-embedding-remote-batch-size` |  | no | `0` | Remote provider batch size override; `0` keeps Memgraph's default. |
 | `--code-embedding-concurrency` |  | no | `0` | Remote provider concurrency override; `0` keeps Memgraph's default. |
 | `--code-embedding-index-capacity` |  | no | `0` | Vector index capacity; `0` uses the current CodeChunk count. |
-| `--[no-]memory-embeddings` |  | no | `false` | With `--with-memories`, sync `:MemoryChunk` rows and compute stale embeddings after ingestion/watch updates. |
+| `--[no-]memory-embeddings` |  | no | `true` | With `--with-memories`, sync `:MemoryChunk` rows and compute stale embeddings after ingestion/watch updates. |
 | `--memory-embedding-device` |  | no | auto | Memgraph embeddings device for MemoryChunk refresh. |
 | `--memory-embedding-batch-size` |  | no | `1024` | MemoryChunk nodes per embedding call and local embedding batch size. |
 | `--memory-embedding-chunk-size` |  | no | `48` | Memgraph local MemoryChunk `chunk_size`. |
@@ -931,9 +932,9 @@ For `:CodeRef`, use `key: 'java'`, `key: 'js'`, or `key: 'python'` for `targetTy
 and `key: 'java:<package>'`, `key: 'js:<package>'`, or `key: 'python:<package>'` for
 `targetType: 'Package'`.
 
-RAG vectors are opt-in because clients choose the embedding model and dimensions. Recommended
-examples use 1024-dimensional embeddings and cosine similarity. Code chunk embeddings can also be
-computed by Memgraph during ingestion when `--code-embeddings` is passed; the ingester discovers the
+RAG vector indexes are created automatically for the ingester-managed defaults. Recommended manual
+examples use 1024-dimensional embeddings and cosine similarity. Code chunk embeddings are computed
+by Memgraph during ingestion unless `--no-code-embeddings` is passed; the ingester discovers the
 selected model dimension, creates `code_chunk_embedding_v1` if needed, and refreshes only stale
 `:CodeChunk` vectors.
 
@@ -958,7 +959,9 @@ backfilled. With `--with-memories --memory-embeddings`, the ingester syncs `Memo
 current Memory records, deletes stale chunks for removed Memory records, and uses Memgraph's
 `embeddings.node_sentence()` procedure for MemoryChunk vectors. With `--code-embeddings`, it uses
 the same procedure for CodeChunk vectors. Metadata is excluded so only derived chunk text is
-embedded.
+embedded. If the connected Memgraph instance does not support embeddings or vector indexes,
+ingestion still completes and logs a warning; disable refresh with `--no-code-embeddings` or
+`--no-memory-embeddings`.
 
 See [`doc/MEMORY.md`](doc/MEMORY.md) for Memory examples and Cypher recipes.
 See [`doc/SCHEMA.md`](doc/SCHEMA.md) for the full graph model.

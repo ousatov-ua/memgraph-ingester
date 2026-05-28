@@ -84,7 +84,8 @@ Recommended `MemoryChunk.text` content:
 Do not embed `project`, timestamps, or generated vector metadata as semantic content. Keep those as
 properties for filtering and stale-chunk detection.
 
-Vector indexes are opt-in because clients choose the embedding model, dimension, and capacity:
+Manual vector indexes are useful when clients choose their own embedding model, dimension, and
+capacity:
 
 ```cypher
 CREATE VECTOR INDEX memory_chunk_embedding_v1
