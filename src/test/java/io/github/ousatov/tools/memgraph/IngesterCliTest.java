@@ -83,8 +83,8 @@ class IngesterCliTest {
     CommandLine commandLine = new CommandLine(new IngesterCli());
     var options = commandLine.getCommandSpec().optionsMap();
 
-    assertEquals("true", options.get("--code-embeddings").defaultValue());
-    assertEquals("true", options.get("--memory-embeddings").defaultValue());
+    assertEquals("false", options.get("--code-embeddings").defaultValue());
+    assertEquals("false", options.get("--memory-embeddings").defaultValue());
     assertTrue(options.containsKey("--with-memories"));
     assertNull(options.get("--code-embedding-index"));
     assertNull(options.get("--code-embedding-model"));

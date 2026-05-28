@@ -2,6 +2,7 @@ package io.github.ousatov.tools.memgraph.exe.writer;
 
 import io.github.ousatov.tools.memgraph.def.Const.Cypher;
 import io.github.ousatov.tools.memgraph.def.Const.Params;
+import io.github.ousatov.tools.memgraph.def.Const.Rag;
 import io.github.ousatov.tools.memgraph.exception.ProcessingException;
 import io.github.ousatov.tools.memgraph.exe.adapter.SourceFileDefinitions;
 import io.github.ousatov.tools.memgraph.exe.adapter.SourceLanguage;
@@ -26,6 +27,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
+import org.jspecify.annotations.NonNull;
+import org.neo4j.driver.Result;
 import org.neo4j.driver.Session;
 import org.neo4j.driver.Value;
 import org.slf4j.Logger;
@@ -51,7 +54,6 @@ public final class GraphWriter {
   private static final int WIPE_BATCH_SIZE = 10_000;
   private static final Pattern CYPHER_IDENTIFIER = Pattern.compile("[A-Za-z_][A-Za-z0-9_]*");
   private final CypherExecutor cypher;
-  private final CallEdgeWriter callEdges;
   private final GraphNodeWriter nodes;
   private final MemoryChunkBuilder memoryChunks = new MemoryChunkBuilder();
   private final CommonGraphWriter.Dependencies dependencies;
@@ -74,7 +76,7 @@ public final class GraphWriter {
   public GraphWriter(Session session, String project, IngestionRunStats stats) {
     this.cypher = new CypherExecutor(session, project, stats);
     this.nodes = new GraphNodeWriter(cypher);
-    this.callEdges = new CallEdgeWriter(cypher, nodes);
+    CallEdgeWriter callEdges = new CallEdgeWriter(cypher, nodes);
     this.dependencies = new CommonGraphWriter.Dependencies(cypher, callEdges, nodes);
     this.stats = stats;
   }
@@ -357,6 +359,24 @@ public final class GraphWriter {
     }
   }
 
+  /** Returns source paths whose graph has no derived {@code :CodeChunk} rows yet. */
+  public Set<Path> getFilePathsMissingCodeChunks(List<Path> files) {
+    List<String> paths = files.stream().map(Path::toString).toList();
+    return cypher.read(
+        Cypher.CYPHER_GET_FILE_PATHS_MISSING_CODE_CHUNKS,
+        Map.of(Params.PATHS, paths),
+        result -> {
+          Set<Path> missing = new HashSet<>();
+          while (result.hasNext()) {
+            String path = result.next().get(Params.PATH).asString(null);
+            if (path != null) {
+              missing.add(Path.of(path));
+            }
+          }
+          return missing;
+        });
+  }
+
   /** Returns project file paths outside the active source root that must remain retained. */
   public Set<Path> getRetainedFilePathsOutsideSourceRoot(Path sourceRoot) {
     String sourceRootText = sourceRoot.toString();
@@ -395,9 +415,9 @@ public final class GraphWriter {
         result -> {
           Set<SourceLanguage> languages = new HashSet<>();
           while (result.hasNext()) {
-            var record = result.next();
-            String language = record.get(Params.LANGUAGE).asString(null);
-            String languageName = record.get(Params.LANGUAGE_NAME).asString(null);
+            var theRecord = result.next();
+            String language = theRecord.get(Params.LANGUAGE).asString(null);
+            String languageName = theRecord.get(Params.LANGUAGE_NAME).asString(null);
             if (language != null) {
               languages.add(SourceLanguage.of(language, languageName));
             }
@@ -627,16 +647,31 @@ public final class GraphWriter {
   /** Upserts derived {@code :MemoryChunk} rows for current Memory records. */
   public long upsertMemoryChunks() {
     List<MemoryChunkWrite> chunks = memoryChunkSources().stream().map(memoryChunks::build).toList();
+    deleteStaleMemoryChunks(chunks);
     cypher.runBatch(
         Cypher.CYPHER_UPSERT_MEMORY_CHUNKS_BATCH,
         chunks.stream().map(MemoryChunkWrite::params).toList());
     return chunks.size();
   }
 
+  private void deleteStaleMemoryChunks(Collection<MemoryChunkWrite> chunks) {
+    List<Map<String, Object>> rows =
+        chunks.stream()
+            .map(
+                chunk ->
+                    Map.<String, Object>of(
+                        Params.SOURCE_LABEL,
+                        chunk.sourceLabel(),
+                        Params.SOURCE_ID,
+                        chunk.sourceId()))
+            .toList();
+    cypher.run(Cypher.CYPHER_DELETE_STALE_MEMORY_CHUNKS, Map.of("rows", rows));
+  }
+
   /** Refreshes stale {@code :CodeChunk.embedding} values with Memgraph's embeddings module. */
-  public long refreshCodeChunkEmbeddings(EmbeddingSettings settings) {
+  public void refreshCodeChunkEmbeddings(EmbeddingSettings settings) {
     if (!settings.enabled()) {
-      return 0L;
+      return;
     }
     validateCypherIdentifier(settings.indexName(), "code embedding index name");
 
@@ -673,13 +708,12 @@ public final class GraphWriter {
         embedded,
         settings.modelName(),
         dimension);
-    return embedded;
   }
 
   /** Refreshes stale {@code :MemoryChunk.embedding} values with Memgraph's embeddings module. */
-  public long refreshMemoryChunkEmbeddings(EmbeddingSettings settings) {
+  public void refreshMemoryChunkEmbeddings(EmbeddingSettings settings) {
     if (!settings.enabled()) {
-      return 0L;
+      return;
     }
     validateCypherIdentifier(settings.indexName(), "memory embedding index name");
 
@@ -716,7 +750,6 @@ public final class GraphWriter {
         embedded,
         settings.modelName(),
         dimension);
-    return embedded;
   }
 
   private int embeddingDimension(EmbeddingSettings settings) {
@@ -728,7 +761,7 @@ public final class GraphWriter {
           if (!result.hasNext()) {
             throw new ProcessingException("Memgraph embeddings.model_info returned no rows");
           }
-          int dimension = result.next().get("info").get("dimension").asInt(0);
+          int dimension = result.next().get("info").get(Rag.DIMENSION).asInt(0);
           if (dimension < 1) {
             throw new ProcessingException(
                 "Memgraph embeddings.model_info returned invalid dimension " + dimension);
@@ -751,13 +784,13 @@ public final class GraphWriter {
             : Math.max(1, Math.toIntExact(Math.min(Integer.MAX_VALUE, chunkCount)));
     Map<String, Object> config =
         Map.of(
-            "dimension",
+            Rag.DIMENSION,
             dimension,
-            "capacity",
+            Rag.CAPACITY,
             capacity,
-            "metric",
+            Rag.METRIC,
             settings.metric(),
-            "scalar_kind",
+            Rag.SCALAR_KIND,
             settings.scalarKind());
     cypher.run(createCodeChunkVectorIndexCypher(settings), Map.of("config", config));
   }
@@ -776,13 +809,13 @@ public final class GraphWriter {
             : Math.max(1, Math.toIntExact(Math.min(Integer.MAX_VALUE, chunkCount)));
     Map<String, Object> config =
         Map.of(
-            "dimension",
+            Rag.DIMENSION,
             dimension,
-            "capacity",
+            Rag.CAPACITY,
             capacity,
-            "metric",
+            Rag.METRIC,
             settings.metric(),
-            "scalar_kind",
+            Rag.SCALAR_KIND,
             settings.scalarKind());
     cypher.run(createMemoryChunkVectorIndexCypher(settings), Map.of("config", config));
   }
@@ -799,9 +832,9 @@ public final class GraphWriter {
                   new VectorIndexInfo(
                       row.get("label").asString(""),
                       row.get("property").asString(""),
-                      row.get("dimension").asInt(0),
-                      row.get("metric").asString(""),
-                      row.get("scalar_kind").asString("")));
+                      row.get(Rag.DIMENSION).asInt(0),
+                      row.get(Rag.METRIC).asString(""),
+                      row.get(Rag.SCALAR_KIND).asString("")));
             }
           }
           return Optional.empty();
@@ -893,7 +926,8 @@ public final class GraphWriter {
   }
 
   private long countStaleCodeChunkEmbeddings(EmbeddingSettings settings, int dimension) {
-    Map<String, Object> params = Map.of("modelName", settings.modelName(), "dimension", dimension);
+    Map<String, Object> params =
+        Map.of("modelName", settings.modelName(), Rag.DIMENSION, dimension);
     return cypher.read(
         Cypher.CYPHER_COUNT_STALE_CODE_CHUNK_EMBEDDINGS,
         params,
@@ -901,7 +935,8 @@ public final class GraphWriter {
   }
 
   private long countStaleMemoryChunkEmbeddings(EmbeddingSettings settings, int dimension) {
-    Map<String, Object> params = Map.of("modelName", settings.modelName(), "dimension", dimension);
+    Map<String, Object> params =
+        Map.of("modelName", settings.modelName(), Rag.DIMENSION, dimension);
     return cypher.read(
         Cypher.CYPHER_COUNT_STALE_MEMORY_CHUNK_EMBEDDINGS,
         params,
@@ -915,7 +950,7 @@ public final class GraphWriter {
         Map.of(
             "modelName",
             settings.modelName(),
-            "dimension",
+            Rag.DIMENSION,
             dimension,
             "limit",
             batchSize,
@@ -924,22 +959,24 @@ public final class GraphWriter {
     return cypher.read(
         Cypher.CYPHER_REFRESH_CODE_CHUNK_EMBEDDING_BATCH,
         params,
-        result -> {
-          if (!result.hasNext()) {
-            return new EmbeddingBatchResult(true, List.of());
-          }
-          var row = result.single();
-          boolean success = row.get("success").asBoolean(false);
-          int actualDimension = row.get("dimension").asInt(0);
-          if (success && actualDimension != dimension) {
-            throw new ProcessingException(
-                "Memgraph embeddings.node_sentence returned dimension "
-                    + actualDimension
-                    + " but expected "
-                    + dimension);
-          }
-          return new EmbeddingBatchResult(success, row.get("ids").asList(Value::asString));
-        });
+        result -> getEmbeddingBatchResult(dimension, result));
+  }
+
+  private @NonNull EmbeddingBatchResult getEmbeddingBatchResult(int dimension, Result result) {
+    if (!result.hasNext()) {
+      return new EmbeddingBatchResult(true, List.of());
+    }
+    var row = result.single();
+    boolean success = row.get("success").asBoolean(false);
+    int actualDimension = row.get(Rag.DIMENSION).asInt(0);
+    if (success && actualDimension != dimension) {
+      throw new ProcessingException(
+          "Memgraph embeddings.node_sentence returned dimension "
+              + actualDimension
+              + " but expected "
+              + dimension);
+    }
+    return new EmbeddingBatchResult(success, row.get("ids").asList(Value::asString));
   }
 
   private EmbeddingBatchResult refreshMemoryChunkEmbeddingBatch(
@@ -949,7 +986,7 @@ public final class GraphWriter {
         Map.of(
             "modelName",
             settings.modelName(),
-            "dimension",
+            Rag.DIMENSION,
             dimension,
             "limit",
             batchSize,
@@ -958,37 +995,22 @@ public final class GraphWriter {
     return cypher.read(
         Cypher.CYPHER_REFRESH_MEMORY_CHUNK_EMBEDDING_BATCH,
         params,
-        result -> {
-          if (!result.hasNext()) {
-            return new EmbeddingBatchResult(true, List.of());
-          }
-          var row = result.single();
-          boolean success = row.get("success").asBoolean(false);
-          int actualDimension = row.get("dimension").asInt(0);
-          if (success && actualDimension != dimension) {
-            throw new ProcessingException(
-                "Memgraph embeddings.node_sentence returned dimension "
-                    + actualDimension
-                    + " but expected "
-                    + dimension);
-          }
-          return new EmbeddingBatchResult(success, row.get("ids").asList(Value::asString));
-        });
+        result -> getEmbeddingBatchResult(dimension, result));
   }
 
   private static Map<String, Object> codeEmbeddingConfig(
       EmbeddingSettings settings, int batchSize) {
     Map<String, Object> config = new HashMap<>(settings.codeNodeSentenceConfiguration());
-    config.put("batch_size", batchSize);
-    config.put("chunk_size", Math.min(settings.chunkSize(), batchSize));
+    config.put(Rag.BATCH_SIZE, batchSize);
+    config.put(Rag.CHUNK_SIZE, Math.min(settings.chunkSize(), batchSize));
     return config;
   }
 
   private static Map<String, Object> memoryEmbeddingConfig(
       EmbeddingSettings settings, int batchSize) {
     Map<String, Object> config = new HashMap<>(settings.memoryNodeSentenceConfiguration());
-    config.put("batch_size", batchSize);
-    config.put("chunk_size", Math.min(settings.chunkSize(), batchSize));
+    config.put(Rag.BATCH_SIZE, batchSize);
+    config.put(Rag.CHUNK_SIZE, Math.min(settings.chunkSize(), batchSize));
     return config;
   }
 
@@ -999,7 +1021,7 @@ public final class GraphWriter {
     }
     cypher.run(
         Cypher.CYPHER_UPDATE_CODE_CHUNK_EMBEDDING_METADATA,
-        Map.of("ids", embeddedIds, "modelName", settings.modelName(), "dimension", dimension));
+        Map.of("ids", embeddedIds, "modelName", settings.modelName(), Rag.DIMENSION, dimension));
   }
 
   private void updateMemoryChunkEmbeddingMetadata(
@@ -1009,7 +1031,7 @@ public final class GraphWriter {
     }
     cypher.run(
         Cypher.CYPHER_UPDATE_MEMORY_CHUNK_EMBEDDING_METADATA,
-        Map.of("ids", embeddedIds, "modelName", settings.modelName(), "dimension", dimension));
+        Map.of("ids", embeddedIds, "modelName", settings.modelName(), Rag.DIMENSION, dimension));
   }
 
   private ProcessingException codeChunkEmbeddingFailure(List<String> ids) {

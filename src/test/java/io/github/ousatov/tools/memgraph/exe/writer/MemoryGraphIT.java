@@ -157,6 +157,40 @@ class MemoryGraphIT {
   }
 
   @Test
+  void upsertMemoryChunksDeletesChunksWithoutCurrentMemorySource() {
+    session
+        .run(
+            "MATCH (m:Memory {project: $p})"
+                + " MERGE (d:Decision {id: 'DEC-stale-memory-chunk', project: $p})"
+                + " SET d.title = 'Stale memory chunk',"
+                + "     d.status = 'accepted',"
+                + "     d.rationale = 'This source will be detached'"
+                + " MERGE (m)-[:HAS_DECISION]->(d)",
+            Map.of("p", PROJECT))
+        .consume();
+
+    assertEquals(1, writer.upsertMemoryChunks());
+    session
+        .run(
+            "MATCH (:Memory {project: $p})-[rel:HAS_DECISION]->"
+                + "(:Decision {project: $p, id: 'DEC-stale-memory-chunk'}) DELETE rel",
+            Map.of("p", PROJECT))
+        .consume();
+
+    assertEquals(0, writer.upsertMemoryChunks());
+    long staleChunks =
+        session
+            .run(
+                "MATCH (chunk:MemoryChunk {project: $p, sourceId: 'DEC-stale-memory-chunk'})"
+                    + " RETURN count(chunk) AS n",
+                Map.of("p", PROJECT))
+            .single()
+            .get("n")
+            .asLong();
+    assertEquals(0, staleChunks);
+  }
+
+  @Test
   void memoryItemsCanReferToCodeRefsResolvedToCodeNodes() {
     writer.upsertFile(TEST_FILE);
 

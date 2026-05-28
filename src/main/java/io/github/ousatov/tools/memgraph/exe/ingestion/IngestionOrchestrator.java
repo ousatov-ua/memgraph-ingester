@@ -672,6 +672,7 @@ public final class IngestionOrchestrator {
     try (Session session = driver.session()) {
       GraphWriter writer = new GraphWriter(session, project);
       Map<String, Long> preloaded = new HashMap<>();
+      Set<String> pathsMissingCodeChunks = new HashSet<>();
       Map<SourceLanguage, List<Path>> pathsByLanguage = new LinkedHashMap<>();
       for (SourceFile file : files) {
         pathsByLanguage
@@ -680,8 +681,11 @@ public final class IngestionOrchestrator {
       }
       for (var entry : pathsByLanguage.entrySet()) {
         preloaded.putAll(writer.getAllFileLastModified(entry.getValue(), entry.getKey()));
+        writer.getFilePathsMissingCodeChunks(entry.getValue()).stream()
+            .map(Path::toString)
+            .forEach(pathsMissingCodeChunks::add);
       }
-      return new StoredFileState(Map.copyOf(preloaded), true);
+      return new StoredFileState(Map.copyOf(preloaded), Set.copyOf(pathsMissingCodeChunks), true);
     } catch (RuntimeException e) {
       log.warn(
           "Could not batch-fetch stored source files; changed files will be ingested"
@@ -920,6 +924,9 @@ public final class IngestionOrchestrator {
     if (storedModified == null || storedModified <= 0) {
       return false;
     }
+    if (storedFiles.pathsMissingCodeChunks().contains(file.toString())) {
+      return false;
+    }
     try {
       return Files.getLastModifiedTime(file).toMillis() == storedModified;
     } catch (IOException _) {
@@ -1124,14 +1131,16 @@ public final class IngestionOrchestrator {
   }
 
   private record StoredFileState(
-      Map<String, Long> lastModifiedByPath, boolean reliableExistingPaths) {
+      Map<String, Long> lastModifiedByPath,
+      Set<String> pathsMissingCodeChunks,
+      boolean reliableExistingPaths) {
 
     static StoredFileState empty() {
-      return new StoredFileState(Map.of(), true);
+      return new StoredFileState(Map.of(), Set.of(), true);
     }
 
     static StoredFileState unreliable() {
-      return new StoredFileState(Map.of(), false);
+      return new StoredFileState(Map.of(), Set.of(), false);
     }
   }
 

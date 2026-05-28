@@ -137,6 +137,7 @@ class CypherResourceTest {
     String upsert = Const.Cypher.CYPHER_UPSERT_CODE_CHUNKS_BATCH;
     String link = Const.Cypher.CYPHER_LINK_CODE_CHUNKS_BATCH;
     String deleteMissing = Const.Cypher.CYPHER_DELETE_CODE_CHUNKS_FOR_FILES;
+    String pathsMissingCodeChunks = Const.Cypher.CYPHER_GET_FILE_PATHS_MISSING_CODE_CHUNKS;
     String modelInfo = Const.Cypher.CYPHER_CODE_EMBEDDING_MODEL_INFO;
     String createIndex = Const.Cypher.CYPHER_CREATE_CODE_CHUNK_VECTOR_INDEX;
     String showIndex = Const.Cypher.CYPHER_SHOW_VECTOR_INDEX_INFO;
@@ -148,6 +149,7 @@ class CypherResourceTest {
     String createMemoryIndex = Const.Cypher.CYPHER_CREATE_MEMORY_CHUNK_VECTOR_INDEX;
     String countMemoryChunks = Const.Cypher.CYPHER_COUNT_MEMORY_CHUNKS;
     String listMemorySources = Const.Cypher.CYPHER_LIST_MEMORY_CHUNK_SOURCES;
+    String deleteStaleMemoryChunks = Const.Cypher.CYPHER_DELETE_STALE_MEMORY_CHUNKS;
     String upsertMemoryChunks = Const.Cypher.CYPHER_UPSERT_MEMORY_CHUNKS_BATCH;
     String countStaleMemoryEmbeddings = Const.Cypher.CYPHER_COUNT_STALE_MEMORY_CHUNK_EMBEDDINGS;
     String refreshMemoryEmbeddings = Const.Cypher.CYPHER_REFRESH_MEMORY_CHUNK_EMBEDDING_BATCH;
@@ -165,6 +167,8 @@ class CypherResourceTest {
     assertTrue(Const.Cypher.CYPHER_DELETE_CODE_CHUNKS_FOR_FILE.contains("chunk:CodeChunk"));
     assertTrue(deleteMissing.contains("chunk.path STARTS WITH $sourceRootPrefix"));
     assertTrue(deleteMissing.contains("NOT chunk.path IN $paths"));
+    assertTrue(pathsMissingCodeChunks.contains("OPTIONAL MATCH (chunk:CodeChunk"));
+    assertTrue(pathsMissingCodeChunks.contains("WHERE chunkCount = 0"));
     assertTrue(Const.Cypher.CYPHER_DELETE_CODE_CHUNKS_FOR_FILE_EXCEPT.contains("chunk.id IN $ids"));
     assertTrue(modelInfo.contains("CALL embeddings.model_info($config)"));
     assertTrue(createIndex.contains("CREATE VECTOR INDEX __INDEX_NAME__"));
@@ -182,6 +186,8 @@ class CypherResourceTest {
     assertTrue(countMemoryChunks.contains("MATCH (chunk:MemoryChunk"));
     assertTrue(listMemorySources.contains("MATCH (root:Memory"));
     assertTrue(listMemorySources.contains("HAS_RAG_CHUNK"));
+    assertTrue(deleteStaleMemoryChunks.contains("DETACH DELETE chunk"));
+    assertTrue(deleteStaleMemoryChunks.contains("row.sourceLabel = chunk.sourceLabel"));
     assertTrue(upsertMemoryChunks.contains("MERGE (chunk:MemoryChunk"));
     assertTrue(upsertMemoryChunks.contains("previousTextHash <> row.textHash"));
     assertTrue(upsertMemoryChunks.contains("REMOVE chunk.embedding"));

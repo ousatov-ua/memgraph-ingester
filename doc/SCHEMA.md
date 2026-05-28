@@ -60,7 +60,8 @@ All memory item labels are unique by `(id, project)`. Most memory items also use
 
 RAG chunk nodes are derived from Code and Memory nodes. The ingester can refresh `CodeChunk`
 embeddings with Memgraph's built-in `embeddings.node_sentence()` procedure when
-`--code-embeddings` is enabled. Agents or clients still own `MemoryChunk` embedding refresh.
+`--code-embeddings` is enabled. With `--with-memories --memory-embeddings`, it syncs current
+`MemoryChunk` rows, prunes stale rows, and refreshes MemoryChunk embeddings.
 
 | Label | Key | Other properties |
 |---|---|---|
@@ -153,13 +154,12 @@ name, owner, signature, documentation comments attached to the code symbol (Java
 a bounded source excerpt.
 
 `CodeChunk` rows are refreshed by the ingester after successful file re-ingest and watch-mode
-updates. `MemoryChunk` rows are agent-authored when Memory nodes are created or materially updated.
-When `--code-embeddings` is enabled, the ingester creates the `code_chunk_embedding_v1` vector
-index if needed, computes only stale or missing `CodeChunk.embedding` values, and stores
-`embeddingModel` plus `embeddingDimensions`. It excludes CodeChunk metadata properties from
-`embeddings.node_sentence()` so the vector represents the derived `text` field.
-
-Memory embedding vectors are still supplied by agents or clients.
+updates. Incremental runs re-ingest unchanged files whose `CodeChunk` rows are missing. With
+`--with-memories --memory-embeddings`, the ingester syncs `MemoryChunk` rows from current Memory
+records and prunes stale chunks. When embedding flags are enabled, the ingester creates the relevant
+vector index if needed, computes only stale or missing embeddings, and stores `embeddingModel` plus
+`embeddingDimensions`. It excludes chunk metadata properties from `embeddings.node_sentence()` so
+vectors represent the derived `text` field.
 
 Vector indexes are opt-in because embedding dimension and capacity depend on the chosen embedding
 model and corpus size. The ingester auto-creates the code chunk index when `--code-embeddings` is

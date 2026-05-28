@@ -1920,6 +1920,18 @@ class IngestionOrchestratorIT {
       assertEquals(1, enumCount);
       assertEquals(1, recordCount);
       assertEquals(1, annotationCount);
+
+      List<String> recordChunkSources =
+          s.run(
+                  "MATCH (chunk:CodeChunk {project: $p, path: $path})"
+                      + " WHERE chunk.sourceId STARTS WITH 'com.example.Point'"
+                      + " RETURN chunk.sourceLabel + ':' + chunk.sourceId AS source"
+                      + " ORDER BY source",
+                  Map.of("p", currentProject, "path", pkgDir.resolve("AllTypes.java").toString()))
+              .list(r -> r.get("source").asString());
+      assertTrue(recordChunkSources.contains("Field:com.example.Point#x"));
+      assertTrue(recordChunkSources.contains("Method:com.example.Point.<init>(int)"));
+      assertTrue(recordChunkSources.contains("Method:com.example.Point.x()"));
     }
   }
 
@@ -3110,6 +3122,44 @@ class IngestionOrchestratorIT {
               .list(r -> r.get("edge").asString());
       assertTrue(ownerEdges.contains("AAACaller -> BBBService"));
     }
+  }
+
+  @Test
+  void incrementalRunReingestsUnchangedFilesMissingCodeChunks() throws Exception {
+    currentProject = PROJECT_BASE + "-incremental-code-chunk-backfill";
+    sourceDir = Files.createTempDirectory("orch-incremental-chunk-src-");
+    Path sourceFile = sourceDir.resolve("com/example/Widget.java");
+    Files.createDirectories(sourceFile.getParent());
+    Files.writeString(
+        sourceFile,
+        """
+        package com.example;
+
+        /** Searchable widget docs. */
+        public class Widget {
+          /** Searchable method docs. */
+          public String name() {
+            return "widget";
+          }
+        }
+        """);
+
+    var orchestrator =
+        new IngestionOrchestrator(
+            sourceDir, currentProject, 1, driver, new ParseService(sourceDir));
+    assertEquals(0, orchestrator.run(Settings.def()));
+
+    try (Session s = driver.session()) {
+      s.run(
+              "MATCH (chunk:CodeChunk {project: $p, path: $path}) DETACH DELETE chunk",
+              Map.of("p", currentProject, "path", sourceFile.toString()))
+          .consume();
+    }
+
+    assertEquals(0, orchestrator.run(new Settings(false, false, false, false, true, false)));
+    List<String> backfilledChunks = codeChunkTexts(currentProject, sourceFile);
+    assertTrue(backfilledChunks.stream().anyMatch(text -> text.contains("Searchable widget docs")));
+    assertTrue(backfilledChunks.stream().anyMatch(text -> text.contains("Searchable method docs")));
   }
 
   @Test

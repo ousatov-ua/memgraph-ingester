@@ -41,6 +41,8 @@ public final class Const {
         action("delete-code-chunks-for-files.cypher");
     public static final String CYPHER_DELETE_CODE_CHUNKS_FOR_FILE_EXCEPT =
         action("delete-code-chunks-for-file-except.cypher");
+    public static final String CYPHER_GET_FILE_PATHS_MISSING_CODE_CHUNKS =
+        action("get-file-paths-missing-code-chunks.cypher");
     public static final String CYPHER_UPSERT_CODE_CHUNKS_BATCH =
         action("upsert-code-chunks-batch.cypher");
     public static final String CYPHER_LINK_CODE_CHUNKS_BATCH =
@@ -67,6 +69,8 @@ public final class Const {
         action("embedding/count-memory-chunks.cypher");
     public static final String CYPHER_LIST_MEMORY_CHUNK_SOURCES =
         action("embedding/list-memory-chunk-sources.cypher");
+    public static final String CYPHER_DELETE_STALE_MEMORY_CHUNKS =
+        action("embedding/delete-stale-memory-chunks.cypher");
     public static final String CYPHER_UPSERT_MEMORY_CHUNKS_BATCH =
         action("embedding/upsert-memory-chunks-batch.cypher");
     public static final String CYPHER_COUNT_STALE_MEMORY_CHUNK_EMBEDDINGS =
@@ -368,6 +372,21 @@ public final class Const {
     }
 
     private Cypher() {
+
+      // Empty
+    }
+  }
+
+  public static class Rag {
+
+    public static final String DIMENSION = "dimension";
+    public static final String METRIC = "metric";
+    public static final String SCALAR_KIND = "scalar_kind";
+    public static final String CAPACITY = "capacity";
+    public static final String BATCH_SIZE = "batch_size";
+    public static final String CHUNK_SIZE = "chunk_size";
+
+    private Rag() {
 
       // Empty
     }
