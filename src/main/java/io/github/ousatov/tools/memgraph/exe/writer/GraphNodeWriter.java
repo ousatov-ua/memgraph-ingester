@@ -1,6 +1,7 @@
 package io.github.ousatov.tools.memgraph.exe.writer;
 
 import io.github.ousatov.tools.memgraph.def.Const.Cypher;
+import io.github.ousatov.tools.memgraph.def.Const.Labels;
 import io.github.ousatov.tools.memgraph.def.Const.Params;
 import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.AnnotationWrite;
 import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.BatchWrite;
@@ -30,12 +31,16 @@ final class GraphNodeWriter {
   }
 
   void upsertFieldNodes(Path file, Collection<FieldWrite> fields) {
-    fields.forEach(
-        field -> {
-          Map<String, Object> params = new HashMap<>(field.params());
-          params.put(Params.PATH, file.toString());
-          cypher.run(Cypher.CYPHER_UPSERT_FIELD, params);
-        });
+    List<Map<String, Object>> rows =
+        fields.stream()
+            .map(
+                field -> {
+                  Map<String, Object> params = new HashMap<>(field.params());
+                  params.put(Params.PATH, file.toString());
+                  return params;
+                })
+            .toList();
+    cypher.runBatch(Cypher.CYPHER_UPSERT_FIELDS_BATCH, rows);
   }
 
   void upsertMethodNode(Path file, Method method) {
@@ -60,17 +65,33 @@ final class GraphNodeWriter {
     runBatch(Cypher.CYPHER_UPSERT_CALLS_BATCH, calls);
   }
 
+  void upsertCallsByName(Collection<PendingCallWrite> calls) {
+    runBatch(Cypher.CYPHER_UPSERT_CALLS_BY_NAME_BATCH, calls);
+  }
+
   void upsertPendingCallsByName(Collection<PendingCallWrite> calls) {
     runBatch(Cypher.CYPHER_UPSERT_PENDING_CALLS_BY_NAME_BATCH, calls);
   }
 
   void upsertCodeChunks(Collection<CodeChunkWrite> chunks) {
     runBatch(Cypher.CYPHER_UPSERT_CODE_CHUNKS_BATCH, chunks);
-    runBatch(Cypher.CYPHER_LINK_CODE_CHUNKS_BATCH, chunks);
+    runBatch(Cypher.CYPHER_LINK_FILE_CODE_CHUNKS_BATCH, chunksForLabel(chunks, Labels.FILE));
+    runBatch(Cypher.CYPHER_LINK_CLASS_CODE_CHUNKS_BATCH, chunksForLabel(chunks, Labels.CLASS));
+    runBatch(
+        Cypher.CYPHER_LINK_INTERFACE_CODE_CHUNKS_BATCH, chunksForLabel(chunks, Labels.INTERFACE));
+    runBatch(
+        Cypher.CYPHER_LINK_ANNOTATION_CODE_CHUNKS_BATCH, chunksForLabel(chunks, Labels.ANNOTATION));
+    runBatch(Cypher.CYPHER_LINK_METHOD_CODE_CHUNKS_BATCH, chunksForLabel(chunks, Labels.METHOD));
+    runBatch(Cypher.CYPHER_LINK_FIELD_CODE_CHUNKS_BATCH, chunksForLabel(chunks, Labels.FIELD));
   }
 
   private void runBatch(String query, Collection<? extends BatchWrite> writes) {
     List<Map<String, Object>> rows = writes.stream().map(BatchWrite::params).toList();
     cypher.runBatch(query, rows);
+  }
+
+  private static List<CodeChunkWrite> chunksForLabel(
+      Collection<CodeChunkWrite> chunks, String label) {
+    return chunks.stream().filter(chunk -> label.equals(chunk.sourceLabel())).toList();
   }
 }

@@ -47,8 +47,18 @@ public final class Const {
         action("get-file-paths-missing-code-chunks.cypher");
     public static final String CYPHER_UPSERT_CODE_CHUNKS_BATCH =
         action("upsert-code-chunks-batch.cypher");
-    public static final String CYPHER_LINK_CODE_CHUNKS_BATCH =
-        action("link-code-chunks-batch.cypher");
+    public static final String CYPHER_LINK_FILE_CODE_CHUNKS_BATCH =
+        action("link-file-code-chunks-batch.cypher");
+    public static final String CYPHER_LINK_CLASS_CODE_CHUNKS_BATCH =
+        action("link-class-code-chunks-batch.cypher");
+    public static final String CYPHER_LINK_INTERFACE_CODE_CHUNKS_BATCH =
+        action("link-interface-code-chunks-batch.cypher");
+    public static final String CYPHER_LINK_ANNOTATION_CODE_CHUNKS_BATCH =
+        action("link-annotation-code-chunks-batch.cypher");
+    public static final String CYPHER_LINK_METHOD_CODE_CHUNKS_BATCH =
+        action("link-method-code-chunks-batch.cypher");
+    public static final String CYPHER_LINK_FIELD_CODE_CHUNKS_BATCH =
+        action("link-field-code-chunks-batch.cypher");
     public static final String CYPHER_CODE_EMBEDDING_MODEL_INFO =
         action("embedding/code-embedding-model-info.cypher");
     public static final String CYPHER_CREATE_CODE_CHUNK_VECTOR_INDEX =
@@ -57,8 +67,8 @@ public final class Const {
         action("embedding/show-vector-index-info.cypher");
     public static final String CYPHER_COUNT_CODE_CHUNKS =
         action("embedding/count-code-chunks.cypher");
-    public static final String CYPHER_COUNT_STALE_CODE_CHUNK_EMBEDDINGS =
-        action("embedding/count-stale-code-chunk-embeddings.cypher");
+    public static final String CYPHER_MARK_STALE_CODE_CHUNK_EMBEDDINGS =
+        action("embedding/mark-stale-code-chunk-embeddings.cypher");
     public static final String CYPHER_REFRESH_CODE_CHUNK_EMBEDDING_BATCH =
         action("embedding/refresh-code-chunk-embedding-batch.cypher");
     public static final String CYPHER_UPDATE_CODE_CHUNK_EMBEDDING_METADATA =
@@ -77,8 +87,8 @@ public final class Const {
         action("embedding/wipe-memory-rag-batch.cypher");
     public static final String CYPHER_UPSERT_MEMORY_CHUNKS_BATCH =
         action("embedding/upsert-memory-chunks-batch.cypher");
-    public static final String CYPHER_COUNT_STALE_MEMORY_CHUNK_EMBEDDINGS =
-        action("embedding/count-stale-memory-chunk-embeddings.cypher");
+    public static final String CYPHER_MARK_STALE_MEMORY_CHUNK_EMBEDDINGS =
+        action("embedding/mark-stale-memory-chunk-embeddings.cypher");
     public static final String CYPHER_REFRESH_MEMORY_CHUNK_EMBEDDING_BATCH =
         action("embedding/refresh-memory-chunk-embedding-batch.cypher");
     public static final String CYPHER_UPDATE_MEMORY_CHUNK_EMBEDDING_METADATA =
@@ -202,7 +212,7 @@ public final class Const {
         action("upsert-interface-extends.cypher");
 
     public static final String CYPHER_UPSERT_IMPLEMENTS = action("upsert-implements.cypher");
-    public static final String CYPHER_UPSERT_FIELD = action("upsert-field.cypher");
+    public static final String CYPHER_UPSERT_FIELDS_BATCH = action("upsert-fields-batch.cypher");
     public static final String CYPHER_UPSERT_METHODS_BATCH = action("upsert-methods-batch.cypher");
     public static final String CYPHER_BACKFILL_METHOD_OWNER_METADATA =
         action("backfill-method-owner-metadata.cypher");
@@ -215,11 +225,8 @@ public final class Const {
      */
     public static final String CYPHER_UPSERT_CALLS_BATCH = action("upsert-calls-batch.cypher");
 
-    /**
-     * Fallback for unresolved same-class calls. Matches the callee by name within the owner type;
-     * only creates the edge when exactly one method has that name (no overloading ambiguity).
-     */
-    public static final String CYPHER_UPSERT_CALL_BY_NAME = action("upsert-call-by-name.cypher");
+    public static final String CYPHER_UPSERT_CALLS_BY_NAME_BATCH =
+        action("upsert-calls-by-name-batch.cypher");
 
     public static final String CYPHER_UPSERT_PENDING_CALLS_BY_NAME_BATCH =
         action("upsert-pending-calls-by-name-batch.cypher");
@@ -423,12 +430,19 @@ public final class Const {
   /** Graph node label constants. */
   public static class Labels {
 
+    public static final String ANNOTATION = "Annotation";
+    public static final String CLASS = "Class";
     public static final String CODE = "Code";
     public static final String CODE_CHUNK = "CodeChunk";
+    public static final String FIELD = "Field";
+    public static final String FILE = "File";
     public static final String INIT = "<init>";
+    public static final String INTERFACE = "Interface";
     public static final String LANGUAGE = "Language";
     public static final String MEMORY_CHUNK = "MemoryChunk";
+    public static final String METHOD = "Method";
     public static final String PACKAGE = "Package";
+    public static final String PENDING_CALL = "PendingCall";
     public static final String PROJECT = "project";
     public static final String VOID = "void";
 

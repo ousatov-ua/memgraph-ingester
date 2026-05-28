@@ -38,10 +38,10 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
@@ -159,7 +159,8 @@ public final class IngestionOrchestrator {
         Memgraph.applySchema(bootstrap);
         log.info("Applied schema to Memgraph");
       } else if (!Memgraph.hasLanguageScopedCodeSchema(bootstrap)
-          || !Memgraph.hasRagChunkSchema(bootstrap)) {
+          || !Memgraph.hasRagChunkSchema(bootstrap)
+          || !Memgraph.hasPerformanceIndexes(bootstrap)) {
         Memgraph.applySchema(bootstrap);
         log.info("Applied schema migrations to Memgraph");
       }
@@ -960,7 +961,8 @@ public final class IngestionOrchestrator {
       GraphWriter writer = new GraphWriter(session, project, stats);
       writer.setRetainedSourcePaths(retainedSourcePaths);
       for (SourceFile file : files) {
-        if (!ingestFileBatched(writer, file, storedFiles)) {
+        PreparedFile prepared = prepareFileForIngestion(file, storedFiles);
+        if (!writePreparedFile(writer, prepared)) {
           failures++;
         }
         done++;
@@ -1000,15 +1002,18 @@ public final class IngestionOrchestrator {
    */
   private boolean ingestFileBatched(
       GraphWriter writer, SourceFile sourceFile, StoredFileState storedFiles) {
-    return doIngestFileBatched(writer, sourceFile.adapter(), sourceFile.path(), storedFiles);
+    return writePreparedFile(writer, prepareFileForIngestion(sourceFile, storedFiles));
   }
 
-  private <T> boolean doIngestFileBatched(
-      GraphWriter writer, LanguageAdapter<T> adapter, Path path, StoredFileState storedFiles) {
+  private PreparedFile prepareFileForIngestion(SourceFile sourceFile, StoredFileState storedFiles) {
+    return prepareFileForIngestion(sourceFile.adapter(), sourceFile.path(), storedFiles);
+  }
+
+  private <T> PreparedFile prepareFileForIngestion(
+      LanguageAdapter<T> adapter, Path path, StoredFileState storedFiles) {
     if (isFileUnchanged(path, storedFiles)) {
       log.debug("Skipping unchanged file: {}", path);
-      writer.recordSkippedFile();
-      return true;
+      return new PreparedSkip(path);
     }
 
     log.atDebug()
@@ -1023,23 +1028,39 @@ public final class IngestionOrchestrator {
     try {
       Optional<T> parsedOpt = adapter.parse(path);
       if (parsedOpt.isEmpty()) {
-        writer.recordFailedFile();
-        return false;
+        return new PreparedFailure(path);
       }
       parsed = parsedOpt.get();
       definitions = adapter.collectDefinitions(parsed);
     } catch (RuntimeException e) {
       log.warn("Failed to prepare {}: {}", path, e.getMessage());
+      return new PreparedFailure(path);
+    }
+    return new PreparedWrite<>(path, adapter, parsed, definitions);
+  }
+
+  private boolean writePreparedFile(GraphWriter writer, PreparedFile prepared) {
+    if (!prepared.success()) {
       writer.recordFailedFile();
       return false;
     }
+    if (!prepared.writeRequired()) {
+      writer.recordSkippedFile();
+      return true;
+    }
+    if (prepared instanceof PreparedWrite<?> write) {
+      return writePreparedFile(writer, write);
+    }
+    return true;
+  }
 
+  private <T> boolean writePreparedFile(GraphWriter writer, PreparedWrite<T> prepared) {
     long backoffMs = FILE_TX_INITIAL_BACKOFF_MS;
     for (int attempt = 1; attempt <= FILE_TX_RETRY_ATTEMPTS; attempt++) {
       writer.beginFileTransaction();
       try {
-        writer.deleteStaleDefinitionsForFile(path, definitions);
-        boolean success = adapter.write(writer, path, parsed);
+        writer.deleteStaleDefinitionsForFile(prepared.path(), prepared.definitions());
+        boolean success = prepared.adapter().write(writer, prepared.path(), prepared.parsed());
         if (success) {
           writer.commitFileTransaction();
           writer.recordIngestedFile();
@@ -1051,11 +1072,11 @@ public final class IngestionOrchestrator {
       } catch (RuntimeException e) {
         writer.rollbackFileTransaction();
         if (!GraphWriter.isRetryable(e) || attempt == FILE_TX_RETRY_ATTEMPTS) {
-          log.warn("Failed to ingest {}: {}", path, e.getMessage());
+          log.warn("Failed to ingest {}: {}", prepared.path(), e.getMessage());
           writer.recordFailedFile();
           return false;
         }
-        backoffMs = sleepBeforeFileRetry(path, attempt, e, backoffMs);
+        backoffMs = sleepBeforeFileRetry(prepared.path(), attempt, e, backoffMs);
       }
     }
     return false;
@@ -1104,17 +1125,6 @@ public final class IngestionOrchestrator {
     if (files.isEmpty()) {
       return 0;
     }
-    CopyOnWriteArrayList<Session> sessions = new CopyOnWriteArrayList<>();
-    ThreadLocal<GraphWriter> threadWriter =
-        ThreadLocal.withInitial(
-            () -> {
-              Session s = driver.session();
-              sessions.add(s);
-              GraphWriter writer = new GraphWriter(s, project, stats);
-              writer.setRetainedSourcePaths(retainedSourcePaths);
-              return writer;
-            });
-
     AtomicInteger threadCounter = new AtomicInteger();
     @SuppressWarnings("java:S2095")
     ExecutorService pool =
@@ -1126,65 +1136,100 @@ public final class IngestionOrchestrator {
               return t;
             });
 
-    AtomicInteger done = new AtomicInteger();
-    AtomicInteger failures = new AtomicInteger();
-    int total = files.size();
+    List<Future<PreparedFile>> futures = new ArrayList<>(files.size());
 
     try {
-      CountDownLatch latch = new CountDownLatch(total);
       for (SourceFile file : files) {
-        pool.submit(
-            () ->
-                runFileIngestionTask(
-                    file, storedFiles, threadWriter.get(), failures, done, progress, latch));
+        futures.add(pool.submit(() -> prepareFileForIngestion(file, storedFiles)));
       }
-      boolean completed = latch.await(SHUTDOWN_TIMEOUT_MINUTES, TimeUnit.MINUTES);
       pool.shutdown();
-      if (!completed) {
+      if (!pool.awaitTermination(SHUTDOWN_TIMEOUT_MINUTES, TimeUnit.MINUTES)) {
         log.warn("Ingestion did not complete within {} minutes.", SHUTDOWN_TIMEOUT_MINUTES);
         pool.shutdownNow();
-        if (!pool.awaitTermination(SHUTDOWN_TIMEOUT_MINUTES, TimeUnit.MINUTES)) {
-          throw new ProcessingException(
-              "Parallel ingestion timed out and worker threads did not stop cleanly");
-        }
-        failures.addAndGet(Math.max(1, total - done.get()));
-      } else if (!pool.awaitTermination(SHUTDOWN_TIMEOUT_MINUTES, TimeUnit.MINUTES)) {
-        pool.shutdownNow();
-        throw new ProcessingException("Parallel ingestion workers did not stop cleanly");
+        throw new ProcessingException("Parallel ingestion preparation timed out");
       }
     } finally {
-      for (Session s : sessions) {
-        try {
-          s.close();
-        } catch (Exception e) {
-          log.debug("Error closing worker session: {}", e.getMessage());
-        }
+      if (!pool.isShutdown()) {
+        pool.shutdownNow();
       }
     }
-    return failures.get();
+
+    int failures = 0;
+    int done = 0;
+    try (Session session = driver.session()) {
+      GraphWriter writer = new GraphWriter(session, project, stats);
+      writer.setRetainedSourcePaths(retainedSourcePaths);
+      for (int i = 0; i < futures.size(); i++) {
+        PreparedFile prepared = preparedFile(files.get(i), futures.get(i));
+        if (!writePreparedFile(writer, prepared)) {
+          failures++;
+        }
+        done++;
+        progress.update(done);
+      }
+    }
+    return failures;
   }
 
-  /** Executes one file-ingestion unit inside a parallel worker thread. */
-  @SuppressWarnings("java:S107")
-  private void runFileIngestionTask(
-      SourceFile file,
-      StoredFileState storedFiles,
-      GraphWriter writer,
-      AtomicInteger failures,
-      AtomicInteger done,
-      IngestionProgress progress,
-      CountDownLatch latch) {
+  private PreparedFile preparedFile(SourceFile file, Future<PreparedFile> future) {
     try {
-      if (!ingestFileBatched(writer, file, storedFiles)) {
-        failures.incrementAndGet();
-      }
-    } catch (Exception e) {
+      return future.get();
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new ProcessingException("Interrupted during ingestion", e);
+    } catch (ExecutionException e) {
       log.warn("Thread failure on {}: {}", file.path(), e.getMessage());
-      failures.incrementAndGet();
-    } finally {
-      int n = done.incrementAndGet();
-      progress.update(n);
-      latch.countDown();
+      return new PreparedFailure(file.path());
+    }
+  }
+
+  private interface PreparedFile {
+
+    Path path();
+
+    boolean success();
+
+    boolean writeRequired();
+  }
+
+  private record PreparedWrite<T>(
+      Path path, LanguageAdapter<T> adapter, T parsed, SourceFileDefinitions definitions)
+      implements PreparedFile {
+
+    @Override
+    public boolean success() {
+      return true;
+    }
+
+    @Override
+    public boolean writeRequired() {
+      return true;
+    }
+  }
+
+  private record PreparedSkip(Path path) implements PreparedFile {
+
+    @Override
+    public boolean success() {
+      return true;
+    }
+
+    @Override
+    public boolean writeRequired() {
+      return false;
+    }
+  }
+
+  private record PreparedFailure(Path path) implements PreparedFile {
+
+    @Override
+    public boolean success() {
+      return false;
+    }
+
+    @Override
+    public boolean writeRequired() {
+      return false;
     }
   }
 

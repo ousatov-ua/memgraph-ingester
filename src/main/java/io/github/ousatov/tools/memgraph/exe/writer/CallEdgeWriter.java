@@ -7,14 +7,12 @@ import com.github.javaparser.ast.expr.ObjectCreationExpr;
 import com.github.javaparser.ast.stmt.ExplicitConstructorInvocationStmt;
 import com.github.javaparser.ast.type.ClassOrInterfaceType;
 import com.github.javaparser.resolution.declarations.ResolvedMethodDeclaration;
-import io.github.ousatov.tools.memgraph.def.Const.Cypher;
 import io.github.ousatov.tools.memgraph.def.Const.Labels;
-import io.github.ousatov.tools.memgraph.def.Const.Params;
 import io.github.ousatov.tools.memgraph.exe.analyze.JavaTypeNames;
 import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.CallWrite;
+import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.PendingCallWrite;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 
 /**
  * Writes CALLS relationships discovered inside method and constructor bodies.
@@ -26,11 +24,9 @@ import java.util.Map;
  */
 final class CallEdgeWriter {
 
-  private final CypherExecutor cypher;
   private final GraphNodeWriter nodes;
 
-  CallEdgeWriter(CypherExecutor cypher, GraphNodeWriter nodes) {
-    this.cypher = cypher;
+  CallEdgeWriter(GraphNodeWriter nodes) {
     this.nodes = nodes;
   }
 
@@ -42,42 +38,54 @@ final class CallEdgeWriter {
    */
   void upsert(String callerSig, String ownerFqn, Node bodyNode) {
     List<CallWrite> resolvedCalls = new ArrayList<>();
+    List<PendingCallWrite> nameCalls = new ArrayList<>();
     bodyNode
         .findAll(MethodCallExpr.class)
-        .forEach(call -> upsertMethodCallEdge(resolvedCalls, callerSig, ownerFqn, call));
+        .forEach(call -> upsertMethodCallEdge(resolvedCalls, nameCalls, callerSig, ownerFqn, call));
 
     bodyNode
         .findAll(MethodReferenceExpr.class)
-        .forEach(ref -> upsertMethodReferenceEdge(resolvedCalls, callerSig, ownerFqn, ref));
+        .forEach(
+            ref -> upsertMethodReferenceEdge(resolvedCalls, nameCalls, callerSig, ownerFqn, ref));
 
     bodyNode
         .findAll(ObjectCreationExpr.class)
-        .forEach(creation -> upsertObjectCreationEdge(resolvedCalls, callerSig, creation));
+        .forEach(
+            creation -> upsertObjectCreationEdge(resolvedCalls, nameCalls, callerSig, creation));
 
     bodyNode
         .findAll(ExplicitConstructorInvocationStmt.class)
-        .forEach(stmt -> upsertExplicitCtorEdge(resolvedCalls, callerSig, ownerFqn, stmt));
+        .forEach(
+            stmt -> upsertExplicitCtorEdge(resolvedCalls, nameCalls, callerSig, ownerFqn, stmt));
 
     nodes.upsertCalls(resolvedCalls);
+    nodes.upsertCallsByName(nameCalls);
   }
 
   private void upsertMethodCallEdge(
-      List<CallWrite> resolvedCalls, String callerSig, String ownerFqn, MethodCallExpr call) {
+      List<CallWrite> resolvedCalls,
+      List<PendingCallWrite> pendingCalls,
+      String callerSig,
+      String ownerFqn,
+      MethodCallExpr call) {
     try {
       ResolvedMethodDeclaration resolved = call.resolve();
       upsertResolvedCall(resolvedCalls, callerSig, resolved);
     } catch (Exception _) {
-      upsertMethodCallFallback(callerSig, ownerFqn, call);
+      upsertMethodCallFallback(pendingCalls, callerSig, ownerFqn, call);
     }
   }
 
-  private void upsertMethodCallFallback(String callerSig, String ownerFqn, MethodCallExpr call) {
+  private void upsertMethodCallFallback(
+      List<PendingCallWrite> pendingCalls, String callerSig, String ownerFqn, MethodCallExpr call) {
     if (call.getScope().isEmpty()) {
-      upsertCallByName(callerSig, ownerFqn, call.getNameAsString());
+      upsertCallByName(pendingCalls, callerSig, ownerFqn, call.getNameAsString());
       return;
     }
     JavaTypeNames.resolveScopeTypeFqn(call)
-        .ifPresent(scopeFqn -> upsertCallByName(callerSig, scopeFqn, call.getNameAsString()));
+        .ifPresent(
+            scopeFqn ->
+                upsertCallByName(pendingCalls, callerSig, scopeFqn, call.getNameAsString()));
   }
 
   /**
@@ -86,10 +94,14 @@ final class CallEdgeWriter {
    * ({@code Type::new}) are dispatched to {@link #upsertConstructorReferenceEdge}.
    */
   private void upsertMethodReferenceEdge(
-      List<CallWrite> resolvedCalls, String callerSig, String ownerFqn, MethodReferenceExpr ref) {
+      List<CallWrite> resolvedCalls,
+      List<PendingCallWrite> pendingCalls,
+      String callerSig,
+      String ownerFqn,
+      MethodReferenceExpr ref) {
     String identifier = ref.getIdentifier();
     if ("new".equals(identifier)) {
-      upsertConstructorReferenceEdge(callerSig, ref);
+      upsertConstructorReferenceEdge(pendingCalls, callerSig, ref);
       return;
     }
     try {
@@ -104,7 +116,7 @@ final class CallEdgeWriter {
               .asClassOrInterfaceType()
               .getNameAsString()
               .equals(JavaTypeNames.nameFromFqn(ownerFqn))) {
-        upsertCallByName(callerSig, ownerFqn, identifier);
+        upsertCallByName(pendingCalls, callerSig, ownerFqn, identifier);
       }
     }
   }
@@ -114,7 +126,10 @@ final class CallEdgeWriter {
    * resolution first; falls back to type-inference plus name-based matching with {@code <init>}.
    */
   private void upsertObjectCreationEdge(
-      List<CallWrite> resolvedCalls, String callerSig, ObjectCreationExpr creation) {
+      List<CallWrite> resolvedCalls,
+      List<PendingCallWrite> pendingCalls,
+      String callerSig,
+      ObjectCreationExpr creation) {
     try {
       var resolvedCtor = creation.resolve();
       upsertResolvedConstructorCall(
@@ -124,7 +139,7 @@ final class CallEdgeWriter {
           resolvedCtor.getQualifiedSignature());
     } catch (Exception _) {
       JavaTypeNames.resolveOrInferFqn(creation.getType())
-          .ifPresent(fqn -> upsertCallByName(callerSig, fqn, Labels.INIT));
+          .ifPresent(fqn -> upsertCallByName(pendingCalls, callerSig, fqn, Labels.INIT));
     }
   }
 
@@ -135,6 +150,7 @@ final class CallEdgeWriter {
    */
   private void upsertExplicitCtorEdge(
       List<CallWrite> resolvedCalls,
+      List<PendingCallWrite> pendingCalls,
       String callerSig,
       String ownerFqn,
       ExplicitConstructorInvocationStmt stmt) {
@@ -147,7 +163,7 @@ final class CallEdgeWriter {
           resolvedCtor.getQualifiedSignature());
     } catch (Exception _) {
       if (stmt.isThis()) {
-        upsertCallByName(callerSig, ownerFqn, Labels.INIT);
+        upsertCallByName(pendingCalls, callerSig, ownerFqn, Labels.INIT);
       }
     }
   }
@@ -156,12 +172,13 @@ final class CallEdgeWriter {
    * Writes a {@code CALLS} edge for a constructor reference ({@code Type::new}). Resolves the scope
    * type and uses name-based matching with {@code <init>}.
    */
-  private void upsertConstructorReferenceEdge(String callerSig, MethodReferenceExpr ref) {
+  private void upsertConstructorReferenceEdge(
+      List<PendingCallWrite> pendingCalls, String callerSig, MethodReferenceExpr ref) {
     var scope = ref.getScope();
     if (scope.isTypeExpr() && scope.asTypeExpr().getType().isClassOrInterfaceType()) {
       ClassOrInterfaceType type = scope.asTypeExpr().getType().asClassOrInterfaceType();
       JavaTypeNames.resolveOrInferFqn(type)
-          .ifPresent(fqn -> upsertCallByName(callerSig, fqn, Labels.INIT));
+          .ifPresent(fqn -> upsertCallByName(pendingCalls, callerSig, fqn, Labels.INIT));
     }
   }
 
@@ -184,10 +201,8 @@ final class CallEdgeWriter {
     resolvedCalls.add(new CallWrite(callerSig, calleeSig));
   }
 
-  private void upsertCallByName(String callerSig, String ownerFqn, String calleeName) {
-    cypher.run(
-        Cypher.CYPHER_UPSERT_CALL_BY_NAME,
-        Map.of(
-            Params.CALLER, callerSig, Params.OWNER_FQN, ownerFqn, Params.CALLEE_NAME, calleeName));
+  private void upsertCallByName(
+      List<PendingCallWrite> pendingCalls, String callerSig, String ownerFqn, String calleeName) {
+    pendingCalls.add(new PendingCallWrite(callerSig, ownerFqn, calleeName));
   }
 }

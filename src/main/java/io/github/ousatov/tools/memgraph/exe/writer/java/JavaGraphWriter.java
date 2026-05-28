@@ -65,8 +65,7 @@ public final class JavaGraphWriter extends CommonGraphWriter {
     upsertImplementedTypes(fqn, decl);
     decl.getEntries().forEach(entry -> upsertEnumConstant(file, fqn, entry));
     decl.getFields().forEach(f -> upsertField(file, fqn, f));
-    decl.getMethods().forEach(m -> upsertMethod(file, fqn, m));
-    decl.getConstructors().forEach(c -> upsertConstructor(file, fqn, c));
+    upsertDeclaredMethods(file, fqn, decl.getMethods(), decl.getConstructors());
     nestedClassDeclarationsOf(decl.getMembers())
         .forEach(nested -> upsertTypeInternal(file, pkg, fqn, nested));
   }
@@ -91,8 +90,7 @@ public final class JavaGraphWriter extends CommonGraphWriter {
     upsertImplementedTypes(fqn, decl);
     decl.getFields().forEach(f -> upsertField(file, fqn, f));
     upsertRecordComponents(file, fqn, decl);
-    decl.getMethods().forEach(m -> upsertMethod(file, fqn, m));
-    decl.getConstructors().forEach(c -> upsertConstructor(file, fqn, c));
+    upsertDeclaredMethods(file, fqn, decl.getMethods(), decl.getConstructors());
     upsertRecordCanonicalConstructor(file, fqn, decl);
     upsertRecordAccessors(file, fqn, decl);
     nestedClassDeclarationsOf(decl.getMembers())
@@ -177,8 +175,7 @@ public final class JavaGraphWriter extends CommonGraphWriter {
     upsertAnnotationsByFqn(fqn, decl);
     upsertInheritance(fqn, decl);
     decl.getFields().forEach(f -> upsertField(file, fqn, f));
-    decl.getMethods().forEach(m -> upsertMethod(file, fqn, m));
-    decl.getConstructors().forEach(c -> upsertConstructor(file, fqn, c));
+    upsertDeclaredMethods(file, fqn, decl.getMethods(), decl.getConstructors());
     if (!decl.isInterface() && decl.getConstructors().isEmpty()) {
       upsertImplicitDefaultConstructor(file, fqn, decl);
     }
@@ -307,38 +304,46 @@ public final class JavaGraphWriter extends CommonGraphWriter {
                 Params.ENUM_MEMBER)));
   }
 
-  private void upsertMethod(Path file, String ownerFqn, MethodDeclaration method) {
-    String signature = JavaTypeNames.buildSignature(ownerFqn, method);
-    upsertMethodNode(
-        file,
-        new Method(
-            ownerFqn,
-            signature,
-            method.getNameAsString(),
-            JavaTypeNames.resolveType(method.getType()),
-            method.isStatic(),
-            method.getAccessSpecifier().asString(),
-            method.getBegin().map(p -> p.line).orElse(0),
-            method.getEnd().map(p -> p.line).orElse(0),
-            false));
-    upsertAnnotationsBySig(signature, method);
+  private void upsertDeclaredMethods(
+      Path file,
+      String ownerFqn,
+      List<MethodDeclaration> methods,
+      List<ConstructorDeclaration> constructors) {
+    List<Method> writes = new ArrayList<>(methods.size() + constructors.size());
+    methods.forEach(method -> writes.add(methodWrite(ownerFqn, method)));
+    constructors.forEach(ctor -> writes.add(constructorWrite(ownerFqn, ctor)));
+    upsertMethodNodes(file, writes);
+    methods.forEach(
+        method -> upsertAnnotationsBySig(JavaTypeNames.buildSignature(ownerFqn, method), method));
+    constructors.forEach(
+        ctor ->
+            upsertAnnotationsBySig(JavaTypeNames.buildConstructorSignature(ownerFqn, ctor), ctor));
   }
 
-  private void upsertConstructor(Path file, String ownerFqn, ConstructorDeclaration ctor) {
-    String signature = JavaTypeNames.buildConstructorSignature(ownerFqn, ctor);
-    upsertMethodNode(
-        file,
-        new Method(
-            ownerFqn,
-            signature,
-            Labels.INIT,
-            Labels.VOID,
-            false,
-            ctor.getAccessSpecifier().asString(),
-            ctor.getBegin().map(p -> p.line).orElse(0),
-            ctor.getEnd().map(p -> p.line).orElse(0),
-            false));
-    upsertAnnotationsBySig(signature, ctor);
+  private static Method methodWrite(String ownerFqn, MethodDeclaration method) {
+    return new Method(
+        ownerFqn,
+        JavaTypeNames.buildSignature(ownerFqn, method),
+        method.getNameAsString(),
+        JavaTypeNames.resolveType(method.getType()),
+        method.isStatic(),
+        method.getAccessSpecifier().asString(),
+        method.getBegin().map(p -> p.line).orElse(0),
+        method.getEnd().map(p -> p.line).orElse(0),
+        false);
+  }
+
+  private static Method constructorWrite(String ownerFqn, ConstructorDeclaration ctor) {
+    return new Method(
+        ownerFqn,
+        JavaTypeNames.buildConstructorSignature(ownerFqn, ctor),
+        Labels.INIT,
+        Labels.VOID,
+        false,
+        ctor.getAccessSpecifier().asString(),
+        ctor.getBegin().map(p -> p.line).orElse(0),
+        ctor.getEnd().map(p -> p.line).orElse(0),
+        false);
   }
 
   private void upsertRecordCanonicalConstructor(Path file, String fqn, RecordDeclaration decl) {

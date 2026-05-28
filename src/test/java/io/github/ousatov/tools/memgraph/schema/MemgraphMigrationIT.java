@@ -125,6 +125,7 @@ class MemgraphMigrationIT {
 
       assertTrue(Memgraph.hasLanguageScopedCodeSchema(session));
       assertTrue(Memgraph.hasRagChunkSchema(session));
+      assertTrue(Memgraph.hasPerformanceIndexes(session));
     }
   }
 
@@ -142,6 +143,7 @@ class MemgraphMigrationIT {
       Memgraph.applySchema(session);
 
       assertTrue(Memgraph.hasRagChunkSchema(session));
+      assertTrue(Memgraph.hasPerformanceIndexes(session));
     }
   }
 

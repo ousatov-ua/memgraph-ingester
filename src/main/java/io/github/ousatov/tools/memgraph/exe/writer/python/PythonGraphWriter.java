@@ -120,7 +120,7 @@ public final class PythonGraphWriter extends CommonGraphWriter {
   /** Upserts prebuilt Python members in batches. */
   public void upsertMembers(Path file, Collection<FieldWrite> fields, Collection<Method> methods) {
     upsertFieldNodes(file, fields);
-    methods.forEach(method -> upsertMethodNode(file, method));
+    upsertMethodNodes(file, methods);
   }
 
   /** Upserts a Python field. */

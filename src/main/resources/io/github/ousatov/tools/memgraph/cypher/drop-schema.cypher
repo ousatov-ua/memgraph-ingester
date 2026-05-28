@@ -83,11 +83,13 @@ DROP INDEX ON :ADR(project);
 DROP INDEX ON :ADR(status);
 
 DROP INDEX ON :MemoryChunk(project);
+DROP INDEX ON :MemoryChunk(id);
 DROP INDEX ON :MemoryChunk(sourceLabel);
 DROP INDEX ON :MemoryChunk(sourceId);
 DROP INDEX ON :MemoryChunk(textHash);
 DROP INDEX ON :MemoryChunk(embeddingModel);
 DROP INDEX ON :MemoryChunk(embeddingDimensions);
+DROP INDEX ON :MemoryChunk(embeddingDirty);
 
 
 // =====================================================
@@ -100,33 +102,49 @@ DROP INDEX ON :Code(language);
 DROP INDEX ON :Language(project);
 DROP INDEX ON :Language(name);
 
+DROP INDEX ON :File(project);
+DROP INDEX ON :File(path);
+DROP INDEX ON :File(language);
+
+DROP INDEX ON :Package(project);
+DROP INDEX ON :Package(name);
+
 DROP INDEX ON :Class(project);
+DROP INDEX ON :Class(fqn);
 DROP INDEX ON :Class(name);
 
 DROP INDEX ON :Interface(project);
+DROP INDEX ON :Interface(fqn);
 DROP INDEX ON :Interface(name);
 
 DROP INDEX ON :Annotation(project);
+DROP INDEX ON :Annotation(fqn);
 DROP INDEX ON :Annotation(name);
 
 DROP INDEX ON :Method(project);
+DROP INDEX ON :Method(signature);
 DROP INDEX ON :Method(name);
 DROP INDEX ON :Method(ownerFqn);
 
 DROP INDEX ON :Field(project);
+DROP INDEX ON :Field(fqn);
 DROP INDEX ON :Field(name);
 
 DROP INDEX ON :Class(packageName);
 DROP INDEX ON :Package(language);
 DROP INDEX ON :PendingCall(project);
+DROP INDEX ON :PendingCall(callerSignature);
 DROP INDEX ON :PendingCall(calleeOwnerFqn);
+DROP INDEX ON :PendingCall(calleeName);
 
 DROP INDEX ON :CodeChunk(project);
+DROP INDEX ON :CodeChunk(id);
 DROP INDEX ON :CodeChunk(sourceLabel);
 DROP INDEX ON :CodeChunk(sourceId);
 DROP INDEX ON :CodeChunk(textHash);
 DROP INDEX ON :CodeChunk(embeddingModel);
 DROP INDEX ON :CodeChunk(embeddingDimensions);
+DROP INDEX ON :CodeChunk(embeddingDirty);
 DROP INDEX ON :CodeChunk(language);
 DROP INDEX ON :CodeChunk(path);
 DROP INDEX ON :CodeChunk(ownerFqn);

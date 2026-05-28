@@ -17,6 +17,7 @@ END |
   REMOVE chunk.embedding
   REMOVE chunk.embeddingModel
   REMOVE chunk.embeddingDimensions
+  SET chunk.embeddingDirty = true
 )
 WITH chunk, row
 MATCH (source {project: $project, id: row.sourceId})

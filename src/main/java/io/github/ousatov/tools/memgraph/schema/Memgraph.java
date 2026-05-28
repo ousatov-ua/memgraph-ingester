@@ -238,6 +238,27 @@ public final class Memgraph {
         && indexes.contains(indexKey(Labels.CODE_CHUNK, "signature"));
   }
 
+  /** Returns whether performance-critical single-property lookup indexes are present. */
+  public static boolean hasPerformanceIndexes(Session session) {
+    Set<String> indexes = labelPropertyIndexes(session);
+    return indexes.contains(indexKey(Labels.FILE, Labels.PROJECT))
+        && indexes.contains(indexKey(Labels.FILE, Params.PATH))
+        && indexes.contains(indexKey(Labels.FILE, Params.LANGUAGE))
+        && indexes.contains(indexKey(Labels.PACKAGE, Labels.PROJECT))
+        && indexes.contains(indexKey(Labels.PACKAGE, Params.NAME))
+        && indexes.contains(indexKey(Labels.CLASS, Params.FQN))
+        && indexes.contains(indexKey(Labels.INTERFACE, Params.FQN))
+        && indexes.contains(indexKey(Labels.ANNOTATION, Params.FQN))
+        && indexes.contains(indexKey(Labels.METHOD, "signature"))
+        && indexes.contains(indexKey(Labels.FIELD, Params.FQN))
+        && indexes.contains(indexKey(Labels.PENDING_CALL, Params.CALLER_SIGNATURE))
+        && indexes.contains(indexKey(Labels.PENDING_CALL, Params.CALLEE_NAME))
+        && indexes.contains(indexKey(Labels.CODE_CHUNK, Params.ID))
+        && indexes.contains(indexKey(Labels.CODE_CHUNK, "embeddingDirty"))
+        && indexes.contains(indexKey(Labels.MEMORY_CHUNK, Params.ID))
+        && indexes.contains(indexKey(Labels.MEMORY_CHUNK, "embeddingDirty"));
+  }
+
   private static Set<String> labelPropertyIndexes(Session session) {
     Set<String> indexes = new HashSet<>();
     Result result = session.run("SHOW INDEX INFO");

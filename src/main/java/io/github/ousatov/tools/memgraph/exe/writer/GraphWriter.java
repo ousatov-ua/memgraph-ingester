@@ -81,7 +81,7 @@ public final class GraphWriter {
   public GraphWriter(Session session, String project, IngestionRunStats stats) {
     this.cypher = new CypherExecutor(session, project, stats);
     this.nodes = new GraphNodeWriter(cypher);
-    CallEdgeWriter callEdges = new CallEdgeWriter(cypher, nodes);
+    CallEdgeWriter callEdges = new CallEdgeWriter(nodes);
     this.dependencies = new CommonGraphWriter.Dependencies(cypher, callEdges, nodes);
     this.stats = stats;
   }
@@ -976,7 +976,7 @@ public final class GraphWriter {
     Map<String, Object> params =
         Map.of("modelName", settings.modelName(), Rag.DIMENSION, dimension);
     return cypher.read(
-        Cypher.CYPHER_COUNT_STALE_CODE_CHUNK_EMBEDDINGS,
+        Cypher.CYPHER_MARK_STALE_CODE_CHUNK_EMBEDDINGS,
         params,
         result -> result.single().get("count").asLong());
   }
@@ -985,7 +985,7 @@ public final class GraphWriter {
     Map<String, Object> params =
         Map.of("modelName", settings.modelName(), Rag.DIMENSION, dimension);
     return cypher.read(
-        Cypher.CYPHER_COUNT_STALE_MEMORY_CHUNK_EMBEDDINGS,
+        Cypher.CYPHER_MARK_STALE_MEMORY_CHUNK_EMBEDDINGS,
         params,
         result -> result.single().get("count").asLong());
   }

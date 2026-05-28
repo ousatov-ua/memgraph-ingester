@@ -147,7 +147,9 @@ class CypherResourceTest {
   @Test
   void codeChunkRefreshResourcesPreserveEmbeddingOnlyWhenTextHashMatches() {
     String upsert = Const.Cypher.CYPHER_UPSERT_CODE_CHUNKS_BATCH;
-    String link = Const.Cypher.CYPHER_LINK_CODE_CHUNKS_BATCH;
+    String callsByName = Const.Cypher.CYPHER_UPSERT_CALLS_BY_NAME_BATCH;
+    String linkFile = Const.Cypher.CYPHER_LINK_FILE_CODE_CHUNKS_BATCH;
+    String linkMethod = Const.Cypher.CYPHER_LINK_METHOD_CODE_CHUNKS_BATCH;
     String deleteMissing = Const.Cypher.CYPHER_DELETE_CODE_CHUNKS_FOR_FILES;
     String pathsMissingCodeChunks = Const.Cypher.CYPHER_GET_FILE_PATHS_MISSING_CODE_CHUNKS;
     String wipeCodeRag = Const.Cypher.CYPHER_WIPE_CODE_RAG_BATCH;
@@ -155,7 +157,7 @@ class CypherResourceTest {
     String createIndex = Const.Cypher.CYPHER_CREATE_CODE_CHUNK_VECTOR_INDEX;
     String showIndex = Const.Cypher.CYPHER_SHOW_VECTOR_INDEX_INFO;
     String countChunks = Const.Cypher.CYPHER_COUNT_CODE_CHUNKS;
-    String countStaleEmbeddings = Const.Cypher.CYPHER_COUNT_STALE_CODE_CHUNK_EMBEDDINGS;
+    String markStaleEmbeddings = Const.Cypher.CYPHER_MARK_STALE_CODE_CHUNK_EMBEDDINGS;
     String refreshEmbeddings = Const.Cypher.CYPHER_REFRESH_CODE_CHUNK_EMBEDDING_BATCH;
     String updateEmbeddingMetadata = Const.Cypher.CYPHER_UPDATE_CODE_CHUNK_EMBEDDING_METADATA;
     String failureDetail = Const.Cypher.CYPHER_GET_CODE_CHUNK_EMBEDDING_FAILURE_DETAIL;
@@ -165,7 +167,7 @@ class CypherResourceTest {
     String deleteStaleMemoryChunks = Const.Cypher.CYPHER_DELETE_STALE_MEMORY_CHUNKS;
     String wipeMemoryRag = Const.Cypher.CYPHER_WIPE_MEMORY_RAG_BATCH;
     String upsertMemoryChunks = Const.Cypher.CYPHER_UPSERT_MEMORY_CHUNKS_BATCH;
-    String countStaleMemoryEmbeddings = Const.Cypher.CYPHER_COUNT_STALE_MEMORY_CHUNK_EMBEDDINGS;
+    String markStaleMemoryEmbeddings = Const.Cypher.CYPHER_MARK_STALE_MEMORY_CHUNK_EMBEDDINGS;
     String refreshMemoryEmbeddings = Const.Cypher.CYPHER_REFRESH_MEMORY_CHUNK_EMBEDDING_BATCH;
     String updateMemoryEmbeddingMetadata =
         Const.Cypher.CYPHER_UPDATE_MEMORY_CHUNK_EMBEDDING_METADATA;
@@ -175,8 +177,14 @@ class CypherResourceTest {
     assertTrue(upsert.contains("chunk.textHash AS previousTextHash"));
     assertTrue(upsert.contains("previousTextHash <> row.textHash"));
     assertTrue(upsert.contains("REMOVE chunk.embedding"));
-    assertTrue(link.contains("MERGE (file)-[:HAS_RAG_CHUNK]->(chunk)"));
-    assertTrue(link.contains("MERGE (methodNode)-[:HAS_RAG_CHUNK]->(chunk)"));
+    assertTrue(upsert.contains("SET chunk.embeddingDirty = true"));
+    assertTrue(callsByName.contains("UNWIND $rows AS row"));
+    assertTrue(callsByName.contains("row.caller AS callerSignature"));
+    assertTrue(callsByName.contains("MERGE (caller)-[:CALLS]->(callee)"));
+    assertTrue(linkFile.contains("MATCH (source:File"));
+    assertTrue(linkFile.contains("MERGE (source)-[:HAS_RAG_CHUNK]->(chunk)"));
+    assertTrue(linkMethod.contains("MATCH (source:Method"));
+    assertTrue(linkMethod.contains("MERGE (source)-[:HAS_RAG_CHUNK]->(chunk)"));
 
     assertTrue(Const.Cypher.CYPHER_DELETE_CODE_CHUNKS_FOR_FILE.contains("chunk:CodeChunk"));
     assertTrue(deleteMissing.contains("chunk.path STARTS WITH $sourceRootPrefix"));
@@ -192,12 +200,15 @@ class CypherResourceTest {
     assertTrue(showIndex.contains("SHOW VECTOR INDEX INFO"));
     assertTrue(countChunks.contains("RETURN count(chunk) AS count"));
     assertFalse(countChunks.contains("{project: $project}"));
-    assertTrue(countStaleEmbeddings.contains("RETURN count(chunk) AS count"));
-    assertTrue(countStaleEmbeddings.contains("chunk.embeddingModel <> $modelName"));
+    assertTrue(markStaleEmbeddings.contains("RETURN count(chunk) AS count"));
+    assertTrue(markStaleEmbeddings.contains("chunk.embeddingModel <> $modelName"));
+    assertTrue(markStaleEmbeddings.contains("SET chunk.embeddingDirty = true"));
     assertTrue(refreshEmbeddings.contains("CALL embeddings.node_sentence(chunks, $config)"));
+    assertTrue(refreshEmbeddings.contains("embeddingDirty: true"));
     assertTrue(refreshEmbeddings.contains("ORDER BY chunk.id"));
     assertTrue(refreshEmbeddings.contains("RETURN success AS success"));
     assertTrue(updateEmbeddingMetadata.contains("SET chunk.embeddingModel = $modelName"));
+    assertTrue(updateEmbeddingMetadata.contains("chunk.embeddingDirty = false"));
     assertTrue(failureDetail.contains("substring(chunk.text, 0, 240) AS preview"));
     assertTrue(createMemoryIndex.contains("CREATE VECTOR INDEX __INDEX_NAME__"));
     assertTrue(createMemoryIndex.contains("ON :MemoryChunk"));
@@ -213,11 +224,15 @@ class CypherResourceTest {
     assertTrue(upsertMemoryChunks.contains("MERGE (chunk:MemoryChunk"));
     assertTrue(upsertMemoryChunks.contains("previousTextHash <> row.textHash"));
     assertTrue(upsertMemoryChunks.contains("REMOVE chunk.embedding"));
+    assertTrue(upsertMemoryChunks.contains("SET chunk.embeddingDirty = true"));
     assertTrue(upsertMemoryChunks.contains("MERGE (source)-[:HAS_RAG_CHUNK]->(chunk)"));
-    assertTrue(countStaleMemoryEmbeddings.contains("chunk.embeddingModel <> $modelName"));
+    assertTrue(markStaleMemoryEmbeddings.contains("chunk.embeddingModel <> $modelName"));
+    assertTrue(markStaleMemoryEmbeddings.contains("SET chunk.embeddingDirty = true"));
     assertTrue(refreshMemoryEmbeddings.contains("CALL embeddings.node_sentence(chunks, $config)"));
+    assertTrue(refreshMemoryEmbeddings.contains("embeddingDirty: true"));
     assertTrue(refreshMemoryEmbeddings.contains("ORDER BY chunk.id"));
     assertTrue(updateMemoryEmbeddingMetadata.contains("SET chunk.embeddingModel = $modelName"));
+    assertTrue(updateMemoryEmbeddingMetadata.contains("chunk.embeddingDirty = false"));
     assertTrue(memoryFailureDetail.contains("substring(chunk.text, 0, 240) AS preview"));
   }
 
