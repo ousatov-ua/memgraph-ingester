@@ -268,7 +268,8 @@ public final class CtagsLanguageAdapter implements LanguageAdapter<CtagsAnalysis
 
   @Override
   public boolean shouldVisitDirectory(Path directory) {
-    return !isInSkippedDirectory(directory);
+    return LanguageAdapter.shouldVisitSourceDirectory(directory)
+        && !isInSkippedDirectory(directory);
   }
 
   @Override

@@ -39,6 +39,7 @@ class PythonLanguageAdapterTest {
     assertFalse(adapter.accepts(Path.of("node_modules/pkg/app.py")));
     assertFalse(adapter.accepts(Path.of(".venv/lib/python/site-packages/pkg/app.py")));
     assertFalse(adapter.accepts(Path.of("dist/app.py")));
+    assertFalse(adapter.accepts(Path.of("target/classes/app.py")));
   }
 
   @Test
@@ -52,6 +53,18 @@ class PythonLanguageAdapterTest {
     Files.writeString(appFile, "value = 1\n");
     Files.writeString(dependencyFile, "value = 2\n");
     Files.writeString(cacheFile, "value = 3\n");
+
+    assertIterableEquals(List.of(appFile), adapter.discoverFiles(tempDir));
+  }
+
+  @Test
+  void discoverFilesSkipsTargetSubtree() throws IOException {
+    Path appFile = tempDir.resolve("src/app.py");
+    Path targetFile = tempDir.resolve("target/classes/app.py");
+    Files.createDirectories(appFile.getParent());
+    Files.createDirectories(targetFile.getParent());
+    Files.writeString(appFile, "value = 1\n");
+    Files.writeString(targetFile, "value = 2\n");
 
     assertIterableEquals(List.of(appFile), adapter.discoverFiles(tempDir));
   }

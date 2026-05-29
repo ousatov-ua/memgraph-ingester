@@ -983,6 +983,11 @@ class IngestionOrchestratorIT {
     Files.writeString(buildJavaFile, "public class BuildSource { int ok() { return 1; } }");
     Path buildPythonFile = buildJavaFile.getParent().resolve("ignored.py");
     Files.writeString(buildPythonFile, "value = 1\n");
+    Path targetJavaFile = sourceDir.resolve("target/classes/Generated.java");
+    Files.createDirectories(targetJavaFile.getParent());
+    Files.writeString(targetJavaFile, "public class Generated { int bad() { return 1; } }");
+    Path targetPythonFile = targetJavaFile.getParent().resolve("generated.py");
+    Files.writeString(targetPythonFile, "value = 1\n");
     Path venvJavaFile = sourceDir.resolve(".venv/Leak.java");
     Files.createDirectories(venvJavaFile.getParent());
     Files.writeString(venvJavaFile, "public class Leak { int bad() { return 1; } }");
@@ -1002,6 +1007,8 @@ class IngestionOrchestratorIT {
     assertTrue(fileExistsInGraph(currentProject, appFile));
     assertTrue(fileExistsInGraph(currentProject, buildJavaFile));
     assertFalse(fileExistsInGraph(currentProject, buildPythonFile));
+    assertFalse(fileExistsInGraph(currentProject, targetJavaFile));
+    assertFalse(fileExistsInGraph(currentProject, targetPythonFile));
     assertTrue(fileExistsInGraph(currentProject, venvJavaFile));
   }
 
@@ -3053,6 +3060,43 @@ class IngestionOrchestratorIT {
           ownerEdges.contains("AAACaller -> BBBService"),
           "CALLS summaries should use persisted Method owner metadata");
     }
+  }
+
+  @Test
+  void broadSourceRootCreatesCrossFileCallEdges() throws Exception {
+    currentProject = PROJECT_BASE + "-broad-xfile";
+    sourceDir = Files.createTempDirectory("orch-broad-xfile-src-");
+    Path pkgDir = sourceDir.resolve("src/main/java/com/example");
+    Files.createDirectories(pkgDir);
+    Files.writeString(
+        pkgDir.resolve("AAACaller.java"),
+        """
+        package com.example;
+
+        public class AAACaller {
+          public void doWork() {
+            new BBBService().serve();
+          }
+        }
+        """);
+    Files.writeString(
+        pkgDir.resolve("BBBService.java"),
+        """
+        package com.example;
+
+        public class BBBService {
+          public void serve() {}
+        }
+        """);
+
+    int failures =
+        new IngestionOrchestrator(sourceDir, currentProject, 1, driver, new ParseService(sourceDir))
+            .run(Settings.def());
+
+    assertEquals(0, failures);
+    assertTrue(
+        callEdgeExists(
+            currentProject, "com.example.AAACaller.doWork()", "com.example.BBBService.serve()"));
   }
 
   @Test

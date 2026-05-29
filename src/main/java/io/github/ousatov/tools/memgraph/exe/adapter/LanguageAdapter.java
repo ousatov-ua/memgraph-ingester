@@ -60,8 +60,17 @@ public interface LanguageAdapter<T> {
 
   /** Returns true when discovery should descend into {@code directory}. */
   default boolean shouldVisitDirectory(Path directory) {
+    return shouldVisitSourceDirectory(directory);
+  }
+
+  /** Returns true when language discovery should visit a source-root-local directory. */
+  static boolean shouldVisitSourceDirectory(Path directory) {
     Path fileName = directory.getFileName();
-    return fileName == null || !Const.Files.NODE_MODULES.equals(fileName.toString());
+    return fileName == null || !isCommonSkippedDirectory(fileName.toString());
+  }
+
+  private static boolean isCommonSkippedDirectory(String fileName) {
+    return Const.Files.NODE_MODULES.equals(fileName) || Const.Files.TARGET.equals(fileName);
   }
 
   /** Returns {@code path} as a source-root-local path when both paths are compatible. */

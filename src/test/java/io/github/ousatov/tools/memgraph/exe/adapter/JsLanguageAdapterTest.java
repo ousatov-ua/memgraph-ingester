@@ -55,6 +55,18 @@ class JsLanguageAdapterTest {
   }
 
   @Test
+  void discoverFilesSkipsTargetSubtree() throws IOException {
+    Path appFile = tempDir.resolve("src/app.ts");
+    Path targetFile = tempDir.resolve("target/classes/app.js");
+    Files.createDirectories(appFile.getParent());
+    Files.createDirectories(targetFile.getParent());
+    Files.writeString(appFile, "export const app = 1;");
+    Files.writeString(targetFile, "export const generated = 1;");
+
+    assertIterableEquals(List.of(appFile), adapter.discoverFiles(tempDir));
+  }
+
+  @Test
   void discoverFilesIgnoresNodeModulesOutsideSourceRoot() throws IOException {
     Path sourceRoot = tempDir.resolve("node_modules/project");
     Path appFile = sourceRoot.resolve("src/app.ts");

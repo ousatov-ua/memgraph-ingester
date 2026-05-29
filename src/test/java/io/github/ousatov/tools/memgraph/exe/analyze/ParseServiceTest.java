@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
+import com.github.javaparser.ast.expr.MethodCallExpr;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -133,6 +134,68 @@ class ParseServiceTest {
     String sig = useMethod.resolve().getQualifiedSignature();
 
     assertEquals("com.example.Bar.use(com.example.Foo)", sig);
+  }
+
+  @Test
+  void autoDetectsStandardProjectSourceRoots() throws IOException {
+    Path mainJava = tempDir.resolve("src/main/java/com/example");
+    Path testJava = tempDir.resolve("src/test/java/com/example");
+    Files.createDirectories(mainJava);
+    Files.createDirectories(testJava);
+    Files.writeString(
+        mainJava.resolve("Service.java"),
+        """
+        package com.example;
+        public class Service { public void serve() {} }
+        """);
+    Files.writeString(
+        testJava.resolve("ServiceTest.java"),
+        """
+        package com.example;
+        public class ServiceTest {
+          public void run() {
+            new Service().serve();
+          }
+        }
+        """);
+
+    var svc = new ParseService(tempDir);
+    var cu = svc.parse(testJava.resolve("ServiceTest.java")).orElseThrow();
+    var call =
+        cu.findFirst(MethodCallExpr.class, expr -> "serve".equals(expr.getNameAsString()))
+            .orElseThrow();
+
+    assertEquals("com.example.Service.serve()", call.resolve().getQualifiedSignature());
+  }
+
+  @Test
+  void autoDetectsSubmoduleSourceRoots() throws IOException {
+    Path mainJava = tempDir.resolve("module-a/src/main/java/com/example");
+    Files.createDirectories(mainJava);
+    Files.writeString(
+        mainJava.resolve("Worker.java"),
+        """
+        package com.example;
+        public class Worker { public void work() {} }
+        """);
+    Files.writeString(
+        mainJava.resolve("Client.java"),
+        """
+        package com.example;
+        public class Client {
+          public void run() {
+            new Worker().work();
+          }
+        }
+        """);
+
+    var svc = new ParseService(tempDir);
+    var cu = svc.parse(mainJava.resolve("Client.java")).orElseThrow();
+    var call =
+        cu.findFirst(MethodCallExpr.class, expr -> "work".equals(expr.getNameAsString()))
+            .orElseThrow();
+
+    assertEquals("com.example.Worker.work()", call.resolve().getQualifiedSignature());
   }
 
   @Test

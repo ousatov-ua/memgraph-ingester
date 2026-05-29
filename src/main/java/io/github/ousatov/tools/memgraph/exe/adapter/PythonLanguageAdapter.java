@@ -32,6 +32,7 @@ public final class PythonLanguageAdapter extends AbstractModuleLanguageAdapter<P
           Const.Files.NOX,
           Const.Files.SITE_PACKAGES,
           Const.Files.BUILD,
+          Const.Files.TARGET,
           Const.Files.DIST);
 
   private final PythonAnalyzer analyzer;
@@ -56,7 +57,8 @@ public final class PythonLanguageAdapter extends AbstractModuleLanguageAdapter<P
 
   @Override
   public boolean shouldVisitDirectory(Path directory) {
-    return !isInSkippedDirectory(directory);
+    return LanguageAdapter.shouldVisitSourceDirectory(directory)
+        && !isInSkippedDirectory(directory);
   }
 
   @Override

@@ -137,6 +137,21 @@ class CtagsLanguageAdapterTest {
   }
 
   @Test
+  void discoverFilesSkipsTargetSubtree() throws IOException {
+    assumeFalse(isWindows(), "fake executable script is POSIX-only");
+    Path sourceRoot = tempDir.resolve("repo");
+    CtagsLanguageAdapter adapter = adapterWithFakeCtags(sourceRoot, "Ruby");
+    Path rubyFile = sourceRoot.resolve("app/service.rb");
+    Path targetFile = sourceRoot.resolve("target/classes/service.rb");
+    Files.createDirectories(rubyFile.getParent());
+    Files.createDirectories(targetFile.getParent());
+    Files.writeString(rubyFile, "class Service\nend\n");
+    Files.writeString(targetFile, "class GeneratedService\nend\n");
+
+    assertIterableEquals(List.of(rubyFile), adapter.discoverFiles(sourceRoot));
+  }
+
+  @Test
   void acceptsDeletedFallbackPathWithoutReadingMissingFile() throws IOException {
     assumeFalse(isWindows(), "fake executable script is POSIX-only");
     Path sourceRoot = tempDir.resolve("repo");

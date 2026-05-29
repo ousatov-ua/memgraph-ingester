@@ -58,7 +58,7 @@ public final class JsLanguageAdapter extends AbstractModuleLanguageAdapter<JsAna
 
   @Override
   public boolean shouldVisitDirectory(Path directory) {
-    return !isInNodeModules(directory);
+    return LanguageAdapter.shouldVisitSourceDirectory(directory) && !isInNodeModules(directory);
   }
 
   @Override

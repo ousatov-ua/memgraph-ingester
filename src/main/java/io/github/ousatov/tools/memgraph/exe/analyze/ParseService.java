@@ -11,10 +11,17 @@ import com.github.javaparser.symbolsolver.resolution.typesolvers.JavaParserTypeS
 import com.github.javaparser.symbolsolver.resolution.typesolvers.ReflectionTypeSolver;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.SimpleFileVisitor;
+import java.nio.file.attribute.BasicFileAttributes;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 import java.util.zip.ZipOutputStream;
@@ -34,6 +41,14 @@ import org.slf4j.LoggerFactory;
 public final class ParseService {
 
   private static final Logger log = LoggerFactory.getLogger(ParseService.class);
+  private static final List<Path> STANDARD_JAVA_SOURCE_ROOT_SUFFIXES =
+      List.of(
+          Path.of("main", "java"),
+          Path.of("test", "java"),
+          Path.of("src", "main", "java"),
+          Path.of("src", "test", "java"));
+  private static final Set<String> SOURCE_ROOT_SCAN_SKIPPED_DIRECTORIES =
+      Set.of(".git", ".hg", ".svn", ".gradle", "target", "build", "out", "node_modules");
 
   private final ParserConfiguration config;
   private final ThreadLocal<JavaParser> parser;
@@ -166,20 +181,70 @@ public final class ParseService {
   }
 
   /**
-   * Registers {@code sourceRoot} as a type solver and auto-detects Maven-standard subdirectories
-   * ({@code main/java}, {@code test/java}) if they exist under it.
+   * Registers {@code sourceRoot} as a type solver and auto-detects Maven-standard Java roots below
+   * it, including nested module roots such as {@code src/main/java}.
    */
   private static void addSourceRoots(CombinedTypeSolver solver, Path sourceRoot) {
-    solver.add(new JavaParserTypeSolver(sourceRoot));
-    Path mainJava = sourceRoot.resolve("main/java");
-    if (Files.isDirectory(mainJava)) {
-      solver.add(new JavaParserTypeSolver(mainJava));
-      log.info("Auto-detected source root: {}", mainJava);
+    for (Path root : javaSourceRoots(sourceRoot)) {
+      solver.add(new JavaParserTypeSolver(root));
+      if (!sameNormalizedPath(sourceRoot, root)) {
+        log.info("Auto-detected source root: {}", root);
+      }
     }
-    Path testJava = sourceRoot.resolve("test/java");
-    if (Files.isDirectory(testJava)) {
-      solver.add(new JavaParserTypeSolver(testJava));
-      log.info("Auto-detected source root: {}", testJava);
+  }
+
+  /** Returns JavaParser source roots in deterministic order, keeping {@code sourceRoot} first. */
+  static List<Path> javaSourceRoots(Path sourceRoot) {
+    LinkedHashSet<Path> roots = new LinkedHashSet<>();
+    roots.add(sourceRoot);
+    if (!Files.isDirectory(sourceRoot)) {
+      return List.copyOf(roots);
     }
+    List<Path> detectedRoots = new ArrayList<>();
+    detectJavaSourceRoots(sourceRoot, detectedRoots);
+    detectedRoots.stream().sorted(Comparator.comparing(Path::toString)).forEach(roots::add);
+    return List.copyOf(roots);
+  }
+
+  /** Collects standard Java roots while pruning build and dependency directories. */
+  private static void detectJavaSourceRoots(Path sourceRoot, List<Path> detectedRoots) {
+    try {
+      Files.walkFileTree(
+          sourceRoot,
+          new SimpleFileVisitor<>() {
+            @Override
+            public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) {
+              if (shouldSkipSourceRootScan(sourceRoot, dir)) {
+                return FileVisitResult.SKIP_SUBTREE;
+              }
+              if (isStandardJavaSourceRoot(dir)) {
+                detectedRoots.add(dir);
+                return FileVisitResult.SKIP_SUBTREE;
+              }
+              return FileVisitResult.CONTINUE;
+            }
+          });
+    } catch (IOException e) {
+      log.debug("Could not scan Java source roots under {}: {}", sourceRoot, e.getMessage());
+    }
+  }
+
+  /** Returns true when scanning can ignore {@code dir} without missing source roots. */
+  private static boolean shouldSkipSourceRootScan(Path sourceRoot, Path dir) {
+    if (sameNormalizedPath(sourceRoot, dir)) {
+      return false;
+    }
+    Path fileName = dir.getFileName();
+    return fileName != null && SOURCE_ROOT_SCAN_SKIPPED_DIRECTORIES.contains(fileName.toString());
+  }
+
+  /** Returns true for Maven-style Java package roots. */
+  private static boolean isStandardJavaSourceRoot(Path dir) {
+    return STANDARD_JAVA_SOURCE_ROOT_SUFFIXES.stream().anyMatch(dir::endsWith);
+  }
+
+  /** Compares normalized path values without resolving symlinks. */
+  private static boolean sameNormalizedPath(Path first, Path second) {
+    return first.normalize().equals(second.normalize());
   }
 }
