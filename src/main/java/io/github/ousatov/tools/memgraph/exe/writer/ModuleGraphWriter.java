@@ -1,7 +1,6 @@
 package io.github.ousatov.tools.memgraph.exe.writer;
 
 import io.github.ousatov.tools.memgraph.def.Const;
-import io.github.ousatov.tools.memgraph.def.Const.Cypher;
 import io.github.ousatov.tools.memgraph.def.Const.Labels;
 import io.github.ousatov.tools.memgraph.def.Const.Params;
 import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.FieldWrite;
@@ -109,14 +108,7 @@ public abstract class ModuleGraphWriter extends CommonGraphWriter {
 
   /** Writes a class {@code EXTENDS} relation. */
   public void upsertExtendsClass(String childFqn, String parentFqn) {
-    upsertTypeRelation(
-        Cypher.CYPHER_UPSERT_EXTENDS_CLASS,
-        childFqn,
-        parentFqn,
-        Params.PARENT,
-        Params.PARENT_NAME,
-        Params.PARENT_PKG,
-        languageGraphName);
+    upsertClassExtends(childFqn, parentFqn, languageGraphName);
   }
 
   /** Upserts prebuilt members in batches. */

@@ -14,6 +14,7 @@ import com.github.javaparser.symbolsolver.resolution.typesolvers.ReflectionTypeS
 import io.github.ousatov.tools.memgraph.exe.adapter.SourceFileDefinitions;
 import io.github.ousatov.tools.memgraph.exe.adapter.SourceLanguage;
 import io.github.ousatov.tools.memgraph.exe.analyze.ParseService;
+import io.github.ousatov.tools.memgraph.exe.metrics.IngestionRunStats;
 import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.CallWrite;
 import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.CodeChunkWrite;
 import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.PendingCallWrite;
@@ -668,6 +669,30 @@ class GraphWriterIT {
 
     assertEquals(1, fileLink);
     assertEquals(1, pkgLink);
+  }
+
+  @Test
+  void upsertTypeBatchesTypeStructureWrites() {
+    Path sourceFile = SRC_ROOT.resolve("com/example/BatchWidget.java");
+    writer.upsertFile(sourceFile);
+    writer.upsertPackage(PKG);
+    IngestionRunStats stats = new IngestionRunStats(1);
+    GraphWriter measuredWriter = new GraphWriter(session, PROJECT, stats);
+    JavaGraphWriter measuredJavaWriter = new JavaGraphWriter(measuredWriter.dependencies());
+    ClassOrInterfaceDeclaration decl =
+        parseDecl(
+            "package com.example;"
+                + " public class BatchWidget extends com.example.Base"
+                + "   implements com.example.One, com.example.Two {"
+                + "   class Nested extends com.example.NestedBase"
+                + "     implements com.example.NestedOne {}"
+                + " }");
+
+    measuredJavaWriter.upsertType(sourceFile, PKG, decl);
+
+    long statements = performanceMetric(stats, "cypher.statements");
+    long rows = performanceMetric(stats, "cypher.rows");
+    assertTrue(rows > statements, "expected structural writes to use batched Cypher rows");
   }
 
   @Test
@@ -2978,6 +3003,14 @@ class GraphWriterIT {
         .flatMap(cu -> cu.findFirst(ClassOrInterfaceDeclaration.class))
         .orElseThrow(
             () -> new IllegalArgumentException("Could not parse declaration from: " + src));
+  }
+
+  private static long performanceMetric(IngestionRunStats stats, String name) {
+    return stats.snapshot().rows().stream()
+        .filter(row -> name.equals(row.name()))
+        .findFirst()
+        .map(row -> Long.parseLong(row.value()))
+        .orElseThrow(() -> new IllegalArgumentException("Missing metric: " + name));
   }
 
   private static ClassOrInterfaceDeclaration parseDeclResolved(String src) {

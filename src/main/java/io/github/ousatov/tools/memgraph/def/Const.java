@@ -23,9 +23,6 @@ public final class Const {
     private static final String ACTION_RESOURCE_BASE =
         "/io/github/ousatov/tools/memgraph/cypher/action/";
 
-    /** Upserts an {@code @interface} declaration as an {@code :Annotation} node. */
-    public static final String CYPHER_UPSERT_ANNOTATION = action("upsert-annotation.cypher");
-
     public static final String CYPHER_UPSERT_ANNOTATED_WITH_BY_FQN_BATCH =
         action("upsert-annotated-with-by-fqn-batch.cypher");
 
@@ -201,19 +198,22 @@ public final class Const {
     public static final String CYPHER_UPSERT_FILE = action("upsert-file.cypher");
     public static final String CYPHER_UPSERT_PACKAGE = action("upsert-package.cypher");
 
-    /** Upserts a class (including enums and records) as a {@code :Class} node. */
-    public static final String CYPHER_UPSERT_CLASS = action("upsert-class.cypher");
+    public static final String CYPHER_UPSERT_CLASSES_BATCH = action("upsert-classes-batch.cypher");
 
-    /** Upserts an interface as an {@code :Interface} node. */
-    public static final String CYPHER_UPSERT_INTERFACE = action("upsert-interface.cypher");
+    public static final String CYPHER_UPSERT_INTERFACES_BATCH =
+        action("upsert-interfaces-batch.cypher");
 
-    public static final String CYPHER_UPSERT_EXTENDS_CLASS = action("upsert-class-extends.cypher");
+    public static final String CYPHER_UPSERT_ANNOTATIONS_BATCH =
+        action("upsert-annotations-batch.cypher");
 
-    /** Used when an interface extends another interface — parent must be {@code :Interface}. */
-    public static final String CYPHER_UPSERT_INTERFACE_EXTENDS =
-        action("upsert-interface-extends.cypher");
+    public static final String CYPHER_UPSERT_EXTENDS_CLASS_BATCH =
+        action("upsert-class-extends-batch.cypher");
 
-    public static final String CYPHER_UPSERT_IMPLEMENTS = action("upsert-implements.cypher");
+    public static final String CYPHER_UPSERT_INTERFACE_EXTENDS_BATCH =
+        action("upsert-interface-extends-batch.cypher");
+
+    public static final String CYPHER_UPSERT_IMPLEMENTS_BATCH =
+        action("upsert-implements-batch.cypher");
     public static final String CYPHER_UPSERT_FIELDS_BATCH = action("upsert-fields-batch.cypher");
     public static final String CYPHER_UPSERT_METHODS_BATCH = action("upsert-methods-batch.cypher");
     public static final String CYPHER_BACKFILL_METHOD_OWNER_METADATA =
@@ -673,6 +673,8 @@ public final class Const {
     public static final String ROWS = "rows";
     public static final String TAG = "tag";
     public static final String TARGET = "target";
+    public static final String TARGET_NAME = "targetName";
+    public static final String TARGET_PKG = "targetPkg";
     public static final String TRUE = "true";
     public static final String UNIQUE = "unique";
     public static final String UPDATED_AT = "updatedAt";
