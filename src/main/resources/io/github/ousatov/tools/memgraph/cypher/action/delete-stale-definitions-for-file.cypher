@@ -1,76 +1,67 @@
 CALL {
-  MATCH (file:File {path: $path, project: $project})-[:DEFINES]->(caller:Method {project: $project})-[:PENDING_CALL]->(pending:PendingCall {project: $project})
-  OPTIONAL MATCH (retainedFile:File {project: $project})-[:DEFINES]->(caller)
-  WHERE retainedFile.path <> file.path
+  MATCH (sourceFile:File {path: $path, project: $project})
+  CALL {
+    WITH sourceFile
+    MATCH (sourceFile)-[:DEFINES]->(node)
+    WHERE node.project = $project
+      AND (node:Class OR node:Interface OR node:Annotation OR node:Method OR node:Field)
+    RETURN node, true AS definedBySourceFile
+    UNION
+    MATCH (node:Method {project: $project})
+    WHERE node.signature IN $methodSignatures
+    RETURN node, false AS definedBySourceFile
+    UNION
+    MATCH (node:Field {project: $project})
+    WHERE node.fqn IN $fieldFqns
+    RETURN node, false AS definedBySourceFile
+    UNION
+    MATCH (node {project: $project})
+    WHERE (node:Class AND node.fqn IN $classFqns)
+      OR (node:Interface AND node.fqn IN $interfaceFqns)
+      OR (node:Annotation AND node.fqn IN $annotationFqns)
+    RETURN node, false AS definedBySourceFile
+  }
+  WITH node, max(CASE WHEN definedBySourceFile THEN 1 ELSE 0 END) AS sourceDefinitions
+  OPTIONAL MATCH (retainedFile:File {project: $project})-[:DEFINES]->(node)
+  WHERE retainedFile.path <> $path
     AND (size($paths) = 0 OR retainedFile.path IN $paths)
-  WITH pending, count(retainedFile) AS retainedDefinitions
+  WITH node, sourceDefinitions, count(retainedFile) AS retainedDefinitions
   WHERE retainedDefinitions = 0
-  WITH collect(DISTINCT pending) AS pendingCalls
+  WITH collect(DISTINCT node) AS staleRelationNodes,
+      collect(DISTINCT CASE WHEN sourceDefinitions > 0 THEN node ELSE null END)
+          AS staleSourceRelationNodes
+  CALL {
+    WITH staleRelationNodes
+    UNWIND staleRelationNodes AS node
+    OPTIONAL MATCH (node)-[r:CALLS]->(:Method {project: $project})
+    WHERE node:Method
+    RETURN collect(DISTINCT r) AS relations
+    UNION
+    WITH staleRelationNodes
+    UNWIND staleRelationNodes AS node
+    OPTIONAL MATCH (node)-[r:ANNOTATED_WITH]->(:Annotation {project: $project})
+    WHERE node:Class OR node:Interface OR node:Annotation OR node:Method OR node:Field
+    RETURN collect(DISTINCT r) AS relations
+    UNION
+    WITH staleRelationNodes
+    UNWIND staleRelationNodes AS node
+    OPTIONAL MATCH (node)-[r]->()
+    WHERE (node:Class OR node:Interface OR node:Annotation)
+      AND type(r) IN ['EXTENDS', 'IMPLEMENTS']
+    RETURN collect(DISTINCT r) AS relations
+  }
+  WITH collect(relations) AS relationGroups, staleSourceRelationNodes
+  FOREACH (relationGroup IN relationGroups |
+    FOREACH (relation IN relationGroup | DELETE relation)
+  )
+  WITH reduce(total = 0, relationGroup IN relationGroups | total + size(relationGroup))
+      AS relationshipsDeleted, staleSourceRelationNodes
+  UNWIND staleSourceRelationNodes AS node
+  OPTIONAL MATCH (node)-[:PENDING_CALL]->(pending:PendingCall {project: $project})
+  WHERE node:Method
+  WITH relationshipsDeleted, collect(DISTINCT pending) AS pendingCalls
   FOREACH (pending IN pendingCalls | DETACH DELETE pending)
-  RETURN size(pendingCalls) AS pendingCallsDeleted
-}
-CALL {
-  MATCH (caller:Method {project: $project})-[r:CALLS]->(:Method {project: $project})
-  WHERE caller.signature IN $methodSignatures
-  OPTIONAL MATCH (retainedFile:File {project: $project})-[:DEFINES]->(caller)
-  WHERE retainedFile.path <> $path
-    AND (size($paths) = 0 OR retainedFile.path IN $paths)
-  WITH r, count(retainedFile) AS retainedDefinitions
-  WHERE retainedDefinitions = 0
-  WITH collect(DISTINCT r) AS calls
-  FOREACH (r IN calls | DELETE r)
-  RETURN size(calls) AS currentOwnerCallsDeleted
-}
-CALL {
-  MATCH (owner)-[r:ANNOTATED_WITH]->(:Annotation {project: $project})
-  WHERE owner.project = $project
-    AND (
-      (owner:Class AND owner.fqn IN $classFqns)
-      OR (owner:Interface AND owner.fqn IN $interfaceFqns)
-      OR (owner:Annotation AND owner.fqn IN $annotationFqns)
-    )
-  OPTIONAL MATCH (retainedFile:File {project: $project})-[:DEFINES]->(owner)
-  WHERE retainedFile.path <> $path
-    AND (size($paths) = 0 OR retainedFile.path IN $paths)
-  WITH r, count(retainedFile) AS retainedDefinitions
-  WHERE retainedDefinitions = 0
-  WITH collect(DISTINCT r) AS annotations
-  FOREACH (r IN annotations | DELETE r)
-  RETURN size(annotations) AS currentOwnerAnnotationsDeleted
-}
-CALL {
-  MATCH (member)-[r:ANNOTATED_WITH]->(:Annotation {project: $project})
-  WHERE member.project = $project
-    AND (
-      (member:Method AND member.signature IN $methodSignatures)
-      OR (member:Field AND member.fqn IN $fieldFqns)
-    )
-  OPTIONAL MATCH (retainedFile:File {project: $project})-[:DEFINES]->(member)
-  WHERE retainedFile.path <> $path
-    AND (size($paths) = 0 OR retainedFile.path IN $paths)
-  WITH r, count(retainedFile) AS retainedDefinitions
-  WHERE retainedDefinitions = 0
-  WITH collect(DISTINCT r) AS annotations
-  FOREACH (r IN annotations | DELETE r)
-  RETURN size(annotations) AS currentMemberAnnotationsDeleted
-}
-CALL {
-  MATCH (owner)-[r]->()
-  WHERE owner.project = $project
-    AND (
-      (owner:Class AND owner.fqn IN $classFqns)
-      OR (owner:Interface AND owner.fqn IN $interfaceFqns)
-      OR (owner:Annotation AND owner.fqn IN $annotationFqns)
-    )
-    AND type(r) IN ['EXTENDS', 'IMPLEMENTS']
-  OPTIONAL MATCH (retainedFile:File {project: $project})-[:DEFINES]->(owner)
-  WHERE retainedFile.path <> $path
-    AND (size($paths) = 0 OR retainedFile.path IN $paths)
-  WITH r, count(retainedFile) AS retainedDefinitions
-  WHERE retainedDefinitions = 0
-  WITH collect(DISTINCT r) AS relations
-  FOREACH (r IN relations | DELETE r)
-  RETURN size(relations) AS currentTypeRelationsDeleted
+  RETURN relationshipsDeleted + size(pendingCalls) AS relationshipsDeleted
 }
 CALL {
   MATCH (:File {path: $path, project: $project})-[defines:DEFINES]->(member)
@@ -139,57 +130,6 @@ CALL {
   RETURN size(staleOwners) AS staleOwnersDeleted
 }
 CALL {
-  MATCH (:File {path: $path, project: $project})-[:DEFINES]->(caller:Method {project: $project})-[r:CALLS]->(:Method {project: $project})
-  OPTIONAL MATCH (retainedFile:File {project: $project})-[:DEFINES]->(caller)
-  WHERE retainedFile.path <> $path
-    AND (size($paths) = 0 OR retainedFile.path IN $paths)
-  WITH r, count(retainedFile) AS retainedDefinitions
-  WHERE retainedDefinitions = 0
-  WITH collect(DISTINCT r) AS calls
-  FOREACH (r IN calls | DELETE r)
-  RETURN size(calls) AS callsDeleted
-}
-CALL {
-  MATCH (file:File {path: $path, project: $project})-[:DEFINES]->(owner)-[r:ANNOTATED_WITH]->(:Annotation {project: $project})
-  WHERE owner.project = $project
-    AND (owner:Class OR owner:Interface OR owner:Annotation)
-  OPTIONAL MATCH (retainedFile:File {project: $project})-[:DEFINES]->(owner)
-  WHERE retainedFile.path <> file.path
-    AND (size($paths) = 0 OR retainedFile.path IN $paths)
-  WITH r, count(retainedFile) AS retainedDefinitions
-  WHERE retainedDefinitions = 0
-  WITH collect(DISTINCT r) AS annotations
-  FOREACH (r IN annotations | DELETE r)
-  RETURN size(annotations) AS ownerAnnotationsDeleted
-}
-CALL {
-  MATCH (:File {path: $path, project: $project})-[:DEFINES]->(member)-[r:ANNOTATED_WITH]->(:Annotation {project: $project})
-  WHERE member.project = $project
-    AND (member:Method OR member:Field)
-  OPTIONAL MATCH (retainedFile:File {project: $project})-[:DEFINES]->(member)
-  WHERE retainedFile.path <> $path
-    AND (size($paths) = 0 OR retainedFile.path IN $paths)
-  WITH r, count(retainedFile) AS retainedDefinitions
-  WHERE retainedDefinitions = 0
-  WITH collect(DISTINCT r) AS annotations
-  FOREACH (r IN annotations | DELETE r)
-  RETURN size(annotations) AS memberAnnotationsDeleted
-}
-CALL {
-  MATCH (file:File {path: $path, project: $project})-[:DEFINES]->(owner)-[r]->()
-  WHERE owner.project = $project
-    AND (owner:Class OR owner:Interface OR owner:Annotation)
-    AND type(r) IN ['EXTENDS', 'IMPLEMENTS']
-  OPTIONAL MATCH (retainedFile:File {project: $project})-[:DEFINES]->(owner)
-  WHERE retainedFile.path <> file.path
-    AND (size($paths) = 0 OR retainedFile.path IN $paths)
-  WITH r, count(retainedFile) AS retainedDefinitions
-  WHERE retainedDefinitions = 0
-  WITH collect(DISTINCT r) AS relations
-  FOREACH (r IN relations | DELETE r)
-  RETURN size(relations) AS typeRelationsDeleted
-}
-CALL {
   MATCH (sourceFile:File {path: $path, project: $project})-[defines:DEFINES]->(method:Method {project: $project})
   WHERE NOT method.signature IN $methodSignatures
   WITH collect(DISTINCT defines) AS staleDefines, collect(DISTINCT method) AS candidates
@@ -217,17 +157,9 @@ CALL {
   FOREACH (field IN staleFields | DETACH DELETE field)
   RETURN size(staleFields) AS staleFieldsDeleted
 }
-RETURN pendingCallsDeleted
-  + currentOwnerCallsDeleted
-  + currentOwnerAnnotationsDeleted
-  + currentMemberAnnotationsDeleted
-  + currentTypeRelationsDeleted
+RETURN relationshipsDeleted
   + staleCurrentOwnerMembersDeleted
   + staleOwnerMembersDeleted
   + staleOwnersDeleted
-  + callsDeleted
-  + ownerAnnotationsDeleted
-  + memberAnnotationsDeleted
-  + typeRelationsDeleted
   + staleMethodsDeleted
   + staleFieldsDeleted AS deleted
