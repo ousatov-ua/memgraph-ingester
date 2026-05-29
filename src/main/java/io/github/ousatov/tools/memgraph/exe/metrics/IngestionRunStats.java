@@ -1,6 +1,12 @@
 package io.github.ousatov.tools.memgraph.exe.metrics;
 
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.LongAdder;
 
@@ -11,11 +17,26 @@ import java.util.concurrent.atomic.LongAdder;
  */
 public final class IngestionRunStats {
 
+  public static final String PHASE_PARSE = "phase.parse.ms";
+  public static final String PHASE_CLEANUP = "phase.cleanup.ms";
+  public static final String PHASE_WRITE = "phase.write.ms";
+  public static final String PHASE_EMBEDDING = "phase.embedding.ms";
+
+  private static final int TOP_CYPHER_LIMIT = 5;
+  private static final int CYPHER_PREVIEW_LIMIT = 80;
+  private static final String EMPTY_CYPHER_PREVIEW = "<empty>";
+  private static final List<String> PHASE_ROWS =
+      List.of(PHASE_PARSE, PHASE_CLEANUP, PHASE_WRITE, PHASE_EMBEDDING);
+
   private final LongAdder cypherStatements = new LongAdder();
   private final LongAdder cypherRows = new LongAdder();
   private final LongAdder ingestedFiles = new LongAdder();
   private final LongAdder skippedFiles = new LongAdder();
   private final LongAdder failedFiles = new LongAdder();
+  private final ConcurrentMap<String, LongAdder> phaseNanos = new ConcurrentHashMap<>();
+  private final ConcurrentMap<String, CypherTiming> cypherTimings = new ConcurrentHashMap<>();
+  private final Set<String> changedCallerSignatures = ConcurrentHashMap.newKeySet();
+  private final Set<String> changedOwnerFqns = ConcurrentHashMap.newKeySet();
   private final int threads;
   private final long startedNanos;
   private volatile int totalFiles;
@@ -37,10 +58,22 @@ public final class IngestionRunStats {
     cypherRows.increment();
   }
 
+  /** Records one timed Cypher statement that affects one logical row. */
+  public void recordCypherStatement(String cypher, long elapsedNanos) {
+    recordCypherStatement();
+    recordCypherTiming(cypher, 1, elapsedNanos);
+  }
+
   /** Records one batched Cypher statement and the number of logical rows it processed. */
   public void recordCypherBatch(int rows) {
     cypherStatements.increment();
     cypherRows.add(rows);
+  }
+
+  /** Records one timed batched Cypher statement and the number of logical rows it processed. */
+  public void recordCypherBatch(String cypher, int rows, long elapsedNanos) {
+    recordCypherBatch(rows);
+    recordCypherTiming(cypher, rows, elapsedNanos);
   }
 
   /** Records one successfully ingested source file. */
@@ -58,22 +91,143 @@ public final class IngestionRunStats {
     failedFiles.increment();
   }
 
+  /** Adds elapsed time to a named ingestion phase. */
+  public void recordPhaseNanos(String phase, long elapsedNanos) {
+    if (elapsedNanos <= 0) {
+      return;
+    }
+    phaseNanos.computeIfAbsent(phase, _ -> new LongAdder()).add(elapsedNanos);
+  }
+
+  /** Records definitions changed by successful file writes for scoped post-processing. */
+  public void recordChangedDefinitions(
+      Collection<String> ownerFqns, Collection<String> callerSignatures) {
+    addNonBlank(changedOwnerFqns, ownerFqns);
+    addNonBlank(changedCallerSignatures, callerSignatures);
+  }
+
+  /** Returns changed caller signatures in stable order. */
+  public List<String> changedCallerSignatures() {
+    return changedCallerSignatures.stream().sorted().toList();
+  }
+
+  /** Returns changed owner FQNs in stable order. */
+  public List<String> changedOwnerFqns() {
+    return changedOwnerFqns.stream().sorted().toList();
+  }
+
   /** Builds an immutable metrics snapshot for the current counter values. */
   public IngestionPerformanceMetrics snapshot() {
     long durationMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedNanos);
-    return new IngestionPerformanceMetrics(
-        List.of(
-            row("files.total", totalFiles),
-            row("files.ingested", ingestedFiles.sum()),
-            row("files.skipped", skippedFiles.sum()),
-            row("files.failed", failedFiles.sum()),
-            row("threads", threads),
-            row("duration.ms", durationMs),
-            row("cypher.statements", cypherStatements.sum()),
-            row("cypher.rows", cypherRows.sum())));
+    List<IngestionPerformanceMetrics.Row> rows = new ArrayList<>();
+    rows.add(row("files.total", totalFiles));
+    rows.add(row("files.ingested", ingestedFiles.sum()));
+    rows.add(row("files.skipped", skippedFiles.sum()));
+    rows.add(row("files.failed", failedFiles.sum()));
+    rows.add(row("threads", threads));
+    rows.add(row("duration.ms", durationMs));
+    rows.add(row("cypher.statements", cypherStatements.sum()));
+    rows.add(row("cypher.rows", cypherRows.sum()));
+    addPhaseRows(rows);
+    addTopCypherRows(rows);
+    return new IngestionPerformanceMetrics(rows);
   }
 
   private static IngestionPerformanceMetrics.Row row(String name, long value) {
     return new IngestionPerformanceMetrics.Row(name, String.valueOf(value));
+  }
+
+  private void addPhaseRows(List<IngestionPerformanceMetrics.Row> rows) {
+    PHASE_ROWS.forEach(
+        phase -> rows.add(row(phase, TimeUnit.NANOSECONDS.toMillis(sum(phaseNanos.get(phase))))));
+  }
+
+  private void addTopCypherRows(List<IngestionPerformanceMetrics.Row> rows) {
+    List<CypherTimingSnapshot> snapshots =
+        cypherTimings.entrySet().stream()
+            .map(entry -> entry.getValue().snapshot(entry.getKey()))
+            .sorted(
+                Comparator.comparingLong(CypherTimingSnapshot::elapsedNanos)
+                    .reversed()
+                    .thenComparing(CypherTimingSnapshot::preview))
+            .limit(TOP_CYPHER_LIMIT)
+            .toList();
+    for (int i = 0; i < snapshots.size(); i++) {
+      rows.add(
+          new IngestionPerformanceMetrics.Row("cypher.top." + (i + 1), snapshots.get(i).value()));
+    }
+  }
+
+  private static void addNonBlank(Set<String> target, Collection<String> values) {
+    values.stream().filter(value -> value != null && !value.isBlank()).forEach(target::add);
+  }
+
+  private static long sum(LongAdder adder) {
+    return adder == null ? 0L : adder.sum();
+  }
+
+  private void recordCypherTiming(String cypher, int rows, long elapsedNanos) {
+    if (elapsedNanos <= 0) {
+      return;
+    }
+    cypherTimings
+        .computeIfAbsent(cypherPreview(cypher), _ -> new CypherTiming())
+        .recordTime(rows, elapsedNanos);
+  }
+
+  private static String cypherPreview(String cypher) {
+    int lineStart = 0;
+    int length = cypher.length();
+    while (lineStart < length) {
+      int lineEnd = lineStart;
+      while (lineEnd < length && !isLineSeparator(cypher.charAt(lineEnd))) {
+        lineEnd++;
+      }
+      String preview = cypher.substring(lineStart, lineEnd).trim();
+      if (!preview.isBlank()) {
+        return abbreviate(preview);
+      }
+      lineStart = lineEnd + 1;
+      while (lineStart < length && isLineSeparator(cypher.charAt(lineStart))) {
+        lineStart++;
+      }
+    }
+    return EMPTY_CYPHER_PREVIEW;
+  }
+
+  private static boolean isLineSeparator(char value) {
+    return value == '\n' || value == '\r';
+  }
+
+  private static String abbreviate(String value) {
+    if (value.length() <= CYPHER_PREVIEW_LIMIT) {
+      return value;
+    }
+    return value.substring(0, CYPHER_PREVIEW_LIMIT - 3) + "...";
+  }
+
+  private static final class CypherTiming {
+
+    private final LongAdder calls = new LongAdder();
+    private final LongAdder rows = new LongAdder();
+    private final LongAdder elapsedNanos = new LongAdder();
+
+    private void recordTime(int rowCount, long elapsedNanos) {
+      calls.increment();
+      rows.add(rowCount);
+      this.elapsedNanos.add(elapsedNanos);
+    }
+
+    private CypherTimingSnapshot snapshot(String preview) {
+      return new CypherTimingSnapshot(preview, calls.sum(), rows.sum(), elapsedNanos.sum());
+    }
+  }
+
+  private record CypherTimingSnapshot(String preview, long calls, long rows, long elapsedNanos) {
+
+    private String value() {
+      long elapsedMs = TimeUnit.NANOSECONDS.toMillis(elapsedNanos);
+      return elapsedMs + " ms, calls=" + calls + ", rows=" + rows + ", " + preview;
+    }
   }
 }

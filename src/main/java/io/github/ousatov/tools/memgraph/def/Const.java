@@ -67,6 +67,8 @@ public final class Const {
         action("embedding/show-vector-index-info.cypher");
     public static final String CYPHER_COUNT_CODE_CHUNKS =
         action("embedding/count-code-chunks.cypher");
+    public static final String CYPHER_COUNT_DIRTY_CODE_CHUNK_EMBEDDINGS =
+        action("embedding/count-dirty-code-chunk-embeddings.cypher");
     public static final String CYPHER_MARK_STALE_CODE_CHUNK_EMBEDDINGS =
         action("embedding/mark-stale-code-chunk-embeddings.cypher");
     public static final String CYPHER_REFRESH_CODE_CHUNK_EMBEDDING_BATCH =
@@ -362,6 +364,9 @@ public final class Const {
      */
     public static final String CYPHER_RESOLVE_PENDING_CALLS =
         action("resolve-pending-calls.cypher");
+
+    public static final String CYPHER_RESOLVE_PENDING_CALLS_SCOPED =
+        action("resolve-pending-calls-scoped.cypher");
 
     /**
      * Removes placeholder {@code :Method} nodes that were created by {@link
@@ -701,6 +706,8 @@ public final class Const {
     public static final String MODULE_NAME = "moduleName";
     public static final String MODULE_PREFIX = "modulePrefix";
     public static final String PATHS = "paths";
+    public static final String CALLER_SIGNATURES = "callerSignatures";
+    public static final String OWNER_FQNS = "ownerFqns";
     public static final String IDS = "ids";
     public static final String RETAINED_PATHS = "retainedPaths";
     public static final String SOURCE_ROOT = "sourceRoot";

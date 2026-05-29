@@ -12,6 +12,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -70,6 +71,36 @@ class IngestionMetricsTest {
         | cypher.statements |   987 |
         """,
         table);
+  }
+
+  @Test
+  void runStatsSnapshotIncludesPhaseScopeAndTopCypherRows() {
+    IngestionRunStats stats = new IngestionRunStats(2);
+    stats.recordPhaseNanos(IngestionRunStats.PHASE_PARSE, TimeUnit.MILLISECONDS.toNanos(12));
+    stats.recordPhaseNanos(IngestionRunStats.PHASE_WRITE, TimeUnit.MILLISECONDS.toNanos(5));
+    stats.recordCypherStatement(
+        "MATCH (n:File {project: $project}) RETURN count(n)", TimeUnit.MILLISECONDS.toNanos(3));
+    stats.recordCypherBatch(
+        "UNWIND $rows AS row MERGE (m:Method {signature: row.sig, project: $project})",
+        7,
+        TimeUnit.MILLISECONDS.toNanos(9));
+    stats.recordChangedDefinitions(
+        List.of("com.example.Helper", "", "com.example.Helper"),
+        List.of("com.example.Caller.run()"));
+
+    IngestionPerformanceMetrics metrics = stats.snapshot();
+
+    assertEquals(List.of("com.example.Caller.run()"), stats.changedCallerSignatures());
+    assertEquals(List.of("com.example.Helper"), stats.changedOwnerFqns());
+    assertTrue(
+        metrics.rows().contains(new IngestionPerformanceMetrics.Row("phase.parse.ms", "12")));
+    assertTrue(metrics.rows().contains(new IngestionPerformanceMetrics.Row("phase.write.ms", "5")));
+    assertTrue(
+        metrics.rows().stream()
+            .anyMatch(
+                row ->
+                    "cypher.top.1".equals(row.name())
+                        && row.value().startsWith("9 ms, calls=1, rows=7, UNWIND $rows")));
   }
 
   @Test

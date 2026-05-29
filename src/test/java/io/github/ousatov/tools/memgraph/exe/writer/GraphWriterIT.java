@@ -2624,6 +2624,60 @@ class GraphWriterIT {
   }
 
   @Test
+  void scopedPendingCallResolutionOnlyTouchesChangedDefinitions() {
+    writer.upsertFile(TEST_FILE);
+    writer.upsertPackage(PKG);
+    ClassOrInterfaceDeclaration firstCaller =
+        parseDecl("package com.example; public class FirstCaller { public void run() {} }");
+    ClassOrInterfaceDeclaration firstHelper =
+        parseDecl(
+            "package com.example; public class FirstHelper { public static void assist() {} }");
+    ClassOrInterfaceDeclaration secondCaller =
+        parseDecl("package com.example; public class SecondCaller { public void run() {} }");
+    ClassOrInterfaceDeclaration secondHelper =
+        parseDecl(
+            "package com.example; public class SecondHelper { public static void assist() {} }");
+    String firstCallerSig = "com.example.FirstCaller.run()";
+    String secondCallerSig = "com.example.SecondCaller.run()";
+
+    javaWriter.upsertType(TEST_FILE, PKG, firstCaller);
+    javaWriter.upsertType(TEST_FILE, PKG, firstHelper);
+    javaWriter.upsertType(TEST_FILE, PKG, secondCaller);
+    javaWriter.upsertType(TEST_FILE, PKG, secondHelper);
+    writer.upsertPendingCallByName(firstCallerSig, "com.example.FirstHelper", "assist");
+    writer.upsertPendingCallByName(secondCallerSig, "com.example.SecondHelper", "assist");
+    writer.recordChangedDefinitions(
+        SourceFileDefinitions.of(
+            List.of("com.example.FirstHelper"), List.of(), List.of(), List.of(), List.of()));
+
+    writer.resolvePendingCallsForChangedDefinitions();
+
+    var row =
+        session
+            .run(
+                "MATCH (pending:PendingCall {project: $p}) WITH collect(pending.callerSignature) AS"
+                    + " pendingCallers OPTIONAL MATCH (:Method {signature: $firstCallerSig,"
+                    + " project: $p})-[firstCall:CALLS]->(:Method {name: 'assist', project: $p,"
+                    + " ownerFqn: 'com.example.FirstHelper'}) WITH pendingCallers, count(DISTINCT"
+                    + " firstCall) AS firstCalls OPTIONAL MATCH (:Method {signature:"
+                    + " $secondCallerSig, project: $p})-[secondCall:CALLS]->(:Method {name:"
+                    + " 'assist', project: $p, ownerFqn: 'com.example.SecondHelper'}) RETURN"
+                    + " firstCalls, count(DISTINCT secondCall) AS secondCalls, pendingCallers",
+                Map.of(
+                    "p",
+                    PROJECT,
+                    "firstCallerSig",
+                    firstCallerSig,
+                    "secondCallerSig",
+                    secondCallerSig))
+            .single();
+
+    assertEquals(1, row.get("firstCalls").asLong());
+    assertEquals(0, row.get("secondCalls").asLong());
+    assertEquals(List.of(secondCallerSig), row.get("pendingCallers").asList());
+  }
+
+  @Test
   void repeatedResolvedCallsStoreOccurrenceCountOnUniqueEdge() {
     writer.upsertFile(TEST_FILE);
     writer.upsertPackage(PKG);
