@@ -13,11 +13,11 @@ WITH row.path AS path,
      row.kind AS kind,
      row.isSynthetic AS isSynthetic
 MATCH (file:File {path: path, project: $project})
-MATCH (owner)
-WHERE owner.fqn = ownerFqn AND owner.project = $project
-  AND (owner:Class OR owner:Interface OR owner:Annotation)
+OPTIONAL MATCH (classOwner:Class {fqn: ownerFqn, project: $project})
+OPTIONAL MATCH (interfaceOwner:Interface {fqn: ownerFqn, project: $project})
+OPTIONAL MATCH (annotationOwner:Annotation {fqn: ownerFqn, project: $project})
 WITH file,
-     owner,
+     coalesce(classOwner, interfaceOwner, annotationOwner) AS owner,
      sig,
      name,
      ret,
@@ -30,6 +30,7 @@ WITH file,
      language,
      kind,
      isSynthetic
+WHERE owner IS NOT NULL
 MERGE (m:Method {signature: sig, project: $project})
   SET m.name = name,
       m.returnType = ret,

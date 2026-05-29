@@ -608,8 +608,7 @@ class GraphWriterIT {
                 Map.of("fqn", "com.example.Widget", "p", PROJECT))
             .list(r -> r.get("n").asString());
 
-    assertTrue(methodNames.contains("getName"));
-    assertTrue(methodNames.contains("getCount"));
+    assertEquals(List.of("<init>", "getCount", "getName"), methodNames);
   }
 
   @Test
