@@ -2,18 +2,22 @@ package io.github.ousatov.tools.memgraph.exe.writer;
 
 import com.github.javaparser.ast.Node;
 import io.github.ousatov.tools.memgraph.def.Const;
-import io.github.ousatov.tools.memgraph.def.Const.Cypher;
 import io.github.ousatov.tools.memgraph.def.Const.Params;
 import io.github.ousatov.tools.memgraph.exe.adapter.SourceLanguage;
-import io.github.ousatov.tools.memgraph.exe.analyze.JavaTypeNames;
+import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.AnnotationNodeWrite;
 import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.AnnotationWrite;
 import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.CallWrite;
+import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.ClassWrite;
 import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.FieldWrite;
+import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.InterfaceWrite;
 import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.PendingCallWrite;
+import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.TypeRelationWrite;
 import io.github.ousatov.tools.memgraph.vo.Method;
 import java.nio.file.Path;
 import java.util.Collection;
+import java.util.List;
 import java.util.Map;
+import java.util.function.Consumer;
 
 /**
  * Shared graph-writing primitives used by language-specific writers.
@@ -58,22 +62,22 @@ public class CommonGraphWriter {
       String kind,
       String modulePath,
       String framework) {
-    cypher.run(
-        Cypher.CYPHER_UPSERT_CLASS,
-        Map.ofEntries(
-            Map.entry(Params.FQN, fqn),
-            Map.entry(Params.NAME, name),
-            Map.entry(Params.PKG, pkg),
-            Map.entry(Params.PATH, file.toString()),
-            Map.entry(Params.IS_ABSTRACT, isAbstract),
-            Map.entry(Params.VISIBILITY, visibility),
-            Map.entry(Params.IS_ENUM, isEnum),
-            Map.entry(Params.IS_RECORD, isRecord),
-            Map.entry(Params.IS_FINAL, isFinal),
-            Map.entry(Params.LANGUAGE, language),
-            Map.entry(Params.KIND, kind),
-            Map.entry(Params.MODULE_PATH, modulePath),
-            Map.entry(Params.FRAMEWORK, framework)));
+    upsertClassNodes(
+        List.of(
+            new ClassWrite(
+                file,
+                pkg,
+                fqn,
+                name,
+                isAbstract,
+                visibility,
+                isEnum,
+                isRecord,
+                isFinal,
+                language,
+                kind,
+                modulePath,
+                framework)));
   }
 
   @SuppressWarnings(Const.Warnings.TOO_MANY_PARAMETERS)
@@ -115,20 +119,20 @@ public class CommonGraphWriter {
       String kind,
       String modulePath,
       String framework) {
-    cypher.run(
-        Cypher.CYPHER_UPSERT_INTERFACE,
-        Map.ofEntries(
-            Map.entry(Params.FQN, fqn),
-            Map.entry(Params.NAME, name),
-            Map.entry(Params.PKG, pkg),
-            Map.entry(Params.PATH, file.toString()),
-            Map.entry(Params.IS_ABSTRACT, isAbstract),
-            Map.entry(Params.VISIBILITY, visibility),
-            Map.entry(Params.IS_FINAL, false),
-            Map.entry(Params.LANGUAGE, language),
-            Map.entry(Params.KIND, kind),
-            Map.entry(Params.MODULE_PATH, modulePath),
-            Map.entry(Params.FRAMEWORK, framework)));
+    upsertInterfaceNodes(
+        List.of(
+            new InterfaceWrite(
+                file,
+                pkg,
+                fqn,
+                name,
+                isAbstract,
+                visibility,
+                false,
+                language,
+                kind,
+                modulePath,
+                framework)));
   }
 
   protected void upsertInterfaceNode(
@@ -148,53 +152,65 @@ public class CommonGraphWriter {
 
   protected void upsertAnnotationNode(
       Path file, String pkg, String fqn, String name, String visibility) {
-    cypher.run(
-        Cypher.CYPHER_UPSERT_ANNOTATION,
-        Map.of(
-            Params.FQN,
-            fqn,
-            Params.NAME,
-            name,
-            Params.PKG,
-            pkg,
-            Params.PATH,
-            file.toString(),
-            Params.VISIBILITY,
-            visibility,
-            Params.LANGUAGE,
-            JAVA_LANGUAGE,
-            Params.KIND,
-            Params.ANNOTATION,
-            Params.MODULE_PATH,
-            Const.Symbols.EMPTY,
-            Params.FRAMEWORK,
-            Const.Symbols.EMPTY));
+    upsertAnnotationNodes(
+        List.of(
+            new AnnotationNodeWrite(
+                file,
+                pkg,
+                fqn,
+                name,
+                visibility,
+                JAVA_LANGUAGE,
+                Params.ANNOTATION,
+                Const.Symbols.EMPTY,
+                Const.Symbols.EMPTY)));
   }
 
-  protected void upsertTypeRelation(
-      String query,
-      String childFqn,
-      String targetFqn,
-      String targetParam,
-      String targetNameParam,
-      String targetPkgParam,
-      String language) {
+  protected void upsertClassNodes(Collection<ClassWrite> classes) {
+    nodes.upsertClassNodes(classes);
+  }
+
+  protected void upsertInterfaceNodes(Collection<InterfaceWrite> interfaces) {
+    nodes.upsertInterfaceNodes(interfaces);
+  }
+
+  protected void upsertAnnotationNodes(Collection<AnnotationNodeWrite> annotations) {
+    nodes.upsertAnnotationNodes(annotations);
+  }
+
+  protected void upsertClassExtends(Collection<TypeRelationWrite> relations) {
+    nodes.upsertClassExtends(relations);
+  }
+
+  protected void upsertInterfaceExtends(Collection<TypeRelationWrite> relations) {
+    nodes.upsertInterfaceExtends(relations);
+  }
+
+  protected void upsertImplements(Collection<TypeRelationWrite> relations) {
+    nodes.upsertImplements(relations);
+  }
+
+  protected void upsertClassExtends(String childFqn, String parentFqn, String language) {
+    upsertTypeRelation(
+        parentFqn, relation -> upsertClassExtends(List.of(relation)), childFqn, language);
+  }
+
+  protected void upsertInterfaceExtends(String childFqn, String parentFqn, String language) {
+    upsertTypeRelation(
+        parentFqn, relation -> upsertInterfaceExtends(List.of(relation)), childFqn, language);
+  }
+
+  protected void upsertImplements(String childFqn, String interfaceFqn, String language) {
+    upsertTypeRelation(
+        interfaceFqn, relation -> upsertImplements(List.of(relation)), childFqn, language);
+  }
+
+  private static void upsertTypeRelation(
+      String targetFqn, Consumer<TypeRelationWrite> upsert, String childFqn, String language) {
     if (targetFqn == null || targetFqn.isBlank()) {
       return;
     }
-    cypher.run(
-        query,
-        Map.of(
-            Params.CHILD,
-            childFqn,
-            targetParam,
-            targetFqn,
-            targetNameParam,
-            JavaTypeNames.nameFromFqn(targetFqn),
-            targetPkgParam,
-            JavaTypeNames.packageFromFqn(targetFqn),
-            Params.LANGUAGE,
-            language));
+    upsert.accept(new TypeRelationWrite(childFqn, targetFqn, language));
   }
 
   protected void upsertFieldNodes(Path file, Collection<FieldWrite> fields) {

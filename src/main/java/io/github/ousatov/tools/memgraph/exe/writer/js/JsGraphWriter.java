@@ -1,7 +1,6 @@
 package io.github.ousatov.tools.memgraph.exe.writer.js;
 
 import io.github.ousatov.tools.memgraph.def.Const;
-import io.github.ousatov.tools.memgraph.def.Const.Cypher;
 import io.github.ousatov.tools.memgraph.def.Const.Params;
 import io.github.ousatov.tools.memgraph.exe.writer.ModuleGraphWriter;
 import java.nio.file.Path;
@@ -43,38 +42,17 @@ public final class JsGraphWriter extends ModuleGraphWriter {
   /** Writes a JavaScript/TypeScript class {@code EXTENDS} relation. */
   @Override
   public void upsertExtendsClass(String childFqn, String parentFqn) {
-    upsertTypeRelation(
-        Cypher.CYPHER_UPSERT_EXTENDS_CLASS,
-        childFqn,
-        parentFqn,
-        Params.PARENT,
-        Params.PARENT_NAME,
-        Params.PARENT_PKG,
-        languageGraphName());
+    upsertClassExtends(childFqn, parentFqn, languageGraphName());
   }
 
   /** Writes a JavaScript/TypeScript interface {@code EXTENDS} relation. */
   public void upsertInterfaceExtends(String childFqn, String parentFqn) {
-    upsertTypeRelation(
-        Cypher.CYPHER_UPSERT_INTERFACE_EXTENDS,
-        childFqn,
-        parentFqn,
-        Params.PARENT,
-        Params.PARENT_NAME,
-        Params.PARENT_PKG,
-        languageGraphName());
+    upsertInterfaceExtends(childFqn, parentFqn, languageGraphName());
   }
 
   /** Writes a JavaScript/TypeScript class {@code IMPLEMENTS} relation. */
   public void upsertImplements(String childFqn, String interfaceFqn) {
-    upsertTypeRelation(
-        Cypher.CYPHER_UPSERT_IMPLEMENTS,
-        childFqn,
-        interfaceFqn,
-        Params.IFACE,
-        Params.IFACE_NAME,
-        Params.IFACE_PKG,
-        languageGraphName());
+    upsertImplements(childFqn, interfaceFqn, languageGraphName());
   }
 
   /** Upserts a TypeScript interface or type alias using the compatible {@code :Interface} label. */

@@ -18,6 +18,7 @@ import io.github.ousatov.tools.memgraph.exe.analyze.ManagedPythonRuntime;
 import io.github.ousatov.tools.memgraph.exe.analyze.ParseService;
 import io.github.ousatov.tools.memgraph.exe.analyze.PythonAnalyzer;
 import io.github.ousatov.tools.memgraph.exe.analyze.RuntimeMode;
+import io.github.ousatov.tools.memgraph.exe.metrics.IngestionRunStats;
 import io.github.ousatov.tools.memgraph.exe.writer.GraphWriter;
 import io.github.ousatov.tools.memgraph.exe.writer.ctags.CtagsGraphWriter;
 import io.github.ousatov.tools.memgraph.exe.writer.js.JsGraphWriter;
@@ -1441,11 +1442,12 @@ class IngestionOrchestratorIT {
             sourceDir, currentProject, 1, driver, new ParseService(sourceDir));
 
     Session closedSession = driver.session();
-    GraphWriter writer = new GraphWriter(closedSession, currentProject);
+    IngestionRunStats stats = new IngestionRunStats(1);
+    GraphWriter writer = new GraphWriter(closedSession, currentProject, stats);
     closedSession.close();
 
     orchestrator.refreshRetainedFilesAfterDelete(
-        writer, Set.of(sourceDir.resolve("Retained.java")), Map.of());
+        writer, Set.of(sourceDir.resolve("Retained.java")), Map.of(), stats);
   }
 
   @Test

@@ -139,6 +139,18 @@ public final class GraphWriter {
     stats.recordFailedFile();
   }
 
+  public void recordPhaseNanos(String phase, long elapsedNanos) {
+    stats.recordPhaseNanos(phase, elapsedNanos);
+  }
+
+  public void recordChangedDefinitions(SourceFileDefinitions definitions) {
+    List<String> ownerFqns = new ArrayList<>();
+    ownerFqns.addAll(definitions.classFqns());
+    ownerFqns.addAll(definitions.interfaceFqns());
+    ownerFqns.addAll(definitions.annotationFqns());
+    stats.recordChangedDefinitions(ownerFqns, definitions.methodSignatures());
+  }
+
   /** Deletes the project-scoped {@code :Code} graph in batches, keeping the {@code :Project}. */
   public void wipe() {
     long deleted;
@@ -194,6 +206,18 @@ public final class GraphWriter {
   /** Resolves deferred owner/name call records after all in-project methods are available. */
   public void resolvePendingCalls() {
     cypher.run(Cypher.CYPHER_RESOLVE_PENDING_CALLS, Map.of());
+  }
+
+  /** Resolves deferred owner/name call records touched by successful file writes. */
+  public void resolvePendingCallsForChangedDefinitions() {
+    List<String> callerSignatures = stats.changedCallerSignatures();
+    List<String> ownerFqns = stats.changedOwnerFqns();
+    if (callerSignatures.isEmpty() && ownerFqns.isEmpty()) {
+      return;
+    }
+    cypher.run(
+        Cypher.CYPHER_RESOLVE_PENDING_CALLS_SCOPED,
+        Map.of(Params.CALLER_SIGNATURES, callerSignatures, Params.OWNER_FQNS, ownerFqns));
   }
 
   /** Removes stale deferred owner/name call records for methods declared by one source file. */
@@ -705,6 +729,16 @@ public final class GraphWriter {
 
   /** Refreshes stale {@code :CodeChunk.embedding} values with Memgraph's embeddings module. */
   public EmbeddingRefreshResult refreshCodeChunkEmbeddings(EmbeddingSettings settings) {
+    return refreshCodeChunkEmbeddings(settings, false);
+  }
+
+  /**
+   * Refreshes {@code :CodeChunk.embedding} values with Memgraph's embeddings module.
+   *
+   * @param dirtyOnly when true, refreshes only chunks already marked dirty by changed chunk writes
+   */
+  public EmbeddingRefreshResult refreshCodeChunkEmbeddings(
+      EmbeddingSettings settings, boolean dirtyOnly) {
     if (!settings.enabled()) {
       return new EmbeddingRefreshResult(0L, 0);
     }
@@ -712,7 +746,10 @@ public final class GraphWriter {
 
     int dimension = embeddingDimension(settings);
     ensureCodeChunkVectorIndex(settings, dimension);
-    long stale = countStaleCodeChunkEmbeddings(settings, dimension);
+    long stale =
+        dirtyOnly
+            ? countDirtyCodeChunkEmbeddings()
+            : countStaleCodeChunkEmbeddings(settings, dimension);
     long embedded = 0L;
     int batchSize = settings.batchSize();
     while (stale > 0) {
@@ -990,6 +1027,13 @@ public final class GraphWriter {
     return cypher.read(
         Cypher.CYPHER_MARK_STALE_CODE_CHUNK_EMBEDDINGS,
         params,
+        result -> result.single().get(Const.Params.COUNT).asLong());
+  }
+
+  private long countDirtyCodeChunkEmbeddings() {
+    return cypher.read(
+        Cypher.CYPHER_COUNT_DIRTY_CODE_CHUNK_EMBEDDINGS,
+        Map.of(),
         result -> result.single().get(Const.Params.COUNT).asLong());
   }
 

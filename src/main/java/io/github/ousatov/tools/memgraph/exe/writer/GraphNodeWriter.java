@@ -3,13 +3,17 @@ package io.github.ousatov.tools.memgraph.exe.writer;
 import io.github.ousatov.tools.memgraph.def.Const.Cypher;
 import io.github.ousatov.tools.memgraph.def.Const.Labels;
 import io.github.ousatov.tools.memgraph.def.Const.Params;
+import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.AnnotationNodeWrite;
 import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.AnnotationWrite;
 import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.BatchWrite;
 import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.CallWrite;
+import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.ClassWrite;
 import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.CodeChunkWrite;
 import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.FieldWrite;
+import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.InterfaceWrite;
 import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.MethodWrite;
 import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.PendingCallWrite;
+import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.TypeRelationWrite;
 import io.github.ousatov.tools.memgraph.vo.Method;
 import java.nio.file.Path;
 import java.util.Collection;
@@ -28,6 +32,30 @@ final class GraphNodeWriter {
 
   GraphNodeWriter(CypherExecutor cypher) {
     this.cypher = cypher;
+  }
+
+  void upsertClassNodes(Collection<ClassWrite> classes) {
+    runBatch(Cypher.CYPHER_UPSERT_CLASSES_BATCH, classes);
+  }
+
+  void upsertInterfaceNodes(Collection<InterfaceWrite> interfaces) {
+    runBatch(Cypher.CYPHER_UPSERT_INTERFACES_BATCH, interfaces);
+  }
+
+  void upsertAnnotationNodes(Collection<AnnotationNodeWrite> annotations) {
+    runBatch(Cypher.CYPHER_UPSERT_ANNOTATIONS_BATCH, annotations);
+  }
+
+  void upsertClassExtends(Collection<TypeRelationWrite> relations) {
+    runBatch(Cypher.CYPHER_UPSERT_EXTENDS_CLASS_BATCH, relations);
+  }
+
+  void upsertInterfaceExtends(Collection<TypeRelationWrite> relations) {
+    runBatch(Cypher.CYPHER_UPSERT_INTERFACE_EXTENDS_BATCH, relations);
+  }
+
+  void upsertImplements(Collection<TypeRelationWrite> relations) {
+    runBatch(Cypher.CYPHER_UPSERT_IMPLEMENTS_BATCH, relations);
   }
 
   void upsertFieldNodes(Path file, Collection<FieldWrite> fields) {

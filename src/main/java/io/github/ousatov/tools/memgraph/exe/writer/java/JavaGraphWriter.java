@@ -13,17 +13,21 @@ import com.github.javaparser.ast.nodeTypes.NodeWithAnnotations;
 import com.github.javaparser.ast.nodeTypes.NodeWithImplements;
 import com.github.javaparser.ast.type.ClassOrInterfaceType;
 import io.github.ousatov.tools.memgraph.def.Const;
-import io.github.ousatov.tools.memgraph.def.Const.Cypher;
 import io.github.ousatov.tools.memgraph.def.Const.Labels;
 import io.github.ousatov.tools.memgraph.def.Const.Params;
 import io.github.ousatov.tools.memgraph.exe.analyze.JavaTypeNames;
 import io.github.ousatov.tools.memgraph.exe.writer.CommonGraphWriter;
+import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.AnnotationNodeWrite;
 import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.AnnotationWrite;
+import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.ClassWrite;
 import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.FieldWrite;
+import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.InterfaceWrite;
+import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.TypeRelationWrite;
 import io.github.ousatov.tools.memgraph.vo.Method;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -43,7 +47,10 @@ public final class JavaGraphWriter extends CommonGraphWriter {
    * types with their correct {@code $}-separated FQN.
    */
   public void upsertType(Path file, String pkg, ClassOrInterfaceDeclaration decl) {
-    upsertTypeInternal(file, pkg, null, decl);
+    TypeStructureWrites writes = new TypeStructureWrites();
+    collectTypeStructure(file, pkg, null, decl, writes);
+    upsertTypeStructure(writes);
+    upsertTypeMembers(file, pkg, null, decl);
   }
 
   /**
@@ -52,23 +59,30 @@ public final class JavaGraphWriter extends CommonGraphWriter {
    */
   public void upsertEnum(Path file, String pkg, EnumDeclaration decl) {
     String fqn = JavaTypeNames.buildFqn(pkg, decl.getNameAsString());
-    upsertClassNode(
-        file,
-        pkg,
-        fqn,
-        decl.getNameAsString(),
-        false,
-        decl.getAccessSpecifier().asString(),
-        true,
-        false,
-        true);
+    TypeStructureWrites writes = new TypeStructureWrites();
+    writes.classes.add(
+        new ClassWrite(
+            file,
+            pkg,
+            fqn,
+            decl.getNameAsString(),
+            false,
+            decl.getAccessSpecifier().asString(),
+            true,
+            false,
+            true,
+            JAVA_LANGUAGE,
+            Params.ENUM,
+            Const.Symbols.EMPTY,
+            Const.Symbols.EMPTY));
+    collectImplementedTypes(fqn, decl, writes);
+    collectNestedTypeStructure(file, pkg, fqn, decl.getMembers(), writes);
+    upsertTypeStructure(writes);
     upsertAnnotationsByFqn(fqn, decl);
-    upsertImplementedTypes(fqn, decl);
     decl.getEntries().forEach(entry -> upsertEnumConstant(file, fqn, entry));
     decl.getFields().forEach(f -> upsertField(file, fqn, f));
     upsertDeclaredMethods(file, fqn, decl.getMethods(), decl.getConstructors());
-    nestedClassDeclarationsOf(decl.getMembers())
-        .forEach(nested -> upsertTypeInternal(file, pkg, fqn, nested));
+    upsertNestedTypeMembers(file, pkg, fqn, decl.getMembers());
   }
 
   /**
@@ -77,25 +91,32 @@ public final class JavaGraphWriter extends CommonGraphWriter {
    */
   public void upsertRecord(Path file, String pkg, RecordDeclaration decl) {
     String fqn = JavaTypeNames.buildFqn(pkg, decl.getNameAsString());
-    upsertClassNode(
-        file,
-        pkg,
-        fqn,
-        decl.getNameAsString(),
-        false,
-        decl.getAccessSpecifier().asString(),
-        false,
-        true,
-        true);
+    TypeStructureWrites writes = new TypeStructureWrites();
+    writes.classes.add(
+        new ClassWrite(
+            file,
+            pkg,
+            fqn,
+            decl.getNameAsString(),
+            false,
+            decl.getAccessSpecifier().asString(),
+            false,
+            true,
+            true,
+            JAVA_LANGUAGE,
+            Params.RECORD,
+            Const.Symbols.EMPTY,
+            Const.Symbols.EMPTY));
+    collectImplementedTypes(fqn, decl, writes);
+    collectNestedTypeStructure(file, pkg, fqn, decl.getMembers(), writes);
+    upsertTypeStructure(writes);
     upsertAnnotationsByFqn(fqn, decl);
-    upsertImplementedTypes(fqn, decl);
     decl.getFields().forEach(f -> upsertField(file, fqn, f));
     upsertRecordComponents(file, fqn, decl);
     upsertDeclaredMethods(file, fqn, decl.getMethods(), decl.getConstructors());
     upsertRecordCanonicalConstructor(file, fqn, decl);
     upsertRecordAccessors(file, fqn, decl);
-    nestedClassDeclarationsOf(decl.getMembers())
-        .forEach(nested -> upsertTypeInternal(file, pkg, fqn, nested));
+    upsertNestedTypeMembers(file, pkg, fqn, decl.getMembers());
   }
 
   /**
@@ -104,8 +125,18 @@ public final class JavaGraphWriter extends CommonGraphWriter {
    */
   public void upsertAnnotation(Path file, String pkg, AnnotationDeclaration decl) {
     String fqn = JavaTypeNames.buildFqn(pkg, decl.getNameAsString());
-    upsertAnnotationNode(
-        file, pkg, fqn, decl.getNameAsString(), decl.getAccessSpecifier().asString());
+    upsertAnnotationNodes(
+        List.of(
+            new AnnotationNodeWrite(
+                file,
+                pkg,
+                fqn,
+                decl.getNameAsString(),
+                decl.getAccessSpecifier().asString(),
+                JAVA_LANGUAGE,
+                Params.ANNOTATION,
+                Const.Symbols.EMPTY,
+                Const.Symbols.EMPTY)));
     upsertAnnotationsByFqn(fqn, decl);
   }
 
@@ -152,38 +183,77 @@ public final class JavaGraphWriter extends CommonGraphWriter {
         .forEach(nested -> upsertTypeCallEdgesInternal(pkg, fqn, nested));
   }
 
-  private void upsertTypeInternal(
-      Path file, String pkg, String outerFqn, ClassOrInterfaceDeclaration decl) {
+  private void collectTypeStructure(
+      Path file,
+      String pkg,
+      String outerFqn,
+      ClassOrInterfaceDeclaration decl,
+      TypeStructureWrites writes) {
     String fqn = typeFqn(pkg, outerFqn, decl.getNameAsString());
     if (decl.isInterface()) {
-      upsertInterfaceNode(
-          file,
-          pkg,
-          fqn,
-          decl.getNameAsString(),
-          decl.isAbstract(),
-          decl.getAccessSpecifier().asString());
+      writes.interfaces.add(
+          new InterfaceWrite(
+              file,
+              pkg,
+              fqn,
+              decl.getNameAsString(),
+              decl.isAbstract(),
+              decl.getAccessSpecifier().asString(),
+              false,
+              JAVA_LANGUAGE,
+              Params.INTERFACE,
+              Const.Symbols.EMPTY,
+              Const.Symbols.EMPTY));
     } else {
-      upsertClassNode(
-          file,
-          pkg,
-          fqn,
-          decl.getNameAsString(),
-          decl.isAbstract(),
-          decl.getAccessSpecifier().asString(),
-          false,
-          false,
-          decl.isFinal());
+      writes.classes.add(
+          new ClassWrite(
+              file,
+              pkg,
+              fqn,
+              decl.getNameAsString(),
+              decl.isAbstract(),
+              decl.getAccessSpecifier().asString(),
+              false,
+              false,
+              decl.isFinal(),
+              JAVA_LANGUAGE,
+              Params.CLASS,
+              Const.Symbols.EMPTY,
+              Const.Symbols.EMPTY));
     }
+    collectInheritance(fqn, decl, writes);
+    collectNestedTypeStructure(file, pkg, fqn, decl.getMembers(), writes);
+  }
+
+  private void upsertTypeMembers(
+      Path file, String pkg, String outerFqn, ClassOrInterfaceDeclaration decl) {
+    String fqn = typeFqn(pkg, outerFqn, decl.getNameAsString());
     upsertAnnotationsByFqn(fqn, decl);
-    upsertInheritance(fqn, decl);
     decl.getFields().forEach(f -> upsertField(file, fqn, f));
     upsertDeclaredMethods(file, fqn, decl.getMethods(), decl.getConstructors());
     if (!decl.isInterface() && decl.getConstructors().isEmpty()) {
       upsertImplicitDefaultConstructor(file, fqn, decl);
     }
-    nestedClassDeclarationsOf(decl.getMembers())
-        .forEach(nested -> upsertTypeInternal(file, pkg, fqn, nested));
+    upsertNestedTypeMembers(file, pkg, fqn, decl.getMembers());
+  }
+
+  private void collectNestedTypeStructure(
+      Path file, String pkg, String outerFqn, List<?> members, TypeStructureWrites writes) {
+    nestedClassDeclarationsOf(members)
+        .forEach(nested -> collectTypeStructure(file, pkg, outerFqn, nested, writes));
+  }
+
+  private void upsertNestedTypeMembers(Path file, String pkg, String outerFqn, List<?> members) {
+    nestedClassDeclarationsOf(members)
+        .forEach(nested -> upsertTypeMembers(file, pkg, outerFqn, nested));
+  }
+
+  private void upsertTypeStructure(TypeStructureWrites writes) {
+    upsertClassNodes(writes.classes);
+    upsertInterfaceNodes(writes.interfaces);
+    upsertClassExtends(writes.classExtends);
+    upsertInterfaceExtends(writes.interfaceExtends);
+    upsertImplements(writes.implementsRelations);
   }
 
   private static Stream<ClassOrInterfaceDeclaration> nestedClassDeclarationsOf(List<?> members) {
@@ -205,51 +275,38 @@ public final class JavaGraphWriter extends CommonGraphWriter {
         .forEach(nested -> upsertTypeCallEdgesInternal(pkg, fqn, nested));
   }
 
-  private void upsertInheritance(String fqn, ClassOrInterfaceDeclaration decl) {
-    String extendsCypher =
-        decl.isInterface()
-            ? Cypher.CYPHER_UPSERT_INTERFACE_EXTENDS
-            : Cypher.CYPHER_UPSERT_EXTENDS_CLASS;
-    decl.getExtendedTypes()
-        .forEach(
-            ext ->
-                upsertTypeRelation(
-                    extendsCypher, fqn, ext, Params.PARENT, Params.PARENT_NAME, Params.PARENT_PKG));
-    decl.getImplementedTypes().forEach(impl -> upsertImplementedType(fqn, impl));
+  private void collectInheritance(
+      String fqn, ClassOrInterfaceDeclaration decl, TypeStructureWrites writes) {
+    Consumer<TypeRelationWrite> extendsSink =
+        decl.isInterface() ? writes.interfaceExtends::add : writes.classExtends::add;
+    decl.getExtendedTypes().forEach(ext -> collectTypeRelation(fqn, ext, extendsSink));
+    collectImplementedTypes(fqn, decl, writes);
   }
 
-  private void upsertImplementedTypes(String fqn, NodeWithImplements<?> decl) {
-    decl.getImplementedTypes().forEach(impl -> upsertImplementedType(fqn, impl));
+  private void collectImplementedTypes(
+      String fqn, NodeWithImplements<?> decl, TypeStructureWrites writes) {
+    decl.getImplementedTypes()
+        .forEach(impl -> collectTypeRelation(fqn, impl, writes.implementsRelations::add));
   }
 
-  private void upsertImplementedType(String fqn, ClassOrInterfaceType iface) {
-    upsertTypeRelation(
-        Cypher.CYPHER_UPSERT_IMPLEMENTS,
-        fqn,
-        iface,
-        Params.IFACE,
-        Params.IFACE_NAME,
-        Params.IFACE_PKG);
-  }
-
-  private void upsertTypeRelation(
-      String query,
-      String childFqn,
-      ClassOrInterfaceType target,
-      String targetParam,
-      String targetNameParam,
-      String targetPkgParam) {
+  private static void collectTypeRelation(
+      String childFqn, ClassOrInterfaceType target, Consumer<TypeRelationWrite> sink) {
     JavaTypeNames.withResolvedType(
         target,
-        targetFqn ->
-            upsertTypeRelation(
-                query,
-                childFqn,
-                targetFqn,
-                targetParam,
-                targetNameParam,
-                targetPkgParam,
-                JAVA_LANGUAGE));
+        targetFqn -> sink.accept(new TypeRelationWrite(childFqn, targetFqn, JAVA_LANGUAGE)));
+  }
+
+  /**
+   * Collected structural writes for one Java declaration tree.
+   *
+   * @author Oleksii Usatov
+   */
+  private static final class TypeStructureWrites {
+    private final List<ClassWrite> classes = new ArrayList<>();
+    private final List<InterfaceWrite> interfaces = new ArrayList<>();
+    private final List<TypeRelationWrite> classExtends = new ArrayList<>();
+    private final List<TypeRelationWrite> interfaceExtends = new ArrayList<>();
+    private final List<TypeRelationWrite> implementsRelations = new ArrayList<>();
   }
 
   private void upsertRecordComponents(Path file, String ownerFqn, RecordDeclaration decl) {

@@ -14,6 +14,7 @@ import com.github.javaparser.symbolsolver.resolution.typesolvers.ReflectionTypeS
 import io.github.ousatov.tools.memgraph.exe.adapter.SourceFileDefinitions;
 import io.github.ousatov.tools.memgraph.exe.adapter.SourceLanguage;
 import io.github.ousatov.tools.memgraph.exe.analyze.ParseService;
+import io.github.ousatov.tools.memgraph.exe.metrics.IngestionRunStats;
 import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.CallWrite;
 import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.CodeChunkWrite;
 import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.PendingCallWrite;
@@ -668,6 +669,30 @@ class GraphWriterIT {
 
     assertEquals(1, fileLink);
     assertEquals(1, pkgLink);
+  }
+
+  @Test
+  void upsertTypeBatchesTypeStructureWrites() {
+    Path sourceFile = SRC_ROOT.resolve("com/example/BatchWidget.java");
+    writer.upsertFile(sourceFile);
+    writer.upsertPackage(PKG);
+    IngestionRunStats stats = new IngestionRunStats(1);
+    GraphWriter measuredWriter = new GraphWriter(session, PROJECT, stats);
+    JavaGraphWriter measuredJavaWriter = new JavaGraphWriter(measuredWriter.dependencies());
+    ClassOrInterfaceDeclaration decl =
+        parseDecl(
+            "package com.example;"
+                + " public class BatchWidget extends com.example.Base"
+                + "   implements com.example.One, com.example.Two {"
+                + "   class Nested extends com.example.NestedBase"
+                + "     implements com.example.NestedOne {}"
+                + " }");
+
+    measuredJavaWriter.upsertType(sourceFile, PKG, decl);
+
+    long statements = performanceMetric(stats, "cypher.statements");
+    long rows = performanceMetric(stats, "cypher.rows");
+    assertTrue(rows > statements, "expected structural writes to use batched Cypher rows");
   }
 
   @Test
@@ -2624,6 +2649,153 @@ class GraphWriterIT {
   }
 
   @Test
+  void scopedPendingCallResolutionOnlyTouchesChangedDefinitions() {
+    writer.upsertFile(TEST_FILE);
+    writer.upsertPackage(PKG);
+    ClassOrInterfaceDeclaration firstCaller =
+        parseDecl("package com.example; public class FirstCaller { public void run() {} }");
+    ClassOrInterfaceDeclaration firstHelper =
+        parseDecl(
+            "package com.example; public class FirstHelper { public static void assist() {} }");
+    ClassOrInterfaceDeclaration secondCaller =
+        parseDecl("package com.example; public class SecondCaller { public void run() {} }");
+    ClassOrInterfaceDeclaration secondHelper =
+        parseDecl(
+            "package com.example; public class SecondHelper { public static void assist() {} }");
+    String firstCallerSig = "com.example.FirstCaller.run()";
+    String secondCallerSig = "com.example.SecondCaller.run()";
+
+    javaWriter.upsertType(TEST_FILE, PKG, firstCaller);
+    javaWriter.upsertType(TEST_FILE, PKG, firstHelper);
+    javaWriter.upsertType(TEST_FILE, PKG, secondCaller);
+    javaWriter.upsertType(TEST_FILE, PKG, secondHelper);
+    writer.upsertPendingCallByName(firstCallerSig, "com.example.FirstHelper", "assist");
+    writer.upsertPendingCallByName(secondCallerSig, "com.example.SecondHelper", "assist");
+    writer.recordChangedDefinitions(
+        SourceFileDefinitions.of(
+            List.of("com.example.FirstHelper"), List.of(), List.of(), List.of(), List.of()));
+
+    writer.resolvePendingCallsForChangedDefinitions();
+
+    var row =
+        session
+            .run(
+                "MATCH (pending:PendingCall {project: $p}) WITH collect(pending.callerSignature) AS"
+                    + " pendingCallers OPTIONAL MATCH (:Method {signature: $firstCallerSig,"
+                    + " project: $p})-[firstCall:CALLS]->(:Method {name: 'assist', project: $p,"
+                    + " ownerFqn: 'com.example.FirstHelper'}) WITH pendingCallers, count(DISTINCT"
+                    + " firstCall) AS firstCalls OPTIONAL MATCH (:Method {signature:"
+                    + " $secondCallerSig, project: $p})-[secondCall:CALLS]->(:Method {name:"
+                    + " 'assist', project: $p, ownerFqn: 'com.example.SecondHelper'}) RETURN"
+                    + " firstCalls, count(DISTINCT secondCall) AS secondCalls, pendingCallers",
+                Map.of(
+                    "p",
+                    PROJECT,
+                    "firstCallerSig",
+                    firstCallerSig,
+                    "secondCallerSig",
+                    secondCallerSig))
+            .single();
+
+    assertEquals(1, row.get("firstCalls").asLong());
+    assertEquals(0, row.get("secondCalls").asLong());
+    assertEquals(List.of(secondCallerSig), row.get("pendingCallers").asList());
+  }
+
+  @Test
+  void scopedPendingCallResolutionIncludesChangedClassDescendants() {
+    writer.upsertFile(TEST_FILE);
+    writer.upsertPackage(PKG);
+    ClassOrInterfaceDeclaration base =
+        parseDecl("package com.example; public class BaseService { public void assist() {} }");
+    ClassOrInterfaceDeclaration middle =
+        parseDecl(
+            "package com.example;"
+                + " public class MiddleService extends com.example.BaseService {}");
+    ClassOrInterfaceDeclaration leaf =
+        parseDecl(
+            "package com.example;"
+                + " public class LeafService extends com.example.MiddleService {}");
+    ClassOrInterfaceDeclaration caller =
+        parseDecl("package com.example; public class Caller { public void run() {} }");
+    String callerSig = "com.example.Caller.run()";
+
+    javaWriter.upsertType(TEST_FILE, PKG, base);
+    javaWriter.upsertType(TEST_FILE, PKG, middle);
+    javaWriter.upsertType(TEST_FILE, PKG, leaf);
+    javaWriter.upsertType(TEST_FILE, PKG, caller);
+    writer.upsertPendingCallByName(callerSig, "com.example.LeafService", "assist");
+    writer.recordChangedDefinitions(
+        SourceFileDefinitions.of(
+            List.of("com.example.BaseService"), List.of(), List.of(), List.of(), List.of()));
+
+    writer.resolvePendingCallsForChangedDefinitions();
+
+    var row =
+        session
+            .run(
+                """
+                MATCH (pending:PendingCall {project: $p})
+                WITH count(pending) AS pendingAfter
+                OPTIONAL MATCH (:Method {signature: $callerSig, project: $p})-[call:CALLS]->
+                    (:Method {name: 'assist', ownerFqn: 'com.example.BaseService', project: $p})
+                RETURN pendingAfter, count(DISTINCT call) AS calls
+                """,
+                Map.of("p", PROJECT, "callerSig", callerSig))
+            .single();
+
+    assertEquals(0, row.get("pendingAfter").asLong());
+    assertEquals(1, row.get("calls").asLong());
+  }
+
+  @Test
+  void scopedPendingCallResolutionIncludesChangedJavascriptInterfaceImplementors() {
+    Path tsFile = Path.of("/tmp/test-gw/src/app/service.ts");
+    String pkg = "js.app";
+    String baseIface = "js.app.base$2e$interface$2e$ts.Capability";
+    String childIface = "js.app.advanced$2e$interface$2e$ts.AdvancedCapability";
+    String service = "js.app.service$2e$ts.Service";
+    String caller = "js.app.consumer$2e$ts.Consumer";
+    String callerSig = caller + ".run()";
+    String calleeSig = baseIface + ".doIt()";
+    writer.upsertFile(tsFile, SourceLanguage.JAVASCRIPT);
+    writer.upsertPackage(pkg, SourceLanguage.JAVASCRIPT);
+
+    jsWriter.upsertInterface(tsFile, pkg, baseIface, "Capability", "interface", "app/base.ts", "");
+    jsWriter.upsertMethod(
+        tsFile, baseIface, calleeSig, "doIt", "void", false, 1, 1, "interface-method");
+    jsWriter.upsertInterface(
+        tsFile, pkg, childIface, "AdvancedCapability", "interface", "app/advanced.ts", "");
+    jsWriter.upsertInterfaceExtends(childIface, baseIface);
+    jsWriter.upsertClass(tsFile, pkg, service, "Service", "app/service.ts", "", false, false, 1, 3);
+    jsWriter.upsertImplements(service, childIface);
+    jsWriter.upsertClass(
+        tsFile, pkg, caller, "Consumer", "app/consumer.ts", "", false, false, 1, 3);
+    jsWriter.upsertMethod(tsFile, caller, callerSig, "run", "void", false, 2, 2, "method");
+    writer.upsertPendingCallByName(callerSig, service, "doIt");
+    writer.recordChangedDefinitions(
+        SourceFileDefinitions.of(List.of(), List.of(baseIface), List.of(), List.of(), List.of()));
+
+    writer.resolvePendingCallsForChangedDefinitions();
+
+    var row =
+        session
+            .run(
+                """
+                MATCH (pending:PendingCall {project: $p})
+                WITH count(pending) AS pendingAfter
+                OPTIONAL MATCH (:Method {signature: $callerSig, project: $p})-[call:CALLS]->
+                    (:Method {signature: $calleeSig, project: $p})
+                RETURN pendingAfter, count(DISTINCT call) AS calls
+                """,
+                Map.of("p", PROJECT, "callerSig", callerSig, "calleeSig", calleeSig))
+            .single();
+
+    assertEquals(0, row.get("pendingAfter").asLong());
+    assertEquals(1, row.get("calls").asLong());
+  }
+
+  @Test
   void repeatedResolvedCallsStoreOccurrenceCountOnUniqueEdge() {
     writer.upsertFile(TEST_FILE);
     writer.upsertPackage(PKG);
@@ -2924,6 +3096,14 @@ class GraphWriterIT {
         .flatMap(cu -> cu.findFirst(ClassOrInterfaceDeclaration.class))
         .orElseThrow(
             () -> new IllegalArgumentException("Could not parse declaration from: " + src));
+  }
+
+  private static long performanceMetric(IngestionRunStats stats, String name) {
+    return stats.snapshot().rows().stream()
+        .filter(row -> name.equals(row.name()))
+        .findFirst()
+        .map(row -> Long.parseLong(row.value()))
+        .orElseThrow(() -> new IllegalArgumentException("Missing metric: " + name));
   }
 
   private static ClassOrInterfaceDeclaration parseDeclResolved(String src) {

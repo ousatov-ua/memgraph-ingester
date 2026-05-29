@@ -339,13 +339,14 @@ public final class IngestionOrchestrator {
   }
 
   void ingestChangedFiles(Set<Path> files) {
+    IngestionRunStats stats = new IngestionRunStats(threads);
     try (Session session = driver.session()) {
-      GraphWriter writer = new GraphWriter(session, project);
+      GraphWriter writer = new GraphWriter(session, project, stats);
       Set<Path> watchFiles = watchFilesForProcessing(files);
       Optional<WatchSourceSnapshot> sourceSnapshot = sourceSnapshotForWatch(writer);
       if (sourceSnapshot.isEmpty()) {
         pendingWatchFiles.addAll(watchFiles);
-        if (reconcileDeletedWatchFiles(watchFiles, writer)) {
+        if (reconcileDeletedWatchFiles(watchFiles, writer, stats)) {
           refreshDerivedGraphArtifacts(writer);
         }
         return;
@@ -371,7 +372,7 @@ public final class IngestionOrchestrator {
               .toList();
       for (SourceFile file : existingFiles) {
         try {
-          boolean updated = ingestFileBatched(writer, file, StoredFileState.empty());
+          boolean updated = ingestFileBatched(writer, file, StoredFileState.empty(), stats);
           changedGraph |= updated;
           if (!updated) {
             updateFailures++;
@@ -390,7 +391,7 @@ public final class IngestionOrchestrator {
             deletedFiles.size(),
             updateFailures);
       }
-      refreshRetainedFilesAfterDelete(writer, refreshAfterDelete, currentFilesByPath);
+      refreshRetainedFilesAfterDelete(writer, refreshAfterDelete, currentFilesByPath, stats);
       if (changedGraph) {
         refreshDerivedGraphArtifacts(writer);
         refreshChunkEmbeddings(writer, true);
@@ -452,7 +453,8 @@ public final class IngestionOrchestrator {
     return watchFiles;
   }
 
-  private boolean reconcileDeletedWatchFiles(Set<Path> files, GraphWriter writer) {
+  private boolean reconcileDeletedWatchFiles(
+      Set<Path> files, GraphWriter writer, IngestionRunStats stats) {
     try {
       List<SourceFile> existingFiles =
           files.stream()
@@ -481,7 +483,7 @@ public final class IngestionOrchestrator {
           }
         }
       }
-      refreshRetainedFilesAfterDelete(writer, refreshAfterDelete, Map.of());
+      refreshRetainedFilesAfterDelete(writer, refreshAfterDelete, Map.of(), stats);
       return changedGraph;
     } catch (RuntimeException e) {
       logWatchWarning("Could not reconcile watch delete fallback: {}", e.getMessage());
@@ -490,14 +492,17 @@ public final class IngestionOrchestrator {
   }
 
   void refreshRetainedFilesAfterDelete(
-      GraphWriter writer, Collection<Path> paths, Map<Path, SourceFile> currentFilesByPath) {
+      GraphWriter writer,
+      Collection<Path> paths,
+      Map<Path, SourceFile> currentFilesByPath,
+      IngestionRunStats stats) {
     for (Path path : paths.stream().sorted().toList()) {
       try {
         Optional<SourceFile> retainedFile = sourceFileFor(path, currentFilesByPath, writer);
         if (retainedFile.isEmpty()) {
           continue;
         }
-        if (!ingestFileBatched(writer, retainedFile.get(), StoredFileState.empty())) {
+        if (!ingestFileBatched(writer, retainedFile.get(), StoredFileState.empty(), stats)) {
           logWatchWarning("Failed to refresh retained file after delete: {}", path);
         }
       } catch (RuntimeException e) {
@@ -547,8 +552,8 @@ public final class IngestionOrchestrator {
 
   /** Refreshes graph artifacts that depend on all available code nodes being present. */
   private void refreshDerivedGraphArtifacts(GraphWriter writer) {
-    writer.resolvePendingCalls();
-    log.debug("Resolved pending owner/name CALLS edges for '{}'", project);
+    writer.resolvePendingCallsForChangedDefinitions();
+    log.debug("Resolved changed pending owner/name CALLS edges for '{}'", project);
     writer.deletePhantomMethods();
     log.debug("Removed phantom external Method nodes for '{}'", project);
     writer.deleteEmptyPackages();
@@ -575,8 +580,9 @@ public final class IngestionOrchestrator {
         "Refreshing CodeChunk embeddings for project '{}' with Memgraph model '{}'...",
         project,
         codeEmbeddings.modelName());
+    long startedNanos = System.nanoTime();
     try {
-      EmbeddingRefreshResult result = writer.refreshCodeChunkEmbeddings(codeEmbeddings);
+      EmbeddingRefreshResult result = writer.refreshCodeChunkEmbeddings(codeEmbeddings, watchMode);
       logEmbeddingRefresh(
           watchMode,
           "Refreshed {} CodeChunk embedding(s) using model '{}' ({} dimensions).",
@@ -590,6 +596,8 @@ public final class IngestionOrchestrator {
               + " embeddings and vector-index support.",
           project,
           e.getMessage());
+    } finally {
+      writer.recordPhaseNanos(IngestionRunStats.PHASE_EMBEDDING, System.nanoTime() - startedNanos);
     }
   }
 
@@ -599,6 +607,7 @@ public final class IngestionOrchestrator {
         "Refreshing MemoryChunk embeddings for project '{}' with Memgraph model '{}'...",
         project,
         memoryEmbeddings.modelName());
+    long startedNanos = System.nanoTime();
     try {
       EmbeddingRefreshResult result = writer.refreshMemoryChunkEmbeddings(memoryEmbeddings);
       logEmbeddingRefresh(
@@ -614,6 +623,8 @@ public final class IngestionOrchestrator {
               + " image with embeddings and vector-index support.",
           project,
           e.getMessage());
+    } finally {
+      writer.recordPhaseNanos(IngestionRunStats.PHASE_EMBEDDING, System.nanoTime() - startedNanos);
     }
   }
 
@@ -814,7 +825,7 @@ public final class IngestionOrchestrator {
                 writer.deleteFilesMissingFromSource(
                     sourceRoot, currentPaths, retainedPaths, language));
       }
-      refreshRetainedFilesAfterDelete(writer, refreshAfterDelete, currentFilesByPath);
+      refreshRetainedFilesAfterDelete(writer, refreshAfterDelete, currentFilesByPath, stats);
     }
   }
 
@@ -962,7 +973,7 @@ public final class IngestionOrchestrator {
       GraphWriter writer = new GraphWriter(session, project, stats);
       writer.setRetainedSourcePaths(retainedSourcePaths);
       for (SourceFile file : files) {
-        PreparedFile prepared = prepareFileForIngestion(file, storedFiles);
+        PreparedFile prepared = prepareFileForIngestion(file, storedFiles, stats);
         if (!writePreparedFile(writer, prepared)) {
           failures++;
         }
@@ -1002,16 +1013,20 @@ public final class IngestionOrchestrator {
    * @return true on success (or skip), false if parsing or graph write fails
    */
   private boolean ingestFileBatched(
-      GraphWriter writer, SourceFile sourceFile, StoredFileState storedFiles) {
-    return writePreparedFile(writer, prepareFileForIngestion(sourceFile, storedFiles));
+      GraphWriter writer,
+      SourceFile sourceFile,
+      StoredFileState storedFiles,
+      IngestionRunStats stats) {
+    return writePreparedFile(writer, prepareFileForIngestion(sourceFile, storedFiles, stats));
   }
 
-  private PreparedFile prepareFileForIngestion(SourceFile sourceFile, StoredFileState storedFiles) {
-    return prepareFileForIngestion(sourceFile.adapter(), sourceFile.path(), storedFiles);
+  private PreparedFile prepareFileForIngestion(
+      SourceFile sourceFile, StoredFileState storedFiles, IngestionRunStats stats) {
+    return prepareFileForIngestion(sourceFile.adapter(), sourceFile.path(), storedFiles, stats);
   }
 
   private <T> PreparedFile prepareFileForIngestion(
-      LanguageAdapter<T> adapter, Path path, StoredFileState storedFiles) {
+      LanguageAdapter<T> adapter, Path path, StoredFileState storedFiles, IngestionRunStats stats) {
     if (isFileUnchanged(path, storedFiles)) {
       log.debug("Skipping unchanged file: {}", path);
       return new PreparedSkip(path);
@@ -1026,6 +1041,7 @@ public final class IngestionOrchestrator {
 
     T parsed;
     SourceFileDefinitions definitions;
+    long startedNanos = System.nanoTime();
     try {
       Optional<T> parsedOpt = adapter.parse(path);
       if (parsedOpt.isEmpty()) {
@@ -1036,6 +1052,8 @@ public final class IngestionOrchestrator {
     } catch (RuntimeException e) {
       log.warn("Failed to prepare {}: {}", path, e.getMessage());
       return new PreparedFailure(path);
+    } finally {
+      stats.recordPhaseNanos(IngestionRunStats.PHASE_PARSE, System.nanoTime() - startedNanos);
     }
     return new PreparedWrite<>(path, adapter, parsed, definitions);
   }
@@ -1060,11 +1078,25 @@ public final class IngestionOrchestrator {
     for (int attempt = 1; attempt <= FILE_TX_RETRY_ATTEMPTS; attempt++) {
       writer.beginFileTransaction();
       try {
-        writer.deleteStaleDefinitionsForFile(prepared.path(), prepared.definitions());
-        boolean success = prepared.adapter().write(writer, prepared.path(), prepared.parsed());
+        long cleanupStartedNanos = System.nanoTime();
+        try {
+          writer.deleteStaleDefinitionsForFile(prepared.path(), prepared.definitions());
+        } finally {
+          writer.recordPhaseNanos(
+              IngestionRunStats.PHASE_CLEANUP, System.nanoTime() - cleanupStartedNanos);
+        }
+        long writeStartedNanos = System.nanoTime();
+        boolean success;
+        try {
+          success = prepared.adapter().write(writer, prepared.path(), prepared.parsed());
+        } finally {
+          writer.recordPhaseNanos(
+              IngestionRunStats.PHASE_WRITE, System.nanoTime() - writeStartedNanos);
+        }
         if (success) {
           writer.commitFileTransaction();
           writer.recordIngestedFile();
+          writer.recordChangedDefinitions(prepared.definitions());
         } else {
           writer.recordFailedFile();
           writer.rollbackFileTransaction();
@@ -1141,7 +1173,7 @@ public final class IngestionOrchestrator {
 
     try {
       for (SourceFile file : files) {
-        futures.add(pool.submit(() -> prepareFileForIngestion(file, storedFiles)));
+        futures.add(pool.submit(() -> prepareFileForIngestion(file, storedFiles, stats)));
       }
       pool.shutdown();
       if (!pool.awaitTermination(SHUTDOWN_TIMEOUT_MINUTES, TimeUnit.MINUTES)) {

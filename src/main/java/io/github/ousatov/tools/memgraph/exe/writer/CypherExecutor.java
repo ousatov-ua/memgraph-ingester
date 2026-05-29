@@ -77,12 +77,13 @@ final class CypherExecutor {
     long backoffMs = INITIAL_BACKOFF_MS;
     for (int attempt = 1; attempt <= MAX_RETRY_ATTEMPTS; attempt++) {
       try {
+        long startedNanos = System.nanoTime();
         if (currentTx != null) {
           currentTx.run(cypher, allParams).consume();
         } else {
           session.run(cypher, allParams).consume();
         }
-        stats.recordCypherStatement();
+        stats.recordCypherStatement(cypher, System.nanoTime() - startedNanos);
         return;
       } catch (RuntimeException e) {
         if (currentTx != null) {
@@ -102,12 +103,13 @@ final class CypherExecutor {
     long backoffMs = INITIAL_BACKOFF_MS;
     for (int attempt = 1; attempt <= MAX_RETRY_ATTEMPTS; attempt++) {
       try {
+        long startedNanos = System.nanoTime();
         if (currentTx != null) {
           currentTx.run(cypher, allParams).consume();
         } else {
           session.run(cypher, allParams).consume();
         }
-        stats.recordCypherBatch(rows.size());
+        stats.recordCypherBatch(cypher, rows.size(), System.nanoTime() - startedNanos);
         return;
       } catch (RuntimeException e) {
         if (currentTx != null) {
@@ -124,8 +126,9 @@ final class CypherExecutor {
     long backoffMs = INITIAL_BACKOFF_MS;
     for (int attempt = 1; attempt <= MAX_RETRY_ATTEMPTS; attempt++) {
       try {
+        long startedNanos = System.nanoTime();
         long value = session.run(cypher, allParams).single().get(resultKey).asLong();
-        stats.recordCypherStatement();
+        stats.recordCypherStatement(cypher, System.nanoTime() - startedNanos);
         return value;
       } catch (RuntimeException e) {
         backoffMs = proceedException(cypher, e, attempt, backoffMs);
@@ -136,8 +139,9 @@ final class CypherExecutor {
 
   /** Runs a read query and maps its result, injecting the project parameter. */
   <T> T read(String cypher, Map<String, Object> params, Function<Result, T> mapper) {
+    long startedNanos = System.nanoTime();
     T value = mapper.apply(session.run(cypher, paramsWithProject(params)));
-    stats.recordCypherStatement();
+    stats.recordCypherStatement(cypher, System.nanoTime() - startedNanos);
     return value;
   }
 

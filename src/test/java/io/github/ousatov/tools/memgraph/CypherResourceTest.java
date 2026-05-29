@@ -157,6 +157,7 @@ class CypherResourceTest {
     String createIndex = Const.Cypher.CYPHER_CREATE_CODE_CHUNK_VECTOR_INDEX;
     String showIndex = Const.Cypher.CYPHER_SHOW_VECTOR_INDEX_INFO;
     String countChunks = Const.Cypher.CYPHER_COUNT_CODE_CHUNKS;
+    String countDirtyEmbeddings = Const.Cypher.CYPHER_COUNT_DIRTY_CODE_CHUNK_EMBEDDINGS;
     String markStaleEmbeddings = Const.Cypher.CYPHER_MARK_STALE_CODE_CHUNK_EMBEDDINGS;
     String refreshEmbeddings = Const.Cypher.CYPHER_REFRESH_CODE_CHUNK_EMBEDDING_BATCH;
     String updateEmbeddingMetadata = Const.Cypher.CYPHER_UPDATE_CODE_CHUNK_EMBEDDING_METADATA;
@@ -201,6 +202,8 @@ class CypherResourceTest {
     assertTrue(showIndex.contains("SHOW VECTOR INDEX INFO"));
     assertTrue(countChunks.contains("RETURN count(chunk) AS count"));
     assertFalse(countChunks.contains("{project: $project}"));
+    assertTrue(countDirtyEmbeddings.contains("embeddingDirty: true"));
+    assertTrue(countDirtyEmbeddings.contains("RETURN count(chunk) AS count"));
     assertTrue(markStaleEmbeddings.contains("RETURN count(chunk) AS count"));
     assertTrue(markStaleEmbeddings.contains("chunk.embeddingModel <> $modelName"));
     assertTrue(markStaleEmbeddings.contains("SET chunk.embeddingDirty = true"));
