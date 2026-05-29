@@ -238,44 +238,30 @@ public final class GraphWriter {
    * relations forward.
    */
   public void deleteStaleDefinitionsForFile(Path file, SourceFileDefinitions definitions) {
-    deletePendingCallsForFile(file);
-    Map<String, Object> params =
-        Map.ofEntries(
-            Map.entry(Params.PATH, file.toString()),
-            Map.entry(Params.CLASS_FQNS, definitions.classFqns()),
-            Map.entry(Params.INTERFACE_FQNS, definitions.interfaceFqns()),
-            Map.entry(Params.ANNOTATION_FQNS, definitions.annotationFqns()),
-            Map.entry(Params.METHOD_SIGNATURES, definitions.methodSignatures()),
-            Map.entry(Params.FIELD_FQNS, definitions.fieldFqns()),
-            Map.entry(Params.PATHS, retainedSourcePaths));
-    List.of(
-            Cypher.CYPHER_DELETE_CURRENT_OWNER_CALLS_FOR_FILE,
-            Cypher.CYPHER_DELETE_CURRENT_OWNER_ANNOTATIONS_FOR_FILE,
-            Cypher.CYPHER_DELETE_CURRENT_MEMBER_ANNOTATIONS_FOR_FILE,
-            Cypher.CYPHER_DELETE_CURRENT_TYPE_RELATIONS_FOR_FILE,
-            Cypher.CYPHER_DELETE_STALE_CURRENT_OWNER_MEMBERS_FOR_FILE,
-            Cypher.CYPHER_DELETE_STALE_OWNER_MEMBERS_FOR_FILE,
-            Cypher.CYPHER_DELETE_STALE_OWNERS_FOR_FILE,
-            Cypher.CYPHER_DELETE_CALLS_FOR_FILE,
-            Cypher.CYPHER_DELETE_OWNER_ANNOTATIONS_FOR_FILE,
-            Cypher.CYPHER_DELETE_MEMBER_ANNOTATIONS_FOR_FILE,
-            Cypher.CYPHER_DELETE_TYPE_RELATIONS_FOR_FILE,
-            Cypher.CYPHER_DELETE_STALE_METHODS_FOR_FILE,
-            Cypher.CYPHER_DELETE_STALE_FIELDS_FOR_FILE)
-        .forEach(q -> cypher.run(q, params));
+    cypher.run(
+        Cypher.CYPHER_DELETE_STALE_DEFINITIONS_FOR_FILE, staleDefinitionParams(file, definitions));
+  }
+
+  private Map<String, Object> staleDefinitionParams(Path file, SourceFileDefinitions definitions) {
+    return Map.ofEntries(
+        Map.entry(Params.PATH, file.toString()),
+        Map.entry(Params.CLASS_FQNS, definitions.classFqns()),
+        Map.entry(Params.INTERFACE_FQNS, definitions.interfaceFqns()),
+        Map.entry(Params.ANNOTATION_FQNS, definitions.annotationFqns()),
+        Map.entry(Params.METHOD_SIGNATURES, definitions.methodSignatures()),
+        Map.entry(Params.FIELD_FQNS, definitions.fieldFqns()),
+        Map.entry(Params.PATHS, retainedSourcePaths));
   }
 
   /** Deletes all graph state owned by a source file that no longer exists. */
   public void deleteSourceFile(Path file) {
     runInFileTransaction(
         () -> {
-          deletePendingCallsForFile(file);
+          cypher.run(
+              Cypher.CYPHER_DELETE_STALE_DEFINITIONS_FOR_FILE,
+              staleDefinitionParams(file, SourceFileDefinitions.empty()));
           deleteCodeChunksForFile(file);
-          List.of(
-                  Cypher.CYPHER_DELETE_MEMBERS_FOR_FILE,
-                  Cypher.CYPHER_DELETE_OWNERS_FOR_FILE,
-                  Cypher.CYPHER_DELETE_FILE,
-                  Cypher.CYPHER_DELETE_EMPTY_PACKAGES)
+          List.of(Cypher.CYPHER_DELETE_FILE, Cypher.CYPHER_DELETE_EMPTY_PACKAGES)
               .forEach(q -> cypher.run(q, Map.of(Params.PATH, file.toString())));
         });
   }
