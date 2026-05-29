@@ -582,8 +582,7 @@ public final class IngestionOrchestrator {
         codeEmbeddings.modelName());
     long startedNanos = System.nanoTime();
     try {
-      EmbeddingRefreshResult result =
-          writer.refreshCodeChunkEmbeddings(codeEmbeddings, incremental || watchMode);
+      EmbeddingRefreshResult result = writer.refreshCodeChunkEmbeddings(codeEmbeddings, watchMode);
       logEmbeddingRefresh(
           watchMode,
           "Refreshed {} CodeChunk embedding(s) using model '{}' ({} dimensions).",
