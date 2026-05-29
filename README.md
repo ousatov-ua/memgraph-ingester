@@ -525,7 +525,8 @@ JS/TS caveat: JavaScript is dynamic. `CALLS` is not a complete raw AST call inve
 known source call relationships when the helper can associate the site and target with graph
 methods. Dynamic dispatch, dependency injection, monkey-patching, framework templates, and
 generated code can produce missing call edges. A missing JS/TS `CALLS` edge does not prove a call
-never happens.
+never happens. Repeated calls between the same caller and callee share one edge with a `count`
+property for the observed occurrence count.
 
 ## Python Guide
 
@@ -861,7 +862,7 @@ source graph node.
 | `:Annotation` | `(fqn, project)` | `name`, `packageName`, `language`, `kind`, `modulePath`, `framework`. |
 | `:Method` | `(signature, project)` | `name`, `returnType`, `visibility`, `isStatic`, `startLine`, `endLine`, `ownerFqn`, `ownerDisplayName`, `language`, `kind`. |
 | `:Field` | `(fqn, project)` | `name`, `type`, `visibility`, `isStatic`, `language`, `kind`. |
-| `:PendingCall` | `(project, callerSignature, calleeOwnerFqn, calleeName)` | Temporary owner/name call record resolved after ingestion. |
+| `:PendingCall` | `(project, callerSignature, calleeOwnerFqn, calleeName)` | Temporary owner/name call record resolved after ingestion; `count` tracks repeated occurrences. |
 | `:CodeChunk` | `(id, project)` | Derived RAG text/vector node linked from code nodes. |
 
 ### Code Relationships
@@ -876,7 +877,7 @@ source graph node.
 | `(:Class)-[:IMPLEMENTS]->(:Interface)` | Interface implementation. |
 | `(:Interface)-[:EXTENDS]->(:Interface)` | Interface inheritance. |
 | `(:Class \| :Interface \| :Annotation)-[:DECLARES]->(:Method \| :Field)` | Type members. |
-| `(:Method)-[:CALLS]->(:Method)` | Best-effort call graph. |
+| `(:Method)-[:CALLS]->(:Method)` | Best-effort call graph; `count` stores repeated occurrences for the caller/callee pair. |
 | `(:Method)-[:PENDING_CALL]->(:PendingCall)` | Deferred owner/name call awaiting unique target resolution. |
 | `(:*)-[:ANNOTATED_WITH]->(:Annotation)` | Annotation or decorator usage. |
 
@@ -1022,7 +1023,9 @@ RETURN labels(memory), memory.id, memory.title;
 - JS/TS `CALLS` edges are syntax-based and best-effort. Owner/name calls that cannot be
   resolved in-file are stored as `:PendingCall` records and retried after the batch. Direct owner
   methods are preferred, then the nearest superclass with exactly one matching method. Pending calls
-  for a reingested JS/TS file are cleared before the file's current calls are stored.
+  for a reingested JS/TS file are cleared before the file's current calls are stored. Repeated
+  source calls between the same caller and callee are stored as one `CALLS` edge with a `count`
+  occurrence property.
 - Re-ingestion refreshes file-local outgoing `CALLS`, `ANNOTATED_WITH`, `EXTENDS`, and `IMPLEMENTS`
   relationships before writing the current file data, while preserving current method nodes so
   incoming `CALLS` edges from unchanged files survive incremental runs.

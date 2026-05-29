@@ -14,7 +14,9 @@ import com.github.javaparser.symbolsolver.resolution.typesolvers.ReflectionTypeS
 import io.github.ousatov.tools.memgraph.exe.adapter.SourceFileDefinitions;
 import io.github.ousatov.tools.memgraph.exe.adapter.SourceLanguage;
 import io.github.ousatov.tools.memgraph.exe.analyze.ParseService;
+import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.CallWrite;
 import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.CodeChunkWrite;
+import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.PendingCallWrite;
 import io.github.ousatov.tools.memgraph.exe.writer.ctags.CtagsGraphWriter;
 import io.github.ousatov.tools.memgraph.exe.writer.java.JavaGraphWriter;
 import io.github.ousatov.tools.memgraph.exe.writer.js.JsGraphWriter;
@@ -2619,6 +2621,66 @@ class GraphWriterIT {
     assertEquals(0, callsBefore);
     assertEquals(0, pendingAfter);
     assertEquals(1, callsAfter);
+  }
+
+  @Test
+  void repeatedResolvedCallsStoreOccurrenceCountOnUniqueEdge() {
+    writer.upsertFile(TEST_FILE);
+    writer.upsertPackage(PKG);
+    ClassOrInterfaceDeclaration caller =
+        parseDecl("package com.example; public class Caller { public void run() {} }");
+    String callerSig = "com.example.Caller.run()";
+    String calleeSig = "com.example.Helper.assist()";
+
+    javaWriter.upsertType(TEST_FILE, PKG, caller);
+    writer.upsertCalls(
+        List.of(new CallWrite(callerSig, calleeSig), new CallWrite(callerSig, calleeSig)));
+    writer.upsertCalls(
+        List.of(new CallWrite(callerSig, calleeSig), new CallWrite(callerSig, calleeSig)));
+
+    var row =
+        session
+            .run(
+                "MATCH (:Method {signature: $callerSig, project: $p})-[call:CALLS]->"
+                    + "(:Method {signature: $calleeSig, project: $p}) "
+                    + "RETURN count(call) AS edges, call.count AS occurrences",
+                Map.of("p", PROJECT, "callerSig", callerSig, "calleeSig", calleeSig))
+            .single();
+
+    assertEquals(1, row.get("edges").asLong());
+    assertEquals(2, row.get("occurrences").asLong());
+  }
+
+  @Test
+  void repeatedPendingCallsCarryOccurrenceCountWhenResolved() {
+    writer.upsertFile(TEST_FILE);
+    writer.upsertPackage(PKG);
+    ClassOrInterfaceDeclaration caller =
+        parseDecl("package com.example; public class Caller { public void run() {} }");
+    ClassOrInterfaceDeclaration helper =
+        parseDecl("package com.example; public class Helper { public static void assist() {} }");
+    String callerSig = "com.example.Caller.run()";
+
+    javaWriter.upsertType(TEST_FILE, PKG, caller);
+    writer.upsertPendingCallsByName(
+        List.of(
+            new PendingCallWrite(callerSig, "com.example.Helper", "assist"),
+            new PendingCallWrite(callerSig, "com.example.Helper", "assist")));
+
+    javaWriter.upsertType(TEST_FILE, PKG, helper);
+    writer.resolvePendingCalls();
+
+    var row =
+        session
+            .run(
+                "MATCH (:Method {signature: $callerSig, project: $p})-[call:CALLS]->"
+                    + "(:Method {name: 'assist', project: $p}) "
+                    + "RETURN count(call) AS edges, call.count AS occurrences",
+                Map.of("p", PROJECT, "callerSig", callerSig))
+            .single();
+
+    assertEquals(1, row.get("edges").asLong());
+    assertEquals(2, row.get("occurrences").asLong());
   }
 
   @Test

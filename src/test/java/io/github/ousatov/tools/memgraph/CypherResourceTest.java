@@ -180,7 +180,8 @@ class CypherResourceTest {
     assertTrue(upsert.contains("SET chunk.embeddingDirty = true"));
     assertTrue(callsByName.contains("UNWIND $rows AS row"));
     assertTrue(callsByName.contains("row.caller AS callerSignature"));
-    assertTrue(callsByName.contains("MERGE (caller)-[:CALLS]->(callee)"));
+    assertTrue(callsByName.contains("MERGE (caller)-[call:CALLS]->(callee)"));
+    assertTrue(callsByName.contains("SET call.count = coalesce(call.count, 0) + callCount"));
     assertTrue(linkFile.contains("MATCH (source:File"));
     assertTrue(linkFile.contains("MERGE (source)-[:HAS_RAG_CHUNK]->(chunk)"));
     assertTrue(linkMethod.contains("MATCH (source:Method"));

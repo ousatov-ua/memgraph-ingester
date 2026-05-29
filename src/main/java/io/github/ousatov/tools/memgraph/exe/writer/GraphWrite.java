@@ -163,17 +163,27 @@ public final class GraphWrite {
   }
 
   /** Resolved call edge write payload. */
-  public record CallWrite(String callerSignature, String calleeSignature) implements BatchWrite {
+  public record CallWrite(String callerSignature, String calleeSignature, int count)
+      implements BatchWrite {
+
+    public CallWrite(String callerSignature, String calleeSignature) {
+      this(callerSignature, calleeSignature, 1);
+    }
 
     @Override
     public Map<String, Object> params() {
-      return Map.of(Params.CALLER, callerSignature, Params.CALLEE, calleeSignature);
+      return Map.of(
+          Params.CALLER, callerSignature, Params.CALLEE, calleeSignature, Params.COUNT, count);
     }
   }
 
   /** Deferred owner/name call write payload. */
-  public record PendingCallWrite(String callerSignature, String ownerFqn, String calleeName)
-      implements BatchWrite {
+  public record PendingCallWrite(
+      String callerSignature, String ownerFqn, String calleeName, int count) implements BatchWrite {
+
+    public PendingCallWrite(String callerSignature, String ownerFqn, String calleeName) {
+      this(callerSignature, ownerFqn, calleeName, 1);
+    }
 
     @Override
     public Map<String, Object> params() {
@@ -183,7 +193,9 @@ public final class GraphWrite {
           Params.OWNER_FQN,
           ownerFqn,
           Params.CALLEE_NAME,
-          calleeName);
+          calleeName,
+          Params.COUNT,
+          count);
     }
   }
 }
