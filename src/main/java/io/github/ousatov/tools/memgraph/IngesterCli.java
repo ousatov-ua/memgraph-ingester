@@ -47,7 +47,7 @@ import picocli.CommandLine.Spec;
  *
  * @author Oleksii Usatov
  */
-@Command(name = "ingest", mixinStandardHelpOptions = true, version = "12.0.21")
+@Command(name = "ingest", mixinStandardHelpOptions = true, version = "12.0.22")
 public final class IngesterCli implements Callable<Integer> {
 
   private static final Logger log = LoggerFactory.getLogger(IngesterCli.class);
