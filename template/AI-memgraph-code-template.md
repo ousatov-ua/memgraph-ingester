@@ -29,9 +29,10 @@ If Memgraph returns no relevant rows, fall back to text search and say why.
 
 ## Memgraph Access
 
-Use an MCP tool whose name contains `memgraph` or `cypher` when available. Otherwise use one
-interactive `mgconsole --no_history --output-format=csv` session per task, reuse it, and close it
-with `:quit` before final response. Report which query tool you used.
+Use an MCP tool whose name contains `memgraph` or `cypher` when available. If none is visible, run
+deferred tool discovery before `mgconsole` fallback. Use one interactive `mgconsole` session per
+task with `--no_history --output-format=csv`; reuse it and close it with `:quit` before final response.
+Report which query tool you used.
 
 Start `mgconsole`:
 
