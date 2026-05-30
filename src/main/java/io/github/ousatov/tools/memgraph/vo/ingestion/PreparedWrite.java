@@ -1,7 +1,7 @@
 package io.github.ousatov.tools.memgraph.vo.ingestion;
 
 import io.github.ousatov.tools.memgraph.exe.adapter.LanguageAdapter;
-import io.github.ousatov.tools.memgraph.exe.adapter.SourceFileDefinitions;
+import io.github.ousatov.tools.memgraph.vo.adapter.SourceFileDefinitions;
 import java.nio.file.Path;
 
 /**

@@ -3,6 +3,7 @@ package io.github.ousatov.tools.memgraph.exe.adapter;
 import io.github.ousatov.tools.memgraph.def.Const;
 import io.github.ousatov.tools.memgraph.exception.ProcessingException;
 import io.github.ousatov.tools.memgraph.exe.writer.GraphWriter;
+import io.github.ousatov.tools.memgraph.vo.adapter.SourceFileDefinitions;
 import java.io.IOException;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;

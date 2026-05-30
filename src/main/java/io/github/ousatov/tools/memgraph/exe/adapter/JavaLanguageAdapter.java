@@ -18,6 +18,7 @@ import io.github.ousatov.tools.memgraph.exe.analyze.ParseService;
 import io.github.ousatov.tools.memgraph.exe.rag.JavaCodeChunkBuilder;
 import io.github.ousatov.tools.memgraph.exe.writer.GraphWriter;
 import io.github.ousatov.tools.memgraph.exe.writer.java.JavaGraphWriter;
+import io.github.ousatov.tools.memgraph.vo.adapter.SourceFileDefinitions;
 import java.nio.file.Path;
 import java.util.LinkedHashSet;
 import java.util.Optional;

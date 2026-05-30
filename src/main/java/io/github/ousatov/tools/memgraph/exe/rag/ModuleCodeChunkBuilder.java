@@ -2,6 +2,7 @@ package io.github.ousatov.tools.memgraph.exe.rag;
 
 import io.github.ousatov.tools.memgraph.def.Const.Params;
 import io.github.ousatov.tools.memgraph.exe.analyze.ModuleAnalysis;
+import io.github.ousatov.tools.memgraph.vo.rag.CodeChunkAnalysis;
 import io.github.ousatov.tools.memgraph.vo.rag.MemberChunk;
 import io.github.ousatov.tools.memgraph.vo.rag.TypeChunk;
 import java.util.ArrayList;

@@ -15,6 +15,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import io.github.ousatov.tools.memgraph.exception.ProcessingException;
+import io.github.ousatov.tools.memgraph.vo.analysis.RuntimeMode;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;

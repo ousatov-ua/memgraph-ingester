@@ -17,6 +17,7 @@ import io.github.ousatov.tools.memgraph.def.Const.Labels;
 import io.github.ousatov.tools.memgraph.def.Const.Params;
 import io.github.ousatov.tools.memgraph.exe.adapter.SourceLanguage;
 import io.github.ousatov.tools.memgraph.exe.analyze.JavaTypeNames;
+import io.github.ousatov.tools.memgraph.vo.rag.CodeChunkAnalysis;
 import io.github.ousatov.tools.memgraph.vo.rag.MemberChunk;
 import io.github.ousatov.tools.memgraph.vo.rag.TypeChunk;
 import java.util.ArrayList;

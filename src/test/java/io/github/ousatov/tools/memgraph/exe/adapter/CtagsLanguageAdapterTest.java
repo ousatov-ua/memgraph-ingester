@@ -9,10 +9,11 @@ import static org.junit.jupiter.api.Assumptions.assumeFalse;
 
 import io.github.ousatov.tools.memgraph.def.Const.Params;
 import io.github.ousatov.tools.memgraph.exception.ProcessingException;
-import io.github.ousatov.tools.memgraph.exe.analyze.CtagsAnalysis;
 import io.github.ousatov.tools.memgraph.exe.analyze.CtagsAnalyzer;
 import io.github.ousatov.tools.memgraph.exe.analyze.ManagedCtagsRuntime;
-import io.github.ousatov.tools.memgraph.exe.analyze.RuntimeMode;
+import io.github.ousatov.tools.memgraph.vo.adapter.SourceFileDefinitions;
+import io.github.ousatov.tools.memgraph.vo.analysis.CtagsAnalysis;
+import io.github.ousatov.tools.memgraph.vo.analysis.RuntimeMode;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;

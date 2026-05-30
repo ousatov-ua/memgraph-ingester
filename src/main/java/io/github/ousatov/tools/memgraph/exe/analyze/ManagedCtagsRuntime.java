@@ -3,6 +3,7 @@ package io.github.ousatov.tools.memgraph.exe.analyze;
 import io.github.ousatov.tools.memgraph.def.Const;
 import io.github.ousatov.tools.memgraph.def.Const.SystemParams;
 import io.github.ousatov.tools.memgraph.exception.ProcessingException;
+import io.github.ousatov.tools.memgraph.vo.analysis.RuntimeMode;
 import io.github.ousatov.tools.memgraph.vo.analysis.ctags.Release;
 import io.github.ousatov.tools.memgraph.vo.analysis.ctags.ReleaseAsset;
 import java.io.ByteArrayInputStream;

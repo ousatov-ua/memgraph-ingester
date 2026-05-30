@@ -7,6 +7,7 @@ import io.github.ousatov.tools.memgraph.exe.analyze.ModuleAnalysis;
 import io.github.ousatov.tools.memgraph.exe.writer.GraphWriter;
 import io.github.ousatov.tools.memgraph.exe.writer.ModuleGraphWriter;
 import io.github.ousatov.tools.memgraph.vo.Method;
+import io.github.ousatov.tools.memgraph.vo.adapter.SourceFileDefinitions;
 import io.github.ousatov.tools.memgraph.vo.writer.AnnotationWrite;
 import io.github.ousatov.tools.memgraph.vo.writer.CallWrite;
 import io.github.ousatov.tools.memgraph.vo.writer.FieldWrite;

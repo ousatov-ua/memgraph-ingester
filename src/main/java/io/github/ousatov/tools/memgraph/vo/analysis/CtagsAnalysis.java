@@ -1,4 +1,4 @@
-package io.github.ousatov.tools.memgraph.exe.analyze;
+package io.github.ousatov.tools.memgraph.vo.analysis;
 
 import io.github.ousatov.tools.memgraph.exe.adapter.SourceLanguage;
 import io.github.ousatov.tools.memgraph.vo.analysis.ctags.MemberDecl;

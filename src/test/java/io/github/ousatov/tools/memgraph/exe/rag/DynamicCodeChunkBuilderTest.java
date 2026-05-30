@@ -6,9 +6,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.ousatov.tools.memgraph.def.Const.Params;
 import io.github.ousatov.tools.memgraph.exe.adapter.SourceLanguage;
-import io.github.ousatov.tools.memgraph.exe.analyze.CtagsAnalysis;
-import io.github.ousatov.tools.memgraph.exe.analyze.JsAnalysis;
-import io.github.ousatov.tools.memgraph.exe.analyze.PythonAnalysis;
+import io.github.ousatov.tools.memgraph.vo.analysis.CtagsAnalysis;
+import io.github.ousatov.tools.memgraph.vo.analysis.JsAnalysis;
+import io.github.ousatov.tools.memgraph.vo.analysis.PythonAnalysis;
 import io.github.ousatov.tools.memgraph.vo.writer.CodeChunkWrite;
 import java.io.IOException;
 import java.nio.file.Files;

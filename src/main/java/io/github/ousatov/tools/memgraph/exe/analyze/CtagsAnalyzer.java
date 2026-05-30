@@ -4,6 +4,7 @@ import io.github.ousatov.tools.memgraph.def.Const;
 import io.github.ousatov.tools.memgraph.def.Const.Params;
 import io.github.ousatov.tools.memgraph.exception.ProcessingException;
 import io.github.ousatov.tools.memgraph.exe.adapter.SourceLanguage;
+import io.github.ousatov.tools.memgraph.vo.analysis.CtagsAnalysis;
 import io.github.ousatov.tools.memgraph.vo.analysis.ctags.CtagsTag;
 import io.github.ousatov.tools.memgraph.vo.analysis.ctags.ProcessResult;
 import java.io.IOException;

@@ -3,7 +3,7 @@ package io.github.ousatov.tools.memgraph.exe.rag;
 import io.github.ousatov.tools.memgraph.def.Const.Labels;
 import io.github.ousatov.tools.memgraph.def.Const.Params;
 import io.github.ousatov.tools.memgraph.exe.adapter.SourceLanguage;
-import io.github.ousatov.tools.memgraph.exe.analyze.JsAnalysis;
+import io.github.ousatov.tools.memgraph.vo.analysis.JsAnalysis;
 
 /**
  * Builds derived {@code :CodeChunk} rows from JavaScript/TypeScript analysis.

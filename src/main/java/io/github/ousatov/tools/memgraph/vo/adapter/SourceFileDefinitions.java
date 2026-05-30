@@ -1,4 +1,4 @@
-package io.github.ousatov.tools.memgraph.exe.adapter;
+package io.github.ousatov.tools.memgraph.vo.adapter;
 
 import java.util.Collection;
 import java.util.List;

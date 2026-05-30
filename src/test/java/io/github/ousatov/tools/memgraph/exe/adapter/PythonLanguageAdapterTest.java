@@ -7,7 +7,7 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import io.github.ousatov.tools.memgraph.exe.analyze.ManagedPythonRuntime;
 import io.github.ousatov.tools.memgraph.exe.analyze.PythonAnalyzer;
-import io.github.ousatov.tools.memgraph.exe.analyze.RuntimeMode;
+import io.github.ousatov.tools.memgraph.vo.analysis.RuntimeMode;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;

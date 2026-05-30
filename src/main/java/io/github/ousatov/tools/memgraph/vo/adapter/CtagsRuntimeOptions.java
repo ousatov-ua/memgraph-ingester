@@ -1,6 +1,6 @@
 package io.github.ousatov.tools.memgraph.vo.adapter;
 
-import io.github.ousatov.tools.memgraph.exe.analyze.RuntimeMode;
+import io.github.ousatov.tools.memgraph.vo.analysis.RuntimeMode;
 import java.nio.file.Path;
 
 /**

@@ -2,6 +2,7 @@ package io.github.ousatov.tools.memgraph.exe.analyze;
 
 import io.github.ousatov.tools.memgraph.def.Const;
 import io.github.ousatov.tools.memgraph.exception.ProcessingException;
+import io.github.ousatov.tools.memgraph.vo.analysis.JsAnalysis;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;

@@ -2,11 +2,11 @@ package io.github.ousatov.tools.memgraph.exe.adapter;
 
 import io.github.ousatov.tools.memgraph.def.Const;
 import io.github.ousatov.tools.memgraph.def.Const.Params;
-import io.github.ousatov.tools.memgraph.exe.analyze.PythonAnalysis;
 import io.github.ousatov.tools.memgraph.exe.analyze.PythonAnalyzer;
 import io.github.ousatov.tools.memgraph.exe.rag.PythonCodeChunkBuilder;
 import io.github.ousatov.tools.memgraph.exe.writer.GraphWriter;
 import io.github.ousatov.tools.memgraph.exe.writer.python.PythonGraphWriter;
+import io.github.ousatov.tools.memgraph.vo.analysis.PythonAnalysis;
 import java.nio.file.Path;
 import java.util.Locale;
 import java.util.Optional;

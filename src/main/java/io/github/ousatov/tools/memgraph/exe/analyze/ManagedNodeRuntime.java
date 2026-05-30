@@ -4,6 +4,7 @@ import io.github.ousatov.tools.memgraph.def.Const;
 import io.github.ousatov.tools.memgraph.def.Const.SystemParams;
 import io.github.ousatov.tools.memgraph.exception.ProcessingException;
 import io.github.ousatov.tools.memgraph.exe.output.ConsoleStatusLine;
+import io.github.ousatov.tools.memgraph.vo.analysis.RuntimeMode;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;

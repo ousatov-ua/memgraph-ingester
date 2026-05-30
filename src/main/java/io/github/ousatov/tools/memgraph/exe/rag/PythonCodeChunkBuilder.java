@@ -2,7 +2,7 @@ package io.github.ousatov.tools.memgraph.exe.rag;
 
 import io.github.ousatov.tools.memgraph.def.Const.Labels;
 import io.github.ousatov.tools.memgraph.exe.adapter.SourceLanguage;
-import io.github.ousatov.tools.memgraph.exe.analyze.PythonAnalysis;
+import io.github.ousatov.tools.memgraph.vo.analysis.PythonAnalysis;
 
 /**
  * Builds derived {@code :CodeChunk} rows from Python analysis.

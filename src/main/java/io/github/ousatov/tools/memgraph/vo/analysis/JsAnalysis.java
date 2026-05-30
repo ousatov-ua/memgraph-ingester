@@ -1,6 +1,7 @@
-package io.github.ousatov.tools.memgraph.exe.analyze;
+package io.github.ousatov.tools.memgraph.vo.analysis;
 
 import io.github.ousatov.tools.memgraph.def.Const;
+import io.github.ousatov.tools.memgraph.exe.analyze.ModuleAnalysis;
 import java.util.List;
 
 /**

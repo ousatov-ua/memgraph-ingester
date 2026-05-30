@@ -1,7 +1,5 @@
-package io.github.ousatov.tools.memgraph.exe.rag;
+package io.github.ousatov.tools.memgraph.vo.rag;
 
-import io.github.ousatov.tools.memgraph.vo.rag.MemberChunk;
-import io.github.ousatov.tools.memgraph.vo.rag.TypeChunk;
 import java.util.List;
 
 /**
