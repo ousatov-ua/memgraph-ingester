@@ -222,6 +222,7 @@ Relationships:
 
 ## Query Caveats
 
+- Memgraph reverse() is string-only; don’t use it for lists.
 - Scope node patterns with `project: '{{PROJECT_NAME}}'`. `CALLS` has no relationship-level project, so filter both endpoint `:Method` nodes.
 - Keep labels explicit, including `-[:DECLARES]->(m:Method)`. Use `c.isExternal = false`, not `NOT c.isExternal`.
 - Aggregate only in `WITH` or `RETURN`; alias aggregate/grouping values before filtering, ordering, or paginating. Variables not named in `WITH` are dropped.

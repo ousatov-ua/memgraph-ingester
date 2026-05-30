@@ -46,6 +46,7 @@ relevant, then open files for exact line-level detail.
 
 ### Query Caveats
 
+- Memgraph reverse() is string-only; don’t use it for lists.
 - Missing `CALLS` edges do not prove no relationship; dynamic or unresolved calls may be absent.
 - Java constructors use `name = '<init>'`; implicit default constructors and record accessors can be synthetic.
 - JS/TS modules can be synthetic `:Class` owners; filter `kind = 'class'` for real classes when needed.
