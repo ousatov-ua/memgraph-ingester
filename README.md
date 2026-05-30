@@ -168,7 +168,7 @@ Version in this repository: `12.0.21`.
 
 | Platform | Download                                                                                                                                              |
 |---|-------------------------------------------------------------------------------------------------------------------------------------------------------|
-| Java shaded JAR | [memgraph-ingester.jar](https://github.com/ousatov-ua/memgraph-ingester/releases/download/v12.0.21/memgraph-ingester.jar.zip)                         |
+| Java shaded JAR | [memgraph-ingester.jar.zip](https://github.com/ousatov-ua/memgraph-ingester/releases/download/v12.0.21/memgraph-ingester.jar.zip)                     |
 | Linux AMD64 | [memgraph-ingester-linux-amd64.zip](https://github.com/ousatov-ua/memgraph-ingester/releases/download/v12.0.21/memgraph-ingester-linux-amd64.zip)     |
 | macOS ARM64 | [memgraph-ingester-macos-arm64.zip](https://github.com/ousatov-ua/memgraph-ingester/releases/download/v12.0.21/memgraph-ingester-macos-arm64.zip)     |
 | Windows AMD64 | [memgraph-ingester-windows-amd64.zip](https://github.com/ousatov-ua/memgraph-ingester/releases/download/v12.0.21/memgraph-ingester-windows-amd64.zip) |
