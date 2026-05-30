@@ -26,7 +26,7 @@ If the MCP returns no relevant rows, fall back to text search and say why.
 - **Method bodies:** use `code_lookup_methods` to get `startLine`/`endLine`, then read only that range.
 - **After edits:** if source changed and you need relationships again, re-query the MCP because live ingestion may have refreshed the graph.
 
-### MCP Tools
+### Code MCP Tools
 
 - `server_status`: graph inventory, memory counts, vector indexes.
 - `code_orientation`: compact language/package/type/call overview.
@@ -35,15 +35,6 @@ If the MCP returns no relevant rows, fall back to text search and say why.
 - `code_lookup_methods`: exact method records and source ranges.
 - `code_callers` / `code_callees`: call graph lookup.
 - `code_hierarchy`: parents, implemented interfaces, children, ancestors, and interface implementors.
-- `raw_read_cypher`: read-only, project-scoped Cypher for rare gaps only.
-- `memory_orientation`: rules plus open findings, tasks, questions, and risks.
-- `memory_search`: MemoryChunk RAG discovery with index-only hit metadata.
-- `memory_get`: canonical Memory node plus resolved CodeRefs.
-- `memory_upsert`: create/update `Decision`, `ADR`, `Rule`, `Context`, `Finding`, `Task`, `Risk`, `Question`, or `Idea`.
-- `memory_update_status`: lifecycle status updates.
-- `memory_link_code_ref`: link a Memory node to `Code`, `Package`, `File`, `Class`, `Interface`, `Annotation`, `Method`, or `Field`.
-- `memory_refresh_chunk`: rebuild one derived `MemoryChunk`.
-- `memory_refresh_embeddings`: refresh selected MemoryChunk embeddings and stamp metadata.
 - `raw_read_cypher`: read-only, project-scoped Cypher for rare gaps only.
 
 If `memgraph-ingester-mcp` tool is not available switch to regular tools and **mention it**.

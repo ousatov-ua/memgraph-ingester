@@ -32,7 +32,7 @@ class AgentInstructionsInstallerTest {
     assertTrue(content.contains("<!-- memgraph-ingester:start -->"));
     assertTrue(content.contains("Repo is indexed in Memgraph as **`sample-project`**"));
     assertTrue(content.contains("memgraph-ingester-mcp"));
-    assertTrue(content.contains("### MCP Tools"));
+    assertTrue(content.contains("### Code MCP Tools"));
     assertTrue(content.contains("`code_search`: CodeChunk RAG discovery."));
     assertFalse(content.contains("Memory Schema"));
   }
@@ -47,7 +47,7 @@ class AgentInstructionsInstallerTest {
     assertTrue(content.contains("Repo is indexed in Memgraph as **`memory-project`**"));
     assertTrue(content.contains("## Memories"));
     assertTrue(content.contains("memgraph-ingester-mcp"));
-    assertTrue(content.contains("### MCP Tools"));
+    assertTrue(content.contains("### Memory MCP Tools"));
     assertTrue(
         content.contains(
             "`memory_search`: MemoryChunk RAG discovery with index-only hit metadata."));

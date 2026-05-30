@@ -373,7 +373,6 @@ public final class Const {
 
     public static final String UNUSED = "unused";
     public static final String TOO_MANY_PARAMETERS = "java:S107";
-    public static final String EMPTY_METHOD = "java:S1186";
     public static final String STANDARD_OUTPUT = "java:S106";
     public static final String IGNORED_RETURN_VALUE = "java:S899";
     public static final String BROAD_EXCEPTION = "java:S1181";
@@ -569,12 +568,6 @@ public final class Const {
     public static final String OWNER_KIND = "ownerKind";
     public static final String CHILD = "child";
     public static final String CHILD_FQN = "childFqn";
-    public static final String PARENT = "parent";
-    public static final String PARENT_NAME = "parentName";
-    public static final String PARENT_PKG = "parentPkg";
-    public static final String IFACE = "iface";
-    public static final String IFACE_NAME = "ifaceName";
-    public static final String IFACE_PKG = "ifacePkg";
     public static final String SIG = "sig";
     public static final String IS_STATIC = "isStatic";
     public static final String RET = "ret";
