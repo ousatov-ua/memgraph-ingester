@@ -11,7 +11,8 @@ default.
 - **Status/pending-work:** call `memory_orientation` first, then Git if local changes matter. Use Git alone only when explicitly asked for Git-only status.
 - **Orientation reuse:** reuse session-scoped orientation unless memory changed, the user asks for refresh, or scope changed.
 - **Broad history/context:** use `memory_search` with 1-3 concise, hypothesis-specific queries. Treat hits as discovery only, then call `memory_get` for relevant IDs before acting.
-- **Known IDs and lifecycle changes:** skip RAG and use exact tools such as `memory_get`, `memory_update_status`, `memory_link_code_ref`, `memory_refresh_chunk`, or `memory_refresh_embeddings`.
+- **Known IDs and lifecycle changes:** skip RAG and use exact tools such as `memory_get`, `memory_schema`, `memory_update_status`, `memory_link_code_ref`, `memory_refresh_chunk`, or `memory_refresh_embeddings`.
+- **Schema before writes:** call `memory_schema` before `memory_upsert` or `memory_update_status` when the memory type fields, controlled values, or CodeRef target types are not already known in this session. Use the returned schema exactly; do not guess fields such as `status` or `summary` for memory types that do not list them.
 - **Task tracking:** for multi-step implementation, debugging, refactoring, documentation, dependency, test, or coverage work, create/update a `Task` as `doing` before edits. Close any Task you touched as `done`, `blocked`, or `cancelled` before final response and verify it.
 - **Code-related memory:** include a `code_ref` in `memory_upsert` when possible, or call `memory_link_code_ref` after the target exists.
 - **Session Memory RAG:** `memory_upsert` refreshes derived chunks by default. Use `memory_refresh_chunk` or `memory_refresh_embeddings` after material updates made outside that tool.
