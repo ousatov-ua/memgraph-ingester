@@ -47,7 +47,7 @@ import picocli.CommandLine.Spec;
  *
  * @author Oleksii Usatov
  */
-@Command(name = "ingest", mixinStandardHelpOptions = true, version = "12.0.22")
+@Command(name = "ingest", mixinStandardHelpOptions = true, version = "12.0.23")
 public final class IngesterCli implements Callable<Integer> {
 
   private static final Logger log = LoggerFactory.getLogger(IngesterCli.class);
@@ -405,6 +405,14 @@ public final class IngesterCli implements Callable<Integer> {
   private Path instructionsFile;
 
   @Option(
+      names = {Const.Cli.NO_MEMGRAPH_INGESTER_MCP},
+      description =
+          "Use raw Memgraph/Cypher agent instructions instead of memgraph-ingester-mcp tool "
+              + "guidance. Implies --init-instructions when explicitly provided.")
+  @SuppressWarnings(Const.Warnings.UNUSED)
+  private boolean noMemgraphIngesterMcp;
+
+  @Option(
       names = {"--with-memories"},
       description =
           "Apply managed agent instructions with optional Memory workflow guidance, and enable"
@@ -546,6 +554,7 @@ public final class IngesterCli implements Callable<Integer> {
     return initInstructions
         || withMemories
         || instructionsFile != null
+        || noMemgraphIngesterMcp
         || optionWasMatched(Const.Cli.INSTRUCTIONS_AGENT);
   }
 
@@ -594,7 +603,7 @@ public final class IngesterCli implements Callable<Integer> {
               ? AgentInstructionsInstaller.defaultInstructionFile(instructionsAgent)
               : instructionsFile;
       io.github.ousatov.tools.memgraph.vo.cli.InstallResult result =
-          AgentInstructionsInstaller.install(target, project, withMemories);
+          AgentInstructionsInstaller.install(target, project, withMemories, noMemgraphIngesterMcp);
       log.info(
           "Updated Memgraph instructions in {} with project '{}' (memories: {}).",
           result.target(),

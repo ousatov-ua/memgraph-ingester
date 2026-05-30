@@ -14,7 +14,7 @@
         "pattern": "io/github/ousatov/tools/memgraph/python/python-analyzer[.]py$"
       },
       {
-        "pattern": "AI-memgraph-(code|memory)-template[.]md$"
+        "pattern": "AI-memgraph-(code|memory)(-no-mcp)?-template[.]md$"
       }
     ]
   }

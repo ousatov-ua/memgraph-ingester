@@ -31,17 +31,11 @@ class AgentInstructionsInstallerTest {
     assertFalse(result.includeMemories());
     assertTrue(content.contains("<!-- memgraph-ingester:start -->"));
     assertTrue(content.contains("Repo is indexed in Memgraph as **`sample-project`**"));
-    assertTrue(content.contains("## Codebase Analysis Queries"));
-    assertTrue(content.contains("## Code RAG Vectors (only if RAG has embeddings)"));
-    assertTrue(content.contains("code_chunk_embedding_v1"));
-    assertTrue(content.contains("CALL mg.procedures() YIELD name"));
-    assertTrue(
-        content.contains("vector_search.search('code_chunk_embedding_v1', 10, queryVector)"));
-    assertFalse(content.contains("SHOW PROCEDURES YIELD"));
-    assertFalse(content.contains("code_chunk_embedding_v1', 10, $queryVector"));
-    assertTrue(content.contains("documentation comments attached to the code symbol"));
-    assertTrue(content.contains("The ingester creates and refreshes `CodeChunk` rows"));
-    assertFalse(content.contains("## Memory Schema"));
+    assertTrue(content.contains("memgraph-ingester-mcp"));
+    assertTrue(content.contains("### MCP Tools"));
+    assertTrue(content.contains("`code_search`: CodeChunk RAG discovery."));
+    assertTrue(content.contains("Prefer dedicated tools over `raw_read_cypher`."));
+    assertFalse(content.contains("Memory Schema"));
   }
 
   @Test
@@ -53,40 +47,61 @@ class AgentInstructionsInstallerTest {
     String content = Files.readString(target);
     assertTrue(content.contains("Repo is indexed in Memgraph as **`memory-project`**"));
     assertTrue(content.contains("## Memories"));
-    assertTrue(content.contains("MATCH (m:Memory {project: 'memory-project'})"));
-    assertTrue(content.contains("### Memory RAG Vectors (only if RAG has embeddings)"));
-    assertTrue(content.contains("memory_chunk_embedding_v1"));
-    assertTrue(content.contains("CALL mg.procedures() YIELD name"));
+    assertTrue(content.contains("memgraph-ingester-mcp"));
+    assertTrue(content.contains("### MCP Tools"));
     assertTrue(
-        content.contains("vector_search.search('memory_chunk_embedding_v1', 5, queryVector)"));
-    assertFalse(content.contains("SHOW PROCEDURES YIELD"));
-    assertFalse(content.contains("memory_chunk_embedding_v1', 5, $queryVector"));
-    assertTrue(content.contains("Memory investigation budget"));
-    assertTrue(content.contains("Initial Memory RAG is index-only"));
-    assertTrue(content.contains("not `chunk.text` or full body fields"));
-    assertTrue(content.contains("Hypothesis-driven RAG"));
-    assertTrue(content.contains("chunk.sourceLabel AS sourceLabel"));
-    assertFalse(content.contains("memory.status AS status, chunk.text AS text"));
-    assertTrue(content.contains("When creating or materially updating a Memory node"));
-    assertTrue(content.contains("avoid top-level `createHash` declarations"));
-    assertTrue(content.contains("MERGE (chunk:MemoryChunk"));
-    assertTrue(content.contains("Session Memory embedding refresh"));
-    assertTrue(content.contains("WHERE chunk.id IN $ids"));
-    assertTrue(content.contains("CALL embeddings.node_sentence(chunks, $config)"));
-    assertFalse(content.contains("shouldBootstrapMemoryEmbeddings"));
+        content.contains(
+            "`memory_search`: MemoryChunk RAG discovery with index-only hit metadata."));
+    assertTrue(content.contains("`memory_upsert`: create/update"));
+    assertTrue(content.contains("Controlled values are enforced by the MCP."));
+    assertFalse(content.contains("Memory Schema"));
   }
 
   @Test
-  void memoryInstructionsKeepInitialAgentActivityIndexOnly() throws IOException {
+  void writesNoMcpCodeInstructionsWhenRequested() throws IOException {
+    Path target = tempDir.resolve("AGENTS.md");
+
+    io.github.ousatov.tools.memgraph.vo.cli.InstallResult result =
+        AgentInstructionsInstaller.install(target, "no-mcp-project", false, true);
+
+    String content = Files.readString(target);
+    assertEquals(target, result.target());
+    assertFalse(result.includeMemories());
+    assertTrue(content.contains("Repo is indexed in Memgraph as **`no-mcp-project`**"));
+    assertTrue(content.contains("`project: 'no-mcp-project'`."));
+    assertTrue(content.contains("Start `mgconsole`:"));
+    assertFalse(content.contains("memgraph-ingester-mcp"));
+    assertFalse(content.contains("### MCP Tools"));
+    assertFalse(content.contains("Memory Schema"));
+  }
+
+  @Test
+  void writesNoMcpMemoryInstructionsWhenRequested() throws IOException {
+    Path target = tempDir.resolve("AGENTS.md");
+
+    AgentInstructionsInstaller.install(target, "no-mcp-memory-project", true, true);
+
+    String content = Files.readString(target);
+    assertTrue(content.contains("Repo is indexed in Memgraph as **`no-mcp-memory-project`**"));
+    assertTrue(content.contains("`project: 'no-mcp-memory-project'`."));
+    assertTrue(content.contains("### Memory Schema"));
+    assertTrue(content.contains("Session Memory embedding refresh"));
+    assertFalse(content.contains("memgraph-ingester-mcp"));
+    assertFalse(content.contains("### MCP Tools"));
+  }
+
+  @Test
+  void memoryInstructionsUseMcpToolsByDefault() throws IOException {
     Path target = tempDir.resolve("AGENTS.md");
 
     AgentInstructionsInstaller.install(target, "memory-project", true);
 
     String content = Files.readString(target);
-    assertTrue(content.contains("Memory investigation budget"));
-    assertTrue(content.contains("Initial Memory RAG is index-only"));
-    assertTrue(content.contains("Start with at most 5 hits"));
-    assertTrue(content.contains("chunk.sourceLabel AS sourceLabel"));
+    assertTrue(
+        content.contains(
+            "`memory_search`: MemoryChunk RAG discovery with index-only hit metadata."));
+    assertTrue(content.contains("`memory_get`: canonical Memory node plus resolved CodeRefs."));
+    assertTrue(content.contains("`memory_refresh_embeddings`: refresh selected MemoryChunk"));
     assertFalse(content.contains("memory.status AS status, chunk.text AS text"));
   }
 

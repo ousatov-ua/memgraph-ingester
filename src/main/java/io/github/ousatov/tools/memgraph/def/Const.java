@@ -438,6 +438,7 @@ public final class Const {
     public static final String THREADS = "--threads";
     public static final String CLASSPATH = "--classpath";
     public static final String INSTRUCTIONS_AGENT = "--instructions-agent";
+    public static final String NO_MEMGRAPH_INGESTER_MCP = "--no-memgraph-ingester-mcp";
     public static final String JS_RUNTIME_MODE = "--js-runtime-mode";
     public static final String JS_RUNTIME_CACHE = "--js-runtime-cache";
     public static final String JS_NODE_VERSION = "--js-node-version";

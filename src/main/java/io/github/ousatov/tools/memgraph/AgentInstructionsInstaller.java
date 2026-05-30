@@ -20,6 +20,8 @@ final class AgentInstructionsInstaller {
 
   private static final String CODE_TEMPLATE = "AI-memgraph-code-template.md";
   private static final String MEMORY_TEMPLATE = "AI-memgraph-memory-template.md";
+  private static final String NO_MCP_CODE_TEMPLATE = "AI-memgraph-code-no-mcp-template.md";
+  private static final String NO_MCP_MEMORY_TEMPLATE = "AI-memgraph-memory-no-mcp-template.md";
   private static final String PROJECT_TOKEN = "{{PROJECT_NAME}}";
   private static final String START_MARKER = "<!-- memgraph-ingester:start -->";
   private static final String END_MARKER = "<!-- memgraph-ingester:end -->";
@@ -48,6 +50,12 @@ final class AgentInstructionsInstaller {
 
   static InstallResult install(Path target, String project, boolean includeMemories)
       throws IOException {
+    return install(target, project, includeMemories, false);
+  }
+
+  static InstallResult install(
+      Path target, String project, boolean includeMemories, boolean noMemgraphIngesterMcp)
+      throws IOException {
     if (target == null) {
       throw new IllegalArgumentException("--instructions-file resolved to an empty path");
     }
@@ -55,7 +63,8 @@ final class AgentInstructionsInstaller {
       throw new IllegalArgumentException("--project is required");
     }
 
-    String block = managedBlock(renderInstructions(project, includeMemories));
+    String block =
+        managedBlock(renderInstructions(project, includeMemories, noMemgraphIngesterMcp));
     String existing =
         Files.exists(target)
             ? Files.readString(target, StandardCharsets.UTF_8)
@@ -113,13 +122,15 @@ final class AgentInstructionsInstaller {
     return offset;
   }
 
-  private static String renderInstructions(String project, boolean includeMemories)
-      throws IOException {
-    String code = readTemplate(CODE_TEMPLATE).replace(PROJECT_TOKEN, project).stripTrailing();
+  private static String renderInstructions(
+      String project, boolean includeMemories, boolean noMemgraphIngesterMcp) throws IOException {
+    String codeTemplate = noMemgraphIngesterMcp ? NO_MCP_CODE_TEMPLATE : CODE_TEMPLATE;
+    String memoryTemplate = noMemgraphIngesterMcp ? NO_MCP_MEMORY_TEMPLATE : MEMORY_TEMPLATE;
+    String code = readTemplate(codeTemplate).replace(PROJECT_TOKEN, project).stripTrailing();
     if (!includeMemories) {
       return code + System.lineSeparator();
     }
-    String memories = readTemplate(MEMORY_TEMPLATE).replace(PROJECT_TOKEN, project).stripTrailing();
+    String memories = readTemplate(memoryTemplate).replace(PROJECT_TOKEN, project).stripTrailing();
     return code
         + System.lineSeparator()
         + System.lineSeparator()

@@ -42,8 +42,8 @@ class IngesterCliInstructionsTest {
     String content = Files.readString(target);
     assertEquals(0, exitCode);
     assertTrue(content.contains("Repo is indexed in Memgraph as **`cli-code-project`**"));
-    assertTrue(content.contains("Hypothesis-driven RAG"));
-    assertFalse(content.contains("## Memory Schema"));
+    assertTrue(content.contains("`code_search`: CodeChunk RAG discovery."));
+    assertFalse(content.contains("Memory Schema"));
   }
 
   @Test
@@ -69,7 +69,20 @@ class IngesterCliInstructionsTest {
     assertEquals(0, result.exitCode(), result.output());
     assertTrue(content.contains("Repo is indexed in Memgraph as **`cli-default-memory-project`**"));
     assertTrue(content.contains("## Memories"));
-    assertTrue(content.contains("exact verification changes the question"));
+    assertTrue(content.contains("`memory_search`: MemoryChunk RAG discovery"));
+  }
+
+  @Test
+  void noMemgraphIngesterMcpUsesRawTemplatesAndImpliesInitInstructions() throws Exception {
+    CliProcessResult result =
+        runCliIn(tempDir, "-P", "cli-no-mcp-project", "--no-memgraph-ingester-mcp");
+
+    String content = Files.readString(tempDir.resolve("AGENTS.md"));
+    assertEquals(0, result.exitCode(), result.output());
+    assertTrue(content.contains("Repo is indexed in Memgraph as **`cli-no-mcp-project`**"));
+    assertTrue(content.contains("`project: 'cli-no-mcp-project'`."));
+    assertTrue(content.contains("Start `mgconsole`:"));
+    assertFalse(content.contains("memgraph-ingester-mcp"));
   }
 
   @Test
@@ -170,7 +183,7 @@ class IngesterCliInstructionsTest {
     String content = Files.readString(target);
     assertEquals(0, exitCode);
     assertTrue(content.contains("## Memories"));
-    assertTrue(content.contains("MATCH (m:Memory {project: 'cli-memory-project'})"));
+    assertTrue(content.contains("`memory_upsert`: create/update"));
   }
 
   private static CliProcessResult runCliIn(Path workingDirectory, String... args)

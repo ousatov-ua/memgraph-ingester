@@ -249,7 +249,7 @@ class CypherResourceTest {
     assertTrue(config.contains(".*[.]cypher$"));
     assertTrue(config.contains("simplelogger[.]properties$"));
     assertTrue(config.contains("io/github/ousatov/tools/memgraph/js/js-(.*)[.]cjs$"));
-    assertTrue(config.contains("AI-memgraph-(code|memory)-template[.]md$"));
+    assertTrue(config.contains("AI-memgraph-(code|memory)(-no-mcp)?-template[.]md$"));
   }
 
   @Test

@@ -144,7 +144,8 @@ Runtime requirements by artifact:
 
 Optional tools:
 
-- `mgconsole`, if you want to query Memgraph directly without MCP (***produces much fewer tokens***)
+- `memgraph-ingester-mcp`, if you want agents to query the graph through high-level MCP tools.
+- `mgconsole`, if you want to query Memgraph directly without MCP.
 - Node.js, Python 3.9+, or Universal Ctags only when you explicitly choose
   `--js-runtime-mode system`, `--python-runtime-mode system`, or `--ctags-runtime-mode system`.
   Set `MEMGRAPH_INGESTER_PYTHON` to override the system Python executable, or
@@ -310,7 +311,10 @@ detected graph language. It does not promise call graphs or language-specific se
 
 ### 7. Verify the Graph
 
-With MCP, run the same Cypher through your agent. With `mgconsole`:
+With `memgraph-ingester-mcp`, ask your agent to call `server_status` for the project and confirm
+that languages and vector indexes are present.
+
+With `mgconsole`:
 
 ```bash
 mgconsole --host localhost --port 7687 --output-format=csv
@@ -319,7 +323,7 @@ mgconsole --host localhost --port 7687 --output-format=csv
 Then:
 
 ```cypher
-MATCH (p:Project)-[:CONTAINS]->(l:Language)-[:CONTAINS]->(c:Code)
+MATCH (p:Project {name: 'my-project'})-[:CONTAINS]->(l:Language)-[:CONTAINS]->(c:Code)
 RETURN p.name, l.name, c.sourceRoots, c.lastIngested
 ORDER BY c.lastIngested DESC;
 ```
@@ -616,6 +620,14 @@ memgraph-ingester --init-instructions -P my-project --with-memories
 memgraph-ingester -P my-project --instructions-agent codex --with-memories
 ```
 
+Use raw Memgraph/Cypher instructions when the agent will not have
+`memgraph-ingester-mcp` available:
+
+```bash
+memgraph-ingester --init-instructions -P my-project --no-memgraph-ingester-mcp
+memgraph-ingester --init-instructions -P my-project --with-memories --no-memgraph-ingester-mcp
+```
+
 Agent presets choose the default target file:
 
 ```bash
@@ -625,7 +637,8 @@ memgraph-ingester --init-instructions -P my-project --instructions-agent gemini
 memgraph-ingester --init-instructions -P my-project --instructions-agent github
 ```
 
-When `--instructions-agent` is present, `--init-instructions` is optional.
+When `--instructions-agent` or `--no-memgraph-ingester-mcp` is present, `--init-instructions` is
+optional.
 
 Use `--instructions-file` to target a specific file:
 
@@ -637,11 +650,26 @@ Commit the updated instruction file so future agent sessions get the same graph 
 
 ## MCP or mgconsole
 
-MCP is optional. Agents can query Memgraph through MCP or via
-`mgconsole`.
+MCP is optional. Agents should use
+[`memgraph-ingester-mcp`](https://github.com/ousatov-ua/memgraph-ingester-mcp) for normal code graph
+and memory work. It exposes high-level project-scoped tools instead of only raw Cypher.
 
-Use MCP when you want the agent to query the graph automatically.
+Use `memgraph-ingester-mcp` when you want the agent to query the graph automatically.
 Use `mgconsole` when you want direct, token-light Cypher output.
+
+Install and run the MCP server from PyPI with `uvx`:
+
+```bash
+uvx memgraph-ingester-mcp
+```
+
+Common environment variables:
+
+| Variable | Example | Purpose |
+|---|---|---|
+| `MEMGRAPH_INGESTER_MCP_BOLT_URI` | `bolt://localhost:7687` | Memgraph Bolt URI |
+| `MEMGRAPH_INGESTER_MCP_PROJECT` | `my-project` | Default project name |
+| `MEMGRAPH_INGESTER_MCP_READ_ONLY` | `false` | Disable memory write tools when `true` |
 
 ### Claude MCP
 
@@ -650,14 +678,16 @@ Minimal `.claude.json`:
 ```json
 {
   "mcpServers": {
-    "memgraph": {
+    "memgraphIngester": {
+      "type": "stdio",
       "command": "uvx",
       "args": [
-        "mcp-memgraph"
+        "memgraph-ingester-mcp"
       ],
       "env": {
-        "MEMGRAPH_URL": "bolt://localhost:7687",
-        "MCP_READ_ONLY": "false"
+        "MEMGRAPH_INGESTER_MCP_BOLT_URI": "bolt://localhost:7687",
+        "MEMGRAPH_INGESTER_MCP_PROJECT": "my-project",
+        "MEMGRAPH_INGESTER_MCP_READ_ONLY": "false"
       }
     }
   }
@@ -675,27 +705,15 @@ claude mcp list
 Minimal `~/.codex/config.toml`:
 
 ```toml
-[mcp_servers.memgraph]
-command = "uv"
-args = [
-  "run",
-  "--with",
-  "mcp-memgraph",
-  "--python",
-  "3.13",
-  "mcp-memgraph"
-]
+[mcp_servers.memgraphIngester]
+command = "uvx"
+args = ["memgraph-ingester-mcp"]
+startup_timeout_ms = 20_000
 
-[mcp_servers.memgraph.env]
-MCP_TRANSPORT = "stdio"
-MEMGRAPH_URL = "bolt://localhost:7687"
-MEMGRAPH_USER = "memgraph"
-MEMGRAPH_PASSWORD = ""
-MEMGRAPH_DATABASE = "memgraph"
-MCP_READ_ONLY = "false"
-
-[mcp_servers.memgraph.tools.run_query]
-approval_mode = "approve"
+[mcp_servers.memgraphIngester.env]
+MEMGRAPH_INGESTER_MCP_BOLT_URI = "bolt://localhost:7687"
+MEMGRAPH_INGESTER_MCP_PROJECT = "my-project"
+MEMGRAPH_INGESTER_MCP_READ_ONLY = "false"
 ```
 
 Verify:
@@ -711,17 +729,18 @@ Minimal `~/.gemini/settings.json`:
 ```json
 {
   "mcpServers": {
-    "mcp-memgraph": {
+    "memgraphIngester": {
       "command": "uvx",
       "args": [
-        "mcp-memgraph"
+        "memgraph-ingester-mcp"
       ],
       "env": {
-        "MEMGRAPH_URL": "bolt://localhost:7687",
-        "MCP_READ_ONLY": "false"
+        "MEMGRAPH_INGESTER_MCP_BOLT_URI": "bolt://localhost:7687",
+        "MEMGRAPH_INGESTER_MCP_PROJECT": "my-project",
+        "MEMGRAPH_INGESTER_MCP_READ_ONLY": "false"
       },
       "timeout": 5000,
-      "trust": true
+      "trust": false
     }
   }
 }
@@ -740,26 +759,24 @@ Minimal `~/.copilot/mcp-config.json`:
 ```json
 {
   "mcpServers": {
-    "mcp-memgraph": {
-      "type": "local",
+    "memgraphIngester": {
+      "type": "stdio",
       "command": "uvx",
       "args": [
-        "mcp-memgraph"
+        "memgraph-ingester-mcp"
       ],
       "env": {
-        "MEMGRAPH_URL": "bolt://localhost:7687",
-        "MCP_READ_ONLY": "false"
-      },
-      "tools": [
-        "*"
-      ]
+        "MEMGRAPH_INGESTER_MCP_BOLT_URI": "bolt://localhost:7687",
+        "MEMGRAPH_INGESTER_MCP_PROJECT": "my-project",
+        "MEMGRAPH_INGESTER_MCP_READ_ONLY": "false"
+      }
     }
   }
 }
 ```
 
-Set `MCP_READ_ONLY` to `"true"` if you only want the agent to read. Keep it `"false"` when you want
-the agent to create or update Memory nodes.
+Set `MEMGRAPH_INGESTER_MCP_READ_ONLY` to `"true"` if you only want the agent to read. Keep it
+`"false"` when you want the agent to create or update Memory nodes.
 
 ## CLI Reference
 
@@ -817,6 +834,7 @@ Options:
 | `--init-instructions` |  | no | `false` | Write or replace managed agent instructions and exit. Includes Code guidance by default. |
 | `--instructions-agent` |  | no | `codex` | Agent preset: `codex`, `claude`, `gemini`, `github`, or `copilot`. Implies `--init-instructions` when explicitly provided. |
 | `--instructions-file` |  | no | preset file | Instruction file to update. Overrides `--instructions-agent` and implies `--init-instructions`. |
+| `--no-memgraph-ingester-mcp` |  | no | `false` | Use raw Memgraph/Cypher instruction templates instead of `memgraph-ingester-mcp` tool guidance. Implies `--init-instructions` when explicitly provided. |
 | `--with-memories` |  | no | `false` | Include optional Memory workflow instructions when initializing agents, and enable MemoryChunk refresh for ingestion runs. |
 | `--help` |  | no |  | Print CLI help. |
 | `--version` |  | no |  | Print CLI version. |
@@ -1169,7 +1187,9 @@ RETURN labels(memory), memory.id, memory.title;
 │   └── vo/                                     # Value-object settings tests
 ├── template/
 │   ├── AI-memgraph-code-template.md            # Default code graph agent instructions
-│   └── AI-memgraph-memory-template.md          # Optional Memory workflow agent instructions
+│   ├── AI-memgraph-code-no-mcp-template.md     # Code graph instructions without MCP server use
+│   ├── AI-memgraph-memory-template.md          # Optional Memory workflow agent instructions
+│   └── AI-memgraph-memory-no-mcp-template.md   # Memory workflow instructions without MCP server use
 ├── .gitignore
 ├── LICENSE
 ├── pom.xml                                     # Maven build, release, and native-image configuration
