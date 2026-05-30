@@ -668,7 +668,6 @@ Common environment variables:
 | Variable | Example | Purpose |
 |---|---|---|
 | `MEMGRAPH_INGESTER_MCP_BOLT_URI` | `bolt://localhost:7687` | Memgraph Bolt URI |
-| `MEMGRAPH_INGESTER_MCP_PROJECT` | `my-project` | Default project name |
 | `MEMGRAPH_INGESTER_MCP_READ_ONLY` | `false` | Disable memory write tools when `true` |
 
 ### Claude MCP
@@ -764,6 +763,7 @@ Minimal `~/.copilot/mcp-config.json`:
       ],
       "env": {
         "MEMGRAPH_INGESTER_MCP_BOLT_URI": "bolt://localhost:7687",
+        "MEMGRAPH_INGESTER_MCP_PROJECT": "my-project",
         "MEMGRAPH_INGESTER_MCP_READ_ONLY": "false"
       }
     }
