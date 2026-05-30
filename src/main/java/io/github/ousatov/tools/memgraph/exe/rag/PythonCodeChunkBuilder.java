@@ -2,7 +2,6 @@ package io.github.ousatov.tools.memgraph.exe.rag;
 
 import io.github.ousatov.tools.memgraph.def.Const.Labels;
 import io.github.ousatov.tools.memgraph.exe.adapter.SourceLanguage;
-import io.github.ousatov.tools.memgraph.exe.analyze.ModuleAnalysis;
 import io.github.ousatov.tools.memgraph.exe.analyze.PythonAnalysis;
 
 /**
@@ -16,7 +15,8 @@ public final class PythonCodeChunkBuilder extends ModuleCodeChunkBuilder<PythonA
     super(SourceLanguage.PYTHON.graphName(), PythonCodeChunkBuilder::typeLabel);
   }
 
-  private static String typeLabel(ModuleAnalysis.TypeDecl type) {
+  private static String typeLabel(
+      io.github.ousatov.tools.memgraph.vo.analysis.module.TypeDecl type) {
     return Labels.CLASS;
   }
 }

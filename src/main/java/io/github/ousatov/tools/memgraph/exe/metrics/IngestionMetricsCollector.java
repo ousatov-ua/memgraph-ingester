@@ -4,6 +4,8 @@ import io.github.ousatov.tools.memgraph.def.Const;
 import io.github.ousatov.tools.memgraph.def.Const.Labels;
 import io.github.ousatov.tools.memgraph.def.Const.Params;
 import io.github.ousatov.tools.memgraph.exception.ProcessingException;
+import io.github.ousatov.tools.memgraph.vo.metrics.IngestionMetricRow;
+import io.github.ousatov.tools.memgraph.vo.metrics.MetricQuery;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -46,9 +48,9 @@ public final class IngestionMetricsCollector {
   /** Collects a project-scoped metrics snapshot using the provided session. */
   public static IngestionMetrics collect(Session session, String project) {
     Map<String, Object> params = Map.of(Labels.PROJECT, project);
-    List<IngestionMetrics.Row> rows =
+    List<IngestionMetricRow> rows =
         QUERIES.stream()
-            .map(query -> new IngestionMetrics.Row(query.name(), count(session, query, params)))
+            .map(query -> new IngestionMetricRow(query.name(), count(session, query, params)))
             .toList();
     return new IngestionMetrics(rows);
   }
@@ -76,11 +78,4 @@ public final class IngestionMetricsCollector {
       throw new ProcessingException(resource + " could not be loaded from jar", e);
     }
   }
-
-  /**
-   * Named Cypher count query.
-   *
-   * @author Oleksii Usatov
-   */
-  private record MetricQuery(String name, String resourceName, String cypher) {}
 }

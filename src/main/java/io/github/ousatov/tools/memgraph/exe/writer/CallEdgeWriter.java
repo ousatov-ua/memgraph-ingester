@@ -9,8 +9,8 @@ import com.github.javaparser.ast.type.ClassOrInterfaceType;
 import com.github.javaparser.resolution.declarations.ResolvedMethodDeclaration;
 import io.github.ousatov.tools.memgraph.def.Const.Labels;
 import io.github.ousatov.tools.memgraph.exe.analyze.JavaTypeNames;
-import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.CallWrite;
-import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.PendingCallWrite;
+import io.github.ousatov.tools.memgraph.vo.writer.CallWrite;
+import io.github.ousatov.tools.memgraph.vo.writer.PendingCallWrite;
 import java.util.ArrayList;
 import java.util.List;
 

@@ -30,11 +30,14 @@ final class ModuleAnalysisParser {
     String modulePath = null;
     int startLine = 1;
     int endLine = 1;
-    List<ModuleAnalysis.TypeDecl> types = new ArrayList<>();
-    List<ModuleAnalysis.RelationDecl> relations = new ArrayList<>();
-    List<ModuleAnalysis.MemberDecl> members = new ArrayList<>();
-    List<ModuleAnalysis.AnnotationDecl> annotations = new ArrayList<>();
-    List<ModuleAnalysis.CallDecl> calls = new ArrayList<>();
+    List<io.github.ousatov.tools.memgraph.vo.analysis.module.TypeDecl> types = new ArrayList<>();
+    List<io.github.ousatov.tools.memgraph.vo.analysis.module.RelationDecl> relations =
+        new ArrayList<>();
+    List<io.github.ousatov.tools.memgraph.vo.analysis.module.MemberDecl> members =
+        new ArrayList<>();
+    List<io.github.ousatov.tools.memgraph.vo.analysis.module.AnnotationDecl> annotations =
+        new ArrayList<>();
+    List<io.github.ousatov.tools.memgraph.vo.analysis.module.CallDecl> calls = new ArrayList<>();
 
     for (String line : stdout.lines().filter(l -> !l.isBlank()).toList()) {
       Map<String, String> obj = objectParser.apply(line);
@@ -49,7 +52,7 @@ final class ModuleAnalysisParser {
         }
         case Params.TYPE ->
             types.add(
-                new ModuleAnalysis.TypeDecl(
+                new io.github.ousatov.tools.memgraph.vo.analysis.module.TypeDecl(
                     value(obj, Params.KIND),
                     value(obj, Params.FQN),
                     value(obj, Params.NAME),
@@ -60,13 +63,13 @@ final class ModuleAnalysisParser {
                     intValue(obj, Params.END_LINE)));
         case Params.RELATION ->
             relations.add(
-                new ModuleAnalysis.RelationDecl(
+                new io.github.ousatov.tools.memgraph.vo.analysis.module.RelationDecl(
                     value(obj, Params.KIND),
                     value(obj, Params.CHILD_FQN),
                     value(obj, Params.TARGET_FQN)));
         case Params.MEMBER ->
             members.add(
-                new ModuleAnalysis.MemberDecl(
+                new io.github.ousatov.tools.memgraph.vo.analysis.module.MemberDecl(
                     value(obj, Params.OWNER_FQN),
                     value(obj, Params.MEMBER_TYPE),
                     value(obj, Params.KIND),
@@ -78,14 +81,14 @@ final class ModuleAnalysisParser {
                     intValue(obj, Params.END_LINE)));
         case Params.ANNOTATION ->
             annotations.add(
-                new ModuleAnalysis.AnnotationDecl(
+                new io.github.ousatov.tools.memgraph.vo.analysis.module.AnnotationDecl(
                     value(obj, Params.OWNER_KIND),
                     value(obj, Params.OWNER_KEY),
                     value(obj, Params.FQN),
                     value(obj, Params.NAME)));
         case Params.CALL, Params.CALL_BY_NAME ->
             calls.add(
-                new ModuleAnalysis.CallDecl(
+                new io.github.ousatov.tools.memgraph.vo.analysis.module.CallDecl(
                     value(obj, Params.CALLER_SIGNATURE),
                     value(obj, Params.CALLEE_SIGNATURE),
                     value(obj, Params.CALLEE_OWNER_FQN),
@@ -135,10 +138,10 @@ final class ModuleAnalysisParser {
         String modulePath,
         int startLine,
         int endLine,
-        List<ModuleAnalysis.TypeDecl> types,
-        List<ModuleAnalysis.RelationDecl> relations,
-        List<ModuleAnalysis.MemberDecl> members,
-        List<ModuleAnalysis.AnnotationDecl> annotations,
-        List<ModuleAnalysis.CallDecl> calls);
+        List<io.github.ousatov.tools.memgraph.vo.analysis.module.TypeDecl> types,
+        List<io.github.ousatov.tools.memgraph.vo.analysis.module.RelationDecl> relations,
+        List<io.github.ousatov.tools.memgraph.vo.analysis.module.MemberDecl> members,
+        List<io.github.ousatov.tools.memgraph.vo.analysis.module.AnnotationDecl> annotations,
+        List<io.github.ousatov.tools.memgraph.vo.analysis.module.CallDecl> calls);
   }
 }

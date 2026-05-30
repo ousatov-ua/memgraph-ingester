@@ -21,6 +21,9 @@ import io.github.ousatov.tools.memgraph.exe.ingestion.IngestionOrchestrator;
 import io.github.ousatov.tools.memgraph.schema.MemgraphDriver;
 import io.github.ousatov.tools.memgraph.vo.EmbeddingSettings;
 import io.github.ousatov.tools.memgraph.vo.Settings;
+import io.github.ousatov.tools.memgraph.vo.adapter.CtagsRuntimeOptions;
+import io.github.ousatov.tools.memgraph.vo.adapter.JsRuntimeOptions;
+import io.github.ousatov.tools.memgraph.vo.adapter.PythonRuntimeOptions;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -590,7 +593,7 @@ public final class IngesterCli implements Callable<Integer> {
           instructionsFile == null
               ? AgentInstructionsInstaller.defaultInstructionFile(instructionsAgent)
               : instructionsFile;
-      AgentInstructionsInstaller.InstallResult result =
+      io.github.ousatov.tools.memgraph.vo.cli.InstallResult result =
           AgentInstructionsInstaller.install(target, project, withMemories);
       log.info(
           "Updated Memgraph instructions in {} with project '{}' (memories: {}).",
@@ -930,11 +933,11 @@ public final class IngesterCli implements Callable<Integer> {
     return LanguageAdapterFactory.create(
         sourceRoot,
         classpath,
-        new LanguageAdapterFactory.JsRuntimeOptions(
+        new JsRuntimeOptions(
             resolvedJsRuntimeCache(), jsNodeVersion, jsTypescriptVersion, selectedJsRuntimeMode),
-        new LanguageAdapterFactory.PythonRuntimeOptions(
+        new PythonRuntimeOptions(
             resolvedPythonRuntimeCache(), pythonVersion, pythonBuild, selectedPythonRuntimeMode),
-        new LanguageAdapterFactory.CtagsRuntimeOptions(
+        new CtagsRuntimeOptions(
             resolvedCtagsRuntimeCache(), ctagsVersion, selectedCtagsRuntimeMode));
   }
 

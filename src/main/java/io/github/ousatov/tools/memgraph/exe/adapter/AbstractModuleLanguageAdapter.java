@@ -4,13 +4,13 @@ import io.github.ousatov.tools.memgraph.def.Const;
 import io.github.ousatov.tools.memgraph.def.Const.Labels;
 import io.github.ousatov.tools.memgraph.def.Const.Params;
 import io.github.ousatov.tools.memgraph.exe.analyze.ModuleAnalysis;
-import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.AnnotationWrite;
-import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.CallWrite;
-import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.FieldWrite;
-import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.PendingCallWrite;
 import io.github.ousatov.tools.memgraph.exe.writer.GraphWriter;
 import io.github.ousatov.tools.memgraph.exe.writer.ModuleGraphWriter;
 import io.github.ousatov.tools.memgraph.vo.Method;
+import io.github.ousatov.tools.memgraph.vo.writer.AnnotationWrite;
+import io.github.ousatov.tools.memgraph.vo.writer.CallWrite;
+import io.github.ousatov.tools.memgraph.vo.writer.FieldWrite;
+import io.github.ousatov.tools.memgraph.vo.writer.PendingCallWrite;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -64,21 +64,24 @@ public abstract class AbstractModuleLanguageAdapter<T extends ModuleAnalysis>
         classFqns, interfaceFqns, Set.of(), methodSignatures, fieldFqns);
   }
 
-  protected boolean isClassDefinition(ModuleAnalysis.TypeDecl type) {
+  protected boolean isClassDefinition(
+      io.github.ousatov.tools.memgraph.vo.analysis.module.TypeDecl type) {
     return Params.CLASS.equals(type.kind());
   }
 
-  protected boolean hasSyntheticConstructor(ModuleAnalysis.TypeDecl type) {
+  protected boolean hasSyntheticConstructor(
+      io.github.ousatov.tools.memgraph.vo.analysis.module.TypeDecl type) {
     return Params.CLASS.equals(type.kind()) && !type.hasConstructor();
   }
 
   protected final void upsertMembers(
       ModuleGraphWriter writer,
       Path file,
-      Collection<? extends ModuleAnalysis.MemberDecl> members) {
+      Collection<? extends io.github.ousatov.tools.memgraph.vo.analysis.module.MemberDecl>
+          members) {
     List<FieldWrite> fields = new ArrayList<>();
     List<Method> methods = new ArrayList<>();
-    for (ModuleAnalysis.MemberDecl member : members) {
+    for (io.github.ousatov.tools.memgraph.vo.analysis.module.MemberDecl member : members) {
       if (Params.METHOD.equals(member.memberType())) {
         methods.add(
             new Method(
@@ -110,10 +113,13 @@ public abstract class AbstractModuleLanguageAdapter<T extends ModuleAnalysis>
   }
 
   protected final void upsertAnnotations(
-      GraphWriter writer, Collection<? extends ModuleAnalysis.AnnotationDecl> annotations) {
+      GraphWriter writer,
+      Collection<? extends io.github.ousatov.tools.memgraph.vo.analysis.module.AnnotationDecl>
+          annotations) {
     List<AnnotationWrite> ownerAnnotations = new ArrayList<>();
     List<AnnotationWrite> methodAnnotations = new ArrayList<>();
-    for (ModuleAnalysis.AnnotationDecl annotation : annotations) {
+    for (io.github.ousatov.tools.memgraph.vo.analysis.module.AnnotationDecl annotation :
+        annotations) {
       AnnotationWrite write =
           new AnnotationWrite(
               annotation.ownerKey(),
@@ -133,11 +139,11 @@ public abstract class AbstractModuleLanguageAdapter<T extends ModuleAnalysis>
 
   protected final void upsertCalls(
       GraphWriter writer,
-      Collection<? extends ModuleAnalysis.CallDecl> calls,
+      Collection<? extends io.github.ousatov.tools.memgraph.vo.analysis.module.CallDecl> calls,
       boolean skipIncompletePendingCalls) {
     List<CallWrite> resolvedCalls = new ArrayList<>();
     List<PendingCallWrite> pendingCalls = new ArrayList<>();
-    for (ModuleAnalysis.CallDecl call : calls) {
+    for (io.github.ousatov.tools.memgraph.vo.analysis.module.CallDecl call : calls) {
       if (!call.calleeSignature().isBlank()) {
         resolvedCalls.add(new CallWrite(call.callerSignature(), call.calleeSignature()));
       } else if (!skipIncompletePendingCalls || isCompletePendingCall(call)) {
@@ -149,7 +155,8 @@ public abstract class AbstractModuleLanguageAdapter<T extends ModuleAnalysis>
     writer.upsertPendingCallsByName(pendingCalls);
   }
 
-  private static boolean isCompletePendingCall(ModuleAnalysis.CallDecl call) {
+  private static boolean isCompletePendingCall(
+      io.github.ousatov.tools.memgraph.vo.analysis.module.CallDecl call) {
     return !call.calleeOwnerFqn().isBlank() && !call.calleeName().isBlank();
   }
 }

@@ -5,7 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.github.javaparser.StaticJavaParser;
-import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.CodeChunkWrite;
+import io.github.ousatov.tools.memgraph.vo.writer.CodeChunkWrite;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;

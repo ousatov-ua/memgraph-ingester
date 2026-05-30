@@ -4,6 +4,7 @@ import io.github.ousatov.tools.memgraph.def.Const;
 import io.github.ousatov.tools.memgraph.def.Const.Labels;
 import io.github.ousatov.tools.memgraph.def.Const.Params;
 import io.github.ousatov.tools.memgraph.exception.ProcessingException;
+import io.github.ousatov.tools.memgraph.vo.schema.ConstraintInfo;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -278,8 +279,6 @@ public final class Memgraph {
   private static String indexKey(String label, String property) {
     return label + Const.Symbols.DOT + property;
   }
-
-  private record ConstraintInfo(String label, List<String> properties) {}
 
   static boolean hasSameProperties(List<String> actual, String... expected) {
     return actual.size() == expected.length && Set.copyOf(actual).equals(Set.of(expected));

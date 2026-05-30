@@ -23,7 +23,7 @@ class AgentInstructionsInstallerTest {
   void writesCodeInstructionsByDefault() throws IOException {
     Path target = tempDir.resolve("AGENTS.md");
 
-    AgentInstructionsInstaller.InstallResult result =
+    io.github.ousatov.tools.memgraph.vo.cli.InstallResult result =
         AgentInstructionsInstaller.install(target, "sample-project", false);
 
     String content = Files.readString(target);

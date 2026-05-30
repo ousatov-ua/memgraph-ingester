@@ -4,7 +4,6 @@ import io.github.ousatov.tools.memgraph.def.Const;
 import io.github.ousatov.tools.memgraph.def.Const.Params;
 import io.github.ousatov.tools.memgraph.exe.analyze.JsAnalysis;
 import io.github.ousatov.tools.memgraph.exe.analyze.JsAnalyzer;
-import io.github.ousatov.tools.memgraph.exe.analyze.ModuleAnalysis;
 import io.github.ousatov.tools.memgraph.exe.rag.JsCodeChunkBuilder;
 import io.github.ousatov.tools.memgraph.exe.writer.GraphWriter;
 import io.github.ousatov.tools.memgraph.exe.writer.js.JsGraphWriter;
@@ -116,7 +115,7 @@ public final class JsLanguageAdapter extends AbstractModuleLanguageAdapter<JsAna
       Path file,
       String packageName,
       String modulePath,
-      ModuleAnalysis.TypeDecl type) {
+      io.github.ousatov.tools.memgraph.vo.analysis.module.TypeDecl type) {
     if (Params.CLASS.equals(type.kind())) {
       writer.upsertClass(
           file,
@@ -138,7 +137,9 @@ public final class JsLanguageAdapter extends AbstractModuleLanguageAdapter<JsAna
     }
   }
 
-  private static void upsertRelation(JsGraphWriter writer, ModuleAnalysis.RelationDecl relation) {
+  private static void upsertRelation(
+      JsGraphWriter writer,
+      io.github.ousatov.tools.memgraph.vo.analysis.module.RelationDecl relation) {
     switch (relation.kind()) {
       case Params.CLASS_EXTENDS ->
           writer.upsertExtendsClass(relation.childFqn(), relation.targetFqn());
@@ -150,7 +151,8 @@ public final class JsLanguageAdapter extends AbstractModuleLanguageAdapter<JsAna
   }
 
   @Override
-  protected boolean isClassDefinition(ModuleAnalysis.TypeDecl type) {
+  protected boolean isClassDefinition(
+      io.github.ousatov.tools.memgraph.vo.analysis.module.TypeDecl type) {
     return Params.CLASS.equals(type.kind()) || Params.ENUM.equals(type.kind());
   }
 

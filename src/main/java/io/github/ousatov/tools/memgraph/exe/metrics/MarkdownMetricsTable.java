@@ -1,6 +1,7 @@
 package io.github.ousatov.tools.memgraph.exe.metrics;
 
 import io.github.ousatov.tools.memgraph.def.Const;
+import io.github.ousatov.tools.memgraph.vo.metrics.MarkdownMetricRow;
 import java.util.List;
 
 /**
@@ -18,12 +19,20 @@ final class MarkdownMetricsTable {
     throw new UnsupportedOperationException("Utility class");
   }
 
-  static String render(String title, List<Row> rows) {
+  static String render(String title, List<MarkdownMetricRow> rows) {
     int metricWidth =
-        rows.stream().map(Row::name).mapToInt(String::length).max().orElse(METRIC_COLUMN.length());
+        rows.stream()
+            .map(MarkdownMetricRow::name)
+            .mapToInt(String::length)
+            .max()
+            .orElse(METRIC_COLUMN.length());
     metricWidth = Math.max(metricWidth, METRIC_COLUMN.length());
     int valueWidth =
-        rows.stream().map(Row::value).mapToInt(String::length).max().orElse(VALUE_COLUMN.length());
+        rows.stream()
+            .map(MarkdownMetricRow::value)
+            .mapToInt(String::length)
+            .max()
+            .orElse(VALUE_COLUMN.length());
     valueWidth = Math.max(valueWidth, VALUE_COLUMN.length());
     StringBuilder table = new StringBuilder("# ").append(title).append(LF).append(LF);
     table
@@ -40,7 +49,7 @@ final class MarkdownMetricsTable {
         .append(Const.Symbols.DASH.repeat(valueWidth + 1))
         .append(":|")
         .append(LF);
-    for (Row row : rows) {
+    for (MarkdownMetricRow row : rows) {
       table
           .append(Const.Symbols.PIPE_PREFIX)
           .append(padRight(row.name(), metricWidth))
@@ -59,13 +68,4 @@ final class MarkdownMetricsTable {
   private static String padRight(String value, int width) {
     return value + Const.Symbols.SPACE.repeat(Math.max(0, width - value.length()));
   }
-
-  /**
-   * One rendered metric row.
-   *
-   * @param name stable metric identifier
-   * @param value rendered value
-   * @author Oleksii Usatov
-   */
-  record Row(String name, String value) {}
 }

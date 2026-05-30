@@ -1,5 +1,7 @@
 package io.github.ousatov.tools.memgraph.exe.metrics;
 
+import io.github.ousatov.tools.memgraph.vo.metrics.IngestionPerformanceRow;
+import io.github.ousatov.tools.memgraph.vo.metrics.MarkdownMetricRow;
 import java.util.List;
 
 /**
@@ -8,7 +10,7 @@ import java.util.List;
  * @param rows ordered performance rows
  * @author Oleksii Usatov
  */
-public record IngestionPerformanceMetrics(List<Row> rows) {
+public record IngestionPerformanceMetrics(List<IngestionPerformanceRow> rows) {
 
   private static final String TITLE = "Ingestion Performance";
 
@@ -19,16 +21,6 @@ public record IngestionPerformanceMetrics(List<Row> rows) {
   /** Renders performance metrics using the same Markdown table style as graph metrics. */
   public String toMarkdownTable() {
     return MarkdownMetricsTable.render(
-        TITLE,
-        rows.stream().map(row -> new MarkdownMetricsTable.Row(row.name(), row.value())).toList());
+        TITLE, rows.stream().map(row -> new MarkdownMetricRow(row.name(), row.value())).toList());
   }
-
-  /**
-   * One performance metric row.
-   *
-   * @param name stable metric identifier
-   * @param value rendered metric value
-   * @author Oleksii Usatov
-   */
-  public record Row(String name, String value) {}
 }

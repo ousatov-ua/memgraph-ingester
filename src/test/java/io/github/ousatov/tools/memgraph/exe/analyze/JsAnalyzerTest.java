@@ -60,7 +60,7 @@ class JsAnalyzerTest {
 
     JsAnalysis analysis = analyzer().analyze(specFile);
 
-    ModuleAnalysis.TypeDecl localClass =
+    io.github.ousatov.tools.memgraph.vo.analysis.module.TypeDecl localClass =
         analysis.types().stream()
             .filter(type -> LOCAL_CLASS_NAME.equals(type.name()))
             .findFirst()
@@ -266,7 +266,7 @@ class JsAnalyzerTest {
             });
             """);
 
-    ModuleAnalysis.TypeDecl localClass =
+    io.github.ousatov.tools.memgraph.vo.analysis.module.TypeDecl localClass =
         analysis.types().stream()
             .filter(type -> "Local".equals(type.name()))
             .findFirst()
@@ -355,7 +355,7 @@ class JsAnalyzerTest {
             }
             """);
 
-    ModuleAnalysis.TypeDecl pipeMock =
+    io.github.ousatov.tools.memgraph.vo.analysis.module.TypeDecl pipeMock =
         analysis.types().stream()
             .filter(type -> "PipeMock".equals(type.name()))
             .findFirst()

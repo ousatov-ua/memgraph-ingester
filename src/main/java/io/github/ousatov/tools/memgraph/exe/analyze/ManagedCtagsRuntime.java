@@ -3,6 +3,8 @@ package io.github.ousatov.tools.memgraph.exe.analyze;
 import io.github.ousatov.tools.memgraph.def.Const;
 import io.github.ousatov.tools.memgraph.def.Const.SystemParams;
 import io.github.ousatov.tools.memgraph.exception.ProcessingException;
+import io.github.ousatov.tools.memgraph.vo.analysis.ctags.Release;
+import io.github.ousatov.tools.memgraph.vo.analysis.ctags.ReleaseAsset;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -642,8 +644,4 @@ public final class ManagedCtagsRuntime {
   private static String unescapeHtml(String value) {
     return value.replace("&amp;", "&").replace("&quot;", Const.Symbols.DOUBLE_QUOTE);
   }
-
-  record Release(String tag, java.util.List<ReleaseAsset> assets) {}
-
-  record ReleaseAsset(String tag, String name, Optional<String> digest, String url) {}
 }

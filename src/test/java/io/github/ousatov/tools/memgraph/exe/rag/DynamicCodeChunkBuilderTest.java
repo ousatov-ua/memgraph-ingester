@@ -8,9 +8,8 @@ import io.github.ousatov.tools.memgraph.def.Const.Params;
 import io.github.ousatov.tools.memgraph.exe.adapter.SourceLanguage;
 import io.github.ousatov.tools.memgraph.exe.analyze.CtagsAnalysis;
 import io.github.ousatov.tools.memgraph.exe.analyze.JsAnalysis;
-import io.github.ousatov.tools.memgraph.exe.analyze.ModuleAnalysis;
 import io.github.ousatov.tools.memgraph.exe.analyze.PythonAnalysis;
-import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.CodeChunkWrite;
+import io.github.ousatov.tools.memgraph.vo.writer.CodeChunkWrite;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -39,7 +38,7 @@ class DynamicCodeChunkBuilderTest {
             1,
             3,
             List.of(
-                new ModuleAnalysis.TypeDecl(
+                new io.github.ousatov.tools.memgraph.vo.analysis.module.TypeDecl(
                     Params.CLASS, "js.widget.Widget", "Widget", "", false, false, 1, 3)),
             List.of(),
             List.of(),
@@ -66,7 +65,7 @@ class DynamicCodeChunkBuilderTest {
             1,
             3,
             List.of(
-                new ModuleAnalysis.TypeDecl(
+                new io.github.ousatov.tools.memgraph.vo.analysis.module.TypeDecl(
                     Params.CLASS, "js.widget.Widget", "Widget", "", true, false, 1, 3)),
             List.of(),
             List.of(),
@@ -91,7 +90,7 @@ class DynamicCodeChunkBuilderTest {
             1,
             2,
             List.of(
-                new ModuleAnalysis.TypeDecl(
+                new io.github.ousatov.tools.memgraph.vo.analysis.module.TypeDecl(
                     Params.CLASS, "python.widget.Widget", "Widget", "", false, false, 1, 2)),
             List.of(),
             List.of(),
@@ -119,7 +118,7 @@ class DynamicCodeChunkBuilderTest {
             1,
             2,
             List.of(
-                new CtagsAnalysis.TypeDecl(
+                new io.github.ousatov.tools.memgraph.vo.analysis.ctags.TypeDecl(
                     Params.CLASS, Params.CLASS, "ruby.widget.Widget", "Widget", false, 1, 2)),
             List.of());
 

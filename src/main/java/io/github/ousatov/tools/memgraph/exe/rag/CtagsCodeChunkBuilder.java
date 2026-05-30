@@ -3,8 +3,8 @@ package io.github.ousatov.tools.memgraph.exe.rag;
 import io.github.ousatov.tools.memgraph.def.Const;
 import io.github.ousatov.tools.memgraph.def.Const.Params;
 import io.github.ousatov.tools.memgraph.exe.analyze.CtagsAnalysis;
-import io.github.ousatov.tools.memgraph.exe.rag.CodeChunkAnalysis.MemberChunk;
-import io.github.ousatov.tools.memgraph.exe.rag.CodeChunkAnalysis.TypeChunk;
+import io.github.ousatov.tools.memgraph.vo.rag.MemberChunk;
+import io.github.ousatov.tools.memgraph.vo.rag.TypeChunk;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -38,7 +38,8 @@ public final class CtagsCodeChunkBuilder extends CommonCodeChunkBuilder<CtagsAna
         List.copyOf(members));
   }
 
-  private static TypeChunk typeChunk(CtagsAnalysis.TypeDecl type) {
+  private static TypeChunk typeChunk(
+      io.github.ousatov.tools.memgraph.vo.analysis.ctags.TypeDecl type) {
     return new TypeChunk(
         type.interfaceLike() ? Const.Labels.INTERFACE : Const.Labels.CLASS,
         type.fqn(),
@@ -49,7 +50,8 @@ public final class CtagsCodeChunkBuilder extends CommonCodeChunkBuilder<CtagsAna
         type.endLine());
   }
 
-  private static MemberChunk memberChunk(CtagsAnalysis.MemberDecl member) {
+  private static MemberChunk memberChunk(
+      io.github.ousatov.tools.memgraph.vo.analysis.ctags.MemberDecl member) {
     return new MemberChunk(
         member.ownerFqn(),
         member.memberType(),
@@ -60,11 +62,12 @@ public final class CtagsCodeChunkBuilder extends CommonCodeChunkBuilder<CtagsAna
         member.endLine());
   }
 
-  private static boolean hasSyntheticConstructor(CtagsAnalysis.TypeDecl type) {
+  private static boolean hasSyntheticConstructor(
+      io.github.ousatov.tools.memgraph.vo.analysis.ctags.TypeDecl type) {
     return Params.CLASS.equals(type.graphKind()) && Params.CLASS.equals(nodeKind(type));
   }
 
-  private static String nodeKind(CtagsAnalysis.TypeDecl type) {
+  private static String nodeKind(io.github.ousatov.tools.memgraph.vo.analysis.ctags.TypeDecl type) {
     String rawKind = type.rawKind();
     return rawKind == null || rawKind.isBlank() ? type.graphKind() : rawKind;
   }

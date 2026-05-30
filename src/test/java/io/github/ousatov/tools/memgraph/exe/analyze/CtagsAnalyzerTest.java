@@ -30,7 +30,7 @@ class CtagsAnalyzerTest {
 
   @Test
   void parsesCtagsJsonTagLinesAndSkipsMalformedRows() {
-    List<CtagsAnalyzer.CtagsTag> tags =
+    List<io.github.ousatov.tools.memgraph.vo.analysis.ctags.CtagsTag> tags =
         CtagsAnalyzer.parseTags(
             """
             {"_type":"tag","name":"Service","path":"service.rb","line":1,"kind":"class"}

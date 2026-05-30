@@ -30,9 +30,11 @@ class IngestionMetricsTest {
     IngestionMetrics metrics =
         new IngestionMetrics(
             List.of(
-                new IngestionMetrics.Row("classes.internal", 7),
-                new IngestionMetrics.Row("calls", 1061),
-                new IngestionMetrics.Row("resolved_code_refs", 16)));
+                new io.github.ousatov.tools.memgraph.vo.metrics.IngestionMetricRow(
+                    "classes.internal", 7),
+                new io.github.ousatov.tools.memgraph.vo.metrics.IngestionMetricRow("calls", 1061),
+                new io.github.ousatov.tools.memgraph.vo.metrics.IngestionMetricRow(
+                    "resolved_code_refs", 16)));
 
     String table = metrics.toMarkdownTable();
 
@@ -54,9 +56,12 @@ class IngestionMetricsTest {
     IngestionPerformanceMetrics metrics =
         new IngestionPerformanceMetrics(
             List.of(
-                new IngestionPerformanceMetrics.Row("files.total", "51"),
-                new IngestionPerformanceMetrics.Row("duration.ms", "1234"),
-                new IngestionPerformanceMetrics.Row("cypher.statements", "987")));
+                new io.github.ousatov.tools.memgraph.vo.metrics.IngestionPerformanceRow(
+                    "files.total", "51"),
+                new io.github.ousatov.tools.memgraph.vo.metrics.IngestionPerformanceRow(
+                    "duration.ms", "1234"),
+                new io.github.ousatov.tools.memgraph.vo.metrics.IngestionPerformanceRow(
+                    "cypher.statements", "987")));
 
     String table = metrics.toMarkdownTable();
 
@@ -93,8 +98,17 @@ class IngestionMetricsTest {
     assertEquals(List.of("com.example.Caller.run()"), stats.changedCallerSignatures());
     assertEquals(List.of("com.example.Helper"), stats.changedOwnerFqns());
     assertTrue(
-        metrics.rows().contains(new IngestionPerformanceMetrics.Row("phase.parse.ms", "12")));
-    assertTrue(metrics.rows().contains(new IngestionPerformanceMetrics.Row("phase.write.ms", "5")));
+        metrics
+            .rows()
+            .contains(
+                new io.github.ousatov.tools.memgraph.vo.metrics.IngestionPerformanceRow(
+                    "phase.parse.ms", "12")));
+    assertTrue(
+        metrics
+            .rows()
+            .contains(
+                new io.github.ousatov.tools.memgraph.vo.metrics.IngestionPerformanceRow(
+                    "phase.write.ms", "5")));
     assertTrue(
         metrics.rows().stream()
             .anyMatch(
@@ -106,7 +120,11 @@ class IngestionMetricsTest {
   @Test
   void validatesMatchingSnapshot() throws IOException {
     String actualMetrics =
-        new IngestionMetrics(List.of(new IngestionMetrics.Row("methods", 3))).toMarkdownTable();
+        new IngestionMetrics(
+                List.of(
+                    new io.github.ousatov.tools.memgraph.vo.metrics.IngestionMetricRow(
+                        "methods", 3)))
+            .toMarkdownTable();
     Path expectedFile = tempDir.resolve("metrics.md");
     Files.writeString(expectedFile, actualMetrics);
 
@@ -153,11 +171,19 @@ class IngestionMetricsTest {
   @Test
   void rejectsDifferentSnapshot() throws IOException {
     String actualMetrics =
-        new IngestionMetrics(List.of(new IngestionMetrics.Row("methods", 3))).toMarkdownTable();
+        new IngestionMetrics(
+                List.of(
+                    new io.github.ousatov.tools.memgraph.vo.metrics.IngestionMetricRow(
+                        "methods", 3)))
+            .toMarkdownTable();
     Path expectedFile = tempDir.resolve("metrics.md");
     Files.writeString(
         expectedFile,
-        new IngestionMetrics(List.of(new IngestionMetrics.Row("methods", 2))).toMarkdownTable());
+        new IngestionMetrics(
+                List.of(
+                    new io.github.ousatov.tools.memgraph.vo.metrics.IngestionMetricRow(
+                        "methods", 2)))
+            .toMarkdownTable());
 
     assertThrows(
         IllegalStateException.class,

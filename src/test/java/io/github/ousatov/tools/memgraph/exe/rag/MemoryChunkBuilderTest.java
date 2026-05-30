@@ -2,8 +2,8 @@ package io.github.ousatov.tools.memgraph.exe.rag;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-import io.github.ousatov.tools.memgraph.exe.rag.MemoryChunkBuilder.MemorySource;
-import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.MemoryChunkWrite;
+import io.github.ousatov.tools.memgraph.vo.rag.MemorySource;
+import io.github.ousatov.tools.memgraph.vo.writer.MemoryChunkWrite;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 

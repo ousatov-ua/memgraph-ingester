@@ -1,7 +1,8 @@
 package io.github.ousatov.tools.memgraph.exe.rag;
 
 import io.github.ousatov.tools.memgraph.def.Const;
-import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.MemoryChunkWrite;
+import io.github.ousatov.tools.memgraph.vo.rag.MemorySource;
+import io.github.ousatov.tools.memgraph.vo.writer.MemoryChunkWrite;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -15,32 +16,6 @@ import java.util.Objects;
  * @author Oleksii Usatov
  */
 public final class MemoryChunkBuilder {
-
-  /** Canonical Memory node data needed to build one derived chunk. */
-  public record MemorySource(
-      String existingChunkId,
-      String sourceLabel,
-      String sourceId,
-      String title,
-      String topic,
-      String status,
-      String severity,
-      String type,
-      String priority,
-      String source,
-      String number,
-      String rationale,
-      String consequences,
-      String content,
-      String description,
-      String summary,
-      String evidence,
-      String mitigation,
-      String answer,
-      String notes,
-      String context,
-      String decision,
-      List<String> codeRefs) {}
 
   /** Builds one upsert payload for the supplied source memory. */
   public MemoryChunkWrite build(MemorySource source) {

@@ -1,5 +1,8 @@
 package io.github.ousatov.tools.memgraph.exe.metrics;
 
+import io.github.ousatov.tools.memgraph.vo.metrics.CypherTiming;
+import io.github.ousatov.tools.memgraph.vo.metrics.CypherTimingSnapshot;
+import io.github.ousatov.tools.memgraph.vo.metrics.IngestionPerformanceRow;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
@@ -119,7 +122,7 @@ public final class IngestionRunStats {
   /** Builds an immutable metrics snapshot for the current counter values. */
   public IngestionPerformanceMetrics snapshot() {
     long durationMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedNanos);
-    List<IngestionPerformanceMetrics.Row> rows = new ArrayList<>();
+    List<IngestionPerformanceRow> rows = new ArrayList<>();
     rows.add(row("files.total", totalFiles));
     rows.add(row("files.ingested", ingestedFiles.sum()));
     rows.add(row("files.skipped", skippedFiles.sum()));
@@ -133,16 +136,16 @@ public final class IngestionRunStats {
     return new IngestionPerformanceMetrics(rows);
   }
 
-  private static IngestionPerformanceMetrics.Row row(String name, long value) {
-    return new IngestionPerformanceMetrics.Row(name, String.valueOf(value));
+  private static IngestionPerformanceRow row(String name, long value) {
+    return new IngestionPerformanceRow(name, String.valueOf(value));
   }
 
-  private void addPhaseRows(List<IngestionPerformanceMetrics.Row> rows) {
+  private void addPhaseRows(List<IngestionPerformanceRow> rows) {
     PHASE_ROWS.forEach(
         phase -> rows.add(row(phase, TimeUnit.NANOSECONDS.toMillis(sum(phaseNanos.get(phase))))));
   }
 
-  private void addTopCypherRows(List<IngestionPerformanceMetrics.Row> rows) {
+  private void addTopCypherRows(List<IngestionPerformanceRow> rows) {
     List<CypherTimingSnapshot> snapshots =
         cypherTimings.entrySet().stream()
             .map(entry -> entry.getValue().snapshot(entry.getKey()))
@@ -153,8 +156,7 @@ public final class IngestionRunStats {
             .limit(TOP_CYPHER_LIMIT)
             .toList();
     for (int i = 0; i < snapshots.size(); i++) {
-      rows.add(
-          new IngestionPerformanceMetrics.Row("cypher.top." + (i + 1), snapshots.get(i).value()));
+      rows.add(new IngestionPerformanceRow("cypher.top." + (i + 1), snapshots.get(i).value()));
     }
   }
 
@@ -204,30 +206,5 @@ public final class IngestionRunStats {
       return value;
     }
     return value.substring(0, CYPHER_PREVIEW_LIMIT - 3) + "...";
-  }
-
-  private static final class CypherTiming {
-
-    private final LongAdder calls = new LongAdder();
-    private final LongAdder rows = new LongAdder();
-    private final LongAdder elapsedNanos = new LongAdder();
-
-    private void recordTime(int rowCount, long elapsedNanos) {
-      calls.increment();
-      rows.add(rowCount);
-      this.elapsedNanos.add(elapsedNanos);
-    }
-
-    private CypherTimingSnapshot snapshot(String preview) {
-      return new CypherTimingSnapshot(preview, calls.sum(), rows.sum(), elapsedNanos.sum());
-    }
-  }
-
-  private record CypherTimingSnapshot(String preview, long calls, long rows, long elapsedNanos) {
-
-    private String value() {
-      long elapsedMs = TimeUnit.NANOSECONDS.toMillis(elapsedNanos);
-      return elapsedMs + " ms, calls=" + calls + ", rows=" + rows + ", " + preview;
-    }
   }
 }

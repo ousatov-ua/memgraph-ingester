@@ -1,6 +1,7 @@
 package io.github.ousatov.tools.memgraph;
 
 import io.github.ousatov.tools.memgraph.def.Const;
+import io.github.ousatov.tools.memgraph.vo.cli.InstallResult;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -145,9 +146,5 @@ final class AgentInstructionsInstaller {
       }
       return new String(stream.readAllBytes(), StandardCharsets.UTF_8);
     }
-  }
-
-  record InstallResult(Path target, boolean includeMemories) {
-    // Record body intentionally contains no custom members.
   }
 }

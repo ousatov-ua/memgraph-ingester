@@ -7,17 +7,18 @@ import io.github.ousatov.tools.memgraph.exception.ProcessingException;
 import io.github.ousatov.tools.memgraph.exe.analyze.CtagsAnalysis;
 import io.github.ousatov.tools.memgraph.exe.analyze.CtagsAnalyzer;
 import io.github.ousatov.tools.memgraph.exe.rag.CtagsCodeChunkBuilder;
-import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.FieldWrite;
 import io.github.ousatov.tools.memgraph.exe.writer.GraphWriter;
 import io.github.ousatov.tools.memgraph.exe.writer.ctags.CtagsGraphWriter;
 import io.github.ousatov.tools.memgraph.vo.Method;
+import io.github.ousatov.tools.memgraph.vo.adapter.DetectedLanguage;
+import io.github.ousatov.tools.memgraph.vo.adapter.FileFingerprint;
+import io.github.ousatov.tools.memgraph.vo.writer.FieldWrite;
 import java.io.IOException;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
-import java.nio.file.attribute.FileTime;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
@@ -197,7 +198,7 @@ public final class CtagsLanguageAdapter implements LanguageAdapter<CtagsAnalysis
     classFqns.add(analysis.moduleFqn());
     methodSignatures.add(
         analysis.moduleFqn() + Const.Symbols.DOT + Labels.INIT + Const.Symbols.PARENS);
-    for (CtagsAnalysis.TypeDecl type : analysis.types()) {
+    for (io.github.ousatov.tools.memgraph.vo.analysis.ctags.TypeDecl type : analysis.types()) {
       if (type.interfaceLike()) {
         interfaceFqns.add(type.fqn());
       } else {
@@ -207,7 +208,8 @@ public final class CtagsLanguageAdapter implements LanguageAdapter<CtagsAnalysis
         }
       }
     }
-    for (CtagsAnalysis.MemberDecl member : analysis.members()) {
+    for (io.github.ousatov.tools.memgraph.vo.analysis.ctags.MemberDecl member :
+        analysis.members()) {
       if (Params.METHOD.equals(member.memberType())) {
         methodSignatures.add(member.fqnOrSignature());
       } else {
@@ -319,10 +321,10 @@ public final class CtagsLanguageAdapter implements LanguageAdapter<CtagsAnalysis
       CtagsGraphWriter writer,
       Path file,
       SourceLanguage language,
-      Collection<CtagsAnalysis.MemberDecl> members) {
+      Collection<io.github.ousatov.tools.memgraph.vo.analysis.ctags.MemberDecl> members) {
     List<FieldWrite> fields = new ArrayList<>();
     List<Method> methods = new ArrayList<>();
-    for (CtagsAnalysis.MemberDecl member : members) {
+    for (io.github.ousatov.tools.memgraph.vo.analysis.ctags.MemberDecl member : members) {
       if (Params.METHOD.equals(member.memberType())) {
         methods.add(
             CtagsGraphWriter.method(
@@ -423,7 +425,8 @@ public final class CtagsLanguageAdapter implements LanguageAdapter<CtagsAnalysis
         && !NON_CODE_LANGUAGE_GRAPH_NAMES.contains(language.graphName());
   }
 
-  private static boolean hasSyntheticConstructor(CtagsAnalysis.TypeDecl type) {
+  private static boolean hasSyntheticConstructor(
+      io.github.ousatov.tools.memgraph.vo.analysis.ctags.TypeDecl type) {
     String rawKind =
         type.rawKind() == null ? Const.Symbols.EMPTY : type.rawKind().toLowerCase(Locale.ROOT);
     return Params.CLASS.equals(type.graphKind()) && Params.CLASS.equals(rawKind);
@@ -436,24 +439,5 @@ public final class CtagsLanguageAdapter implements LanguageAdapter<CtagsAnalysis
       }
     }
     return false;
-  }
-
-  private record FileFingerprint(FileTime lastModifiedTime, long size) {
-
-    private static Optional<FileFingerprint> read(Path file) {
-      try {
-        BasicFileAttributes attributes = Files.readAttributes(file, BasicFileAttributes.class);
-        return Optional.of(new FileFingerprint(attributes.lastModifiedTime(), attributes.size()));
-      } catch (IOException _) {
-        return Optional.empty();
-      }
-    }
-  }
-
-  private record DetectedLanguage(SourceLanguage language, FileFingerprint fingerprint) {
-
-    private boolean matches(FileFingerprint current) {
-      return fingerprint.equals(current);
-    }
   }
 }

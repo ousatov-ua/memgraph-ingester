@@ -9,13 +9,16 @@ import io.github.ousatov.tools.memgraph.exe.adapter.SourceFileDefinitions;
 import io.github.ousatov.tools.memgraph.exe.adapter.SourceLanguage;
 import io.github.ousatov.tools.memgraph.exe.metrics.IngestionRunStats;
 import io.github.ousatov.tools.memgraph.exe.rag.MemoryChunkBuilder;
-import io.github.ousatov.tools.memgraph.exe.rag.MemoryChunkBuilder.MemorySource;
-import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.AnnotationWrite;
-import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.CallWrite;
-import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.CodeChunkWrite;
-import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.MemoryChunkWrite;
-import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.PendingCallWrite;
 import io.github.ousatov.tools.memgraph.vo.EmbeddingSettings;
+import io.github.ousatov.tools.memgraph.vo.rag.MemorySource;
+import io.github.ousatov.tools.memgraph.vo.writer.AnnotationWrite;
+import io.github.ousatov.tools.memgraph.vo.writer.CallWrite;
+import io.github.ousatov.tools.memgraph.vo.writer.CodeChunkWrite;
+import io.github.ousatov.tools.memgraph.vo.writer.EmbeddingBatchResult;
+import io.github.ousatov.tools.memgraph.vo.writer.EmbeddingRefreshResult;
+import io.github.ousatov.tools.memgraph.vo.writer.MemoryChunkWrite;
+import io.github.ousatov.tools.memgraph.vo.writer.PendingCallWrite;
+import io.github.ousatov.tools.memgraph.vo.writer.VectorIndexInfo;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -62,9 +65,6 @@ public final class GraphWriter {
   private final CommonGraphWriter.Dependencies dependencies;
   private final IngestionRunStats stats;
   private List<String> retainedSourcePaths = List.of();
-
-  /** Result counters for one embedding refresh pass. */
-  public record EmbeddingRefreshResult(long embedded, int dimension) {}
 
   /**
    * @param session Bolt session — must not be shared with other threads
@@ -1220,14 +1220,4 @@ public final class GraphWriter {
       throw new IllegalArgumentException(name + " must be a Cypher identifier");
     }
   }
-
-  private record VectorIndexInfo(
-      String label,
-      String property,
-      int dimension,
-      int capacity,
-      String metric,
-      String scalarKind) {}
-
-  private record EmbeddingBatchResult(boolean success, List<String> ids) {}
 }

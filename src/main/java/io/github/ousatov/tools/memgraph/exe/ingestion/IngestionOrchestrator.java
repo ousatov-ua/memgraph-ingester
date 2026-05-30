@@ -12,10 +12,17 @@ import io.github.ousatov.tools.memgraph.exe.metrics.IngestionMetricsCollector;
 import io.github.ousatov.tools.memgraph.exe.metrics.IngestionRunStats;
 import io.github.ousatov.tools.memgraph.exe.output.ConsoleStatusLine;
 import io.github.ousatov.tools.memgraph.exe.writer.GraphWriter;
-import io.github.ousatov.tools.memgraph.exe.writer.GraphWriter.EmbeddingRefreshResult;
 import io.github.ousatov.tools.memgraph.schema.Memgraph;
 import io.github.ousatov.tools.memgraph.vo.EmbeddingSettings;
 import io.github.ousatov.tools.memgraph.vo.Settings;
+import io.github.ousatov.tools.memgraph.vo.ingestion.PreparedFailure;
+import io.github.ousatov.tools.memgraph.vo.ingestion.PreparedFile;
+import io.github.ousatov.tools.memgraph.vo.ingestion.PreparedSkip;
+import io.github.ousatov.tools.memgraph.vo.ingestion.PreparedWrite;
+import io.github.ousatov.tools.memgraph.vo.ingestion.SourceFile;
+import io.github.ousatov.tools.memgraph.vo.ingestion.StoredFileState;
+import io.github.ousatov.tools.memgraph.vo.ingestion.WatchSourceSnapshot;
+import io.github.ousatov.tools.memgraph.vo.writer.EmbeddingRefreshResult;
 import java.io.IOException;
 import java.nio.file.FileSystems;
 import java.nio.file.FileVisitResult;
@@ -1214,82 +1221,5 @@ public final class IngestionOrchestrator {
       log.warn("Thread failure on {}: {}", file.path(), e.getMessage());
       return new PreparedFailure(file.path());
     }
-  }
-
-  private interface PreparedFile {
-
-    Path path();
-
-    boolean success();
-
-    boolean writeRequired();
-  }
-
-  private record PreparedWrite<T>(
-      Path path, LanguageAdapter<T> adapter, T parsed, SourceFileDefinitions definitions)
-      implements PreparedFile {
-
-    @Override
-    public boolean success() {
-      return true;
-    }
-
-    @Override
-    public boolean writeRequired() {
-      return true;
-    }
-  }
-
-  private record PreparedSkip(Path path) implements PreparedFile {
-
-    @Override
-    public boolean success() {
-      return true;
-    }
-
-    @Override
-    public boolean writeRequired() {
-      return false;
-    }
-  }
-
-  private record PreparedFailure(Path path) implements PreparedFile {
-
-    @Override
-    public boolean success() {
-      return false;
-    }
-
-    @Override
-    public boolean writeRequired() {
-      return false;
-    }
-  }
-
-  private record StoredFileState(
-      Map<String, Long> lastModifiedByPath,
-      Set<String> pathsMissingCodeChunks,
-      boolean reliableExistingPaths) {
-
-    static StoredFileState empty() {
-      return new StoredFileState(Map.of(), Set.of(), true);
-    }
-
-    static StoredFileState unreliable() {
-      return new StoredFileState(Map.of(), Set.of(), false);
-    }
-  }
-
-  /** Source file paired with the adapter selected by extension. */
-  private record SourceFile(Path path, LanguageAdapter<?> adapter) {
-
-    SourceLanguage language() {
-      return adapter.language(path);
-    }
-  }
-
-  /** Source files and retained paths captured from one watch-cycle snapshot. */
-  private record WatchSourceSnapshot(List<SourceFile> files, List<Path> retainedPaths) {
-    // Record body intentionally empty.
   }
 }

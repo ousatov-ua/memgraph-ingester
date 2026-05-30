@@ -2,8 +2,8 @@ package io.github.ousatov.tools.memgraph.exe.rag;
 
 import io.github.ousatov.tools.memgraph.def.Const.Params;
 import io.github.ousatov.tools.memgraph.exe.analyze.ModuleAnalysis;
-import io.github.ousatov.tools.memgraph.exe.rag.CodeChunkAnalysis.MemberChunk;
-import io.github.ousatov.tools.memgraph.exe.rag.CodeChunkAnalysis.TypeChunk;
+import io.github.ousatov.tools.memgraph.vo.rag.MemberChunk;
+import io.github.ousatov.tools.memgraph.vo.rag.TypeChunk;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Function;
@@ -17,14 +17,15 @@ public abstract class ModuleCodeChunkBuilder<T extends ModuleAnalysis>
     extends CommonCodeChunkBuilder<T> {
 
   protected ModuleCodeChunkBuilder(
-      String language, Function<ModuleAnalysis.TypeDecl, String> typeLabel) {
+      String language,
+      Function<io.github.ousatov.tools.memgraph.vo.analysis.module.TypeDecl, String> typeLabel) {
     super(analysis -> analyze(language, analysis, typeLabel));
   }
 
   private static CodeChunkAnalysis analyze(
       String language,
       ModuleAnalysis analysis,
-      Function<ModuleAnalysis.TypeDecl, String> typeLabel) {
+      Function<io.github.ousatov.tools.memgraph.vo.analysis.module.TypeDecl, String> typeLabel) {
     List<MemberChunk> members =
         new ArrayList<>(
             analysis.members().stream().map(ModuleCodeChunkBuilder::memberChunk).toList());
@@ -42,12 +43,14 @@ public abstract class ModuleCodeChunkBuilder<T extends ModuleAnalysis>
         List.copyOf(members));
   }
 
-  private static TypeChunk typeChunk(ModuleAnalysis.TypeDecl type, String label) {
+  private static TypeChunk typeChunk(
+      io.github.ousatov.tools.memgraph.vo.analysis.module.TypeDecl type, String label) {
     return new TypeChunk(
         label, type.fqn(), type.fqn(), type.name(), type.kind(), type.startLine(), type.endLine());
   }
 
-  private static MemberChunk memberChunk(ModuleAnalysis.MemberDecl member) {
+  private static MemberChunk memberChunk(
+      io.github.ousatov.tools.memgraph.vo.analysis.module.MemberDecl member) {
     return new MemberChunk(
         member.ownerFqn(),
         member.memberType(),

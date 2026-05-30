@@ -16,9 +16,9 @@ public record PythonAnalysis(
     String modulePath,
     int startLine,
     int endLine,
-    List<ModuleAnalysis.TypeDecl> types,
-    List<ModuleAnalysis.RelationDecl> relations,
-    List<ModuleAnalysis.MemberDecl> members,
-    List<ModuleAnalysis.AnnotationDecl> annotations,
-    List<ModuleAnalysis.CallDecl> calls)
+    List<io.github.ousatov.tools.memgraph.vo.analysis.module.TypeDecl> types,
+    List<io.github.ousatov.tools.memgraph.vo.analysis.module.RelationDecl> relations,
+    List<io.github.ousatov.tools.memgraph.vo.analysis.module.MemberDecl> members,
+    List<io.github.ousatov.tools.memgraph.vo.analysis.module.AnnotationDecl> annotations,
+    List<io.github.ousatov.tools.memgraph.vo.analysis.module.CallDecl> calls)
     implements ModuleAnalysis {}

@@ -184,7 +184,9 @@ class CtagsLanguageAdapterTest {
 
     assertEquals(
         List.of(Params.ENUM),
-        analysis.types().stream().map(CtagsAnalysis.TypeDecl::graphKind).toList());
+        analysis.types().stream()
+            .map(io.github.ousatov.tools.memgraph.vo.analysis.ctags.TypeDecl::graphKind)
+            .toList());
     assertFalse(
         analysis.members().stream()
             .anyMatch(
@@ -256,12 +258,12 @@ class CtagsLanguageAdapterTest {
     Files.writeString(goFile, "package main\n");
 
     CtagsAnalysis analysis = adapter.parse(goFile).orElseThrow();
-    CtagsAnalysis.TypeDecl packageType =
+    io.github.ousatov.tools.memgraph.vo.analysis.ctags.TypeDecl packageType =
         analysis.types().stream()
             .filter(type -> "main".equals(type.name()))
             .findFirst()
             .orElseThrow();
-    CtagsAnalysis.TypeDecl serviceType =
+    io.github.ousatov.tools.memgraph.vo.analysis.ctags.TypeDecl serviceType =
         analysis.types().stream()
             .filter(type -> "Service".equals(type.name()))
             .findFirst()

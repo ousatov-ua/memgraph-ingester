@@ -17,13 +17,14 @@ import io.github.ousatov.tools.memgraph.def.Const.Labels;
 import io.github.ousatov.tools.memgraph.def.Const.Params;
 import io.github.ousatov.tools.memgraph.exe.analyze.JavaTypeNames;
 import io.github.ousatov.tools.memgraph.exe.writer.CommonGraphWriter;
-import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.AnnotationNodeWrite;
-import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.AnnotationWrite;
-import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.ClassWrite;
-import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.FieldWrite;
-import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.InterfaceWrite;
-import io.github.ousatov.tools.memgraph.exe.writer.GraphWrite.TypeRelationWrite;
 import io.github.ousatov.tools.memgraph.vo.Method;
+import io.github.ousatov.tools.memgraph.vo.writer.AnnotationNodeWrite;
+import io.github.ousatov.tools.memgraph.vo.writer.AnnotationWrite;
+import io.github.ousatov.tools.memgraph.vo.writer.ClassWrite;
+import io.github.ousatov.tools.memgraph.vo.writer.FieldWrite;
+import io.github.ousatov.tools.memgraph.vo.writer.InterfaceWrite;
+import io.github.ousatov.tools.memgraph.vo.writer.TypeRelationWrite;
+import io.github.ousatov.tools.memgraph.vo.writer.TypeStructureWrites;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -60,21 +61,23 @@ public final class JavaGraphWriter extends CommonGraphWriter {
   public void upsertEnum(Path file, String pkg, EnumDeclaration decl) {
     String fqn = JavaTypeNames.buildFqn(pkg, decl.getNameAsString());
     TypeStructureWrites writes = new TypeStructureWrites();
-    writes.classes.add(
-        new ClassWrite(
-            file,
-            pkg,
-            fqn,
-            decl.getNameAsString(),
-            false,
-            decl.getAccessSpecifier().asString(),
-            true,
-            false,
-            true,
-            JAVA_LANGUAGE,
-            Params.ENUM,
-            Const.Symbols.EMPTY,
-            Const.Symbols.EMPTY));
+    writes
+        .classes()
+        .add(
+            new ClassWrite(
+                file,
+                pkg,
+                fqn,
+                decl.getNameAsString(),
+                false,
+                decl.getAccessSpecifier().asString(),
+                true,
+                false,
+                true,
+                JAVA_LANGUAGE,
+                Params.ENUM,
+                Const.Symbols.EMPTY,
+                Const.Symbols.EMPTY));
     collectImplementedTypes(fqn, decl, writes);
     collectNestedTypeStructure(file, pkg, fqn, decl.getMembers(), writes);
     upsertTypeStructure(writes);
@@ -92,21 +95,23 @@ public final class JavaGraphWriter extends CommonGraphWriter {
   public void upsertRecord(Path file, String pkg, RecordDeclaration decl) {
     String fqn = JavaTypeNames.buildFqn(pkg, decl.getNameAsString());
     TypeStructureWrites writes = new TypeStructureWrites();
-    writes.classes.add(
-        new ClassWrite(
-            file,
-            pkg,
-            fqn,
-            decl.getNameAsString(),
-            false,
-            decl.getAccessSpecifier().asString(),
-            false,
-            true,
-            true,
-            JAVA_LANGUAGE,
-            Params.RECORD,
-            Const.Symbols.EMPTY,
-            Const.Symbols.EMPTY));
+    writes
+        .classes()
+        .add(
+            new ClassWrite(
+                file,
+                pkg,
+                fqn,
+                decl.getNameAsString(),
+                false,
+                decl.getAccessSpecifier().asString(),
+                false,
+                true,
+                true,
+                JAVA_LANGUAGE,
+                Params.RECORD,
+                Const.Symbols.EMPTY,
+                Const.Symbols.EMPTY));
     collectImplementedTypes(fqn, decl, writes);
     collectNestedTypeStructure(file, pkg, fqn, decl.getMembers(), writes);
     upsertTypeStructure(writes);
@@ -191,35 +196,39 @@ public final class JavaGraphWriter extends CommonGraphWriter {
       TypeStructureWrites writes) {
     String fqn = typeFqn(pkg, outerFqn, decl.getNameAsString());
     if (decl.isInterface()) {
-      writes.interfaces.add(
-          new InterfaceWrite(
-              file,
-              pkg,
-              fqn,
-              decl.getNameAsString(),
-              decl.isAbstract(),
-              decl.getAccessSpecifier().asString(),
-              false,
-              JAVA_LANGUAGE,
-              Params.INTERFACE,
-              Const.Symbols.EMPTY,
-              Const.Symbols.EMPTY));
+      writes
+          .interfaces()
+          .add(
+              new InterfaceWrite(
+                  file,
+                  pkg,
+                  fqn,
+                  decl.getNameAsString(),
+                  decl.isAbstract(),
+                  decl.getAccessSpecifier().asString(),
+                  false,
+                  JAVA_LANGUAGE,
+                  Params.INTERFACE,
+                  Const.Symbols.EMPTY,
+                  Const.Symbols.EMPTY));
     } else {
-      writes.classes.add(
-          new ClassWrite(
-              file,
-              pkg,
-              fqn,
-              decl.getNameAsString(),
-              decl.isAbstract(),
-              decl.getAccessSpecifier().asString(),
-              false,
-              false,
-              decl.isFinal(),
-              JAVA_LANGUAGE,
-              Params.CLASS,
-              Const.Symbols.EMPTY,
-              Const.Symbols.EMPTY));
+      writes
+          .classes()
+          .add(
+              new ClassWrite(
+                  file,
+                  pkg,
+                  fqn,
+                  decl.getNameAsString(),
+                  decl.isAbstract(),
+                  decl.getAccessSpecifier().asString(),
+                  false,
+                  false,
+                  decl.isFinal(),
+                  JAVA_LANGUAGE,
+                  Params.CLASS,
+                  Const.Symbols.EMPTY,
+                  Const.Symbols.EMPTY));
     }
     collectInheritance(fqn, decl, writes);
     collectNestedTypeStructure(file, pkg, fqn, decl.getMembers(), writes);
@@ -249,11 +258,11 @@ public final class JavaGraphWriter extends CommonGraphWriter {
   }
 
   private void upsertTypeStructure(TypeStructureWrites writes) {
-    upsertClassNodes(writes.classes);
-    upsertInterfaceNodes(writes.interfaces);
-    upsertClassExtends(writes.classExtends);
-    upsertInterfaceExtends(writes.interfaceExtends);
-    upsertImplements(writes.implementsRelations);
+    upsertClassNodes(writes.classes());
+    upsertInterfaceNodes(writes.interfaces());
+    upsertClassExtends(writes.classExtends());
+    upsertInterfaceExtends(writes.interfaceExtends());
+    upsertImplements(writes.implementsRelations());
   }
 
   private static Stream<ClassOrInterfaceDeclaration> nestedClassDeclarationsOf(List<?> members) {
@@ -278,7 +287,7 @@ public final class JavaGraphWriter extends CommonGraphWriter {
   private void collectInheritance(
       String fqn, ClassOrInterfaceDeclaration decl, TypeStructureWrites writes) {
     Consumer<TypeRelationWrite> extendsSink =
-        decl.isInterface() ? writes.interfaceExtends::add : writes.classExtends::add;
+        decl.isInterface() ? writes.interfaceExtends()::add : writes.classExtends()::add;
     decl.getExtendedTypes().forEach(ext -> collectTypeRelation(fqn, ext, extendsSink));
     collectImplementedTypes(fqn, decl, writes);
   }
@@ -286,7 +295,7 @@ public final class JavaGraphWriter extends CommonGraphWriter {
   private void collectImplementedTypes(
       String fqn, NodeWithImplements<?> decl, TypeStructureWrites writes) {
     decl.getImplementedTypes()
-        .forEach(impl -> collectTypeRelation(fqn, impl, writes.implementsRelations::add));
+        .forEach(impl -> collectTypeRelation(fqn, impl, writes.implementsRelations()::add));
   }
 
   private static void collectTypeRelation(
@@ -294,19 +303,6 @@ public final class JavaGraphWriter extends CommonGraphWriter {
     JavaTypeNames.withResolvedType(
         target,
         targetFqn -> sink.accept(new TypeRelationWrite(childFqn, targetFqn, JAVA_LANGUAGE)));
-  }
-
-  /**
-   * Collected structural writes for one Java declaration tree.
-   *
-   * @author Oleksii Usatov
-   */
-  private static final class TypeStructureWrites {
-    private final List<ClassWrite> classes = new ArrayList<>();
-    private final List<InterfaceWrite> interfaces = new ArrayList<>();
-    private final List<TypeRelationWrite> classExtends = new ArrayList<>();
-    private final List<TypeRelationWrite> interfaceExtends = new ArrayList<>();
-    private final List<TypeRelationWrite> implementsRelations = new ArrayList<>();
   }
 
   private void upsertRecordComponents(Path file, String ownerFqn, RecordDeclaration decl) {

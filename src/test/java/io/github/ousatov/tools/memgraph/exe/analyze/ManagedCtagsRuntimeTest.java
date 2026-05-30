@@ -53,7 +53,7 @@ class ManagedCtagsRuntimeTest {
 
   @Test
   void parsesGithubReleaseAssetsPage() {
-    ManagedCtagsRuntime.Release release =
+    io.github.ousatov.tools.memgraph.vo.analysis.ctags.Release release =
         ManagedCtagsRuntime.parseReleaseAssetsPage(
             "2026.05.26+abc",
             """
@@ -63,7 +63,8 @@ class ManagedCtagsRuntimeTest {
             </a>
             """);
 
-    ManagedCtagsRuntime.ReleaseAsset asset = release.assets().getFirst();
+    io.github.ousatov.tools.memgraph.vo.analysis.ctags.ReleaseAsset asset =
+        release.assets().getFirst();
     assertEquals("2026.05.26+abc", release.tag());
     assertEquals("uctags-2026.05.26-macos-15.0-arm64.release.tar.xz", asset.name());
     assertEquals(
@@ -76,7 +77,7 @@ class ManagedCtagsRuntimeTest {
 
   @Test
   void parsesGithubReleaseAssetsPageWithSiblingDigest() {
-    ManagedCtagsRuntime.Release release =
+    io.github.ousatov.tools.memgraph.vo.analysis.ctags.Release release =
         ManagedCtagsRuntime.parseReleaseAssetsPage(
             "2026.05.26+abc",
             """
@@ -93,7 +94,8 @@ class ManagedCtagsRuntimeTest {
             </li>
             """);
 
-    ManagedCtagsRuntime.ReleaseAsset asset = release.assets().getFirst();
+    io.github.ousatov.tools.memgraph.vo.analysis.ctags.ReleaseAsset asset =
+        release.assets().getFirst();
     assertEquals("2026.05.26+abc", release.tag());
     assertEquals("uctags-2026.05.26-macos-10.15-arm64.release.tar.xz", asset.name());
     assertEquals(
@@ -103,7 +105,7 @@ class ManagedCtagsRuntimeTest {
 
   @Test
   void parsesGithubReleaseAssetsPageWithoutDigest() {
-    ManagedCtagsRuntime.Release release =
+    io.github.ousatov.tools.memgraph.vo.analysis.ctags.Release release =
         ManagedCtagsRuntime.parseReleaseAssetsPage(
             "v6.1.0",
             """
@@ -113,7 +115,8 @@ class ManagedCtagsRuntimeTest {
             </a>
             """);
 
-    ManagedCtagsRuntime.ReleaseAsset asset = release.assets().getFirst();
+    io.github.ousatov.tools.memgraph.vo.analysis.ctags.ReleaseAsset asset =
+        release.assets().getFirst();
     assertEquals("v6.1.0", release.tag());
     assertEquals("ctags-v6.1.0-x64.zip", asset.name());
     assertEquals(Optional.empty(), asset.digest());
