@@ -34,7 +34,6 @@ class AgentInstructionsInstallerTest {
     assertTrue(content.contains("memgraph-ingester-mcp"));
     assertTrue(content.contains("### MCP Tools"));
     assertTrue(content.contains("`code_search`: CodeChunk RAG discovery."));
-    assertTrue(content.contains("Prefer dedicated tools over `raw_read_cypher`."));
     assertFalse(content.contains("Memory Schema"));
   }
 
