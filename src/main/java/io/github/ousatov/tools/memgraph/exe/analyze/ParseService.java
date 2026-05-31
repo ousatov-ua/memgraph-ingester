@@ -9,6 +9,7 @@ import com.github.javaparser.symbolsolver.resolution.typesolvers.CombinedTypeSol
 import com.github.javaparser.symbolsolver.resolution.typesolvers.JarTypeSolver;
 import com.github.javaparser.symbolsolver.resolution.typesolvers.JavaParserTypeSolver;
 import com.github.javaparser.symbolsolver.resolution.typesolvers.ReflectionTypeSolver;
+import io.github.ousatov.tools.memgraph.exe.output.ConsoleOutput;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.FileVisitResult;
@@ -107,7 +108,10 @@ public final class ParseService {
       addJarToSolver(solver, jar);
     }
     if (!classpathEntries.isEmpty()) {
-      log.info("Added {} JAR(s) to the symbol solver classpath", classpathEntries.size());
+      String message =
+          "Added " + classpathEntries.size() + " JAR(s) to the symbol solver classpath";
+      log.info(message);
+      ConsoleOutput.line(message);
     }
     ParserConfiguration cfg = new ParserConfiguration();
     cfg.setSymbolResolver(new JavaSymbolSolver(solver));
@@ -188,7 +192,9 @@ public final class ParseService {
     for (Path root : javaSourceRoots(sourceRoot)) {
       solver.add(new JavaParserTypeSolver(root));
       if (!sameNormalizedPath(sourceRoot, root)) {
-        log.info("Auto-detected source root: {}", root);
+        String message = "Auto-detected source root: " + root;
+        log.info(message);
+        ConsoleOutput.line(message);
       }
     }
   }

@@ -9,6 +9,9 @@ import io.github.ousatov.tools.memgraph.exe.adapter.SourceLanguage;
 import io.github.ousatov.tools.memgraph.exe.analyze.ParseService;
 import io.github.ousatov.tools.memgraph.exe.metrics.IngestionMetricsCollector;
 import io.github.ousatov.tools.memgraph.exe.metrics.IngestionRunStats;
+import io.github.ousatov.tools.memgraph.exe.output.ConsoleOutput;
+import io.github.ousatov.tools.memgraph.exe.output.ConsoleProgress;
+import io.github.ousatov.tools.memgraph.exe.output.ConsoleStatusLine;
 import io.github.ousatov.tools.memgraph.exe.writer.GraphWriter;
 import io.github.ousatov.tools.memgraph.schema.Memgraph;
 import io.github.ousatov.tools.memgraph.vo.EmbeddingSettings;
@@ -155,13 +158,16 @@ public final class IngestionOrchestrator {
     List<SourceFile> files = discoverSourceFiles();
     stats.setTotalFiles(files.size());
     List<Path> retainedSourcePaths = retainedSourcePaths(files, stats);
-    log.atInfo()
-        .setMessage(
-            "Found {} supported source files across {} adapter(s). Ingesting with {} thread(s).")
-        .addArgument(files::size)
-        .addArgument(languageAdapters::size)
-        .addArgument(threads)
-        .log();
+    String discoveryMessage =
+        "Found "
+            + files.size()
+            + " supported source files across "
+            + languageAdapters.size()
+            + " adapter(s). Ingesting with "
+            + threads
+            + " thread(s).";
+    log.info(discoveryMessage);
+    ConsoleOutput.status(discoveryMessage);
 
     StoredFileState storedFiles = preloadStoredFileState(files);
     if (incremental) {
@@ -225,15 +231,21 @@ public final class IngestionOrchestrator {
         log.info("Wiped all data from Memgraph");
       }
       if (settings.applySchema()) {
-        log.info("Applying schema to Memgraph ...");
+        String applyingSchema = "Applying schema to Memgraph ...";
+        log.info(applyingSchema);
+        ConsoleOutput.status(applyingSchema);
         Memgraph.applySchema(bootstrap);
-        log.info("Applied schema to Memgraph");
+        String appliedSchema = "Applied schema to Memgraph";
+        log.info(appliedSchema);
+        ConsoleOutput.status(appliedSchema);
       } else if (Memgraph.needsSchemaUpdate(bootstrap)) {
         Memgraph.applySchema(bootstrap);
         log.info("Applied schema migrations to Memgraph");
       }
       if (settings.wipeProjectCode()) {
-        log.info("Wiping existing code graph for project '{}'...", project);
+        String wipeProjectCode = "Wiping existing code graph for project '" + project + "'...";
+        log.info(wipeProjectCode);
+        ConsoleOutput.status(wipeProjectCode);
         bootstrapWriter.wipe();
       }
       if (settings.wipeProjectMemories()) {
@@ -262,6 +274,7 @@ public final class IngestionOrchestrator {
       GraphWriter postWriter = new GraphWriter(session, project, stats);
       refreshDerivedGraphArtifacts(postWriter);
       refreshChunkEmbeddings(postWriter, false);
+      ConsoleOutput.finishStatus();
       printMetrics(session);
       printPerformance(stats);
     }
@@ -371,23 +384,41 @@ public final class IngestionOrchestrator {
       String chunkLabel,
       Function<GraphWriter, EmbeddingRefreshResult> refreshFn,
       String warnDetail) {
-    logEmbeddingRefresh(
-        watchMode,
-        "Refreshing {} embeddings for project '{}' with Memgraph model '{}'...",
-        chunkLabel,
-        project,
-        settings.modelName());
+    String refreshingMessage =
+        "Refreshing "
+            + chunkLabel
+            + " embeddings for project '"
+            + project
+            + "' with Memgraph model '"
+            + settings.modelName()
+            + "'...";
+    logEmbeddingRefresh(watchMode, refreshingMessage);
     long startedNanos = System.nanoTime();
+    String consoleMessage = "Refreshing " + chunkLabel;
+    ConsoleProgress progress =
+        watchMode || !ConsoleStatusLine.isInteractive()
+            ? null
+            : ConsoleProgress.indeterminate(consoleMessage);
     try {
       EmbeddingRefreshResult result = refreshFn.apply(writer);
-      logEmbeddingRefresh(
-          watchMode,
-          "Refreshed {} {} embedding(s) using model '{}' ({} dimensions).",
-          result.embedded(),
-          chunkLabel,
-          settings.modelName(),
-          result.dimension());
+      String refreshedMessage =
+          "Refreshed "
+              + result.embedded()
+              + " "
+              + chunkLabel
+              + " embedding(s) using model '"
+              + settings.modelName()
+              + "' ("
+              + result.dimension()
+              + " dimensions).";
+      logEmbeddingRefresh(watchMode, refreshedMessage);
+      if (progress != null) {
+        progress.discard();
+      }
     } catch (RuntimeException e) {
+      if (progress != null) {
+        progress.discard();
+      }
       log.warn(
           "Skipping {} embedding refresh for project '{}': {}. {}",
           chunkLabel,
@@ -401,18 +432,18 @@ public final class IngestionOrchestrator {
     }
   }
 
-  private void logEmbeddingRefresh(boolean watchMode, String message, Object... arguments) {
+  private void logEmbeddingRefresh(boolean watchMode, String message) {
     if (watchMode) {
-      log.debug(message, arguments);
+      log.debug(message);
     } else {
-      log.info(message, arguments);
+      log.info(message);
     }
   }
 
   @SuppressWarnings({Const.Warnings.STANDARD_OUTPUT, Const.Warnings.BROAD_EXCEPTION})
   private void printMetrics(Session session) {
     try {
-      System.out.print(IngestionMetricsCollector.collect(session, project).toMarkdownTable());
+      printReport(IngestionMetricsCollector.collect(session, project).toMarkdownTable());
     } catch (RuntimeException | LinkageError e) {
       log.warn("Could not print ingestion metrics for '{}': {}", project, e.getMessage());
     }
@@ -421,10 +452,20 @@ public final class IngestionOrchestrator {
   @SuppressWarnings({Const.Warnings.STANDARD_OUTPUT, Const.Warnings.BROAD_EXCEPTION})
   private void printPerformance(IngestionRunStats stats) {
     try {
-      System.out.print(stats.snapshot().toMarkdownTable());
+      logReport(stats.snapshot().toMarkdownTable());
     } catch (RuntimeException | LinkageError e) {
       log.warn("Could not print ingestion performance for '{}': {}", project, e.getMessage());
     }
+  }
+
+  @SuppressWarnings(Const.Warnings.STANDARD_OUTPUT)
+  private static void printReport(String report) {
+    System.out.print(report);
+    logReport(report);
+  }
+
+  private static void logReport(String report) {
+    log.info("\n{}", report.stripTrailing());
   }
 
   boolean shouldVisitDirectory(Path dir) {
@@ -801,11 +842,11 @@ public final class IngestionOrchestrator {
 
   boolean writePreparedFile(GraphWriter writer, PreparedFile prepared) {
     return switch (prepared) {
-      case PreparedFailure ignored -> {
+      case PreparedFailure _ -> {
         writer.stats().recordFailedFile();
         yield false;
       }
-      case PreparedSkip ignored -> {
+      case PreparedSkip _ -> {
         writer.stats().recordSkippedFile();
         yield true;
       }

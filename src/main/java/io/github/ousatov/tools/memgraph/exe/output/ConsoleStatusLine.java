@@ -6,7 +6,11 @@ import java.util.IdentityHashMap;
 import java.util.Map;
 import java.util.Objects;
 
-/** Coordinates status-line output that rewrites the current console row. */
+/**
+ * Coordinates status-line output that rewrites the current console row.
+ *
+ * @author Oleksii Usatov
+ */
 public final class ConsoleStatusLine {
 
   private static final Object LOCK = new Object();
@@ -67,12 +71,14 @@ public final class ConsoleStatusLine {
     synchronized (LOCK) {
       PrintStream stream = Objects.requireNonNull(out, Const.Params.OUT);
       clearDifferentActiveStream(stream);
+      int visibleLength = visibleLength(text);
       stream.print('\r');
+      clearLine(stream);
       stream.print(text);
-      if (lastLength > text.length()) {
-        stream.print(Const.Symbols.SPACE.repeat(lastLength - text.length()));
+      if (lastLength > visibleLength) {
+        stream.print(Const.Symbols.SPACE.repeat(lastLength - visibleLength));
       }
-      lastLength = text.length();
+      lastLength = visibleLength;
       active = true;
       activeOut = stream;
       stream.flush();
@@ -91,6 +97,13 @@ public final class ConsoleStatusLine {
 
   public static void finish(PrintStream out) {
     finishIfActive(out);
+  }
+
+  public static void clear(PrintStream out) {
+    synchronized (LOCK) {
+      PrintStream stream = Objects.requireNonNull(out, Const.Params.OUT);
+      clearActiveLine(stream);
+    }
   }
 
   public static boolean finishIfActive(PrintStream out) {
@@ -128,8 +141,9 @@ public final class ConsoleStatusLine {
 
   private static void clearDifferentActiveStream(PrintStream stream) {
     if (active && activeOut != stream) {
-      activeOut.println();
-      activeOut.flush();
+      PrintStream previous = activeOut;
+      previous.println();
+      previous.flush();
       reset();
     }
   }
@@ -140,11 +154,13 @@ public final class ConsoleStatusLine {
     }
     if (activeOut == stream) {
       stream.print('\r');
-      stream.print(Const.Symbols.SPACE.repeat(lastLength));
-      stream.print('\r');
+      clearLine(stream);
     } else {
-      activeOut.println();
-      activeOut.flush();
+      PrintStream previous = activeOut;
+      previous.println();
+      previous.flush();
+      reset();
+      return;
     }
     reset();
   }
@@ -153,6 +169,33 @@ public final class ConsoleStatusLine {
     active = false;
     activeOut = null;
     lastLength = 0;
+  }
+
+  static int visibleLength(String text) {
+    int length = 0;
+    for (int index = 0; index < text.length(); index++) {
+      char current = text.charAt(index);
+      if (current == '\u001B' && index + 1 < text.length() && text.charAt(index + 1) == '[') {
+        index += 2;
+        while (index < text.length() && !isAnsiFinalByte(text.charAt(index))) {
+          index++;
+        }
+        continue;
+      }
+      length++;
+    }
+    return length;
+  }
+
+  private static boolean isAnsiFinalByte(char current) {
+    return current >= '@' && current <= '~';
+  }
+
+  private static void clearLine(PrintStream stream) {
+    if (lastLength > 0) {
+      stream.print(Const.Symbols.SPACE.repeat(lastLength));
+      stream.print('\r');
+    }
   }
 
   public static final class StatusSession implements AutoCloseable {
