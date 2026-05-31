@@ -1,33 +1,26 @@
 package io.github.ousatov.tools.memgraph;
 
 import io.github.ousatov.tools.memgraph.def.Const;
-import io.github.ousatov.tools.memgraph.def.Const.Labels;
-import io.github.ousatov.tools.memgraph.def.Const.Params;
-import io.github.ousatov.tools.memgraph.exception.ProcessingException;
 import io.github.ousatov.tools.memgraph.exe.adapter.LanguageAdapter;
 import io.github.ousatov.tools.memgraph.exe.adapter.LanguageAdapterFactory;
-import io.github.ousatov.tools.memgraph.exe.analyze.CtagsAnalyzer;
-import io.github.ousatov.tools.memgraph.exe.analyze.JsAnalyzer;
 import io.github.ousatov.tools.memgraph.exe.analyze.ManagedCtagsRuntime;
 import io.github.ousatov.tools.memgraph.exe.analyze.ManagedNodeRuntime;
 import io.github.ousatov.tools.memgraph.exe.analyze.ManagedPythonRuntime;
 import io.github.ousatov.tools.memgraph.exe.analyze.ManagedTypescriptPackage;
-import io.github.ousatov.tools.memgraph.exe.analyze.PythonAnalyzer;
 import io.github.ousatov.tools.memgraph.exe.ingestion.IngestionOrchestrator;
+import io.github.ousatov.tools.memgraph.exe.smoke.CtagsRuntimeSmokeCheck;
+import io.github.ousatov.tools.memgraph.exe.smoke.JsRuntimeSmokeCheck;
+import io.github.ousatov.tools.memgraph.exe.smoke.PythonRuntimeSmokeCheck;
 import io.github.ousatov.tools.memgraph.schema.MemgraphDriver;
 import io.github.ousatov.tools.memgraph.vo.EmbeddingSettings;
 import io.github.ousatov.tools.memgraph.vo.Settings;
 import io.github.ousatov.tools.memgraph.vo.adapter.CtagsRuntimeOptions;
 import io.github.ousatov.tools.memgraph.vo.adapter.JsRuntimeOptions;
 import io.github.ousatov.tools.memgraph.vo.adapter.PythonRuntimeOptions;
-import io.github.ousatov.tools.memgraph.vo.analysis.CtagsAnalysis;
-import io.github.ousatov.tools.memgraph.vo.analysis.JsAnalysis;
-import io.github.ousatov.tools.memgraph.vo.analysis.PythonAnalysis;
 import io.github.ousatov.tools.memgraph.vo.analysis.RuntimeMode;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.Callable;
 import org.neo4j.driver.Driver;
@@ -51,7 +44,6 @@ import picocli.CommandLine.Spec;
 public final class IngesterCli implements Callable<Integer> {
 
   private static final Logger log = LoggerFactory.getLogger(IngesterCli.class);
-  private static final String EXPORT_CONST_VALUE_1 = "export const value = 1;\n";
 
   @Spec private CommandSpec commandSpec;
 
@@ -451,13 +443,34 @@ public final class IngesterCli implements Callable<Integer> {
     if (checkJsRuntime || checkPythonRuntime || checkCtagsRuntime) {
       int checkExit = 0;
       if (checkJsRuntime) {
-        checkExit = Math.max(checkExit, runJsRuntimeCheck(selectedJsRuntimeMode));
+        checkExit =
+            Math.max(
+                checkExit,
+                new JsRuntimeSmokeCheck(
+                        resolvedJsRuntimeCache(),
+                        jsNodeVersion,
+                        jsTypescriptVersion,
+                        selectedJsRuntimeMode)
+                    .run());
       }
       if (checkPythonRuntime) {
-        checkExit = Math.max(checkExit, runPythonRuntimeCheck(selectedPythonRuntimeMode));
+        checkExit =
+            Math.max(
+                checkExit,
+                new PythonRuntimeSmokeCheck(
+                        resolvedPythonRuntimeCache(),
+                        pythonVersion,
+                        pythonBuild,
+                        selectedPythonRuntimeMode)
+                    .run());
       }
       if (checkCtagsRuntime) {
-        checkExit = Math.max(checkExit, runCtagsRuntimeCheck(selectedCtagsRuntimeMode));
+        checkExit =
+            Math.max(
+                checkExit,
+                new CtagsRuntimeSmokeCheck(
+                        resolvedCtagsRuntimeCache(), ctagsVersion, selectedCtagsRuntimeMode)
+                    .run());
       }
       return checkExit;
     }
@@ -613,325 +626,6 @@ public final class IngesterCli implements Callable<Integer> {
     } catch (IllegalArgumentException | IllegalStateException | IOException e) {
       log.error(e.getMessage());
       return 1;
-    }
-  }
-
-  private Integer runJsRuntimeCheck(RuntimeMode selectedRuntimeMode) {
-    Path cacheRoot = resolvedJsRuntimeCache();
-    Path tempDir = null;
-    try {
-      tempDir = Files.createTempDirectory("memgraph-ingester-js-runtime-check-");
-      Path defaultClass = tempDir.resolve("default-class.js");
-      Path defaultFunction = tempDir.resolve("default-function.js");
-      Path indexJs = tempDir.resolve("index.js");
-      Path indexTs = tempDir.resolve("index.ts");
-      Path hyphenModule = tempDir.resolve("my-file.js");
-      Path underscoreModule = tempDir.resolve("my_file.js");
-      Path dottedModule = tempDir.resolve("a.b.js");
-      Path underscoredDottedModule = tempDir.resolve("a_b.js");
-      Path constructorCall = tempDir.resolve("constructor-call.js");
-      Path uninitializedVariable = tempDir.resolve("uninitialized-variable.ts");
-      Path tsconfigBase = tempDir.resolve("tsconfig.base.json");
-      Path tsconfig = tempDir.resolve("tsconfig.json");
-      Path aliasConsumer = tempDir.resolve("alias-consumer.ts");
-      Path specificAliasTarget = tempDir.resolve("src/app/specific.ts");
-      Path broadAliasTarget = tempDir.resolve("src/shared/specific.ts");
-      Files.writeString(
-          defaultClass,
-          """
-          export default class {
-            constructor(value) {
-              this.value = value;
-            }
-          }
-          """);
-      Files.writeString(
-          defaultFunction,
-          """
-          export default function(value) {
-            return value;
-          }
-          """);
-      Files.writeString(indexJs, "export const jsValue = 1;\n");
-      Files.writeString(indexTs, "export const tsValue: number = 1;\n");
-      Files.writeString(hyphenModule, EXPORT_CONST_VALUE_1);
-      Files.writeString(underscoreModule, EXPORT_CONST_VALUE_1);
-      Files.writeString(dottedModule, EXPORT_CONST_VALUE_1);
-      Files.writeString(underscoredDottedModule, EXPORT_CONST_VALUE_1);
-      Files.writeString(
-          constructorCall,
-          """
-          class Service {
-            constructor(value) {
-              this.value = value;
-            }
-          }
-
-          export function make() {
-            return new Service(1);
-          }
-          """);
-      Files.writeString(
-          uninitializedVariable,
-          """
-          let deferredValue: string;
-
-          export function value() {
-            return deferredValue;
-          }
-          """);
-      Files.writeString(
-          tsconfigBase,
-          """
-          {
-            "compilerOptions": {
-              "baseUrl": ".",
-              "paths": {
-                "@/*": ["src/shared/*"],
-                "@app/*": ["src/app/*"]
-              }
-            }
-          }
-          """);
-      Files.writeString(
-          tsconfig,
-          """
-          {
-            "extends": "./tsconfig.base.json"
-          }
-          """);
-      Files.createDirectories(specificAliasTarget.getParent());
-      Files.createDirectories(broadAliasTarget.getParent());
-      Files.writeString(specificAliasTarget, "export class Base {}\n");
-      Files.writeString(broadAliasTarget, "export class Base {}\n");
-      Files.writeString(
-          aliasConsumer,
-          """
-          import { Base } from '@app/specific';
-
-          export class Derived extends Base {}
-          """);
-
-      JsAnalyzer analyzer =
-          new JsAnalyzer(
-              tempDir,
-              new ManagedNodeRuntime(cacheRoot, jsNodeVersion, selectedRuntimeMode),
-              new ManagedTypescriptPackage(cacheRoot, jsTypescriptVersion, selectedRuntimeMode));
-      assertDefaultClass(analyzer.analyze(defaultClass));
-      assertDefaultFunction(analyzer.analyze(defaultFunction));
-      assertDistinctModuleFqns(analyzer.analyze(indexJs), analyzer.analyze(indexTs));
-      assertDistinctModuleFqns(
-          analyzer.analyze(hyphenModule),
-          analyzer.analyze(underscoreModule),
-          "hyphen and underscore module FQNs");
-      assertDistinctModuleFqns(
-          analyzer.analyze(dottedModule),
-          analyzer.analyze(underscoredDottedModule),
-          "dotted and underscored module FQNs");
-      assertConstructorCall(analyzer.analyze(constructorCall));
-      assertTsconfigPathAlias(analyzer.analyze(aliasConsumer));
-      analyzer.analyze(uninitializedVariable);
-      log.info("JavaScript parser runtime check succeeded using cache {}", cacheRoot);
-      return 0;
-    } catch (IOException | RuntimeException e) {
-      log.error("JavaScript parser runtime check failed: {}", e.getMessage());
-      return 1;
-    } finally {
-      if (tempDir != null) {
-        deleteDir(tempDir);
-      }
-    }
-  }
-
-  private Integer runPythonRuntimeCheck(RuntimeMode selectedRuntimeMode) {
-    Path cacheRoot = resolvedPythonRuntimeCache();
-    Path tempDir = null;
-    try {
-      tempDir = Files.createTempDirectory("memgraph-ingester-python-runtime-check-");
-      Path baseFile = tempDir.resolve("base.py");
-      Path serviceFile = tempDir.resolve("service.py");
-      Files.writeString(
-          baseFile,
-          """
-          class Base:
-              pass
-          """);
-      Files.writeString(
-          serviceFile,
-          """
-          from base import Base
-
-          class Service(Base):
-              def run(self):
-                  helper()
-
-          def helper():
-              return 1
-          """);
-
-      PythonAnalyzer analyzer =
-          new PythonAnalyzer(
-              tempDir,
-              new ManagedPythonRuntime(cacheRoot, pythonVersion, pythonBuild, selectedRuntimeMode));
-      PythonAnalysis analysis = analyzer.analyze(serviceFile);
-      assertPythonExtends(analysis);
-      assertPythonCall(analysis);
-      log.info("Python parser runtime check succeeded using cache {}", cacheRoot);
-      return 0;
-    } catch (IOException | RuntimeException e) {
-      log.error("Python parser runtime check failed: {}", e.getMessage());
-      return 1;
-    } finally {
-      if (tempDir != null) {
-        deleteDir(tempDir);
-      }
-    }
-  }
-
-  private Integer runCtagsRuntimeCheck(RuntimeMode selectedRuntimeMode) {
-    Path cacheRoot = resolvedCtagsRuntimeCache();
-    Path tempDir = null;
-    try {
-      tempDir = Files.createTempDirectory("memgraph-ingester-ctags-runtime-check-");
-      Path rubyFile = tempDir.resolve("service.rb");
-      Files.writeString(
-          rubyFile,
-          """
-          class Service
-            def call
-              1
-            end
-          end
-          """);
-
-      CtagsAnalyzer analyzer =
-          new CtagsAnalyzer(
-              tempDir, new ManagedCtagsRuntime(cacheRoot, ctagsVersion, selectedRuntimeMode));
-      CtagsAnalysis analysis = analyzer.analyze(rubyFile);
-      if (!"ruby".equals(analysis.language().graphName()) || analysis.types().isEmpty()) {
-        throw new ProcessingException("Universal Ctags Ruby smoke check did not emit types");
-      }
-      log.info("Universal Ctags runtime check succeeded using cache {}", cacheRoot);
-      return 0;
-    } catch (IOException | RuntimeException e) {
-      log.error("Universal Ctags runtime check failed: {}", e.getMessage());
-      return 1;
-    } finally {
-      if (tempDir != null) {
-        deleteDir(tempDir);
-      }
-    }
-  }
-
-  private static void assertPythonExtends(PythonAnalysis analysis) {
-    boolean extendsFound =
-        analysis.relations().stream()
-            .anyMatch(
-                relation ->
-                    Params.CLASS_EXTENDS.equals(relation.kind())
-                        && "python.service$2e$py.Service".equals(relation.childFqn())
-                        && "python.base$2e$py.Base".equals(relation.targetFqn()));
-    if (!extendsFound) {
-      throw new ProcessingException("Python class inheritance was not parsed correctly");
-    }
-  }
-
-  private static void assertPythonCall(PythonAnalysis analysis) {
-    boolean callFound =
-        analysis.calls().stream()
-            .anyMatch(
-                call ->
-                    "python.service$2e$py.Service.run()".equals(call.callerSignature())
-                        && "python.service$2e$py.helper()".equals(call.calleeSignature()));
-    if (!callFound) {
-      throw new ProcessingException("Python function call was not parsed correctly");
-    }
-  }
-
-  private static void assertDistinctModuleFqns(JsAnalysis jsAnalysis, JsAnalysis tsAnalysis) {
-    assertDistinctModuleFqns(jsAnalysis, tsAnalysis, "JavaScript and TypeScript module FQNs");
-  }
-
-  private static void assertDistinctModuleFqns(
-      JsAnalysis jsAnalysis, JsAnalysis tsAnalysis, String description) {
-    if (jsAnalysis.moduleFqn().equals(tsAnalysis.moduleFqn())) {
-      throw new ProcessingException(description + " must be distinct");
-    }
-  }
-
-  private static void assertConstructorCall(JsAnalysis analysis) {
-    boolean constructorCallFound =
-        analysis.calls().stream()
-            .anyMatch(
-                call ->
-                    call.callerSignature().endsWith(".make()")
-                        && call.calleeSignature().endsWith(".Service.<init>(any)"));
-    if (!constructorCallFound) {
-      throw new ProcessingException("JavaScript constructor call was not parsed correctly");
-    }
-  }
-
-  private static void assertTsconfigPathAlias(JsAnalysis analysis) {
-    boolean specificAliasFound =
-        analysis.relations().stream()
-            .anyMatch(
-                relation ->
-                    Params.CLASS_EXTENDS.equals(relation.kind())
-                        && relation.childFqn().endsWith(".alias$2d$consumer$2e$ts.Derived")
-                        && "js.src.app.specific$2e$ts.Base".equals(relation.targetFqn()));
-    if (!specificAliasFound) {
-      throw new ProcessingException(
-          "TypeScript extended tsconfig path alias was not resolved to the most specific target");
-    }
-  }
-
-  private static void assertDefaultClass(JsAnalysis analysis) {
-    boolean defaultClassFound =
-        analysis.types().stream()
-            .anyMatch(
-                type ->
-                    Params.CLASS.equals(type.kind())
-                        && Params.DEFAULT.equals(type.name())
-                        && type.hasConstructor());
-    boolean constructorFound =
-        analysis.members().stream()
-            .anyMatch(
-                member ->
-                    Params.METHOD.equals(member.memberType())
-                        && Params.CONSTRUCTOR.equals(member.kind())
-                        && Labels.INIT.equals(member.name()));
-    if (!defaultClassFound || !constructorFound) {
-      throw new ProcessingException("Default anonymous class was not parsed correctly");
-    }
-  }
-
-  private static void assertDefaultFunction(JsAnalysis analysis) {
-    boolean defaultFunctionFound =
-        analysis.members().stream()
-            .anyMatch(
-                member ->
-                    Params.METHOD.equals(member.memberType())
-                        && Params.FUNCTION.equals(member.kind())
-                        && Params.DEFAULT.equals(member.name()));
-    if (!defaultFunctionFound) {
-      throw new ProcessingException("Default anonymous function was not parsed correctly");
-    }
-  }
-
-  private static void deleteDir(Path root) {
-    try (var paths = Files.walk(root)) {
-      paths
-          .sorted(Comparator.reverseOrder())
-          .forEach(
-              path -> {
-                try {
-                  Files.deleteIfExists(path);
-                } catch (IOException e) {
-                  log.warn("Could not delete temporary path {}: {}", path, e.getMessage());
-                }
-              });
-    } catch (IOException e) {
-      log.warn("Could not clean temporary directory {}: {}", root, e.getMessage());
     }
   }
 
