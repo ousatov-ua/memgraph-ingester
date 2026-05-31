@@ -800,21 +800,20 @@ public final class IngestionOrchestrator {
   }
 
   private boolean writePreparedFile(GraphWriter writer, PreparedFile prepared) {
-    if (!prepared.success()) {
-      writer.stats().recordFailedFile();
-      return false;
-    }
-    if (!prepared.writeRequired()) {
-      writer.stats().recordSkippedFile();
-      return true;
-    }
-    if (prepared instanceof PreparedWrite<?> write) {
-      return writePreparedFile(writer, write);
-    }
-    return true;
+    return switch (prepared) {
+      case PreparedFailure ignored -> {
+        writer.stats().recordFailedFile();
+        yield false;
+      }
+      case PreparedSkip ignored -> {
+        writer.stats().recordSkippedFile();
+        yield true;
+      }
+      case PreparedWrite<?> write -> writePreparedWrite(writer, write);
+    };
   }
 
-  private <T> boolean writePreparedFile(GraphWriter writer, PreparedWrite<T> prepared) {
+  private <T> boolean writePreparedWrite(GraphWriter writer, PreparedWrite<T> prepared) {
     long backoffMs = FILE_TX_INITIAL_BACKOFF_MS;
     for (int attempt = 1; attempt <= FILE_TX_RETRY_ATTEMPTS; attempt++) {
       writer.beginFileTransaction();
