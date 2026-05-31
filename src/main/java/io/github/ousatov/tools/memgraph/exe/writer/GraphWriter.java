@@ -424,14 +424,7 @@ public final class GraphWriter {
         });
   }
 
-  /** Returns retained files that share declarations with {@code file}. */
-  public Set<Path> getRetainedFilePathsSharingDefinitionsWith(Path file) {
-    return cypher.readPathSet(
-        Cypher.CYPHER_GET_RETAINED_FILES_SHARING_DEFINITIONS_WITH_FILE,
-        Map.of(Params.PATH, file.toString(), Params.PATHS, retainedSourcePaths));
-  }
-
-  /** Batch variant — returns retained paths sharing definitions with any of the given files. */
+  /** Returns retained paths sharing definitions with any of the given files. */
   public Set<Path> getRetainedFilePathsSharingDefinitionsWith(Collection<Path> files) {
     if (files.isEmpty()) {
       return Set.of();
@@ -462,11 +455,6 @@ public final class GraphWriter {
     }
   }
 
-  /** Creates or refreshes all supported code-language roots and the {@code :Memory} anchor. */
-  public void upsertProject(Path sourceRoot) {
-    upsertProject(sourceRoot, SourceLanguage.supported());
-  }
-
   /** Creates or refreshes selected {@code :Project -> :Language -> :Code} roots. */
   public void upsertProject(Path sourceRoot, List<SourceLanguage> languages) {
     for (SourceLanguage language : languages) {
@@ -482,12 +470,17 @@ public final class GraphWriter {
     }
   }
 
+  /** Creates or refreshes all supported code-language roots and the {@code :Memory} anchor. */
+  public void upsertProject(Path sourceRoot) {
+    upsertProject(sourceRoot, SourceLanguage.supported());
+  }
+
   /** Backfills method owner metadata for graphs ingested before owner properties existed. */
   public void backfillMethodOwnerMetadata() {
     cypher.run(Cypher.CYPHER_BACKFILL_METHOD_OWNER_METADATA, Map.of());
   }
 
-  /** Upserts a {@code :File} node and links it to the code anchor. */
+  /** Upserts a {@code :File} node and links it to the Java code anchor. */
   public void upsertFile(Path file) {
     upsertFile(file, SourceLanguage.JAVA);
   }
@@ -513,7 +506,7 @@ public final class GraphWriter {
             language.nodeName()));
   }
 
-  /** Upserts a {@code :Package} node and links it to the code anchor. */
+  /** Upserts a {@code :Package} node and links it to the Java code anchor. */
   public void upsertPackage(String pkg) {
     upsertPackage(pkg, SourceLanguage.JAVA);
   }
@@ -589,11 +582,6 @@ public final class GraphWriter {
                         chunk.sourceId()))
             .toList();
     cypher.run(Cypher.CYPHER_DELETE_STALE_MEMORY_CHUNKS, Map.of(Const.Params.ROWS, rows));
-  }
-
-  /** Refreshes stale {@code :CodeChunk.embedding} values using Memgraph's embeddings module. */
-  public EmbeddingRefreshResult refreshCodeChunkEmbeddings(EmbeddingSettings settings) {
-    return embeddingRefresher.refresh(settings, EmbeddingTarget.CODE, false);
   }
 
   /**

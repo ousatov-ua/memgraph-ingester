@@ -215,7 +215,7 @@ final class WatchSession {
       if (orchestrator.adapterForDeletedPath(file).isPresent()) {
         Optional<Set<Path>> sharedRetainedFiles =
             orchestrator.retainedFilesSharingDefinitionsWithRetry(
-                file, writer::getRetainedFilePathsSharingDefinitionsWith);
+                file, path -> writer.getRetainedFilePathsSharingDefinitionsWith(Set.of(path)));
         if (sharedRetainedFiles.isPresent()
             && orchestrator.deleteSourceFileWithRetry(file, writer::deleteSourceFile)) {
           anyDeleted = true;
@@ -270,7 +270,7 @@ final class WatchSession {
         if (orchestrator.adapterForDeletedPath(file).isPresent()) {
           Optional<Set<Path>> sharedRetainedFiles =
               orchestrator.retainedFilesSharingDefinitionsWithRetry(
-                  file, writer::getRetainedFilePathsSharingDefinitionsWith);
+                  file, path -> writer.getRetainedFilePathsSharingDefinitionsWith(Set.of(path)));
           if (sharedRetainedFiles.isPresent()
               && orchestrator.deleteSourceFileWithRetry(file, writer::deleteSourceFile)) {
             changedGraph = true;
