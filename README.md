@@ -764,7 +764,6 @@ Minimal `~/.copilot/mcp-config.json`:
       ],
       "env": {
         "MEMGRAPH_INGESTER_MCP_BOLT_URI": "bolt://localhost:7687",
-        "MEMGRAPH_INGESTER_MCP_PROJECT": "my-project",
         "MEMGRAPH_INGESTER_MCP_READ_ONLY": "false"
       }
     }
