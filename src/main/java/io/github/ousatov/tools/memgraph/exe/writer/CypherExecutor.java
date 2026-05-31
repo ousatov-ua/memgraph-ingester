@@ -2,12 +2,16 @@ package io.github.ousatov.tools.memgraph.exe.writer;
 
 import io.github.ousatov.tools.memgraph.def.Const;
 import io.github.ousatov.tools.memgraph.def.Const.Labels;
+import io.github.ousatov.tools.memgraph.def.Const.Params;
 import io.github.ousatov.tools.memgraph.exception.ProcessingException;
 import io.github.ousatov.tools.memgraph.exe.metrics.IngestionRunStats;
+import java.nio.file.Path;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
@@ -111,6 +115,26 @@ final class CypherExecutor {
           stats.recordCypherStatement(cypher, System.nanoTime() - t);
         });
     return result[0];
+  }
+
+  /**
+   * Runs a read query and collects the {@code path} string column into a {@link Set} of {@link
+   * Path} values, dropping null entries.
+   */
+  Set<Path> readPathSet(String cypher, Map<String, Object> params) {
+    return read(
+        cypher,
+        params,
+        result -> {
+          Set<Path> paths = new HashSet<>();
+          while (result.hasNext()) {
+            String path = result.next().get(Params.PATH).asString(null);
+            if (path != null) {
+              paths.add(Path.of(path));
+            }
+          }
+          return paths;
+        });
   }
 
   /** Runs a read query and maps its result, injecting the project parameter. */

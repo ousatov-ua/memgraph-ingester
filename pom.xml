@@ -29,7 +29,7 @@
   <properties>
     <maven.compiler.release>25</maven.compiler.release>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-    <javaparser.version>3.28.0</javaparser.version>
+    <javaparser.version>3.28.1</javaparser.version>
     <neo4j.driver.version>6.0.5</neo4j.driver.version>
     <picocli.version>4.7.6</picocli.version>
     <maven.compiler.plugin.version>3.14.1</maven.compiler.plugin.version>

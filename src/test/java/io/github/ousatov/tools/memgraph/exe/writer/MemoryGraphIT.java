@@ -96,7 +96,7 @@ class MemoryGraphIT {
 
   @Test
   void upsertMemoryChunksBackfillsAndClearsEmbeddingsOnlyWhenTextChanges() {
-    writer.upsertFile(TEST_FILE);
+    writer.upsertFile(TEST_FILE, SourceLanguage.JAVA);
     session
         .run(
             "MATCH (m:Memory {project: $p})"
@@ -192,7 +192,7 @@ class MemoryGraphIT {
 
   @Test
   void memoryItemsCanReferToCodeRefsResolvedToCodeNodes() {
-    writer.upsertFile(TEST_FILE);
+    writer.upsertFile(TEST_FILE, SourceLanguage.JAVA);
 
     session
         .run(
@@ -397,7 +397,7 @@ class MemoryGraphIT {
 
   @Test
   void wipeMemoriesDeletesProjectMemoryGraphAndPreservesCodeGraph() {
-    writer.upsertFile(TEST_FILE);
+    writer.upsertFile(TEST_FILE, SourceLanguage.JAVA);
     session
         .run(
             "MATCH (m:Memory {project: $p})"

@@ -256,22 +256,10 @@ public final class GraphWriter {
       Collection<Path> files,
       Collection<Path> retainedFiles,
       SourceLanguage language) {
-    String sourceRootText = sourceRoot.toString();
-    String separator = sourceRoot.getFileSystem().getSeparator();
-    String sourceRootPrefix =
-        sourceRootText.endsWith(separator) ? sourceRootText : sourceRootText + separator;
-    Map<String, Object> params =
-        Map.of(
-            Params.PATHS,
-            files.stream().map(Path::toString).toList(),
-            Params.RETAINED_PATHS,
-            retainedFiles.stream().map(Path::toString).toList(),
-            Params.SOURCE_ROOT,
-            sourceRootText,
-            Params.SOURCE_ROOT_PREFIX,
-            sourceRootPrefix,
-            Params.LANGUAGE,
-            language.graphName());
+    Map<String, Object> params = new HashMap<>(sourceRootParams(sourceRoot));
+    params.put(Params.PATHS, files.stream().map(Path::toString).toList());
+    params.put(Params.RETAINED_PATHS, retainedFiles.stream().map(Path::toString).toList());
+    params.put(Params.LANGUAGE, language.graphName());
     runInFileTransaction(
         () ->
             List.of(
@@ -290,37 +278,28 @@ public final class GraphWriter {
   }
 
   /**
-   * Removes JS/TS definitions for {@code file} that were written under an older module FQN scheme.
+   * Removes module-FQN-keyed declarations for {@code file} that were written under an older naming
+   * scheme. No-op for languages that do not key definitions by module FQN (currently only JS/TS and
+   * Python use this cleanup path).
    */
-  public void deleteStaleJavascriptDefinitionsForFile(Path file, String currentModuleFqn) {
-    Map<String, Object> params =
-        Map.of(
-            Params.PATH,
-            file.toString(),
-            Params.FQN,
-            currentModuleFqn,
-            Params.MODULE_PREFIX,
-            currentModuleFqn + Const.Symbols.DOT);
-    cypher.run(Cypher.CYPHER_DELETE_STALE_JAVASCRIPT_MEMBERS_FOR_FILE, params);
-    cypher.run(Cypher.CYPHER_DELETE_STALE_JAVASCRIPT_OWNERS_FOR_FILE, params);
-    cypher.run(Cypher.CYPHER_DELETE_EMPTY_JAVASCRIPT_PACKAGES, Map.of());
-  }
-
-  /**
-   * Removes Python definitions for {@code file} that were written under older module FQN schemes.
-   */
-  public void deleteStalePythonDefinitionsForFile(Path file, String currentModuleFqn) {
-    Map<String, Object> params =
-        Map.of(
-            Params.PATH,
-            file.toString(),
-            Params.FQN,
-            currentModuleFqn,
-            Params.MODULE_PREFIX,
-            currentModuleFqn + Const.Symbols.DOT);
-    cypher.run(Cypher.CYPHER_DELETE_STALE_PYTHON_MEMBERS_FOR_FILE, params);
-    cypher.run(Cypher.CYPHER_DELETE_STALE_PYTHON_OWNERS_FOR_FILE, params);
-    cypher.run(Cypher.CYPHER_DELETE_EMPTY_PYTHON_PACKAGES, Map.of());
+  public void deleteStaleModuleDefinitionsForFile(
+      Path file, String currentModuleFqn, SourceLanguage language) {
+    language
+        .staleModuleDefinitionsCypher()
+        .ifPresent(
+            queries -> {
+              Map<String, Object> params =
+                  Map.of(
+                      Params.PATH,
+                      file.toString(),
+                      Params.FQN,
+                      currentModuleFqn,
+                      Params.MODULE_PREFIX,
+                      currentModuleFqn + Const.Symbols.DOT);
+              cypher.run(queries.members(), params);
+              cypher.run(queries.owners(), params);
+              cypher.run(queries.emptyPackages(), Map.of());
+            });
   }
 
   /** Refreshes {@code :CodeRef} resolution edges to the current project-scoped code graph. */
@@ -356,7 +335,7 @@ public final class GraphWriter {
     List<String> paths = files.stream().map(Path::toString).toList();
     try {
       return cypher.read(
-          getFilesLastModifiedCypher(language),
+          language.filesLastModifiedCypher(),
           Map.of(Params.PATHS, paths, Params.LANGUAGE, language.graphName()),
           result -> {
             Map<String, Long> mtimes = HashMap.newHashMap(files.size() * 2);
@@ -382,38 +361,14 @@ public final class GraphWriter {
   /** Returns source paths whose graph has no derived {@code :CodeChunk} rows yet. */
   public Set<Path> getFilePathsMissingCodeChunks(List<Path> files) {
     List<String> paths = files.stream().map(Path::toString).toList();
-    return cypher.read(
-        Cypher.CYPHER_GET_FILE_PATHS_MISSING_CODE_CHUNKS,
-        Map.of(Params.PATHS, paths),
-        result -> {
-          Set<Path> missing = new HashSet<>();
-          while (result.hasNext()) {
-            String path = result.next().get(Params.PATH).asString(null);
-            if (path != null) {
-              missing.add(Path.of(path));
-            }
-          }
-          return missing;
-        });
+    return cypher.readPathSet(
+        Cypher.CYPHER_GET_FILE_PATHS_MISSING_CODE_CHUNKS, Map.of(Params.PATHS, paths));
   }
 
   /** Returns project file paths outside the active source root that must remain retained. */
   public Set<Path> getRetainedFilePathsOutsideSourceRoot(Path sourceRoot) {
-    String sourceRootText = sourceRoot.toString();
-    String sourceRootPrefix = sourceRootPrefix(sourceRoot);
-    return cypher.read(
-        Cypher.CYPHER_GET_RETAINED_FILES_OUTSIDE_SOURCE_ROOT,
-        Map.of(Params.SOURCE_ROOT, sourceRootText, Params.SOURCE_ROOT_PREFIX, sourceRootPrefix),
-        result -> {
-          Set<Path> retained = new HashSet<>();
-          while (result.hasNext()) {
-            String path = result.next().get(Params.PATH).asString(null);
-            if (path != null) {
-              retained.add(Path.of(path));
-            }
-          }
-          return retained;
-        });
+    return cypher.readPathSet(
+        Cypher.CYPHER_GET_RETAINED_FILES_OUTSIDE_SOURCE_ROOT, sourceRootParams(sourceRoot));
   }
 
   /** Returns project file paths under the active source root. */
@@ -423,11 +378,9 @@ public final class GraphWriter {
 
   /** Returns graph languages with file paths under the active source root. */
   public Set<SourceLanguage> getLanguagesInSourceRoot(Path sourceRoot) {
-    String sourceRootText = sourceRoot.toString();
-    String sourceRootPrefix = sourceRootPrefix(sourceRoot);
     return cypher.read(
         Cypher.CYPHER_GET_LANGUAGES_IN_SOURCE_ROOT,
-        Map.of(Params.SOURCE_ROOT, sourceRootText, Params.SOURCE_ROOT_PREFIX, sourceRootPrefix),
+        sourceRootParams(sourceRoot),
         result -> {
           Set<SourceLanguage> languages = new HashSet<>();
           while (result.hasNext()) {
@@ -446,36 +399,21 @@ public final class GraphWriter {
   public Set<Path> getFilePathsInSourceRoot(Path sourceRoot, SourceLanguage language) {
     return getFilePathsInSourceRoot(
         sourceRoot,
-        getFilesInSourceRootCypher(language),
+        language.filesInSourceRootCypher(),
         Map.of(Params.LANGUAGE, language.graphName()));
   }
 
   private Set<Path> getFilePathsInSourceRoot(
       Path sourceRoot, String query, Map<String, Object> extraParams) {
-    String sourceRootText = sourceRoot.toString();
-    String sourceRootPrefix = sourceRootPrefix(sourceRoot);
     Map<String, Object> params = new HashMap<>(extraParams);
-    params.put(Params.SOURCE_ROOT, sourceRootText);
-    params.put(Params.SOURCE_ROOT_PREFIX, sourceRootPrefix);
-    return cypher.read(
-        query,
-        params,
-        result -> {
-          Set<Path> paths = new HashSet<>();
-          while (result.hasNext()) {
-            String path = result.next().get(Params.PATH).asString(null);
-            if (path != null) {
-              paths.add(Path.of(path));
-            }
-          }
-          return paths;
-        });
+    params.putAll(sourceRootParams(sourceRoot));
+    return cypher.readPathSet(query, params);
   }
 
   /** Returns the stored source-root reconstruction hint for {@code file}, when available. */
   public Optional<String> getSourceRootHint(Path file, SourceLanguage language) {
     return cypher.read(
-        getSourceRootHintCypher(language),
+        language.sourceRootHintCypher(),
         Map.of(Params.PATH, file.toString(), Params.LANGUAGE, language.graphName()),
         result -> {
           if (!result.hasNext()) {
@@ -486,49 +424,24 @@ public final class GraphWriter {
         });
   }
 
-  /** Returns retained files that share declarations with {@code file}. */
-  public Set<Path> getRetainedFilePathsSharingDefinitionsWith(Path file) {
-    return cypher.read(
-        Cypher.CYPHER_GET_RETAINED_FILES_SHARING_DEFINITIONS_WITH_FILE,
-        Map.of(Params.PATH, file.toString(), Params.PATHS, retainedSourcePaths),
-        result -> {
-          Set<Path> retained = new HashSet<>();
-          while (result.hasNext()) {
-            String path = result.next().get(Params.PATH).asString(null);
-            if (path != null) {
-              retained.add(Path.of(path));
-            }
-          }
-          return retained;
-        });
-  }
-
-  /** Batch variant — returns retained paths sharing definitions with any of the given files. */
+  /** Returns retained paths sharing definitions with any of the given files. */
   public Set<Path> getRetainedFilePathsSharingDefinitionsWith(Collection<Path> files) {
     if (files.isEmpty()) {
       return Set.of();
     }
     List<String> missing = files.stream().map(Path::toString).toList();
-    return cypher.read(
+    return cypher.readPathSet(
         Cypher.CYPHER_GET_RETAINED_FILES_SHARING_DEFINITIONS_WITH_FILES,
-        Map.of(Params.MISSING_PATHS, missing, Params.PATHS, retainedSourcePaths),
-        result -> {
-          Set<Path> retained = new HashSet<>();
-          while (result.hasNext()) {
-            String path = result.next().get(Params.PATH).asString(null);
-            if (path != null) {
-              retained.add(Path.of(path));
-            }
-          }
-          return retained;
-        });
+        Map.of(Params.MISSING_PATHS, missing, Params.PATHS, retainedSourcePaths));
   }
 
-  /** Returns the source-root path string with a guaranteed trailing file-separator. */
-  private static String sourceRootPrefix(Path sourceRoot) {
-    String text = sourceRoot.toString();
-    String sep = sourceRoot.getFileSystem().getSeparator();
-    return text.endsWith(sep) ? text : text + sep;
+  /** Returns standard source-root parameters (path + path-with-trailing-separator). */
+  private static Map<String, Object> sourceRootParams(Path sourceRoot) {
+    String sourceRootText = sourceRoot.toString();
+    String separator = sourceRoot.getFileSystem().getSeparator();
+    String sourceRootPrefix =
+        sourceRootText.endsWith(separator) ? sourceRootText : sourceRootText + separator;
+    return Map.of(Params.SOURCE_ROOT, sourceRootText, Params.SOURCE_ROOT_PREFIX, sourceRootPrefix);
   }
 
   private void runInFileTransaction(Runnable action) {
@@ -540,50 +453,6 @@ public final class GraphWriter {
       rollbackFileTransaction();
       throw e;
     }
-  }
-
-  private static String getFilesLastModifiedCypher(SourceLanguage language) {
-    if (SourceLanguage.JAVA.equals(language)) {
-      return Cypher.CYPHER_GET_JAVA_FILES_LAST_MODIFIED;
-    }
-    if (SourceLanguage.JAVASCRIPT.equals(language)) {
-      return Cypher.CYPHER_GET_JAVASCRIPT_FILES_LAST_MODIFIED;
-    }
-    if (SourceLanguage.PYTHON.equals(language)) {
-      return Cypher.CYPHER_GET_PYTHON_FILES_LAST_MODIFIED;
-    }
-    return Cypher.CYPHER_GET_CTAGS_FILES_LAST_MODIFIED;
-  }
-
-  private static String getFilesInSourceRootCypher(SourceLanguage language) {
-    if (SourceLanguage.JAVA.equals(language)) {
-      return Cypher.CYPHER_GET_JAVA_FILES_IN_SOURCE_ROOT;
-    }
-    if (SourceLanguage.JAVASCRIPT.equals(language)) {
-      return Cypher.CYPHER_GET_JAVASCRIPT_FILES_IN_SOURCE_ROOT;
-    }
-    if (SourceLanguage.PYTHON.equals(language)) {
-      return Cypher.CYPHER_GET_PYTHON_FILES_IN_SOURCE_ROOT;
-    }
-    return Cypher.CYPHER_GET_CTAGS_FILES_IN_SOURCE_ROOT;
-  }
-
-  private static String getSourceRootHintCypher(SourceLanguage language) {
-    if (SourceLanguage.JAVA.equals(language)) {
-      return Cypher.CYPHER_GET_JAVA_SOURCE_ROOT_HINT_FOR_FILE;
-    }
-    if (SourceLanguage.JAVASCRIPT.equals(language)) {
-      return Cypher.CYPHER_GET_JAVASCRIPT_SOURCE_ROOT_HINT_FOR_FILE;
-    }
-    if (SourceLanguage.PYTHON.equals(language)) {
-      return Cypher.CYPHER_GET_PYTHON_SOURCE_ROOT_HINT_FOR_FILE;
-    }
-    return Cypher.CYPHER_GET_CTAGS_SOURCE_ROOT_HINT_FOR_FILE;
-  }
-
-  /** Creates or refreshes all supported code-language roots and the {@code :Memory} anchor. */
-  public void upsertProject(Path sourceRoot) {
-    upsertProject(sourceRoot, SourceLanguage.supported());
   }
 
   /** Creates or refreshes selected {@code :Project -> :Language -> :Code} roots. */
@@ -601,14 +470,14 @@ public final class GraphWriter {
     }
   }
 
+  /** Creates or refreshes all supported code-language roots and the {@code :Memory} anchor. */
+  public void upsertProject(Path sourceRoot) {
+    upsertProject(sourceRoot, SourceLanguage.supported());
+  }
+
   /** Backfills method owner metadata for graphs ingested before owner properties existed. */
   public void backfillMethodOwnerMetadata() {
     cypher.run(Cypher.CYPHER_BACKFILL_METHOD_OWNER_METADATA, Map.of());
-  }
-
-  /** Upserts a {@code :File} node and links it to the code anchor. */
-  public void upsertFile(Path file) {
-    upsertFile(file, SourceLanguage.JAVA);
   }
 
   /** Upserts a {@code :File} node and links it under the language-specific code anchor. */
@@ -630,11 +499,6 @@ public final class GraphWriter {
             language.graphName(),
             Params.LANGUAGE_NAME,
             language.nodeName()));
-  }
-
-  /** Upserts a {@code :Package} node and links it to the code anchor. */
-  public void upsertPackage(String pkg) {
-    upsertPackage(pkg, SourceLanguage.JAVA);
   }
 
   /** Upserts a {@code :Package} node under the language-specific code anchor. */
@@ -708,11 +572,6 @@ public final class GraphWriter {
                         chunk.sourceId()))
             .toList();
     cypher.run(Cypher.CYPHER_DELETE_STALE_MEMORY_CHUNKS, Map.of(Const.Params.ROWS, rows));
-  }
-
-  /** Refreshes stale {@code :CodeChunk.embedding} values using Memgraph's embeddings module. */
-  public EmbeddingRefreshResult refreshCodeChunkEmbeddings(EmbeddingSettings settings) {
-    return embeddingRefresher.refresh(settings, EmbeddingTarget.CODE, false);
   }
 
   /**
