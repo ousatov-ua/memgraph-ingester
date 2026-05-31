@@ -1158,7 +1158,7 @@ class GraphWriterIT {
         2,
         "method");
 
-    writer.deleteStaleJavascriptDefinitionsForFile(tsFile, currentFqn);
+    writer.deleteStaleModuleDefinitionsForFile(tsFile, currentFqn, SourceLanguage.JAVASCRIPT);
 
     var row =
         session

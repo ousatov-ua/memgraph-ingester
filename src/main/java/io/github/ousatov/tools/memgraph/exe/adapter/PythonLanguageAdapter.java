@@ -82,7 +82,7 @@ public final class PythonLanguageAdapter extends AbstractModuleLanguageAdapter<P
     PythonGraphWriter pythonWriter = new PythonGraphWriter(writer.dependencies());
     try {
       writer.upsertFile(file, language());
-      writer.deleteStalePythonDefinitionsForFile(file, analysis.moduleFqn());
+      writer.deleteStaleModuleDefinitionsForFile(file, analysis.moduleFqn(), language());
       writer.upsertPackage(analysis.packageName(), language());
       pythonWriter.upsertModule(
           file,

@@ -1,9 +1,11 @@
 package io.github.ousatov.tools.memgraph.exe.adapter;
 
 import io.github.ousatov.tools.memgraph.def.Const;
+import io.github.ousatov.tools.memgraph.def.Const.Cypher;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * Source language identity used to scope code nodes in the graph.
@@ -81,6 +83,70 @@ public final class SourceLanguage {
   public boolean isFirstClass() {
     return supported().contains(this);
   }
+
+  /** Returns the Cypher query that batch-fetches stored {@code lastModified} values per file. */
+  public String filesLastModifiedCypher() {
+    if (JAVA.equals(this)) {
+      return Cypher.CYPHER_GET_JAVA_FILES_LAST_MODIFIED;
+    }
+    if (JAVASCRIPT.equals(this)) {
+      return Cypher.CYPHER_GET_JAVASCRIPT_FILES_LAST_MODIFIED;
+    }
+    if (PYTHON.equals(this)) {
+      return Cypher.CYPHER_GET_PYTHON_FILES_LAST_MODIFIED;
+    }
+    return Cypher.CYPHER_GET_CTAGS_FILES_LAST_MODIFIED;
+  }
+
+  /** Returns the Cypher query that lists project file paths under the active source root. */
+  public String filesInSourceRootCypher() {
+    if (JAVA.equals(this)) {
+      return Cypher.CYPHER_GET_JAVA_FILES_IN_SOURCE_ROOT;
+    }
+    if (JAVASCRIPT.equals(this)) {
+      return Cypher.CYPHER_GET_JAVASCRIPT_FILES_IN_SOURCE_ROOT;
+    }
+    if (PYTHON.equals(this)) {
+      return Cypher.CYPHER_GET_PYTHON_FILES_IN_SOURCE_ROOT;
+    }
+    return Cypher.CYPHER_GET_CTAGS_FILES_IN_SOURCE_ROOT;
+  }
+
+  /** Returns the Cypher query that retrieves the stored source-root hint for one file. */
+  public String sourceRootHintCypher() {
+    if (JAVA.equals(this)) {
+      return Cypher.CYPHER_GET_JAVA_SOURCE_ROOT_HINT_FOR_FILE;
+    }
+    if (JAVASCRIPT.equals(this)) {
+      return Cypher.CYPHER_GET_JAVASCRIPT_SOURCE_ROOT_HINT_FOR_FILE;
+    }
+    if (PYTHON.equals(this)) {
+      return Cypher.CYPHER_GET_PYTHON_SOURCE_ROOT_HINT_FOR_FILE;
+    }
+    return Cypher.CYPHER_GET_CTAGS_SOURCE_ROOT_HINT_FOR_FILE;
+  }
+
+  /** Returns Cypher queries that drop legacy module-FQN-keyed declarations for one file. */
+  public Optional<StaleModuleDefinitionCypher> staleModuleDefinitionsCypher() {
+    if (JAVASCRIPT.equals(this)) {
+      return Optional.of(
+          new StaleModuleDefinitionCypher(
+              Cypher.CYPHER_DELETE_STALE_JAVASCRIPT_MEMBERS_FOR_FILE,
+              Cypher.CYPHER_DELETE_STALE_JAVASCRIPT_OWNERS_FOR_FILE,
+              Cypher.CYPHER_DELETE_EMPTY_JAVASCRIPT_PACKAGES));
+    }
+    if (PYTHON.equals(this)) {
+      return Optional.of(
+          new StaleModuleDefinitionCypher(
+              Cypher.CYPHER_DELETE_STALE_PYTHON_MEMBERS_FOR_FILE,
+              Cypher.CYPHER_DELETE_STALE_PYTHON_OWNERS_FOR_FILE,
+              Cypher.CYPHER_DELETE_EMPTY_PYTHON_PACKAGES));
+    }
+    return Optional.empty();
+  }
+
+  /** Triplet of Cypher queries that purge legacy module-FQN-keyed declarations for one file. */
+  public record StaleModuleDefinitionCypher(String members, String owners, String emptyPackages) {}
 
   @Override
   public boolean equals(Object other) {

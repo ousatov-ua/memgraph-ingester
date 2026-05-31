@@ -80,7 +80,7 @@ public final class JsLanguageAdapter extends AbstractModuleLanguageAdapter<JsAna
     JsGraphWriter jsWriter = new JsGraphWriter(writer.dependencies());
     try {
       writer.upsertFile(file, language());
-      writer.deleteStaleJavascriptDefinitionsForFile(file, analysis.moduleFqn());
+      writer.deleteStaleModuleDefinitionsForFile(file, analysis.moduleFqn(), language());
       writer.upsertPackage(analysis.packageName(), language());
       jsWriter.upsertModule(
           file,
