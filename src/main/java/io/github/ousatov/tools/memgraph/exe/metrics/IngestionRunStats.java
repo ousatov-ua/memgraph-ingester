@@ -1,5 +1,6 @@
 package io.github.ousatov.tools.memgraph.exe.metrics;
 
+import io.github.ousatov.tools.memgraph.vo.adapter.SourceFileDefinitions;
 import io.github.ousatov.tools.memgraph.vo.metrics.CypherTiming;
 import io.github.ousatov.tools.memgraph.vo.metrics.CypherTimingSnapshot;
 import io.github.ousatov.tools.memgraph.vo.metrics.IngestionPerformanceRow;
@@ -107,6 +108,15 @@ public final class IngestionRunStats {
       Collection<String> ownerFqns, Collection<String> callerSignatures) {
     addNonBlank(changedOwnerFqns, ownerFqns);
     addNonBlank(changedCallerSignatures, callerSignatures);
+  }
+
+  /** Records definitions from a {@link SourceFileDefinitions} after a successful file write. */
+  public void recordChangedDefinitions(SourceFileDefinitions definitions) {
+    List<String> ownerFqns = new ArrayList<>();
+    ownerFqns.addAll(definitions.classFqns());
+    ownerFqns.addAll(definitions.interfaceFqns());
+    ownerFqns.addAll(definitions.annotationFqns());
+    recordChangedDefinitions(ownerFqns, definitions.methodSignatures());
   }
 
   /** Returns changed caller signatures in stable order. */

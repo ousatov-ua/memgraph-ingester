@@ -2671,9 +2671,11 @@ class GraphWriterIT {
     javaWriter.upsertType(TEST_FILE, PKG, secondHelper);
     writer.upsertPendingCallByName(firstCallerSig, "com.example.FirstHelper", "assist");
     writer.upsertPendingCallByName(secondCallerSig, "com.example.SecondHelper", "assist");
-    writer.recordChangedDefinitions(
-        SourceFileDefinitions.of(
-            List.of("com.example.FirstHelper"), List.of(), List.of(), List.of(), List.of()));
+    writer
+        .stats()
+        .recordChangedDefinitions(
+            SourceFileDefinitions.of(
+                List.of("com.example.FirstHelper"), List.of(), List.of(), List.of(), List.of()));
 
     writer.resolvePendingCallsForChangedDefinitions();
 
@@ -2725,9 +2727,11 @@ class GraphWriterIT {
     javaWriter.upsertType(TEST_FILE, PKG, leaf);
     javaWriter.upsertType(TEST_FILE, PKG, caller);
     writer.upsertPendingCallByName(callerSig, "com.example.LeafService", "assist");
-    writer.recordChangedDefinitions(
-        SourceFileDefinitions.of(
-            List.of("com.example.BaseService"), List.of(), List.of(), List.of(), List.of()));
+    writer
+        .stats()
+        .recordChangedDefinitions(
+            SourceFileDefinitions.of(
+                List.of("com.example.BaseService"), List.of(), List.of(), List.of(), List.of()));
 
     writer.resolvePendingCallsForChangedDefinitions();
 
@@ -2773,8 +2777,11 @@ class GraphWriterIT {
         tsFile, pkg, caller, "Consumer", "app/consumer.ts", "", false, false, 1, 3);
     jsWriter.upsertMethod(tsFile, caller, callerSig, "run", "void", false, 2, 2, "method");
     writer.upsertPendingCallByName(callerSig, service, "doIt");
-    writer.recordChangedDefinitions(
-        SourceFileDefinitions.of(List.of(), List.of(baseIface), List.of(), List.of(), List.of()));
+    writer
+        .stats()
+        .recordChangedDefinitions(
+            SourceFileDefinitions.of(
+                List.of(), List.of(baseIface), List.of(), List.of(), List.of()));
 
     writer.resolvePendingCallsForChangedDefinitions();
 

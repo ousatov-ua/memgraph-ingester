@@ -168,14 +168,7 @@ public final class Memgraph {
    * @return true when the language-aware schema constraints are present
    */
   public static boolean hasLanguageScopedCodeSchema(Session session) {
-    List<ConstraintInfo> constraints = uniqueConstraints(session);
-    boolean languageConstraint =
-        hasConstraint(constraints, Labels.LANGUAGE, Labels.PROJECT, Params.NAME);
-    boolean codeConstraint =
-        hasConstraint(constraints, Labels.CODE, Labels.PROJECT, Params.LANGUAGE);
-    boolean packageConstraint =
-        hasConstraint(constraints, Labels.PACKAGE, Labels.PROJECT, Params.NAME, Params.LANGUAGE);
-    return languageConstraint && codeConstraint && packageConstraint;
+    return hasLanguageScopedCodeSchema(uniqueConstraints(session));
   }
 
   /**
@@ -186,14 +179,36 @@ public final class Memgraph {
    *     present
    */
   public static boolean hasRagChunkSchema(Session session) {
+    return hasRagChunkSchema(uniqueConstraints(session), labelPropertyIndexes(session));
+  }
+
+  /** Returns whether performance-critical single-property lookup indexes are present. */
+  public static boolean hasPerformanceIndexes(Session session) {
+    return hasPerformanceIndexes(labelPropertyIndexes(session));
+  }
+
+  /**
+   * Returns {@code true} when any required schema element is missing, meaning {@link
+   * #applySchema(Session)} should be called. Fetches constraints and indexes once rather than
+   * issuing three separate queries.
+   */
+  public static boolean needsSchemaUpdate(Session session) {
     List<ConstraintInfo> constraints = uniqueConstraints(session);
-    boolean codeChunkConstraint =
-        hasConstraint(constraints, Labels.CODE_CHUNK, Params.ID, Labels.PROJECT);
-    boolean memoryChunkConstraint =
-        hasConstraint(constraints, Labels.MEMORY_CHUNK, Params.ID, Labels.PROJECT);
     Set<String> indexes = labelPropertyIndexes(session);
-    return codeChunkConstraint
-        && memoryChunkConstraint
+    return !hasLanguageScopedCodeSchema(constraints)
+        || !hasRagChunkSchema(constraints, indexes)
+        || !hasPerformanceIndexes(indexes);
+  }
+
+  private static boolean hasLanguageScopedCodeSchema(List<ConstraintInfo> constraints) {
+    return hasConstraint(constraints, Labels.LANGUAGE, Labels.PROJECT, Params.NAME)
+        && hasConstraint(constraints, Labels.CODE, Labels.PROJECT, Params.LANGUAGE)
+        && hasConstraint(constraints, Labels.PACKAGE, Labels.PROJECT, Params.NAME, Params.LANGUAGE);
+  }
+
+  private static boolean hasRagChunkSchema(List<ConstraintInfo> constraints, Set<String> indexes) {
+    return hasConstraint(constraints, Labels.CODE_CHUNK, Params.ID, Labels.PROJECT)
+        && hasConstraint(constraints, Labels.MEMORY_CHUNK, Params.ID, Labels.PROJECT)
         && indexes.contains(indexKey(Labels.MEMORY_CHUNK, Labels.PROJECT))
         && indexes.contains(indexKey(Labels.MEMORY_CHUNK, Params.SOURCE_LABEL))
         && indexes.contains(indexKey(Labels.MEMORY_CHUNK, Params.SOURCE_ID))
@@ -212,9 +227,7 @@ public final class Memgraph {
         && indexes.contains(indexKey(Labels.CODE_CHUNK, Const.Params.SIGNATURE));
   }
 
-  /** Returns whether performance-critical single-property lookup indexes are present. */
-  public static boolean hasPerformanceIndexes(Session session) {
-    Set<String> indexes = labelPropertyIndexes(session);
+  private static boolean hasPerformanceIndexes(Set<String> indexes) {
     return indexes.contains(indexKey(Labels.FILE, Labels.PROJECT))
         && indexes.contains(indexKey(Labels.FILE, Params.PATH))
         && indexes.contains(indexKey(Labels.FILE, Params.LANGUAGE))
@@ -237,12 +250,12 @@ public final class Memgraph {
     Set<String> indexes = new HashSet<>();
     Result result = session.run("SHOW INDEX INFO");
     while (result.hasNext()) {
-      var record = result.next();
-      if (!"label+property".equals(record.get("index type").asString(Const.Symbols.EMPTY))) {
+      var theRecord = result.next();
+      if (!"label+property".equals(theRecord.get("index type").asString(Const.Symbols.EMPTY))) {
         continue;
       }
-      String label = record.get(Const.Params.LABEL).asString(Const.Symbols.EMPTY);
-      List<String> properties = record.get(Const.Params.PROPERTY).asList(Value::asString);
+      String label = theRecord.get(Const.Params.LABEL).asString(Const.Symbols.EMPTY);
+      List<String> properties = theRecord.get(Const.Params.PROPERTY).asList(Value::asString);
       if (properties.size() == 1) {
         indexes.add(indexKey(label, properties.getFirst()));
       }
@@ -254,15 +267,15 @@ public final class Memgraph {
     List<ConstraintInfo> constraints = new ArrayList<>();
     Result result = session.run(Const.Params.SHOW_CONSTRAINT_INFO);
     while (result.hasNext()) {
-      var record = result.next();
+      var theRecord = result.next();
       if (!Const.Params.UNIQUE.equals(
-          record.get(Const.Params.CONSTRAINT_TYPE).asString(Const.Symbols.EMPTY))) {
+          theRecord.get(Const.Params.CONSTRAINT_TYPE).asString(Const.Symbols.EMPTY))) {
         continue;
       }
       constraints.add(
           new ConstraintInfo(
-              record.get(Const.Params.LABEL).asString(Const.Symbols.EMPTY),
-              record.get(Const.Params.PROPERTIES).asList(Value::asString)));
+              theRecord.get(Const.Params.LABEL).asString(Const.Symbols.EMPTY),
+              theRecord.get(Const.Params.PROPERTIES).asList(Value::asString)));
     }
     return List.copyOf(constraints);
   }

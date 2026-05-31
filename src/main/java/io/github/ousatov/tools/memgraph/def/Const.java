@@ -29,7 +29,6 @@ public final class Const {
     public static final String CYPHER_UPSERT_ANNOTATED_WITH_BY_SIG_BATCH =
         action("upsert-annotated-with-by-sig-batch.cypher");
 
-    public static final String CYPHER_WIPE_PROJECT_CODE = action("wipe-project-code.cypher");
     public static final String CYPHER_WIPE_PROJECT_CODE_BATCH =
         action("wipe-project-code-batch.cypher");
     public static final String CYPHER_WIPE_CODE_RAG_BATCH =
@@ -161,6 +160,10 @@ public final class Const {
     /** Fetches retained files that define declarations shared with one source file. */
     public static final String CYPHER_GET_RETAINED_FILES_SHARING_DEFINITIONS_WITH_FILE =
         action("get-retained-files-sharing-definitions-with-file.cypher");
+
+    /** Batch variant — fetches retained files sharing declarations with any of the given files. */
+    public static final String CYPHER_GET_RETAINED_FILES_SHARING_DEFINITIONS_WITH_FILES =
+        action("get-retained-files-sharing-definitions-with-files.cypher");
 
     public static final String CYPHER_WIPE_PROJECT_MEMORIES =
         action("wipe-project-memories.cypher");
@@ -637,6 +640,7 @@ public final class Const {
     public static final String MODULE_NAME = "moduleName";
     public static final String MODULE_PREFIX = "modulePrefix";
     public static final String PATHS = "paths";
+    public static final String MISSING_PATHS = "missingPaths";
     public static final String CALLER_SIGNATURES = "callerSignatures";
     public static final String OWNER_FQNS = "ownerFqns";
     public static final String IDS = "ids";

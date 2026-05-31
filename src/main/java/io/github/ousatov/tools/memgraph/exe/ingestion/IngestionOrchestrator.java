@@ -146,55 +146,19 @@ public final class IngestionOrchestrator {
    */
   public int run(Settings settings) {
     log.debug("Proceeding with ingestion, settings: {}", settings);
-    this.incremental = settings.incremental();
     this.codeEmbeddings = settings.codeEmbeddings();
     this.memoryEmbeddings = settings.memoryEmbeddings();
     IngestionRunStats stats = new IngestionRunStats(threads);
-    if (incremental && (settings.wipeAllData() || settings.wipeProjectCode())) {
+    boolean effectiveIncremental = settings.incremental();
+    if (effectiveIncremental && (settings.wipeAllData() || settings.wipeProjectCode())) {
       log.info(
           "--incremental is incompatible with --wipe-all / --wipe-project-code: wiping removes"
               + " stored timestamps, so incremental mode will be disabled for this run.");
-      incremental = false;
+      effectiveIncremental = false;
     }
-    try (Session bootstrap = driver.session()) {
-      GraphWriter bootstrapWriter = new GraphWriter(bootstrap, project, stats);
-      if (settings.wipeAllData()) {
-        Memgraph.wipeAllData(bootstrap);
-        log.info("Wiped all data from Memgraph");
-      }
-      if (settings.applySchema()) {
-        log.info("Applying schema to Memgraph ...");
-        Memgraph.applySchema(bootstrap);
-        log.info("Applied schema to Memgraph");
-      } else if (!Memgraph.hasLanguageScopedCodeSchema(bootstrap)
-          || !Memgraph.hasRagChunkSchema(bootstrap)
-          || !Memgraph.hasPerformanceIndexes(bootstrap)) {
-        Memgraph.applySchema(bootstrap);
-        log.info("Applied schema migrations to Memgraph");
-      }
-      if (settings.wipeProjectCode()) {
-        log.info("Wiping existing code graph for project '{}'...", project);
-        bootstrapWriter.wipe();
-      }
-      if (settings.wipeProjectMemories()) {
-        log.info("Wiping existing memory graph for project '{}'...", project);
-        bootstrapWriter.wipeMemories();
-      }
-      if (settings.wipeCodeRag()) {
-        log.info("Wiping existing CodeChunk RAG rows for project '{}'...", project);
-        bootstrapWriter.wipeCodeRag();
-      }
-      if (settings.wipeMemoryRag()) {
-        log.info("Wiping existing MemoryChunk RAG rows for project '{}'...", project);
-        bootstrapWriter.wipeMemoryRag();
-      }
-      bootstrapWriter.upsertProject(sourceRoot, languages());
-      log.debug(
-          "Upserted :Project -> :Language -> :Code and :Project -> :Memory anchors for '{}'",
-          project);
-      bootstrapWriter.backfillMethodOwnerMetadata();
-      log.debug("Backfilled :Method owner metadata for '{}'", project);
-    }
+    this.incremental = effectiveIncremental;
+
+    runBootstrap(settings, stats);
 
     List<SourceFile> files = discoverSourceFiles();
     stats.setTotalFiles(files.size());
@@ -232,6 +196,55 @@ public final class IngestionOrchestrator {
           failures);
     }
 
+    runPostProcessing(stats);
+
+    if (settings.watch()) {
+      startWatchLoop();
+    }
+    return failures;
+  }
+
+  private void runBootstrap(Settings settings, IngestionRunStats stats) {
+    try (Session bootstrap = driver.session()) {
+      GraphWriter bootstrapWriter = new GraphWriter(bootstrap, project, stats);
+      if (settings.wipeAllData()) {
+        Memgraph.wipeAllData(bootstrap);
+        log.info("Wiped all data from Memgraph");
+      }
+      if (settings.applySchema()) {
+        log.info("Applying schema to Memgraph ...");
+        Memgraph.applySchema(bootstrap);
+        log.info("Applied schema to Memgraph");
+      } else if (Memgraph.needsSchemaUpdate(bootstrap)) {
+        Memgraph.applySchema(bootstrap);
+        log.info("Applied schema migrations to Memgraph");
+      }
+      if (settings.wipeProjectCode()) {
+        log.info("Wiping existing code graph for project '{}'...", project);
+        bootstrapWriter.wipe();
+      }
+      if (settings.wipeProjectMemories()) {
+        log.info("Wiping existing memory graph for project '{}'...", project);
+        bootstrapWriter.wipeMemories();
+      }
+      if (settings.wipeCodeRag()) {
+        log.info("Wiping existing CodeChunk RAG rows for project '{}'...", project);
+        bootstrapWriter.wipeCodeRag();
+      }
+      if (settings.wipeMemoryRag()) {
+        log.info("Wiping existing MemoryChunk RAG rows for project '{}'...", project);
+        bootstrapWriter.wipeMemoryRag();
+      }
+      bootstrapWriter.upsertProject(sourceRoot, languages());
+      log.debug(
+          "Upserted :Project -> :Language -> :Code and :Project -> :Memory anchors for '{}'",
+          project);
+      bootstrapWriter.backfillMethodOwnerMetadata();
+      log.debug("Backfilled :Method owner metadata for '{}'", project);
+    }
+  }
+
+  private void runPostProcessing(IngestionRunStats stats) {
     try (Session session = driver.session()) {
       GraphWriter postWriter = new GraphWriter(session, project, stats);
       refreshDerivedGraphArtifacts(postWriter);
@@ -239,11 +252,6 @@ public final class IngestionOrchestrator {
       printMetrics(session);
       printPerformance(stats);
     }
-
-    if (settings.watch()) {
-      startWatchLoop();
-    }
-    return failures;
   }
 
   @SuppressWarnings({Const.Warnings.COGNITIVE_COMPLEXITY, Const.Warnings.LOOP_CONTROL})
@@ -571,67 +579,64 @@ public final class IngestionOrchestrator {
 
   private void refreshChunkEmbeddings(GraphWriter writer, boolean watchMode) {
     if (codeEmbeddings.enabled()) {
-      refreshCodeChunkEmbeddings(writer, watchMode);
+      refreshEmbeddingType(
+          writer,
+          watchMode,
+          codeEmbeddings,
+          "CodeChunk",
+          w -> w.refreshCodeChunkEmbeddings(codeEmbeddings, watchMode),
+          "Ingestion completed; use --no-code-embeddings to suppress this warning or run a"
+              + " Memgraph image with embeddings and vector-index support.");
     }
     if (!memoryEmbeddings.enabled()) {
       return;
     }
     long memoryChunkCount = writer.upsertMemoryChunks();
     log.debug("Upserted {} MemoryChunk row(s) for '{}'", memoryChunkCount, project);
-    refreshMemoryChunkEmbeddings(writer, watchMode);
+    refreshEmbeddingType(
+        writer,
+        watchMode,
+        memoryEmbeddings,
+        "MemoryChunk",
+        w -> w.refreshMemoryChunkEmbeddings(memoryEmbeddings),
+        "MemoryChunk rows were synced; use --no-memory-embeddings to suppress this warning or run"
+            + " a Memgraph image with embeddings and vector-index support.");
   }
 
-  private void refreshCodeChunkEmbeddings(GraphWriter writer, boolean watchMode) {
+  private void refreshEmbeddingType(
+      GraphWriter writer,
+      boolean watchMode,
+      EmbeddingSettings settings,
+      String chunkLabel,
+      Function<GraphWriter, EmbeddingRefreshResult> refreshFn,
+      String warnDetail) {
     logEmbeddingRefresh(
         watchMode,
-        "Refreshing CodeChunk embeddings for project '{}' with Memgraph model '{}'...",
+        "Refreshing {} embeddings for project '{}' with Memgraph model '{}'...",
+        chunkLabel,
         project,
-        codeEmbeddings.modelName());
+        settings.modelName());
     long startedNanos = System.nanoTime();
     try {
-      EmbeddingRefreshResult result = writer.refreshCodeChunkEmbeddings(codeEmbeddings, watchMode);
+      EmbeddingRefreshResult result = refreshFn.apply(writer);
       logEmbeddingRefresh(
           watchMode,
-          "Refreshed {} CodeChunk embedding(s) using model '{}' ({} dimensions).",
+          "Refreshed {} {} embedding(s) using model '{}' ({} dimensions).",
           result.embedded(),
-          codeEmbeddings.modelName(),
+          chunkLabel,
+          settings.modelName(),
           result.dimension());
     } catch (RuntimeException e) {
       log.warn(
-          "Skipping CodeChunk embedding refresh for project '{}': {}. Ingestion completed; use"
-              + " --no-code-embeddings to suppress this warning or run a Memgraph image with"
-              + " embeddings and vector-index support.",
+          "Skipping {} embedding refresh for project '{}': {}. {}",
+          chunkLabel,
           project,
-          e.getMessage());
+          e.getMessage(),
+          warnDetail);
     } finally {
-      writer.recordPhaseNanos(IngestionRunStats.PHASE_EMBEDDING, System.nanoTime() - startedNanos);
-    }
-  }
-
-  private void refreshMemoryChunkEmbeddings(GraphWriter writer, boolean watchMode) {
-    logEmbeddingRefresh(
-        watchMode,
-        "Refreshing MemoryChunk embeddings for project '{}' with Memgraph model '{}'...",
-        project,
-        memoryEmbeddings.modelName());
-    long startedNanos = System.nanoTime();
-    try {
-      EmbeddingRefreshResult result = writer.refreshMemoryChunkEmbeddings(memoryEmbeddings);
-      logEmbeddingRefresh(
-          watchMode,
-          "Refreshed {} MemoryChunk embedding(s) using model '{}' ({} dimensions).",
-          result.embedded(),
-          memoryEmbeddings.modelName(),
-          result.dimension());
-    } catch (RuntimeException e) {
-      log.warn(
-          "Skipping MemoryChunk embedding refresh for project '{}': {}. MemoryChunk rows were"
-              + " synced; use --no-memory-embeddings to suppress this warning or run a Memgraph"
-              + " image with embeddings and vector-index support.",
-          project,
-          e.getMessage());
-    } finally {
-      writer.recordPhaseNanos(IngestionRunStats.PHASE_EMBEDDING, System.nanoTime() - startedNanos);
+      writer
+          .stats()
+          .recordPhaseNanos(IngestionRunStats.PHASE_EMBEDDING, System.nanoTime() - startedNanos);
     }
   }
 
@@ -817,14 +822,13 @@ public final class IngestionOrchestrator {
       for (SourceLanguage language : languagesForCleanup(writer, pathsByLanguage)) {
         List<Path> currentPaths = pathsByLanguage.getOrDefault(language, List.of());
         Set<Path> currentPathSet = new HashSet<>(currentPaths);
-        writer.getFilePathsInSourceRoot(sourceRoot, language).stream()
-            .filter(path -> !currentPathSet.contains(path))
-            .filter(path -> !retainedPathSet.contains(path))
-            .sorted()
-            .forEach(
-                missingFile ->
-                    refreshAfterDelete.addAll(
-                        writer.getRetainedFilePathsSharingDefinitionsWith(missingFile)));
+        List<Path> missingFiles =
+            writer.getFilePathsInSourceRoot(sourceRoot, language).stream()
+                .filter(path -> !currentPathSet.contains(path))
+                .filter(path -> !retainedPathSet.contains(path))
+                .sorted()
+                .toList();
+        refreshAfterDelete.addAll(writer.getRetainedFilePathsSharingDefinitionsWith(missingFiles));
         runMissingFileCleanupWithRetry(
             sourceRoot,
             language,
@@ -1067,11 +1071,11 @@ public final class IngestionOrchestrator {
 
   private boolean writePreparedFile(GraphWriter writer, PreparedFile prepared) {
     if (!prepared.success()) {
-      writer.recordFailedFile();
+      writer.stats().recordFailedFile();
       return false;
     }
     if (!prepared.writeRequired()) {
-      writer.recordSkippedFile();
+      writer.stats().recordSkippedFile();
       return true;
     }
     if (prepared instanceof PreparedWrite<?> write) {
@@ -1089,23 +1093,27 @@ public final class IngestionOrchestrator {
         try {
           writer.deleteStaleDefinitionsForFile(prepared.path(), prepared.definitions());
         } finally {
-          writer.recordPhaseNanos(
-              IngestionRunStats.PHASE_CLEANUP, System.nanoTime() - cleanupStartedNanos);
+          writer
+              .stats()
+              .recordPhaseNanos(
+                  IngestionRunStats.PHASE_CLEANUP, System.nanoTime() - cleanupStartedNanos);
         }
         long writeStartedNanos = System.nanoTime();
         boolean success;
         try {
           success = prepared.adapter().write(writer, prepared.path(), prepared.parsed());
         } finally {
-          writer.recordPhaseNanos(
-              IngestionRunStats.PHASE_WRITE, System.nanoTime() - writeStartedNanos);
+          writer
+              .stats()
+              .recordPhaseNanos(
+                  IngestionRunStats.PHASE_WRITE, System.nanoTime() - writeStartedNanos);
         }
         if (success) {
           writer.commitFileTransaction();
-          writer.recordIngestedFile();
-          writer.recordChangedDefinitions(prepared.definitions());
+          writer.stats().recordIngestedFile();
+          writer.stats().recordChangedDefinitions(prepared.definitions());
         } else {
-          writer.recordFailedFile();
+          writer.stats().recordFailedFile();
           writer.rollbackFileTransaction();
         }
         return success;
@@ -1113,7 +1121,7 @@ public final class IngestionOrchestrator {
         writer.rollbackFileTransaction();
         if (!GraphWriter.isRetryable(e) || attempt == FILE_TX_RETRY_ATTEMPTS) {
           log.warn("Failed to ingest {}: {}", prepared.path(), e.getMessage());
-          writer.recordFailedFile();
+          writer.stats().recordFailedFile();
           return false;
         }
         backoffMs = sleepBeforeFileRetry(prepared.path(), attempt, e, backoffMs);

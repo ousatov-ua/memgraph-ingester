@@ -11,6 +11,7 @@ import java.util.Map;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
+import org.neo4j.driver.QueryRunner;
 import org.neo4j.driver.Result;
 import org.neo4j.driver.Session;
 import org.neo4j.driver.Transaction;
@@ -74,24 +75,13 @@ final class CypherExecutor {
   /** Runs a write statement with retry-on-conflict and automatic project parameter injection. */
   void run(String cypher, Map<String, Object> params) {
     Map<String, Object> allParams = paramsWithProject(params);
-    long backoffMs = INITIAL_BACKOFF_MS;
-    for (int attempt = 1; attempt <= MAX_RETRY_ATTEMPTS; attempt++) {
-      try {
-        long startedNanos = System.nanoTime();
-        if (currentTx != null) {
-          currentTx.run(cypher, allParams).consume();
-        } else {
-          session.run(cypher, allParams).consume();
-        }
-        stats.recordCypherStatement(cypher, System.nanoTime() - startedNanos);
-        return;
-      } catch (RuntimeException e) {
-        if (currentTx != null) {
-          throw e;
-        }
-        backoffMs = proceedException(cypher, e, attempt, backoffMs);
-      }
-    }
+    executeWithRetry(
+        cypher,
+        () -> {
+          long t = System.nanoTime();
+          queryRunner().run(cypher, allParams).consume();
+          stats.recordCypherStatement(cypher, System.nanoTime() - t);
+        });
   }
 
   /** Runs one write statement for multiple homogeneous parameter rows. */
@@ -100,41 +90,27 @@ final class CypherExecutor {
       return;
     }
     Map<String, Object> allParams = paramsWithProject(Map.of(Const.Params.ROWS, rows));
-    long backoffMs = INITIAL_BACKOFF_MS;
-    for (int attempt = 1; attempt <= MAX_RETRY_ATTEMPTS; attempt++) {
-      try {
-        long startedNanos = System.nanoTime();
-        if (currentTx != null) {
-          currentTx.run(cypher, allParams).consume();
-        } else {
-          session.run(cypher, allParams).consume();
-        }
-        stats.recordCypherBatch(cypher, rows.size(), System.nanoTime() - startedNanos);
-        return;
-      } catch (RuntimeException e) {
-        if (currentTx != null) {
-          throw e;
-        }
-        backoffMs = proceedException(cypher, e, attempt, backoffMs);
-      }
-    }
+    executeWithRetry(
+        cypher,
+        () -> {
+          long t = System.nanoTime();
+          queryRunner().run(cypher, allParams).consume();
+          stats.recordCypherBatch(cypher, rows.size(), System.nanoTime() - t);
+        });
   }
 
   /** Runs a count query that returns a single numeric result column. */
   long runCount(String cypher, String extraKey, Object extraValue, String resultKey) {
     Map<String, Object> allParams = paramsWithProject(Map.of(extraKey, extraValue));
-    long backoffMs = INITIAL_BACKOFF_MS;
-    for (int attempt = 1; attempt <= MAX_RETRY_ATTEMPTS; attempt++) {
-      try {
-        long startedNanos = System.nanoTime();
-        long value = session.run(cypher, allParams).single().get(resultKey).asLong();
-        stats.recordCypherStatement(cypher, System.nanoTime() - startedNanos);
-        return value;
-      } catch (RuntimeException e) {
-        backoffMs = proceedException(cypher, e, attempt, backoffMs);
-      }
-    }
-    return 0L;
+    long[] result = {0L};
+    executeWithRetry(
+        cypher,
+        () -> {
+          long t = System.nanoTime();
+          result[0] = session.run(cypher, allParams).single().get(resultKey).asLong();
+          stats.recordCypherStatement(cypher, System.nanoTime() - t);
+        });
+    return result[0];
   }
 
   /** Runs a read query and maps its result, injecting the project parameter. */
@@ -155,6 +131,30 @@ final class CypherExecutor {
         || msg.contains("fatal error")
         || msg.contains("explicitly terminated")
         || msg.contains("unique constraint violation");
+  }
+
+  private QueryRunner queryRunner() {
+    return currentTx != null ? currentTx : session;
+  }
+
+  /**
+   * Runs {@code action} once when inside a transaction (errors propagate immediately), or with
+   * exponential back-off retries when outside a transaction.
+   */
+  private void executeWithRetry(String cypher, Runnable action) {
+    if (currentTx != null) {
+      action.run();
+      return;
+    }
+    long backoffMs = INITIAL_BACKOFF_MS;
+    for (int attempt = 1; attempt <= MAX_RETRY_ATTEMPTS; attempt++) {
+      try {
+        action.run();
+        return;
+      } catch (RuntimeException e) {
+        backoffMs = proceedException(cypher, e, attempt, backoffMs);
+      }
+    }
   }
 
   private Map<String, Object> paramsWithProject(Map<String, Object> params) {
