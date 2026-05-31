@@ -1,4 +1,5 @@
-# memgraph-ingester: structure-aware RAG for code and project knowledge
+# memgraph-ingester
+# Structure-aware RAG for code and project knowledge
 
 [![Maven Central](https://img.shields.io/maven-central/v/io.github.ousatov-ua/memgraph-ingester)](https://central.sonatype.com/artifact/io.github.ousatov-ua/memgraph-ingester)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
