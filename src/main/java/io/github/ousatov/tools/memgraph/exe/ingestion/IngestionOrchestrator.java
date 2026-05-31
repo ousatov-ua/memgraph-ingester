@@ -799,7 +799,7 @@ public final class IngestionOrchestrator {
     return new PreparedWrite<>(path, adapter, parsed, definitions);
   }
 
-  private boolean writePreparedFile(GraphWriter writer, PreparedFile prepared) {
+  boolean writePreparedFile(GraphWriter writer, PreparedFile prepared) {
     return switch (prepared) {
       case PreparedFailure ignored -> {
         writer.stats().recordFailedFile();
@@ -939,6 +939,7 @@ public final class IngestionOrchestrator {
       for (int i = 0; i < futures.size(); i++) {
         PreparedFile prepared = preparedFile(files.get(i), futures.get(i));
         if (!writePreparedFile(writer, prepared)) {
+          log.info("Failure preparing file: {}", prepared.path());
           failures++;
         }
         done++;
