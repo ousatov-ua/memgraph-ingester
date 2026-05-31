@@ -1056,138 +1056,42 @@ RETURN labels(memory), memory.id, memory.title;
 
 ```text
 .
-├── .github/workflows/
-│   ├── maven.yml                               # Maven build/test workflow
-│   └── native-binaries.yml                     # GraalVM native binaries + JS runtime smoke tests
-├── doc/
-│   ├── MEMORY.md                               # Memory graph usage guide and recipes
-│   └── SCHEMA.md                               # Full code + memory graph schema reference
-├── image/                                      # README banners and social preview assets
-├── memgraph-platform/
-│   └── docker-compose.yml                      # Local Memgraph + Lab stack
-├── src/main/java/io/github/ousatov/tools/memgraph/
-│   ├── AgentInstructionsInstaller.java         # Agent instruction install/replace support
-│   ├── IngesterCli.java                        # picocli CLI entry point
-│   ├── def/
-│   │   └── Const.java                          # Shared parameter, label, and Cypher resource names
-│   ├── exception/
-│   │   └── ProcessingException.java            # Domain-level processing failure
+├── .github/workflows/                         # CI for Maven, shaded JAR, and native binaries
+├── doc/                                       # Memory and graph schema reference docs
+├── image/                                     # README banners and social preview assets
+├── memgraph-platform/                         # Local Memgraph + Lab Docker stack
+├── src/main/java/io/github/ousatov/tools/memgraph/ # CLI entry point and instruction installer
+│   ├── cli/                                   # picocli option mixins for runtimes, wipes, embeddings, and instructions
+│   ├── def/                                   # Shared parameter, label, and Cypher resource names
+│   ├── exception/                             # Domain-level processing failures
 │   ├── exe/
-│   │   ├── adapter/
-│   │   │   ├── CtagsLanguageAdapter.java       # Universal Ctags fallback ingestion adapter
-│   │   │   ├── JavaLanguageAdapter.java        # JavaParser-backed Java ingestion adapter
-│   │   │   ├── JsLanguageAdapter.java          # Node/TypeScript-backed JS/TS ingestion adapter
-│   │   │   ├── LanguageAdapter.java            # Source-language adapter contract
-│   │   │   ├── LanguageAdapterFactory.java     # Adapter selection for configured source language
-│   │   │   ├── PythonLanguageAdapter.java      # CPython-backed Python ingestion adapter
-│   │   │   ├── SourceFileDefinitions.java      # Graph identities emitted for one source file
-│   │   │   └── SourceLanguage.java             # Supported source-language values
-│   │   ├── analyze/
-│   │   │   ├── CtagsAnalysis.java              # Neutral Ctags analyzer records
-│   │   │   ├── CtagsAnalyzer.java              # Java wrapper around the managed Ctags runtime
-│   │   │   ├── CtagsNames.java                 # Ctags symbol and language-name helpers
-│   │   │   ├── JavaTypeNames.java              # Java type-name helpers
-│   │   │   ├── JsAnalysis.java                 # Neutral JS analyzer records
-│   │   │   ├── JsAnalyzer.java                 # Java wrapper around the bundled JS analyzer
-│   │   │   ├── ManagedCtagsRuntime.java        # Downloaded/cached Universal Ctags runtime management
-│   │   │   ├── ManagedNodeRuntime.java         # Downloaded/cached Node.js runtime management
-│   │   │   ├── ManagedPythonRuntime.java       # Downloaded/cached CPython and venv management
-│   │   │   ├── ManagedRuntimeLoadingIndicator.java # Shared progress indicator for managed runtimes
-│   │   │   ├── ManagedRuntimePlatform.java     # OS/architecture detection for runtime downloads
-│   │   │   ├── ManagedTypescriptPackage.java   # Downloaded/cached TypeScript compiler management
-│   │   │   ├── ParseService.java               # JavaParser setup and parsing
-│   │   │   ├── PythonAnalysis.java             # Neutral Python analyzer records
-│   │   │   ├── PythonAnalyzer.java             # Java wrapper around the bundled Python analyzer
-│   │   │   └── RuntimeMode.java                # Parser runtime mode values
-│   │   ├── ingestion/
-│   │   │   ├── IngestionOrchestrator.java      # Ingestion, wipe, incremental, and watch workflow
-│   │   │   └── IngestionProgress.java          # Progress counters and status text for ingestion
-│   │   ├── metrics/
-│   │   │   ├── IngestionMetrics.java           # Metrics snapshot model
-│   │   │   ├── IngestionMetricsCollector.java  # Metrics collection from graph queries
-│   │   │   ├── IngestionPerformanceMetrics.java # Performance metrics table model
-│   │   │   ├── IngestionRunStats.java          # Per-run ingestion counters
-│   │   │   ├── MarkdownMetricsTable.java       # Shared Markdown metrics table renderer
-│   │   │   ├── MetricsSnapshotValidator.java   # Metrics snapshot comparison helper
-│   │   │   └── MetricsValidationCli.java       # CLI for validating metrics snapshots
-│   │   ├── output/
-│   │   │   └── ConsoleStatusLine.java          # Terminal status-line rendering
-│   │   ├── rag/
-│   │   │   ├── CodeChunkAnalysis.java          # Code chunk planning records
-│   │   │   ├── CodeChunkAnalyzer.java          # Language-neutral code chunk orchestration
-│   │   │   ├── CommonCodeChunkBuilder.java     # Shared code chunk text builder helpers
-│   │   │   ├── CtagsCodeChunkBuilder.java      # Ctags-derived chunk text builder
-│   │   │   ├── JavaCodeChunkBuilder.java       # Java chunk text builder
-│   │   │   ├── JsCodeChunkBuilder.java         # JS/TS chunk text builder
-│   │   │   ├── MemoryChunkBuilder.java         # Memory graph chunk text builder
-│   │   │   └── PythonCodeChunkBuilder.java     # Python chunk text builder
-│   │   └── writer/
-│   │       ├── CallEdgeWriter.java             # Java call-edge extraction/writes
-│   │       ├── CommonGraphWriter.java          # Shared graph writer helpers for language writers
-│   │       ├── CypherExecutor.java             # Cypher execution and retry handling
-│   │       ├── GraphNodeWriter.java            # Batched low-level graph node/edge writes
-│   │       ├── GraphWrite.java                 # Shared graph write payload records
-│   │       ├── GraphWriter.java                # Stable writer facade over language-specific writers
-│   │       ├── ctags/
-│   │       │   └── CtagsGraphWriter.java       # Ctags fallback graph writes
-│   │       ├── java/
-│   │       │   └── JavaGraphWriter.java        # Java-specific graph writes
-│   │       ├── js/
-│   │       │   └── JsGraphWriter.java          # JavaScript/TypeScript-specific graph writes
-│   │       └── python/
-│   │           └── PythonGraphWriter.java      # Python-specific graph writes
-│   ├── schema/
-│   │   ├── Memgraph.java                       # Schema loader and global wipe helpers
-│   │   └── MemgraphDriver.java                 # Memgraph driver factory and connection lifecycle
-│   └── vo/
-│       ├── EmbeddingSettings.java              # Code and memory embedding refresh settings
-│       ├── Method.java                         # Method graph payload
-│       └── Settings.java                       # Ingestion settings payload
+│   │   ├── adapter/                            # Language adapter contracts, selection, and per-language ingestion entry points
+│   │   ├── analyze/                            # Java, JS/TS, Python, and ctags analyzers plus managed runtime installers
+│   │   ├── ingestion/                          # Orchestration, incremental ingestion, watch mode, and progress reporting
+│   │   ├── metrics/                            # Metrics collection, validation, and Markdown rendering
+│   │   ├── output/                             # Terminal status rendering
+│   │   ├── rag/                                # CodeChunk and MemoryChunk analysis/text builders
+│   │   ├── smoke/                              # Runtime smoke checks for managed/system parser tooling
+│   │   └── writer/                             # Graph, module, language-specific, and embedding writes
+│   ├── schema/                                 # Memgraph schema setup, migrations, and driver lifecycle
+│   └── vo/                                     # Records/value objects for settings, analysis, ingestion, metrics, RAG, schema, and writes
 ├── src/main/resources/
-│   ├── META-INF/native-image/
-│   │   └── io.github.ousatov-ua/memgraph-ingester/
-│   │       ├── reflect-config.json             # GraalVM reflection metadata
-│   │       └── resource-config.json            # GraalVM bundled resource patterns
-│   ├── io/github/ousatov/tools/memgraph/cypher/
-│   │   ├── Java/                               # Java-specific graph query resources
-│   │   ├── Js/                                 # JS/TS-specific graph query resources
-│   │   ├── Python/                             # Python-specific graph query resources
-│   │   ├── action/                             # Shared upsert, delete, resolve, and migration Cypher
-│   │   │   ├── Ctags/                          # Ctags fallback cleanup Cypher
-│   │   │   ├── Java/                           # Java-specific cleanup Cypher
-│   │   │   ├── Js/                             # JS/TS-specific cleanup Cypher
-│   │   │   ├── Python/                         # Python-specific cleanup Cypher
-│   │   │   └── embedding/                      # CodeChunk and MemoryChunk embedding refresh Cypher
-│   │   ├── metrics/                            # Metrics snapshot Cypher queries
-│   │   ├── create-schema.cypher                # Constraints and indexes
-│   │   ├── drop-schema.cypher                  # Schema teardown
-│   │   ├── migrate-schema-cleanup.cypher       # Compatibility cleanup for older graph schemas
-│   │   ├── migrate-schema-legacy-constraints.cypher # Legacy constraint migration
-│   │   └── wipe-all-data.cypher                # Full data wipe
-│   ├── io/github/ousatov/tools/memgraph/js/
-│   │   ├── js-analyzer-ast.cjs                 # TypeScript AST extraction helpers
-│   │   ├── js-analyzer-paths.cjs               # JS/TS import and tsconfig path resolution
-│   │   └── js-analyzer.cjs                     # Bundled TypeScript compiler-based JS/TS analyzer
-│   ├── io/github/ousatov/tools/memgraph/python/
-│   │   └── python-analyzer.py                  # Bundled CPython ast-based Python analyzer
-│   └── simplelogger.properties                 # Runtime logging defaults
-├── src/test/java/io/github/ousatov/tools/memgraph/
-│   ├── AgentInstructionsInstallerTest.java     # Agent instruction installer tests
-│   ├── CypherResourceTest.java                 # Bundled Cypher resource checks
-│   ├── IngesterCliInstructionsTest.java        # CLI instruction-generation tests
-│   ├── IngesterCliTest.java                    # CLI option and execution tests
+│   ├── META-INF/native-image/                  # GraalVM native-image resource and reflection config
+│   └── io/github/ousatov/tools/memgraph/
+│       ├── cypher/                             # Schema, cleanup, metrics, embedding, and graph-write Cypher resources
+│       ├── js/                                 # Bundled TypeScript compiler-based JS/TS analyzer
+│       └── python/                             # Bundled CPython ast-based Python analyzer
+├── src/test/java/io/github/ousatov/tools/memgraph/ # Unit and integration tests mirroring production packages
 │   ├── exception/                              # Domain exception tests
 │   ├── extension/                              # Testcontainers Memgraph JUnit extension
-│   ├── exe/                                    # Parser, writer, orchestrator, and memory ITs
-│   ├── schema/                                 # Schema loader tests
+│   ├── exe/                                    # Parser, writer, orchestrator, smoke, metrics, and memory tests
+│   ├── schema/                                 # Schema loader and migration tests
 │   └── vo/                                     # Value-object settings tests
 ├── template/
-│   ├── AI-memgraph-code-template.md            # Default code graph agent instructions
-│   ├── AI-memgraph-code-no-mcp-template.md     # Code graph instructions without MCP server use
-│   ├── AI-memgraph-memory-template.md          # Optional Memory workflow agent instructions
-│   └── AI-memgraph-memory-no-mcp-template.md   # Memory workflow instructions without MCP server use
-├── .gitignore
-├── LICENSE
+│   ├── AI-memgraph-code-template.md           # Default code graph agent instructions
+│   ├── AI-memgraph-code-no-mcp-template.md    # Code graph instructions without MCP server use
+│   ├── AI-memgraph-memory-template.md         # Optional Memory workflow agent instructions
+│   └── AI-memgraph-memory-no-mcp-template.md  # Memory workflow instructions without MCP server use
 ├── pom.xml                                     # Maven build, release, and native-image configuration
 └── README.md                                   # User documentation
 ```
