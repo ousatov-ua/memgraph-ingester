@@ -480,11 +480,6 @@ public final class GraphWriter {
     cypher.run(Cypher.CYPHER_BACKFILL_METHOD_OWNER_METADATA, Map.of());
   }
 
-  /** Upserts a {@code :File} node and links it to the Java code anchor. */
-  public void upsertFile(Path file) {
-    upsertFile(file, SourceLanguage.JAVA);
-  }
-
   /** Upserts a {@code :File} node and links it under the language-specific code anchor. */
   public void upsertFile(Path file, SourceLanguage language) {
     long lastModified;
@@ -504,11 +499,6 @@ public final class GraphWriter {
             language.graphName(),
             Params.LANGUAGE_NAME,
             language.nodeName()));
-  }
-
-  /** Upserts a {@code :Package} node and links it to the Java code anchor. */
-  public void upsertPackage(String pkg) {
-    upsertPackage(pkg, SourceLanguage.JAVA);
   }
 
   /** Upserts a {@code :Package} node under the language-specific code anchor. */

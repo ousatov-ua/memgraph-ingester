@@ -172,7 +172,7 @@ class GraphWriterIT {
 
   @Test
   void upsertFileCreatesFileWithContainsEdge() {
-    writer.upsertFile(TEST_FILE);
+    writer.upsertFile(TEST_FILE, SourceLanguage.JAVA);
 
     long count =
         session
@@ -191,8 +191,8 @@ class GraphWriterIT {
 
   @Test
   void upsertFileIsIdempotent() {
-    writer.upsertFile(TEST_FILE);
-    writer.upsertFile(TEST_FILE);
+    writer.upsertFile(TEST_FILE, SourceLanguage.JAVA);
+    writer.upsertFile(TEST_FILE, SourceLanguage.JAVA);
 
     long count =
         session
@@ -206,7 +206,7 @@ class GraphWriterIT {
 
   @Test
   void replaceCodeChunksForFileUpsertsLinksAndPrunesStaleChunks() {
-    writer.upsertFile(TEST_FILE);
+    writer.upsertFile(TEST_FILE, SourceLanguage.JAVA);
 
     writer.replaceCodeChunksForFile(
         TEST_FILE,
@@ -288,7 +288,7 @@ class GraphWriterIT {
   void upsertFileWritesLastModified() throws IOException {
     Path tempFile = Files.createTempFile("widget-", ".java");
     try {
-      writer.upsertFile(tempFile);
+      writer.upsertFile(tempFile, SourceLanguage.JAVA);
 
       long lastModified =
           session
@@ -440,7 +440,7 @@ class GraphWriterIT {
 
   @Test
   void upsertPackageCreatesPackageWithContainsEdge() {
-    writer.upsertPackage(PKG);
+    writer.upsertPackage(PKG, SourceLanguage.JAVA);
 
     long count =
         session
@@ -459,8 +459,8 @@ class GraphWriterIT {
 
   @Test
   void upsertTypeCreatesClassNode() {
-    writer.upsertFile(TEST_FILE);
-    writer.upsertPackage(PKG);
+    writer.upsertFile(TEST_FILE, SourceLanguage.JAVA);
+    writer.upsertPackage(PKG, SourceLanguage.JAVA);
     ClassOrInterfaceDeclaration decl =
         parseDecl("package com.example; public class Widget { private String name; }");
 
@@ -480,8 +480,8 @@ class GraphWriterIT {
 
   @Test
   void upsertTypeWritesVisibility() {
-    writer.upsertFile(TEST_FILE);
-    writer.upsertPackage(PKG);
+    writer.upsertFile(TEST_FILE, SourceLanguage.JAVA);
+    writer.upsertPackage(PKG, SourceLanguage.JAVA);
     ClassOrInterfaceDeclaration decl = parseDecl("package com.example; public class Widget {}");
 
     javaWriter.upsertType(TEST_FILE, PKG, decl);
@@ -500,8 +500,8 @@ class GraphWriterIT {
 
   @Test
   void upsertTypeCreatesInterfaceNode() {
-    writer.upsertFile(TEST_FILE);
-    writer.upsertPackage(PKG);
+    writer.upsertFile(TEST_FILE, SourceLanguage.JAVA);
+    writer.upsertPackage(PKG, SourceLanguage.JAVA);
     ClassOrInterfaceDeclaration decl =
         parseDecl("package com.example; public interface Describable { String describe(); }");
 
@@ -521,8 +521,8 @@ class GraphWriterIT {
 
   @Test
   void upsertTypeCreatesAbstractClassNode() {
-    writer.upsertFile(TEST_FILE);
-    writer.upsertPackage(PKG);
+    writer.upsertFile(TEST_FILE, SourceLanguage.JAVA);
+    writer.upsertPackage(PKG, SourceLanguage.JAVA);
     ClassOrInterfaceDeclaration decl =
         parseDecl(
             "package com.example; public abstract class BaseWidget { abstract void init(); }");
@@ -543,8 +543,8 @@ class GraphWriterIT {
 
   @Test
   void upsertTypeCreatesFieldNodes() {
-    writer.upsertFile(TEST_FILE);
-    writer.upsertPackage(PKG);
+    writer.upsertFile(TEST_FILE, SourceLanguage.JAVA);
+    writer.upsertPackage(PKG, SourceLanguage.JAVA);
     ClassOrInterfaceDeclaration decl =
         parseDecl(
             "package com.example;"
@@ -568,8 +568,8 @@ class GraphWriterIT {
 
   @Test
   void upsertTypeCreatesStaticFieldNode() {
-    writer.upsertFile(TEST_FILE);
-    writer.upsertPackage(PKG);
+    writer.upsertFile(TEST_FILE, SourceLanguage.JAVA);
+    writer.upsertPackage(PKG, SourceLanguage.JAVA);
     ClassOrInterfaceDeclaration decl =
         parseDecl("package com.example; public class Widget { private static int count; }");
 
@@ -590,8 +590,8 @@ class GraphWriterIT {
 
   @Test
   void upsertTypeCreatesMethodNodes() {
-    writer.upsertFile(TEST_FILE);
-    writer.upsertPackage(PKG);
+    writer.upsertFile(TEST_FILE, SourceLanguage.JAVA);
+    writer.upsertPackage(PKG, SourceLanguage.JAVA);
     ClassOrInterfaceDeclaration decl =
         parseDecl(
             "package com.example;"
@@ -616,8 +616,8 @@ class GraphWriterIT {
 
   @Test
   void upsertTypePersistsMethodOwnerMetadata() {
-    writer.upsertFile(TEST_FILE);
-    writer.upsertPackage(PKG);
+    writer.upsertFile(TEST_FILE, SourceLanguage.JAVA);
+    writer.upsertPackage(PKG, SourceLanguage.JAVA);
     ClassOrInterfaceDeclaration decl =
         parseDecl(
             "package com.example;"
@@ -641,8 +641,8 @@ class GraphWriterIT {
 
   @Test
   void upsertTypeLinksTypeToFileAndPackage() {
-    writer.upsertFile(TEST_FILE);
-    writer.upsertPackage(PKG);
+    writer.upsertFile(TEST_FILE, SourceLanguage.JAVA);
+    writer.upsertPackage(PKG, SourceLanguage.JAVA);
     ClassOrInterfaceDeclaration decl = parseDecl("package com.example; public class Widget {}");
 
     javaWriter.upsertType(TEST_FILE, PKG, decl);
@@ -674,8 +674,8 @@ class GraphWriterIT {
   @Test
   void upsertTypeBatchesTypeStructureWrites() {
     Path sourceFile = SRC_ROOT.resolve("com/example/BatchWidget.java");
-    writer.upsertFile(sourceFile);
-    writer.upsertPackage(PKG);
+    writer.upsertFile(sourceFile, SourceLanguage.JAVA);
+    writer.upsertPackage(PKG, SourceLanguage.JAVA);
     IngestionRunStats stats = new IngestionRunStats(1);
     GraphWriter measuredWriter = new GraphWriter(session, PROJECT, stats);
     JavaGraphWriter measuredJavaWriter = new JavaGraphWriter(measuredWriter.dependencies());
@@ -715,8 +715,8 @@ class GraphWriterIT {
 
   @Test
   void upsertTypeCreatesConstructorNode() {
-    writer.upsertFile(TEST_FILE);
-    writer.upsertPackage(PKG);
+    writer.upsertFile(TEST_FILE, SourceLanguage.JAVA);
+    writer.upsertPackage(PKG, SourceLanguage.JAVA);
     ClassOrInterfaceDeclaration decl =
         parseDecl(
             "package com.example;" + " public class Widget {" + "   public Widget() {}" + " }");
@@ -738,8 +738,8 @@ class GraphWriterIT {
 
   @Test
   void upsertTypeCreatesMultipleConstructors() {
-    writer.upsertFile(TEST_FILE);
-    writer.upsertPackage(PKG);
+    writer.upsertFile(TEST_FILE, SourceLanguage.JAVA);
+    writer.upsertPackage(PKG, SourceLanguage.JAVA);
     ClassOrInterfaceDeclaration decl =
         parseDecl(
             "package com.example;"
@@ -765,8 +765,8 @@ class GraphWriterIT {
 
   @Test
   void upsertTypeConstructorSignatureIncludesParams() {
-    writer.upsertFile(TEST_FILE);
-    writer.upsertPackage(PKG);
+    writer.upsertFile(TEST_FILE, SourceLanguage.JAVA);
+    writer.upsertPackage(PKG, SourceLanguage.JAVA);
     ClassOrInterfaceDeclaration decl =
         parseDecl(
             "package com.example;"
@@ -792,8 +792,8 @@ class GraphWriterIT {
 
   @Test
   void upsertTypeCreatesImplicitDefaultConstructorForClassWithNoCtor() {
-    writer.upsertFile(TEST_FILE);
-    writer.upsertPackage(PKG);
+    writer.upsertFile(TEST_FILE, SourceLanguage.JAVA);
+    writer.upsertPackage(PKG, SourceLanguage.JAVA);
     ClassOrInterfaceDeclaration decl = parseDecl("package com.example; public class Widget {}");
 
     javaWriter.upsertType(TEST_FILE, PKG, decl);
@@ -812,8 +812,8 @@ class GraphWriterIT {
 
   @Test
   void upsertTypeDoesNotSynthesizeConstructorForInterface() {
-    writer.upsertFile(TEST_FILE);
-    writer.upsertPackage(PKG);
+    writer.upsertFile(TEST_FILE, SourceLanguage.JAVA);
+    writer.upsertPackage(PKG, SourceLanguage.JAVA);
     ClassOrInterfaceDeclaration decl =
         parseDecl("package com.example; public interface Runnable { void run(); }");
 
@@ -1206,8 +1206,8 @@ class GraphWriterIT {
     for (Path f : List.of(serviceFile, clientFile)) {
       var cu = parseService.parse(f).orElseThrow();
       String pkg = cu.getPackageDeclaration().map(pd -> pd.getName().asString()).orElse("");
-      writer.upsertFile(f);
-      writer.upsertPackage(pkg);
+      writer.upsertFile(f, SourceLanguage.JAVA);
+      writer.upsertPackage(pkg, SourceLanguage.JAVA);
       cu.findFirst(ClassOrInterfaceDeclaration.class)
           .ifPresent(d -> javaWriter.upsertType(f, pkg, d));
     }
@@ -1237,8 +1237,8 @@ class GraphWriterIT {
 
   @Test
   void wipeDeletesOnlyProjectCodeNodes() {
-    writer.upsertFile(TEST_FILE);
-    writer.upsertPackage(PKG);
+    writer.upsertFile(TEST_FILE, SourceLanguage.JAVA);
+    writer.upsertPackage(PKG, SourceLanguage.JAVA);
     session
         .run(
             "MATCH (file:File {project: $p, path: $path})"
@@ -1315,8 +1315,8 @@ class GraphWriterIT {
 
   @Test
   void wipeRagDeletesOnlyDerivedChunkNodes() {
-    writer.upsertFile(TEST_FILE);
-    writer.upsertPackage(PKG);
+    writer.upsertFile(TEST_FILE, SourceLanguage.JAVA);
+    writer.upsertPackage(PKG, SourceLanguage.JAVA);
     session
         .run(
             "MATCH (file:File {project: $p, path: $path})"
@@ -1384,8 +1384,8 @@ class GraphWriterIT {
 
   @Test
   void upsertEnumCreatesFieldNodes() {
-    writer.upsertFile(TEST_FILE);
-    writer.upsertPackage(PKG);
+    writer.upsertFile(TEST_FILE, SourceLanguage.JAVA);
+    writer.upsertPackage(PKG, SourceLanguage.JAVA);
     EnumDeclaration decl =
         parseEnum(
             "package com.example;"
@@ -1409,8 +1409,8 @@ class GraphWriterIT {
 
   @Test
   void upsertEnumWritesImplementsEdge() {
-    writer.upsertFile(TEST_FILE);
-    writer.upsertPackage(PKG);
+    writer.upsertFile(TEST_FILE, SourceLanguage.JAVA);
+    writer.upsertPackage(PKG, SourceLanguage.JAVA);
     EnumDeclaration decl =
         parseEnumResolved(
             "package com.example;"
@@ -1435,8 +1435,8 @@ class GraphWriterIT {
 
   @Test
   void upsertRecordCreatesFieldNodes() {
-    writer.upsertFile(TEST_FILE);
-    writer.upsertPackage(PKG);
+    writer.upsertFile(TEST_FILE, SourceLanguage.JAVA);
+    writer.upsertPackage(PKG, SourceLanguage.JAVA);
     RecordDeclaration decl =
         parseRecord("package com.example;" + " public record Point(int x, int y) {}");
 
@@ -1455,8 +1455,8 @@ class GraphWriterIT {
 
   @Test
   void upsertRecordWritesImplementsEdge() {
-    writer.upsertFile(TEST_FILE);
-    writer.upsertPackage(PKG);
+    writer.upsertFile(TEST_FILE, SourceLanguage.JAVA);
+    writer.upsertPackage(PKG, SourceLanguage.JAVA);
     RecordDeclaration decl =
         parseRecordResolved(
             "package com.example;"
@@ -1480,8 +1480,8 @@ class GraphWriterIT {
   @Test
   void fileTransactionCommitPersistsWrites() {
     writer.beginFileTransaction();
-    writer.upsertFile(TEST_FILE);
-    writer.upsertPackage(PKG);
+    writer.upsertFile(TEST_FILE, SourceLanguage.JAVA);
+    writer.upsertPackage(PKG, SourceLanguage.JAVA);
     writer.commitFileTransaction();
 
     long fileCount =
@@ -1510,8 +1510,8 @@ class GraphWriterIT {
   @Test
   void fileTransactionRollbackDiscardsWrites() {
     writer.beginFileTransaction();
-    writer.upsertFile(TEST_FILE);
-    writer.upsertPackage(PKG);
+    writer.upsertFile(TEST_FILE, SourceLanguage.JAVA);
+    writer.upsertPackage(PKG, SourceLanguage.JAVA);
     writer.rollbackFileTransaction();
 
     long fileCount =
@@ -1531,13 +1531,13 @@ class GraphWriterIT {
     Path file2 = Path.of("/tmp/test-gw/src/com/example/Service.java");
 
     writer.beginFileTransaction();
-    writer.upsertFile(TEST_FILE);
-    writer.upsertPackage(PKG);
+    writer.upsertFile(TEST_FILE, SourceLanguage.JAVA);
+    writer.upsertPackage(PKG, SourceLanguage.JAVA);
     writer.commitFileTransaction();
 
     writer.beginFileTransaction();
-    writer.upsertFile(file2);
-    writer.upsertPackage(PKG);
+    writer.upsertFile(file2, SourceLanguage.JAVA);
+    writer.upsertPackage(PKG, SourceLanguage.JAVA);
     writer.commitFileTransaction();
 
     long fileCount =
@@ -2237,8 +2237,8 @@ class GraphWriterIT {
 
   @Test
   void extendsMarksExternalParentAsExternal() {
-    writer.upsertFile(TEST_FILE);
-    writer.upsertPackage(PKG);
+    writer.upsertFile(TEST_FILE, SourceLanguage.JAVA);
+    writer.upsertPackage(PKG, SourceLanguage.JAVA);
     ClassOrInterfaceDeclaration decl =
         parseDeclResolved(
             "package com.example;" + " public class MyException extends RuntimeException {}");
@@ -2259,8 +2259,8 @@ class GraphWriterIT {
 
   @Test
   void extendsMarksPhantomParentWithInferredProperties() {
-    writer.upsertFile(TEST_FILE);
-    writer.upsertPackage(PKG);
+    writer.upsertFile(TEST_FILE, SourceLanguage.JAVA);
+    writer.upsertPackage(PKG, SourceLanguage.JAVA);
     ClassOrInterfaceDeclaration decl =
         parseDeclResolved(
             "package com.example;" + " public class MyException extends RuntimeException {}");
@@ -2299,8 +2299,8 @@ class GraphWriterIT {
     var cu = parseService.parse(sourceFile).orElseThrow();
     var decl = cu.findFirst(ClassOrInterfaceDeclaration.class).orElseThrow();
 
-    writer.upsertFile(sourceFile);
-    writer.upsertPackage("com.example");
+    writer.upsertFile(sourceFile, SourceLanguage.JAVA);
+    writer.upsertPackage("com.example", SourceLanguage.JAVA);
     javaWriter.upsertType(sourceFile, "com.example", decl);
     javaWriter.upsertTypeCallEdges("com.example", decl);
 
@@ -2339,8 +2339,8 @@ class GraphWriterIT {
     var cu = parseService.parse(sourceFile).orElseThrow();
     var decl = cu.findFirst(ClassOrInterfaceDeclaration.class).orElseThrow();
 
-    writer.upsertFile(sourceFile);
-    writer.upsertPackage("com.example");
+    writer.upsertFile(sourceFile, SourceLanguage.JAVA);
+    writer.upsertPackage("com.example", SourceLanguage.JAVA);
     javaWriter.upsertType(sourceFile, "com.example", decl);
     javaWriter.upsertTypeCallEdges("com.example", decl);
 
@@ -2376,8 +2376,8 @@ class GraphWriterIT {
     var cu = parseService.parse(sourceFile).orElseThrow();
     var decl = cu.findFirst(ClassOrInterfaceDeclaration.class).orElseThrow();
 
-    writer.upsertFile(sourceFile);
-    writer.upsertPackage("com.example");
+    writer.upsertFile(sourceFile, SourceLanguage.JAVA);
+    writer.upsertPackage("com.example", SourceLanguage.JAVA);
     javaWriter.upsertType(sourceFile, "com.example", decl);
     javaWriter.upsertTypeCallEdges("com.example", decl);
 
@@ -2415,8 +2415,8 @@ class GraphWriterIT {
     var cu = parseService.parse(sourceFile).orElseThrow();
     var decl = cu.findFirst(ClassOrInterfaceDeclaration.class).orElseThrow();
 
-    writer.upsertFile(sourceFile);
-    writer.upsertPackage("com.example");
+    writer.upsertFile(sourceFile, SourceLanguage.JAVA);
+    writer.upsertPackage("com.example", SourceLanguage.JAVA);
     javaWriter.upsertType(sourceFile, "com.example", decl);
     javaWriter.upsertTypeCallEdges("com.example", decl);
 
@@ -2461,13 +2461,13 @@ class GraphWriterIT {
 
     var helperCu = parseService.parse(helperFile).orElseThrow();
     var helperDecl = helperCu.findFirst(ClassOrInterfaceDeclaration.class).orElseThrow();
-    writer.upsertFile(helperFile);
-    writer.upsertPackage("com.example");
+    writer.upsertFile(helperFile, SourceLanguage.JAVA);
+    writer.upsertPackage("com.example", SourceLanguage.JAVA);
     javaWriter.upsertType(helperFile, "com.example", helperDecl);
 
     var callerCu = parseService.parse(callerFile).orElseThrow();
     var callerDecl = callerCu.findFirst(ClassOrInterfaceDeclaration.class).orElseThrow();
-    writer.upsertFile(callerFile);
+    writer.upsertFile(callerFile, SourceLanguage.JAVA);
     javaWriter.upsertType(callerFile, "com.example", callerDecl);
     javaWriter.upsertTypeCallEdges("com.example", callerDecl);
 
@@ -2488,8 +2488,8 @@ class GraphWriterIT {
 
   @Test
   void unresolvedUnscopedCallFallsBackByOwnerName() {
-    writer.upsertFile(TEST_FILE);
-    writer.upsertPackage(PKG);
+    writer.upsertFile(TEST_FILE, SourceLanguage.JAVA);
+    writer.upsertPackage(PKG, SourceLanguage.JAVA);
     ClassOrInterfaceDeclaration decl =
         parseDecl(
             "package com.example;"
@@ -2517,8 +2517,8 @@ class GraphWriterIT {
 
   @Test
   void unresolvedUnscopedCallFallsBackToInheritedOwnerMethod() {
-    writer.upsertFile(TEST_FILE);
-    writer.upsertPackage(PKG);
+    writer.upsertFile(TEST_FILE, SourceLanguage.JAVA);
+    writer.upsertPackage(PKG, SourceLanguage.JAVA);
     ClassOrInterfaceDeclaration base =
         parseDecl(
             "package com.example;"
@@ -2554,8 +2554,8 @@ class GraphWriterIT {
 
   @Test
   void unresolvedUnscopedCallFallsBackToNearestInheritedOwnerMethod() {
-    writer.upsertFile(TEST_FILE);
-    writer.upsertPackage(PKG);
+    writer.upsertFile(TEST_FILE, SourceLanguage.JAVA);
+    writer.upsertPackage(PKG, SourceLanguage.JAVA);
     ClassOrInterfaceDeclaration base =
         parseDecl(
             "package com.example;"
@@ -2595,8 +2595,8 @@ class GraphWriterIT {
 
   @Test
   void pendingCallByNameResolvesAfterCalleeArrives() {
-    writer.upsertFile(TEST_FILE);
-    writer.upsertPackage(PKG);
+    writer.upsertFile(TEST_FILE, SourceLanguage.JAVA);
+    writer.upsertPackage(PKG, SourceLanguage.JAVA);
     ClassOrInterfaceDeclaration caller =
         parseDecl("package com.example; public class Caller { public void run() {} }");
     ClassOrInterfaceDeclaration helper =
@@ -2650,8 +2650,8 @@ class GraphWriterIT {
 
   @Test
   void scopedPendingCallResolutionOnlyTouchesChangedDefinitions() {
-    writer.upsertFile(TEST_FILE);
-    writer.upsertPackage(PKG);
+    writer.upsertFile(TEST_FILE, SourceLanguage.JAVA);
+    writer.upsertPackage(PKG, SourceLanguage.JAVA);
     ClassOrInterfaceDeclaration firstCaller =
         parseDecl("package com.example; public class FirstCaller { public void run() {} }");
     ClassOrInterfaceDeclaration firstHelper =
@@ -2706,8 +2706,8 @@ class GraphWriterIT {
 
   @Test
   void scopedPendingCallResolutionIncludesChangedClassDescendants() {
-    writer.upsertFile(TEST_FILE);
-    writer.upsertPackage(PKG);
+    writer.upsertFile(TEST_FILE, SourceLanguage.JAVA);
+    writer.upsertPackage(PKG, SourceLanguage.JAVA);
     ClassOrInterfaceDeclaration base =
         parseDecl("package com.example; public class BaseService { public void assist() {} }");
     ClassOrInterfaceDeclaration middle =
@@ -2804,8 +2804,8 @@ class GraphWriterIT {
 
   @Test
   void repeatedResolvedCallsStoreOccurrenceCountOnUniqueEdge() {
-    writer.upsertFile(TEST_FILE);
-    writer.upsertPackage(PKG);
+    writer.upsertFile(TEST_FILE, SourceLanguage.JAVA);
+    writer.upsertPackage(PKG, SourceLanguage.JAVA);
     ClassOrInterfaceDeclaration caller =
         parseDecl("package com.example; public class Caller { public void run() {} }");
     String callerSig = "com.example.Caller.run()";
@@ -2832,8 +2832,8 @@ class GraphWriterIT {
 
   @Test
   void repeatedPendingCallsCarryOccurrenceCountWhenResolved() {
-    writer.upsertFile(TEST_FILE);
-    writer.upsertPackage(PKG);
+    writer.upsertFile(TEST_FILE, SourceLanguage.JAVA);
+    writer.upsertPackage(PKG, SourceLanguage.JAVA);
     ClassOrInterfaceDeclaration caller =
         parseDecl("package com.example; public class Caller { public void run() {} }");
     ClassOrInterfaceDeclaration helper =
@@ -2864,8 +2864,8 @@ class GraphWriterIT {
 
   @Test
   void pendingCallByNameResolvesThroughInheritedOwnerMethod() {
-    writer.upsertFile(TEST_FILE);
-    writer.upsertPackage(PKG);
+    writer.upsertFile(TEST_FILE, SourceLanguage.JAVA);
+    writer.upsertPackage(PKG, SourceLanguage.JAVA);
     ClassOrInterfaceDeclaration caller =
         parseDecl("package com.example; public class Caller { public void run() {} }");
     ClassOrInterfaceDeclaration service =
@@ -2913,8 +2913,8 @@ class GraphWriterIT {
 
   @Test
   void pendingCallByNameResolvesThroughNearestInheritedOwnerMethod() {
-    writer.upsertFile(TEST_FILE);
-    writer.upsertPackage(PKG);
+    writer.upsertFile(TEST_FILE, SourceLanguage.JAVA);
+    writer.upsertPackage(PKG, SourceLanguage.JAVA);
     ClassOrInterfaceDeclaration caller =
         parseDecl("package com.example; public class Caller { public void run() {} }");
     ClassOrInterfaceDeclaration service =
@@ -2960,8 +2960,8 @@ class GraphWriterIT {
 
   @Test
   void pendingCallsForFileDeletedBeforeReingest() {
-    writer.upsertFile(TEST_FILE);
-    writer.upsertPackage(PKG);
+    writer.upsertFile(TEST_FILE, SourceLanguage.JAVA);
+    writer.upsertPackage(PKG, SourceLanguage.JAVA);
     ClassOrInterfaceDeclaration caller =
         parseDecl("package com.example; public class Caller { public void run() {} }");
 
@@ -2990,8 +2990,8 @@ class GraphWriterIT {
 
   @Test
   void unresolvedScopedCallFallsBackByImportedType() {
-    writer.upsertFile(TEST_FILE);
-    writer.upsertPackage(PKG);
+    writer.upsertFile(TEST_FILE, SourceLanguage.JAVA);
+    writer.upsertPackage(PKG, SourceLanguage.JAVA);
     ClassOrInterfaceDeclaration helper =
         parseDecl("package com.example; public class Helper { public static void assist() {} }");
     ClassOrInterfaceDeclaration caller =
@@ -3022,8 +3022,8 @@ class GraphWriterIT {
 
   @Test
   void unresolvedConstructorsFallBackByImportedType() {
-    writer.upsertFile(TEST_FILE);
-    writer.upsertPackage(PKG);
+    writer.upsertFile(TEST_FILE, SourceLanguage.JAVA);
+    writer.upsertPackage(PKG, SourceLanguage.JAVA);
     ClassOrInterfaceDeclaration widget =
         parseDecl("package com.example; public class Widget { public Widget() {} }");
     ClassOrInterfaceDeclaration maker =
@@ -3056,8 +3056,8 @@ class GraphWriterIT {
 
   @Test
   void unresolvedMethodReferenceFallsBackWithinOwner() {
-    writer.upsertFile(TEST_FILE);
-    writer.upsertPackage(PKG);
+    writer.upsertFile(TEST_FILE, SourceLanguage.JAVA);
+    writer.upsertPackage(PKG, SourceLanguage.JAVA);
     ClassOrInterfaceDeclaration decl =
         parseDecl(
             "package com.example;"
