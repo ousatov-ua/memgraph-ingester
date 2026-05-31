@@ -12,6 +12,7 @@ import io.github.ousatov.tools.memgraph.exe.adapter.LanguageAdapter;
 import io.github.ousatov.tools.memgraph.exe.adapter.LanguageAdapterFactory;
 import io.github.ousatov.tools.memgraph.exe.analyze.ManagedPythonRuntime;
 import io.github.ousatov.tools.memgraph.exe.ingestion.IngestionOrchestrator;
+import io.github.ousatov.tools.memgraph.exe.output.ConsoleOutput;
 import io.github.ousatov.tools.memgraph.exe.smoke.CtagsRuntimeSmokeCheck;
 import io.github.ousatov.tools.memgraph.exe.smoke.JsRuntimeSmokeCheck;
 import io.github.ousatov.tools.memgraph.exe.smoke.PythonRuntimeSmokeCheck;
@@ -169,6 +170,7 @@ public final class IngesterCli implements Callable<Integer> {
 
   @Override
   public Integer call() {
+    ConsoleOutput.printTitle();
     if (shouldInstallInstructions()) {
       Integer instructionsExitCode = installAgentInstructions();
       if (instructionsExitCode != 0 || !isFollowOnCliActionRequested()) {

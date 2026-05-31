@@ -63,6 +63,19 @@ class ConsoleStatusLineTest {
   }
 
   @Test
+  void repeatedUpdatesClearByVisibleLengthWhenTextHasAnsiCodes() {
+    ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+    PrintStream out = new PrintStream(bytes, true, StandardCharsets.UTF_8);
+
+    ConsoleStatusLine.update(out, "1234567890");
+    ConsoleStatusLine.update(out, "\u001B[32m12345\u001B[0m");
+
+    String output = bytes.toString(StandardCharsets.UTF_8);
+    assertTrue(output.contains("\r\u001B[32m12345\u001B[0m     "));
+    assertEquals(5, ConsoleStatusLine.visibleLength("\u001B[32m12345\u001B[0m"));
+  }
+
+  @Test
   void activeLineStateIsVisibleAndReportedWhenFinished() {
     ByteArrayOutputStream bytes = new ByteArrayOutputStream();
     PrintStream out = new PrintStream(bytes, true, StandardCharsets.UTF_8);

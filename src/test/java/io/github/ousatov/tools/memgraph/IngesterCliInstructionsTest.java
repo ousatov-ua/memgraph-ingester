@@ -4,9 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -144,24 +142,16 @@ class IngesterCliInstructionsTest {
   }
 
   @Test
-  void instructionsAgentImpliesInitInstructions() {
-    ByteArrayOutputStream stderr = new ByteArrayOutputStream();
-    PrintStream originalErr = System.err;
-    try {
-      System.setErr(new PrintStream(stderr, true, StandardCharsets.UTF_8));
+  void instructionsAgentImpliesInitInstructions() throws Exception {
+    CliProcessResult result =
+        runCliIn(tempDir, "-P", "cli-agent-project", "--instructions-agent", "unsupported-agent");
 
-      int exitCode =
-          new CommandLine(new IngesterCli())
-              .execute("-P", "cli-agent-project", "--instructions-agent", "unsupported-agent");
-
-      assertEquals(1, exitCode);
-      assertTrue(
-          stderr.toString(StandardCharsets.UTF_8).contains("Unsupported instructions agent"),
-          "explicit --instructions-agent should enter instruction installation before ingest"
-              + " validation");
-    } finally {
-      System.setErr(originalErr);
-    }
+    assertEquals(1, result.exitCode(), result.output());
+    assertTrue(
+        Files.readString(tempDir.resolve("memgraph-ingester.log"))
+            .contains("Unsupported instructions agent"),
+        "explicit --instructions-agent should enter instruction installation before ingest"
+            + " validation");
   }
 
   @Test

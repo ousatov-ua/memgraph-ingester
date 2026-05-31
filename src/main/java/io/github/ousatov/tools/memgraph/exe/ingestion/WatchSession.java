@@ -4,6 +4,7 @@ import io.github.ousatov.tools.memgraph.def.Const;
 import io.github.ousatov.tools.memgraph.exception.ProcessingException;
 import io.github.ousatov.tools.memgraph.exe.adapter.LanguageAdapter;
 import io.github.ousatov.tools.memgraph.exe.metrics.IngestionRunStats;
+import io.github.ousatov.tools.memgraph.exe.output.ConsoleOutput;
 import io.github.ousatov.tools.memgraph.exe.output.ConsoleStatusLine;
 import io.github.ousatov.tools.memgraph.exe.writer.GraphWriter;
 import io.github.ousatov.tools.memgraph.vo.ingestion.SourceFile;
@@ -66,7 +67,10 @@ final class WatchSession {
       Map<WatchKey, Path> keys = new HashMap<>();
       registerRecursive(sourceRoot, watcher, keys);
 
-      log.info("Watch mode for {} activated.", sourceRoot);
+      String watchActivated = "Watch mode for " + sourceRoot + " activated.";
+      log.info(watchActivated);
+      ConsoleOutput.success(watchActivated);
+      ConsoleOutput.hint("Press CTRL + C to stop.");
       int watchReingestionsApplied = 0;
       while (true) {
         WatchKey key = watcher.take();
@@ -136,8 +140,7 @@ final class WatchSession {
     try {
       ingestChangedFiles(changedFiles);
       watchReingestionsApplied++;
-      renderWatchStatus(
-          "[Stat] Watch re-ingestion applied " + watchReingestionsApplied + " times.");
+      renderWatchStatus("Watch re-ingestion applied " + watchReingestionsApplied + " times.");
     } catch (RuntimeException e) {
       finishWatchStatus();
       throw e;
@@ -321,11 +324,12 @@ final class WatchSession {
     return Optional.empty();
   }
 
-  private static void renderWatchStatus(String message) {
+  static void renderWatchStatus(String message) {
     if (!log.isInfoEnabled()) {
       return;
     }
-    ConsoleStatusLine.update(System.err, "INFO " + message);
+    log.info(message);
+    ConsoleStatusLine.update(System.err, message);
   }
 
   private static void finishWatchStatus() {

@@ -2,6 +2,7 @@ package io.github.ousatov.tools.memgraph.exe.analyze;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.ousatov.tools.memgraph.exe.output.ConsoleStatusLine;
 import java.io.ByteArrayOutputStream;
@@ -37,22 +38,20 @@ class ManagedRuntimeLoadingIndicatorTest {
   }
 
   @Test
-  void interactiveModePrintsPlainLinesWithoutStatusSession() {
+  void interactiveModePrintsAnimatedRuntimeStatus() {
     ByteArrayOutputStream bytes = new ByteArrayOutputStream();
     PrintStream out = new PrintStream(bytes, true, StandardCharsets.UTF_8);
 
     try (ManagedRuntimeLoadingIndicator indicator =
-        ManagedRuntimeLoadingIndicator.start("test runtime", out, Duration.ofMillis(5), true)) {
-      assertFalse(ConsoleStatusLine.hasExclusiveStatus(out));
+        ManagedRuntimeLoadingIndicator.start("test runtime", out, Duration.ofSeconds(60), true)) {
+      assertTrue(ConsoleStatusLine.hasExclusiveStatus(out));
       indicator.succeeded();
     }
 
     String output = bytes.toString(StandardCharsets.UTF_8);
-    assertFalse(output.contains("\r"));
-    assertEquals(
-        List.of(
-            "Loading managed runtime: test runtime...", "Loaded managed runtime: test runtime."),
-        output.lines().toList());
+    assertTrue(output.contains("\r"));
+    assertTrue(output.contains("Loading managed runtime: test runtime"));
+    assertTrue(output.contains("Loaded managed runtime: test runtime."));
     assertFalse(ConsoleStatusLine.hasExclusiveStatus(out));
   }
 
@@ -75,22 +74,20 @@ class ManagedRuntimeLoadingIndicatorTest {
   }
 
   @Test
-  void animationFlagDoesNotEnableAnimatedOutput() {
+  void animationFlagEnablesIndeterminateOutput() {
     ByteArrayOutputStream bytes = new ByteArrayOutputStream();
     PrintStream out = new PrintStream(bytes, true, StandardCharsets.UTF_8);
 
     try (ManagedRuntimeLoadingIndicator indicator =
         ManagedRuntimeLoadingIndicator.start(
-            "test runtime", out, Duration.ofMillis(5), true, true)) {
+            "test runtime", out, Duration.ofSeconds(60), true, true)) {
       indicator.succeeded();
     }
 
     String output = bytes.toString(StandardCharsets.UTF_8);
-    assertFalse(output.contains("\r"));
-    assertEquals(
-        List.of(
-            "Loading managed runtime: test runtime...", "Loaded managed runtime: test runtime."),
-        output.lines().toList());
+    assertTrue(output.contains("\r"));
+    assertTrue(output.contains("[==>"));
+    assertTrue(output.contains("Loaded managed runtime: test runtime."));
   }
 
   @Test

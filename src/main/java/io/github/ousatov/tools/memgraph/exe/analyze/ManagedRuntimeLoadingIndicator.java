@@ -1,6 +1,7 @@
 package io.github.ousatov.tools.memgraph.exe.analyze;
 
 import io.github.ousatov.tools.memgraph.def.Const;
+import io.github.ousatov.tools.memgraph.exe.output.ConsoleProgress;
 import io.github.ousatov.tools.memgraph.exe.output.ConsoleStatusLine;
 import java.io.PrintStream;
 import java.time.Duration;
@@ -17,6 +18,7 @@ final class ManagedRuntimeLoadingIndicator implements AutoCloseable {
 
   private final PrintStream out;
   private final String runtimeName;
+  private final ConsoleProgress progress;
 
   private boolean succeeded;
   private boolean closed;
@@ -50,21 +52,32 @@ final class ManagedRuntimeLoadingIndicator implements AutoCloseable {
     return start(runtimeName, out, interval, interactive, false);
   }
 
-  @SuppressWarnings("java:S1172")
   static ManagedRuntimeLoadingIndicator start(
       String runtimeName,
       PrintStream out,
       Duration interval,
       boolean interactive,
       boolean animated) {
-    return new ManagedRuntimeLoadingIndicator(runtimeName, out, interval);
+    return new ManagedRuntimeLoadingIndicator(runtimeName, out, interval, interactive, animated);
   }
 
-  private ManagedRuntimeLoadingIndicator(String runtimeName, PrintStream out, Duration interval) {
+  private ManagedRuntimeLoadingIndicator(
+      String runtimeName,
+      PrintStream out,
+      Duration interval,
+      boolean interactive,
+      boolean animated) {
     this.out = Objects.requireNonNull(out, Const.Params.OUT);
     this.runtimeName = Objects.requireNonNull(runtimeName, "runtimeName");
     Objects.requireNonNull(interval, "interval");
-    writeLine("Loading managed runtime: " + this.runtimeName + "...");
+    if (interactive && animated) {
+      this.progress =
+          ConsoleProgress.indeterminate(
+              "Loading managed runtime: " + this.runtimeName, this.out, true, interval, true);
+    } else {
+      this.progress = null;
+      writeLine("Loading managed runtime: " + this.runtimeName + "...");
+    }
   }
 
   void succeeded() {
@@ -77,6 +90,9 @@ final class ManagedRuntimeLoadingIndicator implements AutoCloseable {
       return;
     }
     closed = true;
+    if (progress != null) {
+      progress.close();
+    }
     writeFinal();
   }
 

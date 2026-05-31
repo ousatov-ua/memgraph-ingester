@@ -325,8 +325,8 @@ class IngesterCliTest {
                     Files.readString(defaultInstructions).contains("## Memories"),
                     "default instructions should be installed before watch mode blocks");
                 assertTrue(
-                    readOutput(output).contains("Connected to Memgraph at " + mg.getBoltUrl()),
-                    () -> readOutput(output));
+                    readLog(workDir).contains("Connected to Memgraph at " + mg.getBoltUrl()),
+                    () -> readLog(workDir));
                 assertTrue(
                     classExists(mg, project, "Good"),
                     "watch mode should still perform the initial ingestion");
@@ -394,6 +394,10 @@ class IngesterCliTest {
     } catch (IOException e) {
       return "Could not read CLI output: " + e.getMessage();
     }
+  }
+
+  private static String readLog(Path workingDirectory) {
+    return readOutput(workingDirectory.resolve("memgraph-ingester.log"));
   }
 
   private static boolean classExists(MemgraphInstance mg, String project, String name) {
