@@ -103,7 +103,7 @@ class CypherResourceTest {
 
   @Test
   void wipeProjectCodeResourcePreservesMemoryLabels() {
-    String cypher = Const.Cypher.CYPHER_WIPE_PROJECT_CODE;
+    String cypher = Const.Cypher.CYPHER_WIPE_PROJECT_CODE_BATCH;
 
     assertTrue(cypher.contains("n:Code"));
     assertTrue(cypher.contains("n:Language"));

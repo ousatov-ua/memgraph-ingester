@@ -3,8 +3,6 @@ package io.github.ousatov.tools.memgraph.exe.writer;
 import io.github.ousatov.tools.memgraph.def.Const;
 import io.github.ousatov.tools.memgraph.def.Const.Cypher;
 import io.github.ousatov.tools.memgraph.def.Const.Params;
-import io.github.ousatov.tools.memgraph.def.Const.Rag;
-import io.github.ousatov.tools.memgraph.exception.ProcessingException;
 import io.github.ousatov.tools.memgraph.exe.adapter.SourceLanguage;
 import io.github.ousatov.tools.memgraph.exe.metrics.IngestionRunStats;
 import io.github.ousatov.tools.memgraph.exe.rag.MemoryChunkBuilder;
@@ -14,11 +12,9 @@ import io.github.ousatov.tools.memgraph.vo.rag.MemorySource;
 import io.github.ousatov.tools.memgraph.vo.writer.AnnotationWrite;
 import io.github.ousatov.tools.memgraph.vo.writer.CallWrite;
 import io.github.ousatov.tools.memgraph.vo.writer.CodeChunkWrite;
-import io.github.ousatov.tools.memgraph.vo.writer.EmbeddingBatchResult;
 import io.github.ousatov.tools.memgraph.vo.writer.EmbeddingRefreshResult;
 import io.github.ousatov.tools.memgraph.vo.writer.MemoryChunkWrite;
 import io.github.ousatov.tools.memgraph.vo.writer.PendingCallWrite;
-import io.github.ousatov.tools.memgraph.vo.writer.VectorIndexInfo;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -30,9 +26,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.regex.Pattern;
-import org.jspecify.annotations.NonNull;
-import org.neo4j.driver.Result;
 import org.neo4j.driver.Session;
 import org.neo4j.driver.Value;
 import org.slf4j.Logger;
@@ -58,11 +51,11 @@ public final class GraphWriter {
   private static final int WIPE_BATCH_SIZE = 10_000;
   private static final int MIN_VECTOR_INDEX_CAPACITY = 8192;
   private static final int VECTOR_INDEX_HEADROOM_MULTIPLIER = 2;
-  private static final Pattern CYPHER_IDENTIFIER = Pattern.compile("[A-Za-z_][A-Za-z0-9_]*");
   private final CypherExecutor cypher;
   private final GraphNodeWriter nodes;
   private final MemoryChunkBuilder memoryChunks = new MemoryChunkBuilder();
   private final CommonGraphWriter.Dependencies dependencies;
+  private final ChunkEmbeddingRefresher embeddingRefresher;
   private final IngestionRunStats stats;
   private List<String> retainedSourcePaths = List.of();
 
@@ -84,6 +77,7 @@ public final class GraphWriter {
     this.nodes = new GraphNodeWriter(cypher);
     CallEdgeWriter callEdges = new CallEdgeWriter(nodes);
     this.dependencies = new CommonGraphWriter.Dependencies(cypher, callEdges, nodes);
+    this.embeddingRefresher = new ChunkEmbeddingRefresher(cypher);
     this.stats = stats;
   }
 
@@ -127,28 +121,9 @@ public final class GraphWriter {
     return CypherExecutor.isRetryable(e);
   }
 
-  public void recordIngestedFile() {
-    stats.recordIngestedFile();
-  }
-
-  public void recordSkippedFile() {
-    stats.recordSkippedFile();
-  }
-
-  public void recordFailedFile() {
-    stats.recordFailedFile();
-  }
-
-  public void recordPhaseNanos(String phase, long elapsedNanos) {
-    stats.recordPhaseNanos(phase, elapsedNanos);
-  }
-
-  public void recordChangedDefinitions(SourceFileDefinitions definitions) {
-    List<String> ownerFqns = new ArrayList<>();
-    ownerFqns.addAll(definitions.classFqns());
-    ownerFqns.addAll(definitions.interfaceFqns());
-    ownerFqns.addAll(definitions.annotationFqns());
-    stats.recordChangedDefinitions(ownerFqns, definitions.methodSignatures());
+  /** Returns the run-level statistics object for this writer's session. */
+  public IngestionRunStats stats() {
+    return stats;
   }
 
   /** Deletes the project-scoped {@code :Code} graph in batches, keeping the {@code :Project}. */
@@ -425,9 +400,7 @@ public final class GraphWriter {
   /** Returns project file paths outside the active source root that must remain retained. */
   public Set<Path> getRetainedFilePathsOutsideSourceRoot(Path sourceRoot) {
     String sourceRootText = sourceRoot.toString();
-    String separator = sourceRoot.getFileSystem().getSeparator();
-    String sourceRootPrefix =
-        sourceRootText.endsWith(separator) ? sourceRootText : sourceRootText + separator;
+    String sourceRootPrefix = sourceRootPrefix(sourceRoot);
     return cypher.read(
         Cypher.CYPHER_GET_RETAINED_FILES_OUTSIDE_SOURCE_ROOT,
         Map.of(Params.SOURCE_ROOT, sourceRootText, Params.SOURCE_ROOT_PREFIX, sourceRootPrefix),
@@ -451,9 +424,7 @@ public final class GraphWriter {
   /** Returns graph languages with file paths under the active source root. */
   public Set<SourceLanguage> getLanguagesInSourceRoot(Path sourceRoot) {
     String sourceRootText = sourceRoot.toString();
-    String separator = sourceRoot.getFileSystem().getSeparator();
-    String sourceRootPrefix =
-        sourceRootText.endsWith(separator) ? sourceRootText : sourceRootText + separator;
+    String sourceRootPrefix = sourceRootPrefix(sourceRoot);
     return cypher.read(
         Cypher.CYPHER_GET_LANGUAGES_IN_SOURCE_ROOT,
         Map.of(Params.SOURCE_ROOT, sourceRootText, Params.SOURCE_ROOT_PREFIX, sourceRootPrefix),
@@ -482,9 +453,7 @@ public final class GraphWriter {
   private Set<Path> getFilePathsInSourceRoot(
       Path sourceRoot, String query, Map<String, Object> extraParams) {
     String sourceRootText = sourceRoot.toString();
-    String separator = sourceRoot.getFileSystem().getSeparator();
-    String sourceRootPrefix =
-        sourceRootText.endsWith(separator) ? sourceRootText : sourceRootText + separator;
+    String sourceRootPrefix = sourceRootPrefix(sourceRoot);
     Map<String, Object> params = new HashMap<>(extraParams);
     params.put(Params.SOURCE_ROOT, sourceRootText);
     params.put(Params.SOURCE_ROOT_PREFIX, sourceRootPrefix);
@@ -532,6 +501,34 @@ public final class GraphWriter {
           }
           return retained;
         });
+  }
+
+  /** Batch variant — returns retained paths sharing definitions with any of the given files. */
+  public Set<Path> getRetainedFilePathsSharingDefinitionsWith(Collection<Path> files) {
+    if (files.isEmpty()) {
+      return Set.of();
+    }
+    List<String> missing = files.stream().map(Path::toString).toList();
+    return cypher.read(
+        Cypher.CYPHER_GET_RETAINED_FILES_SHARING_DEFINITIONS_WITH_FILES,
+        Map.of(Params.MISSING_PATHS, missing, Params.PATHS, retainedSourcePaths),
+        result -> {
+          Set<Path> retained = new HashSet<>();
+          while (result.hasNext()) {
+            String path = result.next().get(Params.PATH).asString(null);
+            if (path != null) {
+              retained.add(Path.of(path));
+            }
+          }
+          return retained;
+        });
+  }
+
+  /** Returns the source-root path string with a guaranteed trailing file-separator. */
+  private static String sourceRootPrefix(Path sourceRoot) {
+    String text = sourceRoot.toString();
+    String sep = sourceRoot.getFileSystem().getSeparator();
+    return text.endsWith(sep) ? text : text + sep;
   }
 
   private void runInFileTransaction(Runnable action) {
@@ -713,177 +710,24 @@ public final class GraphWriter {
     cypher.run(Cypher.CYPHER_DELETE_STALE_MEMORY_CHUNKS, Map.of(Const.Params.ROWS, rows));
   }
 
-  /** Refreshes stale {@code :CodeChunk.embedding} values with Memgraph's embeddings module. */
+  /** Refreshes stale {@code :CodeChunk.embedding} values using Memgraph's embeddings module. */
   public EmbeddingRefreshResult refreshCodeChunkEmbeddings(EmbeddingSettings settings) {
-    return refreshCodeChunkEmbeddings(settings, false);
+    return embeddingRefresher.refresh(settings, EmbeddingTarget.CODE, false);
   }
 
   /**
-   * Refreshes {@code :CodeChunk.embedding} values with Memgraph's embeddings module.
+   * Refreshes {@code :CodeChunk.embedding} values using Memgraph's embeddings module.
    *
    * @param dirtyOnly when true, refreshes only chunks already marked dirty by changed chunk writes
    */
   public EmbeddingRefreshResult refreshCodeChunkEmbeddings(
       EmbeddingSettings settings, boolean dirtyOnly) {
-    if (!settings.enabled()) {
-      return new EmbeddingRefreshResult(0L, 0);
-    }
-    validateCypherIdentifier(settings.indexName(), Const.Params.CODE_EMBEDDING_INDEX_NAME);
-
-    int dimension = embeddingDimension(settings);
-    ensureCodeChunkVectorIndex(settings, dimension);
-    long stale =
-        dirtyOnly
-            ? countDirtyCodeChunkEmbeddings()
-            : countStaleCodeChunkEmbeddings(settings, dimension);
-    long embedded = 0L;
-    int batchSize = settings.batchSize();
-    while (stale > 0) {
-      EmbeddingBatchResult batch = refreshCodeChunkEmbeddingBatch(settings, dimension, batchSize);
-      if (!batch.success()) {
-        if (batchSize == 1) {
-          throw codeChunkEmbeddingFailure(batch.ids());
-        }
-        int nextBatchSize = Math.max(1, batchSize / 2);
-        log.warn(
-            "Memgraph embeddings.node_sentence returned false for {} CodeChunk(s); retrying with"
-                + " batch size {}.",
-            batch.ids().size(),
-            nextBatchSize);
-        batchSize = nextBatchSize;
-        continue;
-      }
-      long batchCount = batch.ids().size();
-      if (batchCount == 0) {
-        throw new ProcessingException("Memgraph embeddings refresh made no progress");
-      }
-      updateCodeChunkEmbeddingMetadata(settings, dimension, batch.ids());
-      embedded += batchCount;
-      stale -= batchCount;
-    }
-    return new EmbeddingRefreshResult(embedded, dimension);
+    return embeddingRefresher.refresh(settings, EmbeddingTarget.CODE, dirtyOnly);
   }
 
-  /** Refreshes stale {@code :MemoryChunk.embedding} values with Memgraph's embeddings module. */
+  /** Refreshes stale {@code :MemoryChunk.embedding} values using Memgraph's embeddings module. */
   public EmbeddingRefreshResult refreshMemoryChunkEmbeddings(EmbeddingSettings settings) {
-    if (!settings.enabled()) {
-      return new EmbeddingRefreshResult(0L, 0);
-    }
-    validateCypherIdentifier(settings.indexName(), Const.Params.MEMORY_EMBEDDING_INDEX_NAME);
-
-    int dimension = embeddingDimension(settings);
-    ensureMemoryChunkVectorIndex(settings, dimension);
-    long stale = countStaleMemoryChunkEmbeddings(settings, dimension);
-    long embedded = 0L;
-    int batchSize = settings.batchSize();
-    while (stale > 0) {
-      EmbeddingBatchResult batch = refreshMemoryChunkEmbeddingBatch(settings, dimension, batchSize);
-      if (!batch.success()) {
-        if (batchSize == 1) {
-          throw memoryChunkEmbeddingFailure(batch.ids());
-        }
-        int nextBatchSize = Math.max(1, batchSize / 2);
-        log.warn(
-            "Memgraph embeddings.node_sentence returned false for {} MemoryChunk(s); retrying with"
-                + " batch size {}.",
-            batch.ids().size(),
-            nextBatchSize);
-        batchSize = nextBatchSize;
-        continue;
-      }
-      long batchCount = batch.ids().size();
-      if (batchCount == 0) {
-        throw new ProcessingException("Memgraph memory embeddings refresh made no progress");
-      }
-      updateMemoryChunkEmbeddingMetadata(settings, dimension, batch.ids());
-      embedded += batchCount;
-      stale -= batchCount;
-    }
-    return new EmbeddingRefreshResult(embedded, dimension);
-  }
-
-  private int embeddingDimension(EmbeddingSettings settings) {
-    Map<String, Object> params = Map.of(Const.Params.CONFIG, settings.modelConfiguration());
-    return cypher.read(
-        Cypher.CYPHER_CODE_EMBEDDING_MODEL_INFO,
-        params,
-        result -> {
-          if (!result.hasNext()) {
-            throw new ProcessingException("Memgraph embeddings.model_info returned no rows");
-          }
-          int dimension = result.next().get("info").get(Rag.DIMENSION).asInt(0);
-          if (dimension < 1) {
-            throw new ProcessingException(
-                "Memgraph embeddings.model_info returned invalid dimension " + dimension);
-          }
-          return dimension;
-        });
-  }
-
-  private void ensureCodeChunkVectorIndex(EmbeddingSettings settings, int dimension) {
-    int capacity = vectorIndexCapacity(settings, countCodeChunks());
-    Optional<VectorIndexInfo> existing = vectorIndexInfo(settings.indexName());
-    if (existing.isPresent()) {
-      verifyCodeChunkVectorIndex(settings, dimension, existing.get());
-      if (existing.get().capacity() >= capacity) {
-        return;
-      }
-      recreateVectorIndex(
-          settings.indexName(),
-          createCodeChunkVectorIndexCypher(settings),
-          settings,
-          dimension,
-          capacity);
-      return;
-    }
-
-    createVectorIndex(createCodeChunkVectorIndexCypher(settings), settings, dimension, capacity);
-  }
-
-  private void ensureMemoryChunkVectorIndex(EmbeddingSettings settings, int dimension) {
-    int capacity = vectorIndexCapacity(settings, countMemoryChunks());
-    Optional<VectorIndexInfo> existing = vectorIndexInfo(settings.indexName());
-    if (existing.isPresent()) {
-      verifyMemoryChunkVectorIndex(settings, dimension, existing.get());
-      if (existing.get().capacity() >= capacity) {
-        return;
-      }
-      recreateVectorIndex(
-          settings.indexName(),
-          createMemoryChunkVectorIndexCypher(settings),
-          settings,
-          dimension,
-          capacity);
-      return;
-    }
-
-    createVectorIndex(createMemoryChunkVectorIndexCypher(settings), settings, dimension, capacity);
-  }
-
-  private void recreateVectorIndex(
-      String indexName,
-      String createIndexCypher,
-      EmbeddingSettings settings,
-      int dimension,
-      int capacity) {
-    log.info("Recreating vector index '{}' with capacity {}", indexName, capacity);
-    cypher.run("DROP VECTOR INDEX " + indexName, Map.of());
-    createVectorIndex(createIndexCypher, settings, dimension, capacity);
-  }
-
-  private void createVectorIndex(
-      String createIndexCypher, EmbeddingSettings settings, int dimension, int capacity) {
-    Map<String, Object> config =
-        Map.of(
-            Rag.DIMENSION,
-            dimension,
-            Rag.CAPACITY,
-            capacity,
-            Rag.METRIC,
-            settings.metric(),
-            Rag.SCALAR_KIND,
-            settings.scalarKind());
-    cypher.run(createIndexCypher, Map.of(Const.Params.CONFIG, config));
+    return embeddingRefresher.refresh(settings, EmbeddingTarget.MEMORY, false);
   }
 
   static int defaultVectorIndexCapacity(long chunkCount) {
@@ -893,74 +737,6 @@ public final class GraphWriter {
             ? Integer.MAX_VALUE
             : safeChunkCount * VECTOR_INDEX_HEADROOM_MULTIPLIER;
     return (int) Math.min(Integer.MAX_VALUE, Math.max(MIN_VECTOR_INDEX_CAPACITY, withHeadroom));
-  }
-
-  private static int vectorIndexCapacity(EmbeddingSettings settings, long chunkCount) {
-    return settings.capacity() > 0 ? settings.capacity() : defaultVectorIndexCapacity(chunkCount);
-  }
-
-  private Optional<VectorIndexInfo> vectorIndexInfo(String indexName) {
-    return cypher.read(
-        Cypher.CYPHER_SHOW_VECTOR_INDEX_INFO,
-        Map.of(),
-        result -> {
-          while (result.hasNext()) {
-            var row = result.next();
-            if (indexName.equals(row.get("index_name").asString(Const.Symbols.EMPTY))) {
-              return Optional.of(
-                  new VectorIndexInfo(
-                      row.get(Const.Params.LABEL).asString(Const.Symbols.EMPTY),
-                      row.get(Const.Params.PROPERTY).asString(Const.Symbols.EMPTY),
-                      row.get(Rag.DIMENSION).asInt(0),
-                      row.get(Rag.CAPACITY).asInt(0),
-                      row.get(Rag.METRIC).asString(Const.Symbols.EMPTY),
-                      row.get(Rag.SCALAR_KIND).asString(Const.Symbols.EMPTY)));
-            }
-          }
-          return Optional.empty();
-        });
-  }
-
-  private static void verifyCodeChunkVectorIndex(
-      EmbeddingSettings settings, int dimension, VectorIndexInfo index) {
-    if (!"CodeChunk".equals(index.label())
-        || !EmbeddingSettings.DEFAULT_EMBEDDING_PROPERTY.equals(index.property())
-        || dimension != index.dimension()
-        || !settings.metric().equals(index.metric())
-        || (!index.scalarKind().isBlank() && !settings.scalarKind().equals(index.scalarKind()))) {
-      throw new ProcessingException(
-          "Vector index '"
-              + settings.indexName()
-              + "' exists but is not compatible with requested CodeChunk embeddings");
-    }
-  }
-
-  private static void verifyMemoryChunkVectorIndex(
-      EmbeddingSettings settings, int dimension, VectorIndexInfo index) {
-    if (!"MemoryChunk".equals(index.label())
-        || !EmbeddingSettings.DEFAULT_EMBEDDING_PROPERTY.equals(index.property())
-        || dimension != index.dimension()
-        || !settings.metric().equals(index.metric())
-        || (!index.scalarKind().isBlank() && !settings.scalarKind().equals(index.scalarKind()))) {
-      throw new ProcessingException(
-          "Vector index '"
-              + settings.indexName()
-              + "' exists but is not compatible with requested MemoryChunk embeddings");
-    }
-  }
-
-  private long countCodeChunks() {
-    return cypher.read(
-        Cypher.CYPHER_COUNT_CODE_CHUNKS,
-        Map.of(),
-        result -> result.single().get(Const.Params.COUNT).asLong());
-  }
-
-  private long countMemoryChunks() {
-    return cypher.read(
-        Cypher.CYPHER_COUNT_MEMORY_CHUNKS,
-        Map.of(),
-        result -> result.single().get(Const.Params.COUNT).asLong());
   }
 
   private List<MemorySource> memoryChunkSources() {
@@ -1005,219 +781,5 @@ public final class GraphWriter {
 
   private static String stringValue(Value value) {
     return value == null || value.isNull() ? Const.Symbols.EMPTY : value.asObject().toString();
-  }
-
-  private long countStaleCodeChunkEmbeddings(EmbeddingSettings settings, int dimension) {
-    Map<String, Object> params =
-        Map.of(Const.Params.MODEL_NAME, settings.modelName(), Rag.DIMENSION, dimension);
-    return cypher.read(
-        Cypher.CYPHER_MARK_STALE_CODE_CHUNK_EMBEDDINGS,
-        params,
-        result -> result.single().get(Const.Params.COUNT).asLong());
-  }
-
-  private long countDirtyCodeChunkEmbeddings() {
-    return cypher.read(
-        Cypher.CYPHER_COUNT_DIRTY_CODE_CHUNK_EMBEDDINGS,
-        Map.of(),
-        result -> result.single().get(Const.Params.COUNT).asLong());
-  }
-
-  private long countStaleMemoryChunkEmbeddings(EmbeddingSettings settings, int dimension) {
-    Map<String, Object> params =
-        Map.of(Const.Params.MODEL_NAME, settings.modelName(), Rag.DIMENSION, dimension);
-    return cypher.read(
-        Cypher.CYPHER_MARK_STALE_MEMORY_CHUNK_EMBEDDINGS,
-        params,
-        result -> result.single().get(Const.Params.COUNT).asLong());
-  }
-
-  private EmbeddingBatchResult refreshCodeChunkEmbeddingBatch(
-      EmbeddingSettings settings, int dimension, int batchSize) {
-    Map<String, Object> config = codeEmbeddingConfig(settings, batchSize);
-    Map<String, Object> params =
-        Map.of(
-            Const.Params.MODEL_NAME,
-            settings.modelName(),
-            Rag.DIMENSION,
-            dimension,
-            Const.Params.LIMIT,
-            batchSize,
-            Const.Params.CONFIG,
-            config);
-    return cypher.read(
-        Cypher.CYPHER_REFRESH_CODE_CHUNK_EMBEDDING_BATCH,
-        params,
-        result -> getEmbeddingBatchResult(dimension, result));
-  }
-
-  private @NonNull EmbeddingBatchResult getEmbeddingBatchResult(int dimension, Result result) {
-    if (!result.hasNext()) {
-      return new EmbeddingBatchResult(true, List.of());
-    }
-    var row = result.single();
-    boolean success = row.get("success").asBoolean(false);
-    int actualDimension = row.get(Rag.DIMENSION).asInt(0);
-    if (success && actualDimension != dimension) {
-      throw new ProcessingException(
-          "Memgraph embeddings.node_sentence returned dimension "
-              + actualDimension
-              + " but expected "
-              + dimension);
-    }
-    return new EmbeddingBatchResult(success, row.get(Const.Params.IDS).asList(Value::asString));
-  }
-
-  private EmbeddingBatchResult refreshMemoryChunkEmbeddingBatch(
-      EmbeddingSettings settings, int dimension, int batchSize) {
-    Map<String, Object> config = memoryEmbeddingConfig(settings, batchSize);
-    Map<String, Object> params =
-        Map.of(
-            Const.Params.MODEL_NAME,
-            settings.modelName(),
-            Rag.DIMENSION,
-            dimension,
-            Const.Params.LIMIT,
-            batchSize,
-            Const.Params.CONFIG,
-            config);
-    return cypher.read(
-        Cypher.CYPHER_REFRESH_MEMORY_CHUNK_EMBEDDING_BATCH,
-        params,
-        result -> getEmbeddingBatchResult(dimension, result));
-  }
-
-  private static Map<String, Object> codeEmbeddingConfig(
-      EmbeddingSettings settings, int batchSize) {
-    Map<String, Object> config = new HashMap<>(settings.codeNodeSentenceConfiguration());
-    config.put(Rag.BATCH_SIZE, batchSize);
-    config.put(Rag.CHUNK_SIZE, Math.min(settings.chunkSize(), batchSize));
-    return config;
-  }
-
-  private static Map<String, Object> memoryEmbeddingConfig(
-      EmbeddingSettings settings, int batchSize) {
-    Map<String, Object> config = new HashMap<>(settings.memoryNodeSentenceConfiguration());
-    config.put(Rag.BATCH_SIZE, batchSize);
-    config.put(Rag.CHUNK_SIZE, Math.min(settings.chunkSize(), batchSize));
-    return config;
-  }
-
-  private void updateCodeChunkEmbeddingMetadata(
-      EmbeddingSettings settings, int dimension, List<String> embeddedIds) {
-    if (embeddedIds.isEmpty()) {
-      return;
-    }
-    cypher.run(
-        Cypher.CYPHER_UPDATE_CODE_CHUNK_EMBEDDING_METADATA,
-        Map.of(
-            Const.Params.IDS,
-            embeddedIds,
-            Const.Params.MODEL_NAME,
-            settings.modelName(),
-            Rag.DIMENSION,
-            dimension));
-  }
-
-  private void updateMemoryChunkEmbeddingMetadata(
-      EmbeddingSettings settings, int dimension, List<String> embeddedIds) {
-    if (embeddedIds.isEmpty()) {
-      return;
-    }
-    cypher.run(
-        Cypher.CYPHER_UPDATE_MEMORY_CHUNK_EMBEDDING_METADATA,
-        Map.of(
-            Const.Params.IDS,
-            embeddedIds,
-            Const.Params.MODEL_NAME,
-            settings.modelName(),
-            Rag.DIMENSION,
-            dimension));
-  }
-
-  private ProcessingException codeChunkEmbeddingFailure(List<String> ids) {
-    if (ids.isEmpty()) {
-      return new ProcessingException(
-          "Memgraph embeddings.node_sentence returned false and no CodeChunk id was returned");
-    }
-    String id = ids.get(0);
-    String detail =
-        cypher.read(
-            Cypher.CYPHER_GET_CODE_CHUNK_EMBEDDING_FAILURE_DETAIL,
-            Map.of(Const.Params.ID, id),
-            result -> {
-              if (!result.hasNext()) {
-                return Const.Params.ID_EQUALS + id;
-              }
-              var row = result.single();
-              return Const.Params.ID_EQUALS
-                  + id
-                  + ", path="
-                  + row.get(Const.Params.PATH).asString(Const.Symbols.EMPTY)
-                  + Const.Symbols.COMMA_SOURCE
-                  + row.get(Const.Params.SOURCE_LABEL).asString(Const.Symbols.EMPTY)
-                  + Const.Symbols.SPACE
-                  + row.get(Const.Params.SOURCE_ID).asString(Const.Symbols.EMPTY)
-                  + Const.Symbols.COMMA_PREVIEW
-                  + row.get(Const.Params.PREVIEW).asString(Const.Symbols.EMPTY).replace('\n', ' ');
-            });
-    return new ProcessingException(
-        "Memgraph embeddings.node_sentence returned false for single CodeChunk " + detail);
-  }
-
-  private ProcessingException memoryChunkEmbeddingFailure(List<String> ids) {
-    if (ids.isEmpty()) {
-      return new ProcessingException(
-          "Memgraph embeddings.node_sentence returned false and no MemoryChunk id was returned");
-    }
-    String id = ids.get(0);
-    String detail =
-        cypher.read(
-            Cypher.CYPHER_GET_MEMORY_CHUNK_EMBEDDING_FAILURE_DETAIL,
-            Map.of(Const.Params.ID, id),
-            result -> {
-              if (!result.hasNext()) {
-                return Const.Params.ID_EQUALS + id;
-              }
-              var row = result.single();
-              return Const.Params.ID_EQUALS
-                  + id
-                  + Const.Symbols.COMMA_SOURCE
-                  + row.get(Const.Params.SOURCE_LABEL).asString(Const.Symbols.EMPTY)
-                  + Const.Symbols.SPACE
-                  + row.get(Const.Params.SOURCE_ID).asString(Const.Symbols.EMPTY)
-                  + Const.Symbols.COMMA_PREVIEW
-                  + row.get(Const.Params.PREVIEW).asString(Const.Symbols.EMPTY).replace('\n', ' ');
-            });
-    return new ProcessingException(
-        "Memgraph embeddings.node_sentence returned false for single MemoryChunk " + detail);
-  }
-
-  private static String createCodeChunkVectorIndexCypher(EmbeddingSettings settings) {
-    validateCypherIdentifier(settings.indexName(), Const.Params.CODE_EMBEDDING_INDEX_NAME);
-    validateCypherIdentifier(
-        EmbeddingSettings.DEFAULT_EMBEDDING_PROPERTY, "code embedding property name");
-    return Cypher.CYPHER_CREATE_CODE_CHUNK_VECTOR_INDEX
-        .replace(Const.Params.INDEX_NAME_PLACEHOLDER, settings.indexName())
-        .replace(
-            Const.Params.EMBEDDING_PROPERTY_PLACEHOLDER,
-            EmbeddingSettings.DEFAULT_EMBEDDING_PROPERTY);
-  }
-
-  private static String createMemoryChunkVectorIndexCypher(EmbeddingSettings settings) {
-    validateCypherIdentifier(settings.indexName(), Const.Params.MEMORY_EMBEDDING_INDEX_NAME);
-    validateCypherIdentifier(
-        EmbeddingSettings.DEFAULT_EMBEDDING_PROPERTY, "memory embedding property name");
-    return Cypher.CYPHER_CREATE_MEMORY_CHUNK_VECTOR_INDEX
-        .replace(Const.Params.INDEX_NAME_PLACEHOLDER, settings.indexName())
-        .replace(
-            Const.Params.EMBEDDING_PROPERTY_PLACEHOLDER,
-            EmbeddingSettings.DEFAULT_EMBEDDING_PROPERTY);
-  }
-
-  private static void validateCypherIdentifier(String value, String name) {
-    if (!CYPHER_IDENTIFIER.matcher(value).matches()) {
-      throw new IllegalArgumentException(name + " must be a Cypher identifier");
-    }
   }
 }
