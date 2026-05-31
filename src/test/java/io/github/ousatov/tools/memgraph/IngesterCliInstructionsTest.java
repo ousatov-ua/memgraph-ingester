@@ -11,6 +11,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import picocli.CommandLine;
@@ -148,8 +149,7 @@ class IngesterCliInstructionsTest {
 
     assertEquals(1, result.exitCode(), result.output());
     assertTrue(
-        Files.readString(tempDir.resolve("memgraph-ingester.log"))
-            .contains("Unsupported instructions agent"),
+        readLog(tempDir).contains("Unsupported instructions agent"),
         "explicit --instructions-agent should enter instruction installation before ingest"
             + " validation");
   }
@@ -197,6 +197,29 @@ class IngesterCliInstructionsTest {
     String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
     assertTrue(finished, () -> "CLI process did not exit. Output:\n" + output);
     return new CliProcessResult(process.exitValue(), output);
+  }
+
+  private static String readLog(Path workingDirectory) throws IOException {
+    try (Stream<Path> paths = Files.list(workingDirectory)) {
+      return paths
+          .filter(
+              path ->
+                  path.getFileName()
+                      .toString()
+                      .matches("memgraph-ingester-\\d{4}-\\d{2}-\\d{2}\\.log"))
+          .sorted()
+          .reduce((first, second) -> second)
+          .map(IngesterCliInstructionsTest::readString)
+          .orElse("");
+    }
+  }
+
+  private static String readString(Path path) {
+    try {
+      return Files.readString(path);
+    } catch (IOException e) {
+      return "";
+    }
   }
 
   private static final class CliProcessResult {

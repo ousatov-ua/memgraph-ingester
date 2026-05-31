@@ -397,7 +397,20 @@ class IngesterCliTest {
   }
 
   private static String readLog(Path workingDirectory) {
-    return readOutput(workingDirectory.resolve("memgraph-ingester.log"));
+    try (Stream<Path> paths = Files.list(workingDirectory)) {
+      return paths
+          .filter(
+              path ->
+                  path.getFileName()
+                      .toString()
+                      .matches("memgraph-ingester-\\d{4}-\\d{2}-\\d{2}\\.log"))
+          .sorted()
+          .reduce((first, second) -> second)
+          .map(IngesterCliTest::readOutput)
+          .orElse("");
+    } catch (IOException e) {
+      return "Could not read CLI log: " + e.getMessage();
+    }
   }
 
   private static boolean classExists(MemgraphInstance mg, String project, String name) {

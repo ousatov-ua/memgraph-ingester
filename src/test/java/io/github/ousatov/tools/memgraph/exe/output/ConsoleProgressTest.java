@@ -1,5 +1,6 @@
 package io.github.ousatov.tools.memgraph.exe.output;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -40,11 +41,21 @@ class ConsoleProgressTest {
   @Test
   void indeterminateRendererBouncesBackFromRightEdge() {
     String forward = ConsoleProgress.renderIndeterminate("Resolving graph", 0, false);
-    String backward = ConsoleProgress.renderIndeterminate("Resolving graph", 24, false);
+    String backward = ConsoleProgress.renderIndeterminate("Resolving graph", 30, false);
 
     assertTrue(forward.contains("[==>"));
     assertTrue(backward.contains("<=="));
     assertNotEquals(forward, backward);
+  }
+
+  @Test
+  void embeddingAndIngestionProgressBarsShareColumnAndWidth() {
+    String ingested = ConsoleProgress.renderFinite("Ingested source files", 1, 1, 0, false);
+    String codeChunk = ConsoleProgress.renderIndeterminate("Refreshing CodeChunk", 0, false);
+    String memoryChunk = ConsoleProgress.renderIndeterminate("Refreshing MemoryChunk", 0, false);
+
+    assertAlignedProgressBar(ingested, codeChunk);
+    assertAlignedProgressBar(ingested, memoryChunk);
   }
 
   @Test
@@ -95,5 +106,21 @@ class ConsoleProgressTest {
     assertFalse(ConsoleStatusLine.hasActiveLine(out));
     assertFalse(ConsoleStatusLine.hasExclusiveStatus(out));
     assertFalse(output.endsWith("\n"));
+  }
+
+  private static void assertAlignedProgressBar(String expected, String actual) {
+    int expectedStart = expected.indexOf('[');
+    int actualStart = actual.indexOf('[');
+    assertTrue(expectedStart > 0);
+    assertTrue(actualStart > 0);
+    assertTrue(expected.indexOf(']') > expectedStart);
+    assertTrue(actual.indexOf(']') > actualStart);
+    assertTrue(expected.contains("[=============================]"));
+    assertTrue(actual.contains("[==>"));
+    assertEquals(expectedStart, actualStart);
+    assertEquals(
+        expected.indexOf(']') - expectedStart,
+        actual.indexOf(']') - actualStart,
+        () -> expected + "\n" + actual);
   }
 }

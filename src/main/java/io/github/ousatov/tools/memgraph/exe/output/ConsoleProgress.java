@@ -16,8 +16,9 @@ import java.util.concurrent.TimeUnit;
  */
 public final class ConsoleProgress implements AutoCloseable {
 
-  private static final int BAR_WIDTH = 28;
-  private static final int INDETERMINATE_WIDTH = 26;
+  private static final int LABEL_WIDTH = "Refreshing MemoryChunk".length();
+  private static final int BAR_WIDTH = 29;
+  private static final int INDETERMINATE_WIDTH = BAR_WIDTH;
   private static final int MARKER_WIDTH = 3;
   private static final String[] SPINNER = {"-", "\\", "|", "/"};
 
@@ -173,15 +174,16 @@ public final class ConsoleProgress implements AutoCloseable {
   static String renderFinite(String label, int done, int total, int frame, boolean colors) {
     int percent = total == 0 ? 100 : (int) Math.round(done * 100.0 / total);
     int filled = total == 0 ? BAR_WIDTH : Math.clamp(done * BAR_WIDTH / total, 0, BAR_WIDTH);
-    String pointer = filled >= BAR_WIDTH ? "=" : ">";
     String bar =
-        "=".repeat(Math.min(filled, BAR_WIDTH))
-            + pointer
-            + Const.Symbols.SPACE.repeat(Math.max(0, BAR_WIDTH - filled - 1));
+        filled >= BAR_WIDTH
+            ? "=".repeat(BAR_WIDTH)
+            : "=".repeat(filled)
+                + ">"
+                + Const.Symbols.SPACE.repeat(Math.max(0, BAR_WIDTH - filled - 1));
     String spinner = AnsiStyle.spinner(SPINNER[Math.floorMod(frame, SPINNER.length)], colors);
     return spinner
         + Const.Symbols.SPACE
-        + AnsiStyle.bold(label, colors)
+        + AnsiStyle.bold(formatLabel(label), colors)
         + Const.Symbols.SPACE
         + AnsiStyle.progress("[" + bar + "]", colors)
         + Const.Symbols.SPACE
@@ -206,9 +208,14 @@ public final class ConsoleProgress implements AutoCloseable {
             + Const.Symbols.SPACE.repeat(INDETERMINATE_WIDTH - position - MARKER_WIDTH);
     return AnsiStyle.spinner(SPINNER[Math.floorMod(frame, SPINNER.length)], colors)
         + Const.Symbols.SPACE
-        + AnsiStyle.bold(label, colors)
+        + AnsiStyle.bold(formatLabel(label), colors)
         + Const.Symbols.SPACE
         + AnsiStyle.progress("[" + track + "]", colors);
+  }
+
+  private static String formatLabel(String label) {
+    int padding = Math.max(0, LABEL_WIDTH - label.length());
+    return label + Const.Symbols.SPACE.repeat(padding);
   }
 
   @Override

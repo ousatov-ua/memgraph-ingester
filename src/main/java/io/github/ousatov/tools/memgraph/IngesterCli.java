@@ -8,11 +8,13 @@ import io.github.ousatov.tools.memgraph.cli.MemoryEmbeddingCliOptions;
 import io.github.ousatov.tools.memgraph.cli.PythonRuntimeCliOptions;
 import io.github.ousatov.tools.memgraph.cli.WipeCliOptions;
 import io.github.ousatov.tools.memgraph.def.Const;
+import io.github.ousatov.tools.memgraph.def.Const.Cli;
 import io.github.ousatov.tools.memgraph.exe.adapter.LanguageAdapter;
 import io.github.ousatov.tools.memgraph.exe.adapter.LanguageAdapterFactory;
 import io.github.ousatov.tools.memgraph.exe.analyze.ManagedPythonRuntime;
 import io.github.ousatov.tools.memgraph.exe.ingestion.IngestionOrchestrator;
 import io.github.ousatov.tools.memgraph.exe.output.ConsoleOutput;
+import io.github.ousatov.tools.memgraph.exe.output.SimpleLoggerFile;
 import io.github.ousatov.tools.memgraph.exe.smoke.CtagsRuntimeSmokeCheck;
 import io.github.ousatov.tools.memgraph.exe.smoke.JsRuntimeSmokeCheck;
 import io.github.ousatov.tools.memgraph.exe.smoke.PythonRuntimeSmokeCheck;
@@ -46,10 +48,15 @@ import picocli.CommandLine.Spec;
  *
  * @author Oleksii Usatov
  */
-@Command(name = "ingest", mixinStandardHelpOptions = true, version = "12.0.29")
+@Command(name = "ingest", mixinStandardHelpOptions = true, version = Cli.VERSION)
 public final class IngesterCli implements Callable<Integer> {
 
+  private static final SimpleLoggerFile SIMPLE_LOGGER_FILE = SimpleLoggerFile.configure();
   private static final Logger log = LoggerFactory.getLogger(IngesterCli.class);
+
+  static {
+    SIMPLE_LOGGER_FILE.restoreConsole();
+  }
 
   @Spec private CommandSpec commandSpec;
 

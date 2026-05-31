@@ -78,6 +78,11 @@ public final class ConsoleOutput {
         AnsiStyle.frame("|", colors)
             + AnsiStyle.bold(center(TITLE, TITLE_WIDTH), colors)
             + AnsiStyle.frame("|", colors));
+    ConsoleStatusLine.line(
+        stream,
+        AnsiStyle.frame("|", colors)
+            + center("version " + Const.Cli.VERSION, TITLE_WIDTH)
+            + AnsiStyle.frame("|", colors));
     ConsoleStatusLine.line(stream, AnsiStyle.frame(border, colors));
   }
 
