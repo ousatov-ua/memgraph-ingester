@@ -395,6 +395,7 @@ public final class Const {
     public static final String DIST = "dist";
     public static final String VENV = "venv";
     public static final String VIRTUAL_ENV = ".venv";
+    public static final String UV_CACHE = ".uv-cache";
     public static final String TOX = ".tox";
     public static final String NOX = ".nox";
     public static final String INSTALL_COMPLETE = ".install-complete";

@@ -27,6 +27,7 @@ public final class PythonLanguageAdapter extends AbstractModuleLanguageAdapter<P
           Const.Files.NODE_MODULES,
           Const.Files.PYCACHE,
           Const.Files.VIRTUAL_ENV,
+          Const.Files.UV_CACHE,
           Const.Files.VENV,
           Const.Files.TOX,
           Const.Files.NOX,
