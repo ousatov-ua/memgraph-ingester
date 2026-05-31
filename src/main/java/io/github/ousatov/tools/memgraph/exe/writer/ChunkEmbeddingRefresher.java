@@ -94,8 +94,8 @@ final class ChunkEmbeddingRefresher {
   }
 
   private int embeddingDimension(EmbeddingSettings settings) {
-    return dimensionCache.computeIfAbsent(
-        settings.modelName(), ignored -> queryDimension(settings));
+    String cacheKey = settings.modelName() + ":" + settings.dimensions();
+    return dimensionCache.computeIfAbsent(cacheKey, ignored -> queryDimension(settings));
   }
 
   private int queryDimension(EmbeddingSettings settings) {
