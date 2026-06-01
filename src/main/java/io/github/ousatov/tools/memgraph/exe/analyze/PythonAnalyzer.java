@@ -32,6 +32,7 @@ public final class PythonAnalyzer {
   private final ManagedPythonRuntime pythonRuntime;
   private final Path helperScript;
 
+  @SuppressWarnings("unused")
   public PythonAnalyzer(Path sourceRoot) {
     this(
         sourceRoot,
@@ -138,6 +139,11 @@ public final class PythonAnalyzer {
       Thread.currentThread().interrupt();
       throw new ProcessingException("Interrupted while analyzing " + file, e);
     }
+  }
+
+  /** Resolves the managed CPython and virtual environment before worker threads parse files. */
+  public void prepareRuntime() {
+    pythonRuntime.pythonExecutable();
   }
 
   public PythonAnalyzer withSourceRoot(Path sourceRoot) {

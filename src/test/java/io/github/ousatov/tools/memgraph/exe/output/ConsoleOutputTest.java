@@ -42,4 +42,12 @@ class ConsoleOutputTest {
     String output = bytes.toString(StandardCharsets.UTF_8);
     assertTrue(output.contains("Applied schema to Memgraph\nWatch mode for src activated.\n"));
   }
+
+  @Test
+  void successUsesMutedGreenAccent() {
+    String styled = AnsiStyle.success("Watch mode for src activated.", true);
+
+    assertTrue(styled.contains("\u001B[32m"));
+    assertTrue(styled.contains("Watch mode for src activated."));
+  }
 }

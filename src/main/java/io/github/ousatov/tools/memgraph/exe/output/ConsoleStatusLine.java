@@ -14,6 +14,7 @@ import java.util.Objects;
 public final class ConsoleStatusLine {
 
   private static final Object LOCK = new Object();
+  private static final String ERASE_LINE = "\u001B[2K";
 
   private static PrintStream activeOut;
   private static int lastLength;
@@ -192,10 +193,8 @@ public final class ConsoleStatusLine {
   }
 
   private static void clearLine(PrintStream stream) {
-    if (lastLength > 0) {
-      stream.print(Const.Symbols.SPACE.repeat(lastLength));
-      stream.print('\r');
-    }
+    stream.print(ERASE_LINE);
+    stream.print('\r');
   }
 
   public static final class StatusSession implements AutoCloseable {

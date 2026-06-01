@@ -163,11 +163,10 @@ public final class IngestionOrchestrator {
             + files.size()
             + " supported source files across "
             + languageAdapters.size()
-            + " adapter(s). Ingesting with "
-            + threads
-            + " thread(s).";
+            + " adapter(s).";
     log.info(discoveryMessage);
     ConsoleOutput.status(discoveryMessage);
+    prepareAdapters(files);
 
     StoredFileState storedFiles = preloadStoredFileState(files);
     if (incremental) {
@@ -200,6 +199,16 @@ public final class IngestionOrchestrator {
       watchSession.start();
     }
     return failures;
+  }
+
+  private static void prepareAdapters(List<SourceFile> files) {
+    Set<LanguageAdapter<?>> prepared = new LinkedHashSet<>();
+    for (SourceFile file : files) {
+      LanguageAdapter<?> adapter = file.adapter();
+      if (prepared.add(adapter)) {
+        adapter.prepare();
+      }
+    }
   }
 
   /** Test-friendly entry point: re-ingests the given files using the watch-mode pipeline. */

@@ -73,7 +73,12 @@ final class ManagedRuntimeLoadingIndicator implements AutoCloseable {
     if (interactive && animated) {
       this.progress =
           ConsoleProgress.indeterminate(
-              "Loading managed runtime: " + this.runtimeName, this.out, true, interval, true);
+              "Loading managed runtime: " + this.runtimeName,
+              this.out,
+              true,
+              interval,
+              animated,
+              true);
     } else {
       this.progress = null;
       writeLine("Loading managed runtime: " + this.runtimeName + "...");
@@ -91,17 +96,25 @@ final class ManagedRuntimeLoadingIndicator implements AutoCloseable {
     }
     closed = true;
     if (progress != null) {
-      progress.close();
+      progress.completeLabel(finalProgressLabel());
+      ConsoleStatusLine.finish(out);
+      return;
     }
-    writeFinal();
+    writeLine(finalText());
   }
 
-  private void writeFinal() {
+  private String finalProgressLabel() {
     if (succeeded) {
-      writeLine("Loaded managed runtime: " + runtimeName + Const.Symbols.DOT);
-    } else {
-      writeLine("Failed to load managed runtime: " + runtimeName + Const.Symbols.DOT);
+      return "Loaded managed runtime: " + runtimeName;
     }
+    return "Failed to load managed runtime: " + runtimeName;
+  }
+
+  private String finalText() {
+    if (succeeded) {
+      return "Loaded managed runtime: " + runtimeName + Const.Symbols.DOT;
+    }
+    return "Failed to load managed runtime: " + runtimeName + Const.Symbols.DOT;
   }
 
   private synchronized void writeLine(String text) {

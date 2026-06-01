@@ -127,12 +127,7 @@ public final class ManagedNodeRuntime extends ManagedHttpInstaller {
                 .addArgument(() -> nodeId(platform))
                 .log());
     try (ManagedRuntimeLoadingIndicator indicator =
-        ManagedRuntimeLoadingIndicator.start(
-            "Node.js "
-                + nodeVersion
-                + Const.Symbols.SPACE_LEFT_PAREN
-                + nodeId(platform)
-                + Const.Symbols.RIGHT_PAREN)) {
+        ManagedRuntimeLoadingIndicator.start("Node.js " + nodeVersion)) {
       byte[] archive = download(archiveUri);
       verifySha256(archive, archiveName, downloadText(sumsUri), "Node.js");
       extractNodeArchive(archiveName, archive, installDir);

@@ -148,6 +148,12 @@ public final class JsAnalyzer {
     }
   }
 
+  /** Resolves the managed Node.js and TypeScript resources before worker threads parse files. */
+  public void prepareRuntime() {
+    nodeRuntime.nodeExecutable();
+    typescriptPackage.nodeModulesDir();
+  }
+
   public JsAnalyzer withSourceRoot(Path sourceRoot) {
     return new JsAnalyzer(sourceRoot, nodeRuntime, typescriptPackage, helperScript);
   }

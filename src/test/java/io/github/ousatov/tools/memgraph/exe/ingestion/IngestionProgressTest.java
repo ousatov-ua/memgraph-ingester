@@ -27,6 +27,7 @@ class IngestionProgressTest {
     assertFalse(ConsoleStatusLine.hasActiveStatus(out));
 
     String output = bytes.toString(StandardCharsets.UTF_8);
+    assertFalse(output.contains("0/64"));
     assertTrue(output.contains("Ingesting source files"));
     assertTrue(output.contains("Ingested source files"));
     assertTrue(output.contains("6/64"));
@@ -48,6 +49,7 @@ class IngestionProgressTest {
     }
 
     String output = bytes.toString(StandardCharsets.UTF_8);
+    assertFalse(output.contains("0/64"));
     assertFalse(output.contains("1/64"));
     assertTrue(output.contains("Ingesting source files"));
     assertTrue(output.contains("Ingested source files"));
@@ -73,5 +75,22 @@ class IngestionProgressTest {
     String output = bytes.toString(StandardCharsets.UTF_8);
     assertFalse(output.contains("6/64"));
     assertTrue(output.contains("12/64"));
+  }
+
+  @Test
+  void closeRendersFinalProgressAfterExclusiveRuntimeStatus() {
+    ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+    PrintStream out = new PrintStream(bytes, true, StandardCharsets.UTF_8);
+
+    try (IngestionProgress progress = IngestionProgress.start(64, out, true)) {
+      try (var _ = ConsoleStatusLine.openExclusiveStatusSession(out)) {
+        progress.update(64);
+      }
+    }
+
+    String output = bytes.toString(StandardCharsets.UTF_8);
+    assertTrue(output.contains("Ingested source files"));
+    assertTrue(output.contains("64/64"));
+    assertFalse(ConsoleStatusLine.hasActiveStatus(out));
   }
 }

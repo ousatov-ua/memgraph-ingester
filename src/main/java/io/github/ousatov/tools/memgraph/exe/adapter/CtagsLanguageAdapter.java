@@ -191,6 +191,11 @@ public final class CtagsLanguageAdapter implements LanguageAdapter<CtagsAnalysis
   }
 
   @Override
+  public void prepare() {
+    analyzer.prepareRuntime();
+  }
+
+  @Override
   public SourceFileDefinitions collectDefinitions(CtagsAnalysis analysis) {
     Set<String> classFqns = new LinkedHashSet<>();
     Set<String> interfaceFqns = new LinkedHashSet<>();
