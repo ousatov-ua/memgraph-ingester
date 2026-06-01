@@ -173,14 +173,29 @@ public final class IngestionOrchestrator {
           "Pre-loaded {} stored file timestamps for incremental mode.",
           storedFiles.lastModifiedByPath().size());
     }
-    prepareAdapters(files, storedFiles);
+    Map<LanguageAdapter<?>, RuntimeException> failedAdapterPreparations =
+        prepareAdapters(files, storedFiles);
 
     int failures;
     try (IngestionProgress progress = IngestionProgress.start(files.size())) {
       if (threads == 1) {
-        failures = ingestSequential(files, storedFiles, retainedSourcePaths, stats, progress);
+        failures =
+            ingestSequential(
+                files,
+                storedFiles,
+                failedAdapterPreparations,
+                retainedSourcePaths,
+                stats,
+                progress);
       } else {
-        failures = ingestParallel(files, storedFiles, retainedSourcePaths, stats, progress);
+        failures =
+            ingestParallel(
+                files,
+                storedFiles,
+                failedAdapterPreparations,
+                retainedSourcePaths,
+                stats,
+                progress);
       }
     }
 
@@ -201,17 +216,25 @@ public final class IngestionOrchestrator {
     return failures;
   }
 
-  private void prepareAdapters(List<SourceFile> files, StoredFileState storedFiles) {
+  private Map<LanguageAdapter<?>, RuntimeException> prepareAdapters(
+      List<SourceFile> files, StoredFileState storedFiles) {
     Set<LanguageAdapter<?>> prepared = new LinkedHashSet<>();
+    Map<LanguageAdapter<?>, RuntimeException> failed = new LinkedHashMap<>();
     for (SourceFile file : files) {
       if (isFileUnchanged(file.path(), storedFiles)) {
         continue;
       }
       LanguageAdapter<?> adapter = file.adapter();
-      if (prepared.add(adapter)) {
-        adapter.prepare();
+      if (prepared.add(adapter) && !failed.containsKey(adapter)) {
+        try {
+          adapter.prepare();
+        } catch (RuntimeException e) {
+          failed.put(adapter, e);
+          log.warn("Failed to prepare {} adapter: {}", adapter.displayName(), e.getMessage());
+        }
       }
     }
+    return Map.copyOf(failed);
   }
 
   /** Test-friendly entry point: re-ingests the given files using the watch-mode pipeline. */
@@ -758,6 +781,7 @@ public final class IngestionOrchestrator {
   private int ingestSequential(
       List<SourceFile> files,
       StoredFileState storedFiles,
+      Map<LanguageAdapter<?>, RuntimeException> failedAdapterPreparations,
       Collection<Path> retainedSourcePaths,
       IngestionRunStats stats,
       IngestionProgress progress) {
@@ -767,7 +791,8 @@ public final class IngestionOrchestrator {
       GraphWriter writer = new GraphWriter(session, project, stats);
       writer.setRetainedSourcePaths(retainedSourcePaths);
       for (SourceFile file : files) {
-        PreparedFile prepared = prepareFileForIngestion(file, storedFiles, stats);
+        PreparedFile prepared =
+            prepareFileForIngestion(file, storedFiles, failedAdapterPreparations, stats);
         if (!writePreparedFile(writer, prepared)) {
           failures++;
         }
@@ -816,14 +841,35 @@ public final class IngestionOrchestrator {
 
   private PreparedFile prepareFileForIngestion(
       SourceFile sourceFile, StoredFileState storedFiles, IngestionRunStats stats) {
-    return prepareFileForIngestion(sourceFile.adapter(), sourceFile.path(), storedFiles, stats);
+    return prepareFileForIngestion(sourceFile, storedFiles, Map.of(), stats);
+  }
+
+  private PreparedFile prepareFileForIngestion(
+      SourceFile sourceFile,
+      StoredFileState storedFiles,
+      Map<LanguageAdapter<?>, RuntimeException> failedAdapterPreparations,
+      IngestionRunStats stats) {
+    return prepareFileForIngestion(
+        sourceFile.adapter(),
+        sourceFile.path(),
+        storedFiles,
+        failedAdapterPreparations.get(sourceFile.adapter()),
+        stats);
   }
 
   private <T> PreparedFile prepareFileForIngestion(
-      LanguageAdapter<T> adapter, Path path, StoredFileState storedFiles, IngestionRunStats stats) {
+      LanguageAdapter<T> adapter,
+      Path path,
+      StoredFileState storedFiles,
+      RuntimeException adapterPreparationFailure,
+      IngestionRunStats stats) {
     if (isFileUnchanged(path, storedFiles)) {
       log.debug("Skipping unchanged file: {}", path);
       return new PreparedSkip(path);
+    }
+    if (adapterPreparationFailure != null) {
+      log.warn("Failed to prepare {}: {}", path, adapterPreparationFailure.getMessage());
+      return new PreparedFailure(path);
     }
 
     log.atDebug()
@@ -934,11 +980,13 @@ public final class IngestionOrchestrator {
   private int ingestParallel(
       List<SourceFile> files,
       StoredFileState storedFiles,
+      Map<LanguageAdapter<?>, RuntimeException> failedAdapterPreparations,
       Collection<Path> retainedSourcePaths,
       IngestionRunStats stats,
       IngestionProgress progress) {
     try {
-      return ingestParallelTransactional(files, storedFiles, retainedSourcePaths, stats, progress);
+      return ingestParallelTransactional(
+          files, storedFiles, failedAdapterPreparations, retainedSourcePaths, stats, progress);
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
       throw new ProcessingException("Interrupted during ingestion", e);
@@ -948,6 +996,7 @@ public final class IngestionOrchestrator {
   private int ingestParallelTransactional(
       List<SourceFile> files,
       StoredFileState storedFiles,
+      Map<LanguageAdapter<?>, RuntimeException> failedAdapterPreparations,
       Collection<Path> retainedSourcePaths,
       IngestionRunStats stats,
       IngestionProgress progress)
@@ -970,7 +1019,10 @@ public final class IngestionOrchestrator {
 
     try {
       for (SourceFile file : files) {
-        futures.add(pool.submit(() -> prepareFileForIngestion(file, storedFiles, stats)));
+        futures.add(
+            pool.submit(
+                () ->
+                    prepareFileForIngestion(file, storedFiles, failedAdapterPreparations, stats)));
       }
       pool.shutdown();
       if (!pool.awaitTermination(SHUTDOWN_TIMEOUT_MINUTES, TimeUnit.MINUTES)) {

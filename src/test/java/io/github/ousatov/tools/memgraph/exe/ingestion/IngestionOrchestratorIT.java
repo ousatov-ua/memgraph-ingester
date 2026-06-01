@@ -392,6 +392,15 @@ class IngestionOrchestratorIT {
   private static final class PrepareCountingAdapter implements LanguageAdapter<Path> {
 
     private final AtomicInteger prepares = new AtomicInteger();
+    private final RuntimeException prepareFailure;
+
+    private PrepareCountingAdapter() {
+      this(null);
+    }
+
+    private PrepareCountingAdapter(RuntimeException prepareFailure) {
+      this.prepareFailure = prepareFailure;
+    }
 
     @Override
     public SourceLanguage language() {
@@ -406,6 +415,9 @@ class IngestionOrchestratorIT {
     @Override
     public void prepare() {
       prepares.incrementAndGet();
+      if (prepareFailure != null) {
+        throw prepareFailure;
+      }
     }
 
     @Override
@@ -3273,6 +3285,20 @@ class IngestionOrchestratorIT {
     }
 
     assertEquals(0, orchestrator.run(new Settings(false, false, false, false, true, false)));
+    assertEquals(1, adapter.prepares());
+  }
+
+  @Test
+  void runReportsAdapterPrepareFailureAsFileFailure() throws Exception {
+    currentProject = PROJECT_BASE + "-prepare-failure";
+    sourceDir = Files.createTempDirectory("orch-prepare-failure-src-");
+    Path sourceFile = sourceDir.resolve("Sample.java");
+    Files.writeString(sourceFile, "changed");
+    PrepareCountingAdapter adapter =
+        new PrepareCountingAdapter(new ProcessingException("runtime unavailable"));
+    var orchestrator = new IngestionOrchestrator(sourceDir, currentProject, 1, driver, adapter);
+
+    assertEquals(1, orchestrator.run(Settings.def()));
     assertEquals(1, adapter.prepares());
   }
 
