@@ -166,7 +166,6 @@ public final class IngestionOrchestrator {
             + " adapter(s).";
     log.info(discoveryMessage);
     ConsoleOutput.status(discoveryMessage);
-    prepareAdapters(files);
 
     StoredFileState storedFiles = preloadStoredFileState(files);
     if (incremental) {
@@ -174,6 +173,7 @@ public final class IngestionOrchestrator {
           "Pre-loaded {} stored file timestamps for incremental mode.",
           storedFiles.lastModifiedByPath().size());
     }
+    prepareAdapters(files, storedFiles);
 
     int failures;
     try (IngestionProgress progress = IngestionProgress.start(files.size())) {
@@ -201,9 +201,12 @@ public final class IngestionOrchestrator {
     return failures;
   }
 
-  private static void prepareAdapters(List<SourceFile> files) {
+  private void prepareAdapters(List<SourceFile> files, StoredFileState storedFiles) {
     Set<LanguageAdapter<?>> prepared = new LinkedHashSet<>();
     for (SourceFile file : files) {
+      if (isFileUnchanged(file.path(), storedFiles)) {
+        continue;
+      }
       LanguageAdapter<?> adapter = file.adapter();
       if (prepared.add(adapter)) {
         adapter.prepare();
@@ -474,7 +477,7 @@ public final class IngestionOrchestrator {
   }
 
   private static void logReport(String report) {
-    log.info("\n{}", report.stripTrailing());
+    log.atInfo().setMessage("\n{}").addArgument(report::stripTrailing).log();
   }
 
   boolean shouldVisitDirectory(Path dir) {
