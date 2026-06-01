@@ -48,6 +48,11 @@ public interface LanguageAdapter<T> {
   /** Parses {@code file} into an adapter-specific source model. */
   Optional<T> parse(Path file);
 
+  /** Prepares shared parser resources before parallel parsing starts. */
+  default void prepare() {
+    // Most adapters have no external parser runtime to prepare.
+  }
+
   /** Collects graph identities emitted when the parsed model is written. */
   SourceFileDefinitions collectDefinitions(T parsed);
 

@@ -13,7 +13,7 @@ final class AnsiStyle {
   private static final String BOLD = "\u001B[1m";
   private static final String BRIGHT_BLUE = "\u001B[94m";
   private static final String BRIGHT_CYAN = "\u001B[96m";
-  private static final String BRIGHT_GREEN = "\u001B[92m";
+  private static final String GREEN = "\u001B[32m";
   private static final String BRIGHT_MAGENTA = "\u001B[95m";
 
   private AnsiStyle() {
@@ -45,7 +45,7 @@ final class AnsiStyle {
   }
 
   static String success(String text, boolean enabled) {
-    return wrap(text, enabled, BRIGHT_GREEN);
+    return wrap(text, enabled, GREEN);
   }
 
   private static boolean isDumbTerminal() {

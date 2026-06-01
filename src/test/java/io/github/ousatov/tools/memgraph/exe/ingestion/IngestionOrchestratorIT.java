@@ -385,6 +385,64 @@ class IngestionOrchestratorIT {
   }
 
   /**
+   * Adapter that records parser-runtime preparation calls.
+   *
+   * @author Oleksii Usatov
+   */
+  private static final class PrepareCountingAdapter implements LanguageAdapter<Path> {
+
+    private final AtomicInteger prepares = new AtomicInteger();
+    private final RuntimeException prepareFailure;
+
+    private PrepareCountingAdapter() {
+      this(null);
+    }
+
+    private PrepareCountingAdapter(RuntimeException prepareFailure) {
+      this.prepareFailure = prepareFailure;
+    }
+
+    @Override
+    public SourceLanguage language() {
+      return SourceLanguage.JAVA;
+    }
+
+    @Override
+    public boolean accepts(Path file) {
+      return file.toString().endsWith(".java");
+    }
+
+    @Override
+    public void prepare() {
+      prepares.incrementAndGet();
+      if (prepareFailure != null) {
+        throw prepareFailure;
+      }
+    }
+
+    @Override
+    public Optional<Path> parse(Path file) {
+      return Optional.of(file);
+    }
+
+    @Override
+    public SourceFileDefinitions collectDefinitions(Path parsed) {
+      return SourceFileDefinitions.empty();
+    }
+
+    @Override
+    public boolean write(GraphWriter writer, Path file, Path parsed) {
+      writer.upsertFile(file, language());
+      writer.upsertPackage("prep.test", language());
+      return true;
+    }
+
+    private int prepares() {
+      return prepares.get();
+    }
+  }
+
+  /**
    * Dynamic fallback adapter that cannot detect a deleted file by reading its contents.
    *
    * @author Oleksii Usatov
@@ -3206,6 +3264,42 @@ class IngestionOrchestratorIT {
     List<String> backfilledChunks = codeChunkTexts(currentProject, sourceFile);
     assertTrue(backfilledChunks.stream().anyMatch(text -> text.contains("Searchable widget docs")));
     assertTrue(backfilledChunks.stream().anyMatch(text -> text.contains("Searchable method docs")));
+  }
+
+  @Test
+  void incrementalRunSkipsPrepareForUnchangedFiles() throws Exception {
+    currentProject = PROJECT_BASE + "-incremental-prepare-skip";
+    sourceDir = Files.createTempDirectory("orch-incremental-prepare-skip-src-");
+    Path sourceFile = sourceDir.resolve("Sample.java");
+    Files.writeString(sourceFile, "unchanged");
+    PrepareCountingAdapter adapter = new PrepareCountingAdapter();
+    var orchestrator = new IngestionOrchestrator(sourceDir, currentProject, 1, driver, adapter);
+
+    assertEquals(0, orchestrator.run(Settings.def()));
+    assertEquals(1, adapter.prepares());
+    try (Session s = driver.session()) {
+      s.run(
+              "CREATE (:CodeChunk {project: $p, path: $path})",
+              Map.of("p", currentProject, "path", sourceFile.toString()))
+          .consume();
+    }
+
+    assertEquals(0, orchestrator.run(new Settings(false, false, false, false, true, false)));
+    assertEquals(1, adapter.prepares());
+  }
+
+  @Test
+  void runReportsAdapterPrepareFailureAsFileFailure() throws Exception {
+    currentProject = PROJECT_BASE + "-prepare-failure";
+    sourceDir = Files.createTempDirectory("orch-prepare-failure-src-");
+    Path sourceFile = sourceDir.resolve("Sample.java");
+    Files.writeString(sourceFile, "changed");
+    PrepareCountingAdapter adapter =
+        new PrepareCountingAdapter(new ProcessingException("runtime unavailable"));
+    var orchestrator = new IngestionOrchestrator(sourceDir, currentProject, 1, driver, adapter);
+
+    assertEquals(1, orchestrator.run(Settings.def()));
+    assertEquals(1, adapter.prepares());
   }
 
   @Test

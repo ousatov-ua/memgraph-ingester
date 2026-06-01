@@ -78,6 +78,11 @@ public final class PythonLanguageAdapter extends AbstractModuleLanguageAdapter<P
   }
 
   @Override
+  public void prepare() {
+    analyzer.prepareRuntime();
+  }
+
+  @Override
   public boolean write(GraphWriter writer, Path file, PythonAnalysis analysis) {
     PythonGraphWriter pythonWriter = new PythonGraphWriter(writer.dependencies());
     try {

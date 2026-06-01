@@ -21,6 +21,9 @@ final class IngestionProgress implements AutoCloseable {
   private final boolean interactive;
   private final ConsoleProgress progress;
 
+  private int done;
+  private int renderedDone;
+  private boolean renderedCompletion;
   private volatile boolean closed;
 
   static IngestionProgress start(int total) {
@@ -36,18 +39,23 @@ final class IngestionProgress implements AutoCloseable {
     this.step = Math.clamp(total / PROGRESS_DIVISOR, 1, 100);
     this.out = Objects.requireNonNull(out, Const.Params.OUT);
     this.interactive = interactive;
-    this.progress = ConsoleProgress.finite("Ingesting source files", total, out, interactive);
+    this.progress =
+        ConsoleProgress.finite("Ingesting source files", total, out, interactive, false);
   }
 
   void update(int done) {
-    if (closed || total == 0 || (done % step != 0 && done != total)) {
+    if (closed) {
+      return;
+    }
+    int clampedDone = Math.clamp(done, 0, total);
+    this.done = Math.max(this.done, clampedDone);
+    if (total == 0 || (clampedDone % step != 0 && clampedDone != total)) {
       return;
     }
     if (interactive && ConsoleStatusLine.hasExclusiveStatus(out)) {
       return;
     }
-    String label = done == total ? "Ingested source files" : "Ingesting source files";
-    progress.update(label, done);
+    render(clampedDone);
   }
 
   @Override
@@ -56,6 +64,18 @@ final class IngestionProgress implements AutoCloseable {
       return;
     }
     closed = true;
+    boolean needsCompletionLabel = done == total && !renderedCompletion;
+    if ((done != renderedDone || needsCompletionLabel)
+        && !(interactive && ConsoleStatusLine.hasExclusiveStatus(out))) {
+      render(done);
+    }
     progress.close();
+  }
+
+  private void render(int done) {
+    String label = done == total ? "Ingested source files" : "Ingesting source files";
+    progress.update(label, done);
+    renderedDone = done;
+    renderedCompletion = done == total;
   }
 }

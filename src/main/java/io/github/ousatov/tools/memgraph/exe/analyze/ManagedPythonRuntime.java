@@ -173,13 +173,7 @@ public final class ManagedPythonRuntime extends ManagedHttpInstaller {
                 .log());
     try (ManagedRuntimeLoadingIndicator indicator =
         ManagedRuntimeLoadingIndicator.start(
-            "CPython "
-                + pythonVersion
-                + Const.Symbols.PLUS
-                + pythonBuild
-                + Const.Symbols.SPACE_LEFT_PAREN
-                + pythonId(platform)
-                + Const.Symbols.RIGHT_PAREN)) {
+            "CPython " + pythonVersion + Const.Symbols.PLUS + pythonBuild)) {
       byte[] archive = download(archiveUri);
       verifySha256(archive, archiveName, downloadText(sumsUri), "CPython");
       extractTgz(archive, installDir);
@@ -197,7 +191,7 @@ public final class ManagedPythonRuntime extends ManagedHttpInstaller {
 
   private void createManagedVenv(Path standaloneExecutable, Path venvDir, Path executable) {
     try (ManagedRuntimeLoadingIndicator indicator =
-        ManagedRuntimeLoadingIndicator.steady("Python virtual environment")) {
+        ManagedRuntimeLoadingIndicator.start("Python virtual environment")) {
       ProcessBuilder processBuilder =
           new ProcessBuilder(
               standaloneExecutable.toString(), "-m", Const.Files.VENV, venvDir.toString());

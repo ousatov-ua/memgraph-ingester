@@ -115,6 +115,11 @@ public final class CtagsAnalyzer {
     return analysisFromTags(file, language, parseTags(result.stdout()));
   }
 
+  /** Resolves the Universal Ctags executable before worker threads parse files. */
+  public void prepareRuntime() {
+    runtime.ctagsExecutable();
+  }
+
   /** Returns an equivalent analyzer for another source root. */
   public CtagsAnalyzer withSourceRoot(Path newSourceRoot) {
     return new CtagsAnalyzer(newSourceRoot, runtime);

@@ -16,10 +16,11 @@ import java.util.concurrent.TimeUnit;
  */
 public final class ConsoleProgress implements AutoCloseable {
 
-  private static final int LABEL_WIDTH = "Refreshing MemoryChunk".length();
+  private static final int LABEL_WIDTH = 50;
   private static final int BAR_WIDTH = 29;
   private static final int INDETERMINATE_WIDTH = BAR_WIDTH;
   private static final int MARKER_WIDTH = 3;
+  private static final String TRUNCATION = "...";
   private static final String[] SPINNER = {"-", "\\", "|", "/"};
 
   private final PrintStream out;
@@ -42,10 +43,16 @@ public final class ConsoleProgress implements AutoCloseable {
   /** Opens a finite progress indicator on the given stream. */
   public static ConsoleProgress finite(
       String label, int total, PrintStream out, boolean interactive) {
+    return finite(label, total, out, interactive, true);
+  }
+
+  /** Opens a finite progress indicator on the given stream. */
+  public static ConsoleProgress finite(
+      String label, int total, PrintStream out, boolean interactive, boolean renderInitial) {
     if (total < 0) {
       throw new IllegalArgumentException("total must be >= 0");
     }
-    return new ConsoleProgress(label, total, out, interactive, Duration.ZERO, false);
+    return new ConsoleProgress(label, total, out, interactive, Duration.ZERO, false, renderInitial);
   }
 
   /** Opens an indeterminate progress indicator on the process error stream. */
@@ -57,7 +64,18 @@ public final class ConsoleProgress implements AutoCloseable {
   /** Opens an indeterminate progress indicator on the given stream. */
   public static ConsoleProgress indeterminate(
       String label, PrintStream out, boolean interactive, Duration interval, boolean animated) {
-    return new ConsoleProgress(label, null, out, interactive, interval, animated);
+    return indeterminate(label, out, interactive, interval, animated, true);
+  }
+
+  /** Opens an indeterminate progress indicator on the given stream. */
+  public static ConsoleProgress indeterminate(
+      String label,
+      PrintStream out,
+      boolean interactive,
+      Duration interval,
+      boolean animated,
+      boolean renderInitial) {
+    return new ConsoleProgress(label, null, out, interactive, interval, animated, renderInitial);
   }
 
   private ConsoleProgress(
@@ -66,7 +84,8 @@ public final class ConsoleProgress implements AutoCloseable {
       PrintStream out,
       boolean interactive,
       Duration interval,
-      boolean animated) {
+      boolean animated,
+      boolean renderInitial) {
     this.out = Objects.requireNonNull(out, Const.Params.OUT);
     this.label = Objects.requireNonNull(label, "label");
     this.total = total;
@@ -74,7 +93,9 @@ public final class ConsoleProgress implements AutoCloseable {
     this.colors = AnsiStyle.colorsEnabled(interactive);
     this.statusSession = interactive ? openStatusSessionFor(total == null, this.out) : null;
     Objects.requireNonNull(interval, "interval");
-    render(0);
+    if (renderInitial) {
+      render(0);
+    }
     if (total == null && interactive && animated) {
       this.executor =
           Executors.newSingleThreadScheduledExecutor(
@@ -131,6 +152,11 @@ public final class ConsoleProgress implements AutoCloseable {
     if (statusSession != null) {
       statusSession.close();
     }
+  }
+
+  /** Stops the animation and leaves a completed progress row with {@code label}. */
+  public synchronized void completeLabel(String label) {
+    complete(renderComplete(label, colors));
   }
 
   /** Stops the animation and clears its active status row without printing a new line. */
@@ -213,7 +239,18 @@ public final class ConsoleProgress implements AutoCloseable {
         + AnsiStyle.progress("[" + track + "]", colors);
   }
 
+  static String renderComplete(String label, boolean colors) {
+    return AnsiStyle.spinner(SPINNER[0], colors)
+        + Const.Symbols.SPACE
+        + AnsiStyle.bold(formatLabel(label), colors)
+        + Const.Symbols.SPACE
+        + AnsiStyle.progress("[" + "=".repeat(BAR_WIDTH) + "]", colors);
+  }
+
   private static String formatLabel(String label) {
+    if (label.length() > LABEL_WIDTH) {
+      return label.substring(0, LABEL_WIDTH - TRUNCATION.length()) + TRUNCATION;
+    }
     int padding = Math.max(0, LABEL_WIDTH - label.length());
     return label + Const.Symbols.SPACE.repeat(padding);
   }

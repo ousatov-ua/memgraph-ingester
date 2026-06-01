@@ -153,12 +153,7 @@ public final class ManagedCtagsRuntime {
       return cached.get();
     }
     try (ManagedRuntimeLoadingIndicator indicator =
-        ManagedRuntimeLoadingIndicator.start(
-            "Universal Ctags "
-                + ctagsVersion
-                + Const.Symbols.SPACE_LEFT_PAREN
-                + ctagsId(platform)
-                + Const.Symbols.RIGHT_PAREN)) {
+        ManagedRuntimeLoadingIndicator.start("Universal Ctags " + ctagsVersion)) {
       ReleaseAsset asset = releaseAsset(platform);
       Path installDir = installDir(asset.tag(), platform);
       Path executable = cachedExecutable(asset.tag(), platform);

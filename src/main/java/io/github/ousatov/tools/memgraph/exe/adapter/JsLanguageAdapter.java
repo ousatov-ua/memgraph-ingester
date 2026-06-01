@@ -76,6 +76,11 @@ public final class JsLanguageAdapter extends AbstractModuleLanguageAdapter<JsAna
   }
 
   @Override
+  public void prepare() {
+    analyzer.prepareRuntime();
+  }
+
+  @Override
   public boolean write(GraphWriter writer, Path file, JsAnalysis analysis) {
     JsGraphWriter jsWriter = new JsGraphWriter(writer.dependencies());
     try {

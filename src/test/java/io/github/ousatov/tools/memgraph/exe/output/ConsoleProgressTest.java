@@ -49,6 +49,15 @@ class ConsoleProgressTest {
   }
 
   @Test
+  void completedRendererUsesAlignedFullBar() {
+    String ingested = ConsoleProgress.renderFinite("Ingested source files", 186, 186, 0, false);
+    String runtime =
+        ConsoleProgress.renderComplete("Loaded managed runtime: Node.js 22.11.0", false);
+
+    assertAlignedProgressBar(ingested, runtime);
+  }
+
+  @Test
   void embeddingAndIngestionProgressBarsShareColumnAndWidth() {
     String ingested = ConsoleProgress.renderFinite("Ingested source files", 1, 1, 0, false);
     String codeChunk = ConsoleProgress.renderIndeterminate("Refreshing CodeChunk", 0, false);
@@ -56,6 +65,21 @@ class ConsoleProgressTest {
 
     assertAlignedProgressBar(ingested, codeChunk);
     assertAlignedProgressBar(ingested, memoryChunk);
+    assertTrue(codeChunk.contains("[==>"));
+    assertTrue(memoryChunk.contains("[==>"));
+  }
+
+  @Test
+  void longRuntimeLabelsShareProgressBarColumn() {
+    String ingested = ConsoleProgress.renderFinite("Ingested source files", 186, 186, 0, false);
+    String cpython =
+        ConsoleProgress.renderIndeterminate(
+            "Loading managed runtime: CPython 3.14.5+20260510", 0, false);
+
+    assertAlignedProgressBar(ingested, cpython);
+    assertTrue(cpython.contains("Loading managed runtime: CPython"));
+    assertTrue(cpython.contains("[==>"));
+    assertFalse(cpython.contains("aarch64-apple-darwin"));
   }
 
   @Test
@@ -116,7 +140,6 @@ class ConsoleProgressTest {
     assertTrue(expected.indexOf(']') > expectedStart);
     assertTrue(actual.indexOf(']') > actualStart);
     assertTrue(expected.contains("[=============================]"));
-    assertTrue(actual.contains("[==>"));
     assertEquals(expectedStart, actualStart);
     assertEquals(
         expected.indexOf(']') - expectedStart,
