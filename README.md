@@ -655,8 +655,8 @@ MCP is optional. Agents should use
 [`memgraph-ingester-mcp`](https://github.com/ousatov-ua/memgraph-ingester-mcp) for normal code graph
 and memory work. It exposes high-level project-scoped tools instead of only raw Cypher.
 
-Use `memgraph-ingester-mcp` when you want the agent to query the graph automatically.
-Use `mgconsole` when you want direct, token-light Cypher output.
+**Preferred** Use `memgraph-ingester-mcp` when you want the agent to query the graph automatically.
+Use `mgconsole` when you want direct Cypher output. 
 
 Install and run the MCP server from PyPI with `uvx`:
 
