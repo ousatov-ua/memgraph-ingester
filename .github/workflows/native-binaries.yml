@@ -89,9 +89,41 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  shaded-jar:
+    name: Build shaded jar
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v6
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v5
+        with:
+          java-version: '25'
+          distribution: 'temurin'
+          cache: 'maven'
+
+      - name: Build shaded jar
+        run: |
+          mvn --batch-mode --no-transfer-progress clean -Pshade -DskipTests package
+          test -f target/memgraph-ingester.jar
+
+      - name: Upload shaded jar
+        uses: actions/upload-artifact@v6
+        with:
+          name: memgraph-ingester.jar
+          path: target/memgraph-ingester.jar
+          if-no-files-found: error
+          retention-days: 14
+
   homebrew-release:
-    name: Release Linux and macOS to Homebrew
-    needs: build
+    name: Release assets and Homebrew tap
+    needs:
+      - build
+      - shaded-jar
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
@@ -110,7 +142,19 @@ jobs:
           name: memgraph-ingester-macos-arm64
           path: release-input/darwin-arm64
 
-      - name: Package Homebrew release assets
+      - name: Download Windows binary
+        uses: actions/download-artifact@v6
+        with:
+          name: memgraph-ingester-windows-amd64
+          path: release-input/windows-amd64
+
+      - name: Download shaded jar
+        uses: actions/download-artifact@v6
+        with:
+          name: memgraph-ingester.jar
+          path: release-input/shaded-jar
+
+      - name: Package release assets
         shell: bash
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
@@ -121,12 +165,17 @@ jobs:
 
           tar -C dist/linux-amd64 -czf "release-assets/memgraph-ingester-${VERSION}-linux-amd64.tar.gz" memgraph-ingester
           tar -C dist/darwin-arm64 -czf "release-assets/memgraph-ingester-${VERSION}-darwin-arm64.tar.gz" memgraph-ingester
+          zip -j "release-assets/memgraph-ingester-${VERSION}-windows-amd64.zip" release-input/windows-amd64/memgraph-ingester-windows-amd64.exe
+          cp release-input/shaded-jar/memgraph-ingester.jar "release-assets/memgraph-ingester-${VERSION}.jar"
 
-      - name: Upload Homebrew release assets
+      - name: Upload release assets
         uses: softprops/action-gh-release@v2
         with:
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-          files: release-assets/*.tar.gz
+          files: |
+            release-assets/*.tar.gz
+            release-assets/*.zip
+            release-assets/*.jar
           fail_on_unmatched_files: true
           overwrite_files: true
 
