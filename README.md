@@ -177,12 +177,12 @@ brew install memgraph-ingester
 
 #### 2.2 Windows and other binary distributions
 
-| Platform | Download                                                                                                                                              |
-|---|-------------------------------------------------------------------------------------------------------------------------------------------------------|
-| Java shaded JAR | [memgraph-ingester.jar.zip](https://github.com/ousatov-ua/memgraph-ingester/releases/download/v12.0.32/memgraph-ingester.jar.zip)                     |
-| Linux AMD64 | [memgraph-ingester-linux-amd64.zip](https://github.com/ousatov-ua/memgraph-ingester/releases/download/v12.0.32/memgraph-ingester-12.0.32-linux-amd64.tar.gz)     |
-| macOS ARM64 | [memgraph-ingester-macos-arm64.zip](https://github.com/ousatov-ua/memgraph-ingester/releases/download/v12.0.32/memgraph-ingester-12.0.32-darwin-arm64.tar.gz)     |
-| Windows AMD64 | [memgraph-ingester-windows-amd64.zip](https://github.com/ousatov-ua/memgraph-ingester/releases/download/v12.0.32/memgraph-ingester-windows-amd64.zip) |
+| Platform | Download                                                                                                                                                         |
+|---|------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Java shaded JAR | [memgraph-ingester.jar.zip](https://github.com/ousatov-ua/memgraph-ingester/releases/download/v12.0.32/memgraph-ingester.jar.zip)                                |
+| Linux AMD64 | [memgraph-ingester-linux-amd64.tar.gz](https://github.com/ousatov-ua/memgraph-ingester/releases/download/v12.0.32/memgraph-ingester-12.0.32-linux-amd64.tar.gz)  |
+| macOS ARM64 | [memgraph-ingester-macos-arm64.tar.gz](https://github.com/ousatov-ua/memgraph-ingester/releases/download/v12.0.32/memgraph-ingester-12.0.32-darwin-arm64.tar.gz) |
+| Windows AMD64 | [memgraph-ingester-windows-amd64.zip](https://github.com/ousatov-ua/memgraph-ingester/releases/download/v12.0.32/memgraph-ingester-windows-amd64.zip)            |
 
 For native downloads: extract and put in path.
 
