@@ -88,3 +88,57 @@ jobs:
           path: ${{ matrix.artifact_path }}
           if-no-files-found: error
           retention-days: 14
+
+  homebrew-release:
+    name: Release Linux and macOS to Homebrew
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download Linux binary
+        uses: actions/download-artifact@v6
+        with:
+          name: memgraph-ingester-linux-amd64
+          path: release-input/linux-amd64
+
+      - name: Download macOS binary
+        uses: actions/download-artifact@v6
+        with:
+          name: memgraph-ingester-macos-arm64
+          path: release-input/darwin-arm64
+
+      - name: Package Homebrew release assets
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+
+          mkdir -p dist/linux-amd64 dist/darwin-arm64 release-assets
+          install -m 0755 release-input/linux-amd64/memgraph-ingester-linux-amd64 dist/linux-amd64/memgraph-ingester
+          install -m 0755 release-input/darwin-arm64/memgraph-ingester-macos-arm64 dist/darwin-arm64/memgraph-ingester
+
+          tar -C dist/linux-amd64 -czf "release-assets/memgraph-ingester-${VERSION}-linux-amd64.tar.gz" memgraph-ingester
+          tar -C dist/darwin-arm64 -czf "release-assets/memgraph-ingester-${VERSION}-darwin-arm64.tar.gz" memgraph-ingester
+
+      - name: Upload Homebrew release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          files: release-assets/*.tar.gz
+          fail_on_unmatched_files: true
+          overwrite_files: true
+
+      - name: Publish formula to Homebrew tap
+        uses: Justintime50/homebrew-releaser@v3
+        with:
+          homebrew_owner: ousatov-ua
+          homebrew_tap: homebrew-memgraph-ingester
+          github_token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          commit_owner: homebrew-releaser
+          commit_email: homebrew-releaser@example.com
+          install: 'bin.install "memgraph-ingester"'
+          test: 'system "#{bin}/memgraph-ingester", "--version"'
+          target_darwin_arm64: true
+          target_linux_amd64: true
