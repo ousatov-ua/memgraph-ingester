@@ -18,7 +18,7 @@ If the MCP returns no relevant rows, fall back to text search and say why.
 - **NO DELEGATION:** never delegate architecture analysis, codebase investigations, member/caller lookups, or graph queries to subagents. Use the MCP yourself.
 - **Status/pending-work:** call `server_status` or the focused code/memory tool first, then check Git when local changes matter. Use Git alone only when explicitly asked for Git-only status.
 - **No ritual analysis:** run `code_orientation` only when broad structure is needed. Prefer focused tools.
-- **Audits/hot paths:** for quality, quantity, or hot-path questions, start with `code_quality_stats` and `code_hot_paths`.
+- **Audits/hot paths:** for quality, quantity, or hot-path questions, start with `code_quality_stats` and `code_hot_paths(limit=5, include_evidence=false, format="table_json")`; pass `sections=[...]` when only `largestTypes`, `longestMethods`, `fanIn`, or `fanOut` is needed.
 - **Reuse:** reuse session-scoped graph results unless source files changed, the user asks for refresh, memory changed, or scope changed.
 - **Broad/unfamiliar code:** use `code_search` with 1-3 concise, hypothesis-specific queries, `limit=5`, and `include_text=false`. Treat hits as discovery only; fetch text/source only for selected hits.
 - **Known targets:** skip RAG and use exact tools with precise fragments and low limits: `code_lookup_type`, `code_lookup_methods`, `code_callers`, `code_callees`, and `code_hierarchy`.
