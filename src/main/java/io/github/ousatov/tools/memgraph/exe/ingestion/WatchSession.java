@@ -1,5 +1,6 @@
 package io.github.ousatov.tools.memgraph.exe.ingestion;
 
+import io.github.ousatov.tools.memgraph.config.AppConfig;
 import io.github.ousatov.tools.memgraph.def.Const;
 import io.github.ousatov.tools.memgraph.exception.ProcessingException;
 import io.github.ousatov.tools.memgraph.exe.adapter.LanguageAdapter;
@@ -49,7 +50,7 @@ final class WatchSession {
 
   private static final Logger log = LoggerFactory.getLogger(WatchSession.class);
 
-  private static final long DEBOUNCE_MS = 500L;
+  private static final long DEBOUNCE_MS = AppConfig.durationValue("watch.debounce").toMillis();
 
   private final IngestionOrchestrator orchestrator;
   private final Set<Path> pendingFiles = new LinkedHashSet<>();

@@ -1,5 +1,6 @@
 package io.github.ousatov.tools.memgraph.exe.metrics;
 
+import io.github.ousatov.tools.memgraph.config.AppConfig;
 import io.github.ousatov.tools.memgraph.vo.adapter.SourceFileDefinitions;
 import io.github.ousatov.tools.memgraph.vo.metrics.CypherTiming;
 import io.github.ousatov.tools.memgraph.vo.metrics.CypherTimingSnapshot;
@@ -26,8 +27,10 @@ public final class IngestionRunStats {
   public static final String PHASE_WRITE = "phase.write.ms";
   public static final String PHASE_EMBEDDING = "phase.embedding.ms";
 
-  private static final int TOP_CYPHER_LIMIT = 5;
-  private static final int CYPHER_PREVIEW_LIMIT = 80;
+  private static final int TOP_CYPHER_LIMIT =
+      AppConfig.intValue("metrics.run-stats.top-cypher-limit");
+  private static final int CYPHER_PREVIEW_LIMIT =
+      AppConfig.intValue("metrics.run-stats.cypher-preview-limit");
   private static final String EMPTY_CYPHER_PREVIEW = "<empty>";
   private static final List<String> PHASE_ROWS =
       List.of(PHASE_PARSE, PHASE_CLEANUP, PHASE_WRITE, PHASE_EMBEDDING);

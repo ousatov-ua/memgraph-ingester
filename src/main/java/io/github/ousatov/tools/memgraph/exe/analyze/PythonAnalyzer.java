@@ -1,5 +1,6 @@
 package io.github.ousatov.tools.memgraph.exe.analyze;
 
+import io.github.ousatov.tools.memgraph.config.AppConfig;
 import io.github.ousatov.tools.memgraph.def.Const;
 import io.github.ousatov.tools.memgraph.exception.ProcessingException;
 import io.github.ousatov.tools.memgraph.vo.analysis.PythonAnalysis;
@@ -26,7 +27,8 @@ public final class PythonAnalyzer {
   private static final Logger log = LoggerFactory.getLogger(PythonAnalyzer.class);
   private static final String HELPER_RESOURCE_DIR = "/io/github/ousatov/tools/memgraph/python/";
   private static final String HELPER_SCRIPT_NAME = "python-analyzer.py";
-  private static final Duration PROCESS_TIMEOUT = Duration.ofMinutes(2);
+  private static final Duration PROCESS_TIMEOUT =
+      AppConfig.durationValue("analyzers.python.process-timeout");
 
   private final Path sourceRoot;
   private final ManagedPythonRuntime pythonRuntime;

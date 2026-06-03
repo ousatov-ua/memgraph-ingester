@@ -1,5 +1,6 @@
 package io.github.ousatov.tools.memgraph.exe.analyze;
 
+import io.github.ousatov.tools.memgraph.config.AppConfig;
 import io.github.ousatov.tools.memgraph.def.Const;
 import io.github.ousatov.tools.memgraph.exception.ProcessingException;
 import java.io.IOException;
@@ -17,7 +18,8 @@ import java.util.HexFormat;
 /** Common HTTP download and checksum behavior for managed tool installers. */
 abstract class ManagedHttpInstaller {
 
-  private static final Duration HTTP_TIMEOUT = Duration.ofMinutes(5);
+  private static final Duration HTTP_TIMEOUT =
+      AppConfig.durationValue("runtime.managed.http-timeout");
 
   private final HttpClient http;
 

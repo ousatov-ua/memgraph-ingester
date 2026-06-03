@@ -1,5 +1,6 @@
 package io.github.ousatov.tools.memgraph.exe.writer;
 
+import io.github.ousatov.tools.memgraph.config.AppConfig;
 import io.github.ousatov.tools.memgraph.def.Const;
 import io.github.ousatov.tools.memgraph.def.Const.Cypher;
 import io.github.ousatov.tools.memgraph.def.Const.Params;
@@ -48,9 +49,11 @@ public final class GraphWriter {
 
   private static final Logger log = LoggerFactory.getLogger(GraphWriter.class);
 
-  private static final int WIPE_BATCH_SIZE = 10_000;
-  private static final int MIN_VECTOR_INDEX_CAPACITY = 8192;
-  private static final int VECTOR_INDEX_HEADROOM_MULTIPLIER = 2;
+  private static final int WIPE_BATCH_SIZE = AppConfig.intValue("writer.wipe-batch-size");
+  private static final int MIN_VECTOR_INDEX_CAPACITY =
+      AppConfig.intValue("writer.vector-index-min-capacity");
+  private static final int VECTOR_INDEX_HEADROOM_MULTIPLIER =
+      AppConfig.intValue("writer.vector-index-headroom-multiplier");
   private final CypherExecutor cypher;
   private final GraphNodeWriter nodes;
   private final MemoryChunkBuilder memoryChunks = new MemoryChunkBuilder();

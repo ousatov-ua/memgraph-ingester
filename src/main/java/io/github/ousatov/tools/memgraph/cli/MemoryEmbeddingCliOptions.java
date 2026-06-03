@@ -32,7 +32,6 @@ public final class MemoryEmbeddingCliOptions {
 
   @Option(
       names = {"--memory-embedding-batch-size"},
-      defaultValue = Const.Symbols.EMPTY + EmbeddingSettings.DEFAULT_BATCH_SIZE,
       description =
           "Chunk nodes per Memgraph embedding call and local embedding batch size for"
               + " MemoryChunk refresh.")
@@ -41,37 +40,33 @@ public final class MemoryEmbeddingCliOptions {
 
   @Option(
       names = {"--memory-embedding-chunk-size"},
-      defaultValue = Const.Symbols.EMPTY + EmbeddingSettings.DEFAULT_CHUNK_SIZE,
       description = "Memgraph embeddings chunk_size for local MemoryChunk computation.")
   @SuppressWarnings(Const.Warnings.UNUSED)
   public int chunkSize = EmbeddingSettings.DEFAULT_CHUNK_SIZE;
 
   @Option(
       names = {"--memory-embedding-remote-batch-size"},
-      defaultValue = Const.Params.ZERO,
       description =
           "Optional Memgraph remote_batch_size for MemoryChunk refresh; 0 keeps the embeddings"
               + " module default.")
   @SuppressWarnings(Const.Warnings.UNUSED)
-  public int remoteBatchSize;
+  public int remoteBatchSize = EmbeddingSettings.DEFAULT_REMOTE_BATCH_SIZE;
 
   @Option(
       names = {"--memory-embedding-concurrency"},
-      defaultValue = Const.Params.ZERO,
       description =
           "Optional Memgraph remote provider concurrency for MemoryChunk refresh; 0 keeps the"
               + " module default.")
   @SuppressWarnings(Const.Warnings.UNUSED)
-  public int concurrency;
+  public int concurrency = EmbeddingSettings.DEFAULT_CONCURRENCY;
 
   @Option(
       names = {"--memory-embedding-index-capacity"},
-      defaultValue = Const.Params.ZERO,
       description =
           "Optional MemoryChunk vector index capacity; 0 uses the current MemoryChunk count."
               + " The index uses cosine metric and f16 scalar storage by default.")
   @SuppressWarnings(Const.Warnings.UNUSED)
-  public int capacity;
+  public int capacity = EmbeddingSettings.DEFAULT_CAPACITY;
 
   public EmbeddingSettings toSettings(boolean memoryRequired) {
     return new EmbeddingSettings(
@@ -83,7 +78,7 @@ public final class MemoryEmbeddingCliOptions {
         batchSize,
         chunkSize,
         device,
-        0,
+        EmbeddingSettings.DEFAULT_DIMENSIONS,
         remoteBatchSize,
         concurrency,
         capacity);

@@ -1,6 +1,7 @@
 package io.github.ousatov.tools.memgraph.exe.rag;
 
 import com.github.javaparser.ast.Node;
+import io.github.ousatov.tools.memgraph.config.AppConfig;
 import io.github.ousatov.tools.memgraph.def.Const;
 import io.github.ousatov.tools.memgraph.def.Const.Params;
 import io.github.ousatov.tools.memgraph.vo.rag.CodeChunkAnalysis;
@@ -29,8 +30,8 @@ import java.util.Locale;
  */
 public abstract class CommonCodeChunkBuilder<T> {
 
-  private static final int MAX_EXCERPT_LINES = 80;
-  private static final int DOC_LOOKBACK_LINES = 16;
+  private static final int MAX_EXCERPT_LINES = AppConfig.intValue("rag.max-excerpt-lines");
+  private static final int DOC_LOOKBACK_LINES = AppConfig.intValue("rag.doc-lookback-lines");
   private static final int ID_HASH_LENGTH = 16;
 
   private final CodeChunkAnalyzer<T> analyzer;

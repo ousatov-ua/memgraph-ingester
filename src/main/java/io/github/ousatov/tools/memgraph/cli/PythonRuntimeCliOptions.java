@@ -31,14 +31,12 @@ public final class PythonRuntimeCliOptions {
 
   @Option(
       names = {Const.Cli.PYTHON_VERSION},
-      defaultValue = ManagedPythonRuntime.DEFAULT_PYTHON_VERSION,
       description = "Pinned CPython version used for managed Python parsing.")
   @SuppressWarnings(Const.Warnings.UNUSED)
   public String version = ManagedPythonRuntime.DEFAULT_PYTHON_VERSION;
 
   @Option(
       names = {Const.Cli.PYTHON_BUILD},
-      defaultValue = ManagedPythonRuntime.DEFAULT_PYTHON_BUILD,
       description = "Pinned python-build-standalone release tag used for managed Python parsing.")
   @SuppressWarnings(Const.Warnings.UNUSED)
   public String build = ManagedPythonRuntime.DEFAULT_PYTHON_BUILD;

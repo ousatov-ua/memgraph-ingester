@@ -1,0 +1,65 @@
+runtime:
+  managed:
+    node:
+      version: "22.11.0"
+      dist-url: "https://nodejs.org/dist/"
+    typescript:
+      version: "5.6.3"
+      registry-url: "https://registry.npmjs.org/typescript/"
+    python:
+      version: "3.14.5"
+      build: "20260510"
+      dist-url: "https://github.com/astral-sh/python-build-standalone/releases/download/"
+      venv-timeout: 2m
+    ctags:
+      version: "latest"
+      github-base-url: "https://github.com"
+      http-timeout: 30s
+    http-timeout: 5m
+    loading-interval: 500ms
+analyzers:
+  javascript:
+    process-timeout: 2m
+  python:
+    process-timeout: 2m
+  ctags:
+    process-timeout: 30s
+embedding:
+  code-index-name: "code_chunk_embedding_v1"
+  memory-index-name: "memory_chunk_embedding_v1"
+  model-name: "all-MiniLM-L6-v2"
+  property: "embedding"
+  metric: "cos"
+  scalar-kind: "f16"
+  batch-size: 512
+  chunk-size: 48
+  dimensions: 0
+  remote-batch-size: 0
+  concurrency: 0
+  capacity: 0
+writer:
+  wipe-batch-size: 10_000
+  vector-index-min-capacity: 8192
+  vector-index-headroom-multiplier: 2
+  cypher-retry:
+    max-attempts: 8
+    initial-backoff: 10ms
+    max-backoff: 500ms
+ingestion:
+  shutdown-timeout: 10m
+  file-transaction-retry:
+    max-attempts: 64
+    initial-backoff: 40ms
+    max-backoff: 1000ms
+watch:
+  debounce: 500ms
+rag:
+  max-excerpt-lines: 80
+  doc-lookback-lines: 16
+metrics:
+  validation:
+    bolt-url: "bolt://localhost:7687"
+    project: "memgraph-ingester"
+  run-stats:
+    top-cypher-limit: 5
+    cypher-preview-limit: 80

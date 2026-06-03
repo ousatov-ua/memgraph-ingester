@@ -1,6 +1,7 @@
 package io.github.ousatov.tools.memgraph.exe.ingestion;
 
 import io.github.ousatov.tools.memgraph.IngesterCli;
+import io.github.ousatov.tools.memgraph.config.AppConfig;
 import io.github.ousatov.tools.memgraph.def.Const;
 import io.github.ousatov.tools.memgraph.exception.ProcessingException;
 import io.github.ousatov.tools.memgraph.exe.adapter.JavaLanguageAdapter;
@@ -30,6 +31,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
@@ -68,10 +70,14 @@ public final class IngestionOrchestrator {
 
   private static final Logger log = LoggerFactory.getLogger(IngestionOrchestrator.class);
 
-  private static final long SHUTDOWN_TIMEOUT_MINUTES = 10L;
-  private static final int FILE_TX_RETRY_ATTEMPTS = 64;
-  private static final long FILE_TX_INITIAL_BACKOFF_MS = 40L;
-  private static final long FILE_TX_MAX_BACKOFF_MS = 1_000L;
+  private static final Duration SHUTDOWN_TIMEOUT =
+      AppConfig.durationValue("ingestion.shutdown-timeout");
+  private static final int FILE_TX_RETRY_ATTEMPTS =
+      AppConfig.intValue("ingestion.file-transaction-retry.max-attempts");
+  private static final long FILE_TX_INITIAL_BACKOFF_MS =
+      AppConfig.durationValue("ingestion.file-transaction-retry.initial-backoff").toMillis();
+  private static final long FILE_TX_MAX_BACKOFF_MS =
+      AppConfig.durationValue("ingestion.file-transaction-retry.max-backoff").toMillis();
   private final Path sourceRoot;
   private final String project;
   private final int threads;
@@ -1025,8 +1031,8 @@ public final class IngestionOrchestrator {
                     prepareFileForIngestion(file, storedFiles, failedAdapterPreparations, stats)));
       }
       pool.shutdown();
-      if (!pool.awaitTermination(SHUTDOWN_TIMEOUT_MINUTES, TimeUnit.MINUTES)) {
-        log.warn("Ingestion did not complete within {} minutes.", SHUTDOWN_TIMEOUT_MINUTES);
+      if (!pool.awaitTermination(SHUTDOWN_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS)) {
+        log.warn("Ingestion did not complete within {}.", SHUTDOWN_TIMEOUT);
         pool.shutdownNow();
         throw new ProcessingException("Parallel ingestion preparation timed out");
       }

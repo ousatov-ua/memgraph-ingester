@@ -1,5 +1,6 @@
 package io.github.ousatov.tools.memgraph.exe.writer;
 
+import io.github.ousatov.tools.memgraph.config.AppConfig;
 import io.github.ousatov.tools.memgraph.def.Const;
 import io.github.ousatov.tools.memgraph.def.Const.Labels;
 import io.github.ousatov.tools.memgraph.def.Const.Params;
@@ -31,9 +32,12 @@ final class CypherExecutor {
 
   private static final Logger log = LoggerFactory.getLogger(CypherExecutor.class);
 
-  private static final int MAX_RETRY_ATTEMPTS = 8;
-  private static final long INITIAL_BACKOFF_MS = 10L;
-  private static final long MAX_BACKOFF_MS = 500L;
+  private static final int MAX_RETRY_ATTEMPTS =
+      AppConfig.intValue("writer.cypher-retry.max-attempts");
+  private static final long INITIAL_BACKOFF_MS =
+      AppConfig.durationValue("writer.cypher-retry.initial-backoff").toMillis();
+  private static final long MAX_BACKOFF_MS =
+      AppConfig.durationValue("writer.cypher-retry.max-backoff").toMillis();
 
   private final Session session;
   private final String project;

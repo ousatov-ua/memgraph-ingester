@@ -1,5 +1,6 @@
 package io.github.ousatov.tools.memgraph.exe.analyze;
 
+import io.github.ousatov.tools.memgraph.config.AppConfig;
 import io.github.ousatov.tools.memgraph.def.Const;
 import io.github.ousatov.tools.memgraph.exception.ProcessingException;
 import io.github.ousatov.tools.memgraph.vo.analysis.JsAnalysis;
@@ -28,7 +29,8 @@ public final class JsAnalyzer {
   private static final String HELPER_SCRIPT_NAME = "js-analyzer.cjs";
   private static final List<String> HELPER_RESOURCE_NAMES =
       List.of(HELPER_SCRIPT_NAME, "js-analyzer-ast.cjs", "js-analyzer-paths.cjs");
-  private static final Duration PROCESS_TIMEOUT = Duration.ofMinutes(2);
+  private static final Duration PROCESS_TIMEOUT =
+      AppConfig.durationValue("analyzers.javascript.process-timeout");
 
   private final Path sourceRoot;
   private final ManagedNodeRuntime nodeRuntime;

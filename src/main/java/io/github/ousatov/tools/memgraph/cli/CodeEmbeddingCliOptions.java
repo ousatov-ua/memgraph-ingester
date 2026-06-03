@@ -32,7 +32,6 @@ public final class CodeEmbeddingCliOptions {
 
   @Option(
       names = {"--code-embedding-batch-size"},
-      defaultValue = Const.Symbols.EMPTY + EmbeddingSettings.DEFAULT_BATCH_SIZE,
       description =
           "Chunk nodes per Memgraph embedding call and local embedding batch size for CodeChunk"
               + " refresh.")
@@ -41,33 +40,29 @@ public final class CodeEmbeddingCliOptions {
 
   @Option(
       names = {"--code-embedding-chunk-size"},
-      defaultValue = Const.Symbols.EMPTY + EmbeddingSettings.DEFAULT_CHUNK_SIZE,
       description = "Memgraph embeddings chunk_size for local multi-GPU computation.")
   @SuppressWarnings(Const.Warnings.UNUSED)
   public int chunkSize = EmbeddingSettings.DEFAULT_CHUNK_SIZE;
 
   @Option(
       names = {"--code-embedding-remote-batch-size"},
-      defaultValue = Const.Params.ZERO,
       description = "Optional Memgraph remote_batch_size; 0 keeps the embeddings module default.")
   @SuppressWarnings(Const.Warnings.UNUSED)
-  public int remoteBatchSize;
+  public int remoteBatchSize = EmbeddingSettings.DEFAULT_REMOTE_BATCH_SIZE;
 
   @Option(
       names = {"--code-embedding-concurrency"},
-      defaultValue = Const.Params.ZERO,
       description = "Optional Memgraph remote provider concurrency; 0 keeps the module default.")
   @SuppressWarnings(Const.Warnings.UNUSED)
-  public int concurrency;
+  public int concurrency = EmbeddingSettings.DEFAULT_CONCURRENCY;
 
   @Option(
       names = {"--code-embedding-index-capacity"},
-      defaultValue = Const.Params.ZERO,
       description =
           "Optional vector index capacity; 0 uses the current CodeChunk count. The index uses "
               + "cosine metric and f16 scalar storage by default.")
   @SuppressWarnings(Const.Warnings.UNUSED)
-  public int capacity;
+  public int capacity = EmbeddingSettings.DEFAULT_CAPACITY;
 
   public EmbeddingSettings toSettings() {
     return new EmbeddingSettings(
@@ -79,7 +74,7 @@ public final class CodeEmbeddingCliOptions {
         batchSize,
         chunkSize,
         device,
-        0,
+        EmbeddingSettings.DEFAULT_DIMENSIONS,
         remoteBatchSize,
         concurrency,
         capacity);

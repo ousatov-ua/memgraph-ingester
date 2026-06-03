@@ -1,5 +1,6 @@
 package io.github.ousatov.tools.memgraph.exe.analyze;
 
+import io.github.ousatov.tools.memgraph.config.AppConfig;
 import io.github.ousatov.tools.memgraph.def.Const;
 import io.github.ousatov.tools.memgraph.def.Const.SystemParams;
 import io.github.ousatov.tools.memgraph.exception.ProcessingException;
@@ -32,13 +33,16 @@ import org.slf4j.LoggerFactory;
  */
 public final class ManagedPythonRuntime extends ManagedHttpInstaller {
 
-  public static final String DEFAULT_PYTHON_VERSION = "3.14.5";
-  public static final String DEFAULT_PYTHON_BUILD = "20260510";
+  public static final String DEFAULT_PYTHON_VERSION =
+      AppConfig.stringValue("runtime.managed.python.version");
+  public static final String DEFAULT_PYTHON_BUILD =
+      AppConfig.stringValue("runtime.managed.python.build");
 
   private static final Logger log = LoggerFactory.getLogger(ManagedPythonRuntime.class);
   private static final String PYTHON_DIST =
-      "https://github.com/astral-sh/python-build-standalone/releases/download/";
-  private static final Duration VENV_TIMEOUT = Duration.ofMinutes(2);
+      AppConfig.stringValue("runtime.managed.python.dist-url");
+  private static final Duration VENV_TIMEOUT =
+      AppConfig.durationValue("runtime.managed.python.venv-timeout");
   private static final String INSTALL_LOCK_FILE = Const.Files.INSTALL_LOCK;
   private static final String INSTALL_READY_FILE = Const.Files.INSTALL_COMPLETE;
   private static final String VENV_READY_FILE = ".venv-complete";

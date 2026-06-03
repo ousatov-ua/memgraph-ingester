@@ -31,14 +31,12 @@ public final class JsRuntimeCliOptions {
 
   @Option(
       names = {Const.Cli.JS_NODE_VERSION},
-      defaultValue = ManagedNodeRuntime.DEFAULT_NODE_VERSION,
       description = "Pinned Node.js version used for managed JavaScript parsing.")
   @SuppressWarnings(Const.Warnings.UNUSED)
   public String nodeVersion = ManagedNodeRuntime.DEFAULT_NODE_VERSION;
 
   @Option(
       names = {Const.Cli.JS_TYPESCRIPT_VERSION},
-      defaultValue = ManagedTypescriptPackage.DEFAULT_TYPESCRIPT_VERSION,
       description = "Pinned TypeScript compiler package used by the JavaScript analyzer.")
   @SuppressWarnings(Const.Warnings.UNUSED)
   public String typescriptVersion = ManagedTypescriptPackage.DEFAULT_TYPESCRIPT_VERSION;

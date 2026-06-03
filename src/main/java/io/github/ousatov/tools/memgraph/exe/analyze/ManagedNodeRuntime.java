@@ -1,5 +1,6 @@
 package io.github.ousatov.tools.memgraph.exe.analyze;
 
+import io.github.ousatov.tools.memgraph.config.AppConfig;
 import io.github.ousatov.tools.memgraph.def.Const;
 import io.github.ousatov.tools.memgraph.def.Const.SystemParams;
 import io.github.ousatov.tools.memgraph.exception.ProcessingException;
@@ -34,10 +35,11 @@ import org.slf4j.LoggerFactory;
  */
 public final class ManagedNodeRuntime extends ManagedHttpInstaller {
 
-  public static final String DEFAULT_NODE_VERSION = "22.11.0";
+  public static final String DEFAULT_NODE_VERSION =
+      AppConfig.stringValue("runtime.managed.node.version");
 
   private static final Logger log = LoggerFactory.getLogger(ManagedNodeRuntime.class);
-  private static final String NODE_DIST = "https://nodejs.org/dist/";
+  private static final String NODE_DIST = AppConfig.stringValue("runtime.managed.node.dist-url");
   private static final String INSTALL_LOCK_FILE = Const.Files.INSTALL_LOCK;
   private static final String INSTALL_READY_FILE = Const.Files.INSTALL_COMPLETE;
   private static final ConcurrentMap<Path, Object> INSTALL_LOCKS = new ConcurrentHashMap<>();

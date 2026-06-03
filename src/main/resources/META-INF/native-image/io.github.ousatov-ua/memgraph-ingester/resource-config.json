@@ -8,6 +8,9 @@
         "pattern": "simplelogger[.]properties$"
       },
       {
+        "pattern": "memgraph-ingester[.]yml$"
+      },
+      {
         "pattern": "io/github/ousatov/tools/memgraph/js/js-(.*)[.]cjs$"
       },
       {

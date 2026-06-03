@@ -1,5 +1,6 @@
 package io.github.ousatov.tools.memgraph.exe.analyze;
 
+import io.github.ousatov.tools.memgraph.config.AppConfig;
 import io.github.ousatov.tools.memgraph.def.Const;
 import io.github.ousatov.tools.memgraph.def.Const.SystemParams;
 import io.github.ousatov.tools.memgraph.exception.ProcessingException;
@@ -48,12 +49,15 @@ public final class ManagedCtagsRuntime {
 
   private static final Logger log = LoggerFactory.getLogger(ManagedCtagsRuntime.class);
 
-  public static final String DEFAULT_CTAGS_VERSION = "latest";
-  private static final String GITHUB_BASE_URL = "https://github.com";
+  public static final String DEFAULT_CTAGS_VERSION =
+      AppConfig.stringValue("runtime.managed.ctags.version");
+  private static final String GITHUB_BASE_URL =
+      AppConfig.stringValue("runtime.managed.ctags.github-base-url");
   private static final String CTAGS_ENV = "MEMGRAPH_INGESTER_CTAGS";
   private static final String INSTALL_LOCK_FILE = Const.Files.INSTALL_LOCK;
   private static final String INSTALL_READY_FILE = Const.Files.INSTALL_COMPLETE;
-  private static final Duration HTTP_TIMEOUT = Duration.ofSeconds(30);
+  private static final Duration HTTP_TIMEOUT =
+      AppConfig.durationValue("runtime.managed.ctags.http-timeout");
   private static final Pattern RELEASE_TAG_PATTERN =
       Pattern.compile("\"tag_name\"\\s*:\\s*\"([^\"]+)\"");
   private static final Pattern ASSET_PATTERN =

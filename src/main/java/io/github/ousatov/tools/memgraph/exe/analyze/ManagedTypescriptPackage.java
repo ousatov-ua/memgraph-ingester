@@ -1,5 +1,6 @@
 package io.github.ousatov.tools.memgraph.exe.analyze;
 
+import io.github.ousatov.tools.memgraph.config.AppConfig;
 import io.github.ousatov.tools.memgraph.def.Const;
 import io.github.ousatov.tools.memgraph.exception.ProcessingException;
 import io.github.ousatov.tools.memgraph.exe.output.ConsoleStatusLine;
@@ -28,9 +29,12 @@ import org.slf4j.LoggerFactory;
 /** Downloads, verifies, and caches the pinned TypeScript compiler package used by the JS helper. */
 public final class ManagedTypescriptPackage extends ManagedHttpInstaller {
 
-  public static final String DEFAULT_TYPESCRIPT_VERSION = "5.6.3";
+  public static final String DEFAULT_TYPESCRIPT_VERSION =
+      AppConfig.stringValue("runtime.managed.typescript.version");
 
   private static final Logger log = LoggerFactory.getLogger(ManagedTypescriptPackage.class);
+  private static final String TYPESCRIPT_REGISTRY =
+      AppConfig.stringValue("runtime.managed.typescript.registry-url");
   private static final Pattern TARBALL_PATTERN =
       Pattern.compile("\"tarball\"\\s*:\\s*\"([^\"]+)\"");
   private static final Pattern INTEGRITY_PATTERN =
@@ -118,7 +122,7 @@ public final class ManagedTypescriptPackage extends ManagedHttpInstaller {
   }
 
   private void install(Path typescriptDir) throws IOException {
-    String metadata = downloadText(URI.create("https://registry.npmjs.org/typescript/" + version));
+    String metadata = downloadText(URI.create(TYPESCRIPT_REGISTRY + version));
     String tarball = extract(metadata, TARBALL_PATTERN, "TypeScript tarball URL");
     String integrity = extract(metadata, INTEGRITY_PATTERN, "TypeScript sha512 integrity");
     ConsoleStatusLine.withFinishedLine(

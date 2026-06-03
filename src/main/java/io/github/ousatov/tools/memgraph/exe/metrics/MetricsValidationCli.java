@@ -1,5 +1,6 @@
 package io.github.ousatov.tools.memgraph.exe.metrics;
 
+import io.github.ousatov.tools.memgraph.config.AppConfig;
 import io.github.ousatov.tools.memgraph.def.Const;
 import io.github.ousatov.tools.memgraph.schema.MemgraphDriver;
 import java.io.IOException;
@@ -14,8 +15,9 @@ import org.neo4j.driver.Session;
  */
 public final class MetricsValidationCli {
 
-  private static final String DEFAULT_BOLT_URL = "bolt://localhost:7687";
-  private static final String DEFAULT_PROJECT = Const.SystemParams.MEMGRAPH_INGESTER;
+  private static final String DEFAULT_BOLT_URL =
+      AppConfig.stringValue("metrics.validation.bolt-url");
+  private static final String DEFAULT_PROJECT = AppConfig.stringValue("metrics.validation.project");
 
   private MetricsValidationCli() {
     throw new UnsupportedOperationException("Utility class");

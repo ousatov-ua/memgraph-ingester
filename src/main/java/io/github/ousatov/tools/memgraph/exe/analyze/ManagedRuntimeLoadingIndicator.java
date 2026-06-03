@@ -1,5 +1,6 @@
 package io.github.ousatov.tools.memgraph.exe.analyze;
 
+import io.github.ousatov.tools.memgraph.config.AppConfig;
 import io.github.ousatov.tools.memgraph.def.Const;
 import io.github.ousatov.tools.memgraph.exe.output.ConsoleProgress;
 import io.github.ousatov.tools.memgraph.exe.output.ConsoleStatusLine;
@@ -14,7 +15,8 @@ import java.util.Objects;
  */
 final class ManagedRuntimeLoadingIndicator implements AutoCloseable {
 
-  private static final Duration DEFAULT_INTERVAL = Duration.ofMillis(500);
+  private static final Duration DEFAULT_INTERVAL =
+      AppConfig.durationValue("runtime.managed.loading-interval");
 
   private final PrintStream out;
   private final String runtimeName;

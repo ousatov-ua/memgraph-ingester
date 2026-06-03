@@ -1,5 +1,6 @@
 package io.github.ousatov.tools.memgraph.exe.analyze;
 
+import io.github.ousatov.tools.memgraph.config.AppConfig;
 import io.github.ousatov.tools.memgraph.def.Const;
 import io.github.ousatov.tools.memgraph.def.Const.Params;
 import io.github.ousatov.tools.memgraph.exception.ProcessingException;
@@ -33,7 +34,8 @@ import org.slf4j.LoggerFactory;
 public final class CtagsAnalyzer {
 
   private static final Logger log = LoggerFactory.getLogger(CtagsAnalyzer.class);
-  private static final Duration PROCESS_TIMEOUT = Duration.ofSeconds(30);
+  private static final Duration PROCESS_TIMEOUT =
+      AppConfig.durationValue("analyzers.ctags.process-timeout");
   private static final Set<String> TYPE_KINDS =
       Set.of(
           "class",

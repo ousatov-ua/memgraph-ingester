@@ -30,7 +30,6 @@ public final class CtagsRuntimeCliOptions {
 
   @Option(
       names = {"--ctags-version"},
-      defaultValue = ManagedCtagsRuntime.DEFAULT_CTAGS_VERSION,
       description = "Universal Ctags release tag used for managed fallback parsing, or latest.")
   @SuppressWarnings(Const.Warnings.UNUSED)
   public String version = ManagedCtagsRuntime.DEFAULT_CTAGS_VERSION;

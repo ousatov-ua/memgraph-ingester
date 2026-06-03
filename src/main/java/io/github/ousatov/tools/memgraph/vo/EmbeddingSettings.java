@@ -1,5 +1,6 @@
 package io.github.ousatov.tools.memgraph.vo;
 
+import io.github.ousatov.tools.memgraph.config.AppConfig;
 import io.github.ousatov.tools.memgraph.def.Const;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -24,14 +25,23 @@ public record EmbeddingSettings(
     int concurrency,
     int capacity) {
 
-  public static final String DEFAULT_CODE_INDEX_NAME = "code_chunk_embedding_v1";
-  public static final String DEFAULT_MEMORY_INDEX_NAME = "memory_chunk_embedding_v1";
-  public static final String DEFAULT_MODEL_NAME = "all-MiniLM-L6-v2";
-  public static final String DEFAULT_EMBEDDING_PROPERTY = "embedding";
-  public static final String DEFAULT_METRIC = "cos";
-  public static final String DEFAULT_SCALAR_KIND = "f16";
-  public static final int DEFAULT_BATCH_SIZE = 512;
-  public static final int DEFAULT_CHUNK_SIZE = 48;
+  public static final String DEFAULT_CODE_INDEX_NAME =
+      AppConfig.stringValue("embedding.code-index-name");
+  public static final String DEFAULT_MEMORY_INDEX_NAME =
+      AppConfig.stringValue("embedding.memory-index-name");
+  public static final String DEFAULT_MODEL_NAME =
+      AppConfig.stringValue("embedding.model-name");
+  public static final String DEFAULT_EMBEDDING_PROPERTY =
+      AppConfig.stringValue("embedding.property");
+  public static final String DEFAULT_METRIC = AppConfig.stringValue("embedding.metric");
+  public static final String DEFAULT_SCALAR_KIND = AppConfig.stringValue("embedding.scalar-kind");
+  public static final int DEFAULT_BATCH_SIZE = AppConfig.intValue("embedding.batch-size");
+  public static final int DEFAULT_CHUNK_SIZE = AppConfig.intValue("embedding.chunk-size");
+  public static final int DEFAULT_DIMENSIONS = AppConfig.intValue("embedding.dimensions");
+  public static final int DEFAULT_REMOTE_BATCH_SIZE =
+      AppConfig.intValue("embedding.remote-batch-size");
+  public static final int DEFAULT_CONCURRENCY = AppConfig.intValue("embedding.concurrency");
+  public static final int DEFAULT_CAPACITY = AppConfig.intValue("embedding.capacity");
 
   private static final List<String> CODE_CHUNK_METADATA_PROPERTIES =
       List.of(
@@ -83,13 +93,35 @@ public record EmbeddingSettings(
   /** Enabled defaults for {@code :CodeChunk} embeddings. */
   public static EmbeddingSettings codeDefaults() {
     return new EmbeddingSettings(
-        true, DEFAULT_CODE_INDEX_NAME, null, null, null, 0, 0, Const.Symbols.EMPTY, 0, 0, 0, 0);
+        true,
+        DEFAULT_CODE_INDEX_NAME,
+        null,
+        null,
+        null,
+        0,
+        0,
+        Const.Symbols.EMPTY,
+        DEFAULT_DIMENSIONS,
+        DEFAULT_REMOTE_BATCH_SIZE,
+        DEFAULT_CONCURRENCY,
+        DEFAULT_CAPACITY);
   }
 
   /** Enabled defaults for {@code :MemoryChunk} embeddings. */
   public static EmbeddingSettings memoryDefaults() {
     return new EmbeddingSettings(
-        true, DEFAULT_MEMORY_INDEX_NAME, null, null, null, 0, 0, Const.Symbols.EMPTY, 0, 0, 0, 0);
+        true,
+        DEFAULT_MEMORY_INDEX_NAME,
+        null,
+        null,
+        null,
+        0,
+        0,
+        Const.Symbols.EMPTY,
+        DEFAULT_DIMENSIONS,
+        DEFAULT_REMOTE_BATCH_SIZE,
+        DEFAULT_CONCURRENCY,
+        DEFAULT_CAPACITY);
   }
 
   /** Disabled default used by callers that opt out of embedding refresh. */
