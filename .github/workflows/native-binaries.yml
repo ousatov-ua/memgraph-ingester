@@ -159,7 +159,7 @@ jobs:
         shell: bash
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
-          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
 
           mkdir -p dist/linux-amd64 dist/darwin-arm64 release-assets
           install -m 0755 release-input/linux-amd64/memgraph-ingester-linux-amd64 dist/linux-amd64/memgraph-ingester
@@ -189,7 +189,7 @@ jobs:
           github_token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           commit_owner: homebrew-releaser
           commit_email: homebrew-releaser@example.com
-          version: ${{ steps.release-version.outputs.version }}
+          version: ${{ steps.release-version.outputs.tag }}
           install: 'bin.install "memgraph-ingester"'
           test: 'system "#{bin}/memgraph-ingester", "--version"'
           target_darwin_arm64: true
