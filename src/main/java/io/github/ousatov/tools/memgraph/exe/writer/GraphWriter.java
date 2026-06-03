@@ -106,8 +106,7 @@ public final class GraphWriter {
     cypher.run(
         Cypher.CYPHER_MARK_RETAINED_FILES_BATCH,
         Map.of(
-            Params.PATHS, List.copyOf(paths),
-            Params.RETAINED_SOURCE_TOKEN, retainedSourceToken));
+            Params.PATHS, List.copyOf(paths), Params.RETAINED_SOURCE_TOKEN, retainedSourceToken));
   }
 
   /**
@@ -219,11 +218,7 @@ public final class GraphWriter {
   public void deletePendingCallsForFile(Path file) {
     cypher.run(
         Cypher.CYPHER_DELETE_PENDING_CALLS_FOR_FILE,
-        Map.of(
-            Params.PATH,
-            file.toString(),
-            Params.RETAINED_SOURCE_TOKEN,
-            retainedSourceToken));
+        Map.of(Params.PATH, file.toString(), Params.RETAINED_SOURCE_TOKEN, retainedSourceToken));
   }
 
   /**
@@ -530,8 +525,7 @@ public final class GraphWriter {
 
   private void setRetainedSourcePathsIfNeeded(Collection<Path> files) {
     Set<String> paths = retainedPathSet(files);
-    if (!paths.equals(retainedSourcePaths)
-        || (retainedSourceToken.isBlank() && !paths.isEmpty())) {
+    if (!paths.equals(retainedSourcePaths) || (retainedSourceToken.isBlank() && !paths.isEmpty())) {
       setRetainedSourcePaths(files);
     }
   }
