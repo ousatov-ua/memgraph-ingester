@@ -24,7 +24,7 @@ CALL {
   WITH node, max(CASE WHEN definedBySourceFile THEN 1 ELSE 0 END) AS sourceDefinitions
   OPTIONAL MATCH (retainedFile:File {project: $project})-[:DEFINES]->(node)
   WHERE retainedFile.path <> $path
-    AND (size($paths) = 0 OR retainedFile.path IN $paths)
+    AND ($retainedSourceToken = '' OR retainedFile.retainedSourceToken = $retainedSourceToken)
   WITH node, sourceDefinitions, count(retainedFile) AS retainedDefinitions
   WHERE retainedDefinitions = 0
   WITH collect(DISTINCT node) AS staleRelationNodes,

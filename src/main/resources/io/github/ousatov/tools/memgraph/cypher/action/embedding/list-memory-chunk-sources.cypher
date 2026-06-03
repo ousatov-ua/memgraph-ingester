@@ -39,4 +39,3 @@ RETURN existingChunkId AS existingChunkId,
        memory.context AS context,
        memory.decision AS decision,
        codeRefs AS codeRefs
-ORDER BY sourceLabel, sourceId

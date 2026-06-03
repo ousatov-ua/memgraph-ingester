@@ -3,6 +3,10 @@ MERGE (f:File {path: $path, project: $project})
   SET f.lastModified = $lastModified,
       f.language = $language
 WITH code, f
+FOREACH (_ IN CASE WHEN $retainedSourceToken = '' THEN [] ELSE [1] END |
+  SET f.retainedSourceToken = $retainedSourceToken
+)
+WITH code, f
 OPTIONAL MATCH (oldCode:Code {project: $project})-[oldRel:CONTAINS]->(f)
 WHERE oldCode.language IS NULL OR oldCode.language <> $language
 DELETE oldRel

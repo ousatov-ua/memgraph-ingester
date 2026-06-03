@@ -1,5 +1,16 @@
-WITH $rows AS rows
 MATCH (chunk:MemoryChunk {project: $project})
-WITH chunk, [row IN rows WHERE row.sourceLabel = chunk.sourceLabel AND row.sourceId = chunk.sourceId] AS matches
-WHERE size(matches) = 0
+OPTIONAL MATCH (root:Memory {project: $project})-[memoryRel]->(memory)-[:HAS_RAG_CHUNK]->(chunk)
+WHERE type(memoryRel) IN [
+  'HAS_ADR',
+  'HAS_CONTEXT',
+  'HAS_DECISION',
+  'HAS_FINDING',
+  'HAS_IDEA',
+  'HAS_QUESTION',
+  'HAS_RISK',
+  'HAS_RULE',
+  'HAS_TASK'
+]
+WITH chunk, count(memory) AS currentSources
+WHERE currentSources = 0
 DETACH DELETE chunk

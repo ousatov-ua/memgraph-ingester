@@ -14,7 +14,6 @@ import io.github.ousatov.tools.memgraph.vo.writer.AnnotationWrite;
 import io.github.ousatov.tools.memgraph.vo.writer.CallWrite;
 import io.github.ousatov.tools.memgraph.vo.writer.CodeChunkWrite;
 import io.github.ousatov.tools.memgraph.vo.writer.EmbeddingRefreshResult;
-import io.github.ousatov.tools.memgraph.vo.writer.MemoryChunkWrite;
 import io.github.ousatov.tools.memgraph.vo.writer.PendingCallWrite;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -23,10 +22,12 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 import org.neo4j.driver.Session;
 import org.neo4j.driver.Value;
 import org.slf4j.Logger;
@@ -60,7 +61,8 @@ public final class GraphWriter {
   private final CommonGraphWriter.Dependencies dependencies;
   private final ChunkEmbeddingRefresher embeddingRefresher;
   private final IngestionRunStats stats;
-  private List<String> retainedSourcePaths = List.of();
+  private Set<String> retainedSourcePaths = Set.of();
+  private String retainedSourceToken = Const.Symbols.EMPTY;
 
   /**
    * @param session Bolt session — must not be shared with other threads
@@ -90,7 +92,22 @@ public final class GraphWriter {
 
   /** Sets project paths that should preserve shared definitions during file cleanup. */
   public void setRetainedSourcePaths(Collection<Path> files) {
-    retainedSourcePaths = files.stream().map(Path::toString).toList();
+    Set<String> paths = retainedPathSet(files);
+    if (paths.isEmpty()) {
+      retainedSourcePaths = Set.of();
+      retainedSourceToken = Const.Symbols.EMPTY;
+      return;
+    }
+    if (paths.equals(retainedSourcePaths) && !retainedSourceToken.isBlank()) {
+      return;
+    }
+    retainedSourcePaths = Set.copyOf(paths);
+    retainedSourceToken = UUID.randomUUID().toString();
+    cypher.run(
+        Cypher.CYPHER_MARK_RETAINED_FILES_BATCH,
+        Map.of(
+            Params.PATHS, List.copyOf(paths),
+            Params.RETAINED_SOURCE_TOKEN, retainedSourceToken));
   }
 
   /**
@@ -202,7 +219,11 @@ public final class GraphWriter {
   public void deletePendingCallsForFile(Path file) {
     cypher.run(
         Cypher.CYPHER_DELETE_PENDING_CALLS_FOR_FILE,
-        Map.of(Params.PATH, file.toString(), Params.PATHS, retainedSourcePaths));
+        Map.of(
+            Params.PATH,
+            file.toString(),
+            Params.RETAINED_SOURCE_TOKEN,
+            retainedSourceToken));
   }
 
   /**
@@ -228,7 +249,7 @@ public final class GraphWriter {
         Map.entry(Params.ANNOTATION_FQNS, definitions.annotationFqns()),
         Map.entry(Params.METHOD_SIGNATURES, definitions.methodSignatures()),
         Map.entry(Params.FIELD_FQNS, definitions.fieldFqns()),
-        Map.entry(Params.PATHS, retainedSourcePaths));
+        Map.entry(Params.RETAINED_SOURCE_TOKEN, retainedSourceToken));
   }
 
   /** Deletes all graph state owned by a source file that no longer exists. */
@@ -259,9 +280,10 @@ public final class GraphWriter {
       Collection<Path> files,
       Collection<Path> retainedFiles,
       SourceLanguage language) {
+    setRetainedSourcePathsIfNeeded(retainedFiles);
     Map<String, Object> params = new HashMap<>(sourceRootParams(sourceRoot));
     params.put(Params.PATHS, files.stream().map(Path::toString).toList());
-    params.put(Params.RETAINED_PATHS, retainedFiles.stream().map(Path::toString).toList());
+    params.put(Params.RETAINED_SOURCE_TOKEN, retainedSourceToken);
     params.put(Params.LANGUAGE, language.graphName());
     runInFileTransaction(
         () ->
@@ -435,7 +457,7 @@ public final class GraphWriter {
     List<String> missing = files.stream().map(Path::toString).toList();
     return cypher.readPathSet(
         Cypher.CYPHER_GET_RETAINED_FILES_SHARING_DEFINITIONS_WITH_FILES,
-        Map.of(Params.MISSING_PATHS, missing, Params.PATHS, retainedSourcePaths));
+        Map.of(Params.MISSING_PATHS, missing, Params.RETAINED_SOURCE_TOKEN, retainedSourceToken));
   }
 
   /** Returns standard source-root parameters (path + path-with-trailing-separator). */
@@ -501,7 +523,30 @@ public final class GraphWriter {
             Params.LANGUAGE,
             language.graphName(),
             Params.LANGUAGE_NAME,
-            language.nodeName()));
+            language.nodeName(),
+            Params.RETAINED_SOURCE_TOKEN,
+            retainedSourceTokenFor(file)));
+  }
+
+  private void setRetainedSourcePathsIfNeeded(Collection<Path> files) {
+    Set<String> paths = retainedPathSet(files);
+    if (!paths.equals(retainedSourcePaths)
+        || (retainedSourceToken.isBlank() && !paths.isEmpty())) {
+      setRetainedSourcePaths(files);
+    }
+  }
+
+  private String retainedSourceTokenFor(Path file) {
+    if (retainedSourceToken.isBlank() || !retainedSourcePaths.contains(file.toString())) {
+      return Const.Symbols.EMPTY;
+    }
+    return retainedSourceToken;
+  }
+
+  private static Set<String> retainedPathSet(Collection<Path> files) {
+    Set<String> paths = new LinkedHashSet<>();
+    files.stream().map(Path::toString).forEach(paths::add);
+    return paths;
   }
 
   /** Upserts a {@code :Package} node under the language-specific code anchor. */
@@ -555,26 +600,22 @@ public final class GraphWriter {
 
   /** Upserts derived {@code :MemoryChunk} rows for current Memory records. */
   public long upsertMemoryChunks() {
-    List<MemoryChunkWrite> chunks = memoryChunkSources().stream().map(memoryChunks::build).toList();
-    deleteStaleMemoryChunks(chunks);
-    cypher.runBatch(
-        Cypher.CYPHER_UPSERT_MEMORY_CHUNKS_BATCH,
-        chunks.stream().map(MemoryChunkWrite::params).toList());
-    return chunks.size();
+    List<MemorySource> sources = memoryChunkSources();
+    deleteStaleMemoryChunks();
+    List<Map<String, Object>> batch = new ArrayList<>();
+    for (MemorySource source : sources) {
+      batch.add(memoryChunks.build(source).params());
+      if (batch.size() >= WIPE_BATCH_SIZE) {
+        cypher.runBatch(Cypher.CYPHER_UPSERT_MEMORY_CHUNKS_BATCH, batch);
+        batch.clear();
+      }
+    }
+    cypher.runBatch(Cypher.CYPHER_UPSERT_MEMORY_CHUNKS_BATCH, batch);
+    return sources.size();
   }
 
-  private void deleteStaleMemoryChunks(Collection<MemoryChunkWrite> chunks) {
-    List<Map<String, Object>> rows =
-        chunks.stream()
-            .map(
-                chunk ->
-                    Map.<String, Object>of(
-                        Params.SOURCE_LABEL,
-                        chunk.sourceLabel(),
-                        Params.SOURCE_ID,
-                        chunk.sourceId()))
-            .toList();
-    cypher.run(Cypher.CYPHER_DELETE_STALE_MEMORY_CHUNKS, Map.of(Const.Params.ROWS, rows));
+  private void deleteStaleMemoryChunks() {
+    cypher.run(Cypher.CYPHER_DELETE_STALE_MEMORY_CHUNKS, Map.of());
   }
 
   /**

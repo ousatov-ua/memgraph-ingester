@@ -75,6 +75,8 @@ public final class CtagsAnalyzer {
           "externvar");
   private static final Set<String> ENUM_MEMBER_KINDS =
       Set.of("enumerator", "enumconstant", "enum-member");
+  private static final List<String> BUILT_IN_OPTIONS =
+      List.of(Const.Cli.CTAGS_OPTIONS_NONE, "--langdef=Cypher", "--map-Cypher=+.cypher");
 
   private final Path sourceRoot;
   private final ManagedCtagsRuntime runtime;
@@ -86,8 +88,7 @@ public final class CtagsAnalyzer {
 
   /** Detects the ctags language for one file. */
   public Optional<SourceLanguage> detectLanguage(Path file) {
-    ProcessResult result =
-        runCtags(List.of(Const.Cli.CTAGS_OPTIONS_NONE, "--print-language", file.toString()));
+    ProcessResult result = runCtags(arguments("--print-language", file.toString()));
     if (result.exitCode() != 0) {
       return Optional.empty();
     }
@@ -102,8 +103,7 @@ public final class CtagsAnalyzer {
                 () -> new ProcessingException("Ctags could not detect a language for " + file));
     ProcessResult result =
         runCtags(
-            List.of(
-                Const.Cli.CTAGS_OPTIONS_NONE,
+            arguments(
                 "--output-format=json",
                 "--fields=+nKlsSe",
                 "--extras=-F",
@@ -125,6 +125,14 @@ public final class CtagsAnalyzer {
   /** Returns an equivalent analyzer for another source root. */
   public CtagsAnalyzer withSourceRoot(Path newSourceRoot) {
     return new CtagsAnalyzer(newSourceRoot, runtime);
+  }
+
+  private static List<String> arguments(String... values) {
+    List<String> arguments = new ArrayList<>(BUILT_IN_OPTIONS);
+    for (String value : values) {
+      arguments.add(value);
+    }
+    return List.copyOf(arguments);
   }
 
   private CtagsAnalysis analysisFromTags(Path file, SourceLanguage language, List<CtagsTag> tags) {

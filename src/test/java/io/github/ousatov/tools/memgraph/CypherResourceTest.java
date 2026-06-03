@@ -220,8 +220,11 @@ class CypherResourceTest {
     assertFalse(countMemoryChunks.contains("{project: $project}"));
     assertTrue(listMemorySources.contains("MATCH (root:Memory"));
     assertTrue(listMemorySources.contains("HAS_RAG_CHUNK"));
+    assertFalse(listMemorySources.contains("ORDER BY sourceLabel, sourceId"));
     assertTrue(deleteStaleMemoryChunks.contains("DETACH DELETE chunk"));
-    assertTrue(deleteStaleMemoryChunks.contains("row.sourceLabel = chunk.sourceLabel"));
+    assertTrue(deleteStaleMemoryChunks.contains("MATCH (chunk:MemoryChunk {project: $project})"));
+    assertTrue(deleteStaleMemoryChunks.contains("HAS_RAG_CHUNK"));
+    assertFalse(deleteStaleMemoryChunks.contains("$rows"));
     assertTrue(wipeMemoryRag.contains("MATCH (chunk:MemoryChunk {project: $project})"));
     assertTrue(wipeMemoryRag.contains("DETACH DELETE chunk"));
     assertTrue(wipeMemoryRag.contains("RETURN count(chunk) AS deleted"));

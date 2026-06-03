@@ -126,6 +126,41 @@ class CtagsLanguageAdapterTest {
   }
 
   @Test
+  void shallowlyDiscoversCypherFilesWithoutSymbolTags() throws IOException {
+    assumeFalse(isWindows(), "fake executable script is POSIX-only");
+    Path sourceRoot = tempDir.resolve("repo");
+    CtagsLanguageAdapter adapter = adapterWithFakeCtags(sourceRoot, "Cypher", "");
+    Path cypherFile =
+        sourceRoot
+            .resolve("src")
+            .resolve("main")
+            .resolve("resources")
+            .resolve("queries")
+            .resolve("upsert-file.cypher");
+    Files.createDirectories(cypherFile.getParent());
+    Files.writeString(
+        cypherFile,
+        """
+        MATCH (p:Project {name: $project})
+        MERGE (f:File {path: $path, project: $project})
+        RETURN f
+        """);
+
+    assertIterableEquals(List.of(cypherFile), adapter.discoverFiles(sourceRoot));
+    CtagsAnalysis analysis = adapter.parse(cypherFile).orElseThrow();
+
+    assertEquals("cypher", analysis.language().graphName());
+    assertEquals("Cypher", analysis.language().nodeName());
+    assertEquals(List.of(), analysis.types());
+    assertEquals(List.of(), analysis.members());
+    SourceFileDefinitions definitions = adapter.collectDefinitions(analysis);
+    assertTrue(definitions.classFqns().contains(analysis.moduleFqn()));
+    assertTrue(definitions.methodSignatures().contains(analysis.moduleFqn() + ".<init>()"));
+    assertTrue(definitions.interfaceFqns().isEmpty());
+    assertTrue(definitions.fieldFqns().isEmpty());
+  }
+
+  @Test
   void discoversFilesWhenSourceRootParentHasSkippedDirectoryName() throws IOException {
     assumeFalse(isWindows(), "fake executable script is POSIX-only");
     Path sourceRoot = tempDir.resolve("build").resolve("repo");
@@ -376,7 +411,17 @@ class CtagsLanguageAdapterTest {
           if [ "$arg" = "--fields=+nKlsSe" ]; then
             fields_seen=1
           fi
+          if [ "$arg" = "--langdef=Cypher" ]; then
+            cypher_langdef_seen=1
+          fi
+          if [ "$arg" = "--map-Cypher=+.cypher" ]; then
+            cypher_map_seen=1
+          fi
         done
+        if [ "$cypher_langdef_seen" != "1" ] || [ "$cypher_map_seen" != "1" ]; then
+            echo "missing built-in Cypher ctags options" >&2
+            exit 2
+        fi
         if [ "$print_language" = "1" ]; then
             echo "$last: %s"
             exit 0

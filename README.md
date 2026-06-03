@@ -311,7 +311,9 @@ Optional preflight check, without connecting to Memgraph:
 ```
 
 Ctags fallback writes files, packages, synthetic module owners, types, methods, and fields under the
-detected graph language. It does not promise call graphs or language-specific semantic resolution.
+detected graph language. `.cypher` files are shallowly detected as Cypher so they get file/module
+graph nodes and RAG chunks; the ingester does not parse clauses, labels, relationships, call graphs,
+or other language-specific semantics.
 
 ### 7. Verify the Graph
 

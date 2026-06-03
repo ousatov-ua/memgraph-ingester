@@ -306,6 +306,26 @@ class GraphWriterIT {
   }
 
   @Test
+  void upsertFileMarksNewFileWhenItIsInRetainedSourceSet() {
+    Path retainedFile = SRC_ROOT.resolve("com/example/NewRetained.java");
+    writer.setRetainedSourcePaths(List.of(retainedFile));
+
+    writer.upsertFile(retainedFile, SourceLanguage.JAVA);
+
+    String token =
+        session
+            .run(
+                "MATCH (f:File {path: $path, project: $p})"
+                    + " RETURN f.retainedSourceToken AS token",
+                Map.of("path", retainedFile.toString(), "p", PROJECT))
+            .single()
+            .get("token")
+            .asString("");
+
+    assertFalse(token.isBlank());
+  }
+
+  @Test
   void getAllFileLastModifiedExcludesIncompleteJavascriptFiles() throws IOException {
     Path tempFile = Files.createTempFile("app-", ".ts");
     try {
@@ -2154,6 +2174,59 @@ class GraphWriterIT {
 
     assertEquals(1, row.get("parents").asLong());
     assertEquals(1, row.get("decorators").asLong());
+  }
+
+  @Test
+  void deleteStaleDefinitionsForFileIgnoresSharedOwnerRelationsFromUnretainedFile() {
+    Path changedFile = Path.of("/tmp/test-gw/src/app/changed.ts");
+    Path unretainedFile = Path.of("/tmp/test-gw/src/app/unretained.ts");
+    String ownerFqn = "js.app.shared.Owner";
+    String parentFqn = "js.app.shared.BaseOwner";
+    session
+        .run(
+            """
+            MERGE (changedFile:File {path: $changedPath, project: $p})
+            SET changedFile.language = 'js'
+            MERGE (unretainedFile:File {path: $unretainedPath, project: $p})
+            SET unretainedFile.language = 'js'
+            MERGE (owner:Class {fqn: $ownerFqn, project: $p})
+            SET owner.name = 'Owner', owner.language = 'js', owner.isExternal = false
+            MERGE (parent:Class {fqn: $parentFqn, project: $p})
+            SET parent.name = 'BaseOwner', parent.language = 'js', parent.isExternal = false
+            MERGE (changedFile)-[:DEFINES]->(owner)
+            MERGE (unretainedFile)-[:DEFINES]->(owner)
+            MERGE (owner)-[:EXTENDS]->(parent)
+            """,
+            Map.of(
+                "p",
+                PROJECT,
+                "changedPath",
+                changedFile.toString(),
+                "unretainedPath",
+                unretainedFile.toString(),
+                "ownerFqn",
+                ownerFqn,
+                "parentFqn",
+                parentFqn))
+        .consume();
+    writer.setRetainedSourcePaths(List.of(changedFile));
+    SourceFileDefinitions definitions =
+        SourceFileDefinitions.of(List.of(ownerFqn), List.of(), List.of(), List.of(), List.of());
+
+    writer.deleteStaleDefinitionsForFile(changedFile, definitions);
+
+    long parents =
+        session
+            .run(
+                "MATCH (:Class {fqn: $ownerFqn, project: $p})"
+                    + "-[:EXTENDS]->(:Class {fqn: $parentFqn, project: $p})"
+                    + " RETURN count(*) AS n",
+                Map.of("p", PROJECT, "ownerFqn", ownerFqn, "parentFqn", parentFqn))
+            .single()
+            .get("n")
+            .asLong();
+
+    assertEquals(0, parents);
   }
 
   @Test

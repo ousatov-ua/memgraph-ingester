@@ -137,6 +137,10 @@ public final class Const {
     public static final String CYPHER_GET_RETAINED_FILES_OUTSIDE_SOURCE_ROOT =
         action("get-retained-files-outside-source-root.cypher");
 
+    /** Marks the current run's retained source files so cleanup queries avoid resending paths. */
+    public static final String CYPHER_MARK_RETAINED_FILES_BATCH =
+        action("mark-retained-files-batch.cypher");
+
     /** Fetches graph languages represented under the active source root. */
     public static final String CYPHER_GET_LANGUAGES_IN_SOURCE_ROOT =
         action("get-languages-in-source-root.cypher");
@@ -433,7 +437,7 @@ public final class Const {
   /** Command line option names and aliases. */
   public static class Cli {
 
-    public static final String VERSION = "12.1.1";
+    public static final String VERSION = "12.1.2";
     public static final String USER_SHORT = "-u";
     public static final String USER = "--user";
     public static final String PASS_SHORT = "-p";
@@ -645,7 +649,7 @@ public final class Const {
     public static final String CALLER_SIGNATURES = "callerSignatures";
     public static final String OWNER_FQNS = "ownerFqns";
     public static final String IDS = "ids";
-    public static final String RETAINED_PATHS = "retainedPaths";
+    public static final String RETAINED_SOURCE_TOKEN = "retainedSourceToken";
     public static final String SOURCE_ROOT = "sourceRoot";
     public static final String SOURCE_ROOT_HINT = "sourceRootHint";
     public static final String SOURCE_ROOT_PREFIX = "sourceRootPrefix";
