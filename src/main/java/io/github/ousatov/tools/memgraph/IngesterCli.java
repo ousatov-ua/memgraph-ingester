@@ -50,9 +50,9 @@ import picocli.CommandLine.Spec;
  */
 @Command(name = "ingest", mixinStandardHelpOptions = true, version = Cli.VERSION)
 public final class IngesterCli implements Callable<Integer> {
- {
+  {
+  }
 
- }
   private static final SimpleLoggerFile SIMPLE_LOGGER_FILE = SimpleLoggerFile.configure();
   private static final Logger log = LoggerFactory.getLogger(IngesterCli.class);
 

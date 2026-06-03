@@ -29,8 +29,7 @@ public record EmbeddingSettings(
       AppConfig.stringValue("embedding.code-index-name");
   public static final String DEFAULT_MEMORY_INDEX_NAME =
       AppConfig.stringValue("embedding.memory-index-name");
-  public static final String DEFAULT_MODEL_NAME =
-      AppConfig.stringValue("embedding.model-name");
+  public static final String DEFAULT_MODEL_NAME = AppConfig.stringValue("embedding.model-name");
   public static final String DEFAULT_EMBEDDING_PROPERTY =
       AppConfig.stringValue("embedding.property");
   public static final String DEFAULT_METRIC = AppConfig.stringValue("embedding.metric");
