@@ -23,6 +23,7 @@ If the MCP returns no relevant rows, fall back to text search and say why.
 - **Broad/unfamiliar code:** use `code_search` with 1-3 concise, hypothesis-specific queries, `limit=5`, and `include_text=false`. Treat hits as discovery only; fetch text/source only for selected hits.
 - **Known targets:** skip RAG and use exact tools with precise fragments and low limits: `code_lookup_type`, `code_lookup_methods`, `code_callers`, `code_callees`, and `code_hierarchy`.
 - **Large results:** keep compact defaults, especially `code_callers` / `code_callees compact=true`; when `meta.hasMore` is true, paginate with `meta.nextSkip`.
+- **Row-heavy output:** request `format="table_json"` for `code_search`, `code_lookup_methods`, `code_callers`, `code_callees`, `code_hot_paths`, `code_quality_stats`, and `raw_read_cypher`; read results as `cols` plus `rows`.
 - **Before source-code changes:** use `code_search` first when broad/unfamiliar; use the smallest exact tool set when known.
 - **Class/interface declaration changes:** call `code_hierarchy` before changing inheritance, implemented interfaces, constructors, or overridden APIs.
 - **Method bodies:** use `code_lookup_methods(compact=true)` to get `startLine`/`endLine`, then read only that range.
