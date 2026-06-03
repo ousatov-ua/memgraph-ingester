@@ -18,7 +18,7 @@ If the MCP returns no relevant rows, fall back to text search and say why.
 - **NO DELEGATION:** never delegate architecture analysis, codebase investigations, member/caller lookups, or graph queries to subagents. Use the MCP yourself.
 - **Status/pending-work:** call `server_status` or the focused code/memory tool first, then check Git when local changes matter. Use Git alone only when explicitly asked for Git-only status.
 - **No ritual analysis:** run `code_orientation` only when broad structure is needed. Prefer focused tools.
-- **Audits/hot paths:** for quality, quantity, or hot-path questions, start with `code_quality_stats` and `code_hot_paths(limit=5, include_evidence=false, format="table_json")`; pass `sections=[...]` when only `largestTypes`, `longestMethods`, `fanIn`, or `fanOut` is needed.
+- **Audits/hot paths:** for quality, quantity, or hot-path questions, start with `code_quality_stats` and `code_hot_paths(limit=5, include_evidence=false, format="table_json")`; default sections are `["fanIn","longestMethods"]` — add `sections=["largestTypes","fanOut",...]` explicitly when those are needed.
 - **Reuse:** reuse session-scoped graph results unless source files changed, the user asks for refresh, memory changed, or scope changed.
 - **Broad/unfamiliar code:** use `code_search` with 1-3 concise, hypothesis-specific queries, `limit=5`, and `include_text=false`. Treat hits as discovery only; fetch text/source only for selected hits.
 - **Known targets:** skip RAG and use exact tools with precise fragments and low limits: `code_lookup_type`, `code_lookup_methods`, `code_callers`, `code_callees`, and `code_hierarchy`.
@@ -39,7 +39,7 @@ If the MCP returns no relevant rows, fall back to text search and say why.
 - `code_search`: CodeChunk RAG discovery. Text is omitted unless `include_text=true`.
 - `code_lookup_type`: class/interface/annotation details; members are omitted unless `include_members=true`; set `member_summary=false` when counts are not needed.
 - `code_lookup_methods`: exact method records and source ranges; use `compact=true` when only ranges are needed.
-- `code_callers` / `code_callees`: compact, paginated call graph lookup by default.
+- `code_callers` / `code_callees`: compact, paginated call graph lookup by default; compact `code_callees` includes `startLine`/`endLine` for the callee so follow-up `code_lookup_methods` is not needed for source ranges.
 - `code_hierarchy`: parents, implemented interfaces, children, ancestors, and interface implementors.
 - `raw_read_cypher`: read-only, project-scoped Cypher for rare gaps only.
 

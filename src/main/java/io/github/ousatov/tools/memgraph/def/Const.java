@@ -433,7 +433,7 @@ public final class Const {
   /** Command line option names and aliases. */
   public static class Cli {
 
-    public static final String VERSION = "12.0.43";
+    public static final String VERSION = "12.0.44";
     public static final String USER_SHORT = "-u";
     public static final String USER = "--user";
     public static final String PASS_SHORT = "-p";
