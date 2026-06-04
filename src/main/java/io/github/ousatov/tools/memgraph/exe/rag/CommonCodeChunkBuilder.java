@@ -33,6 +33,10 @@ public abstract class CommonCodeChunkBuilder<T> {
   private static final int MAX_EXCERPT_LINES = AppConfig.intValue("rag.max-excerpt-lines");
   private static final int DOC_LOOKBACK_LINES = AppConfig.intValue("rag.doc-lookback-lines");
   private static final int ID_HASH_LENGTH = 16;
+  private static final String RAG_ROLE_FILE = "file";
+  private static final String RAG_ROLE_PRIMARY = "primary";
+  private static final String RAG_ROLE_SECONDARY = "secondary";
+  private static final String RAG_ROLE_SYNTHETIC = "synthetic";
 
   private final CodeChunkAnalyzer<T> analyzer;
 
@@ -59,6 +63,8 @@ public abstract class CommonCodeChunkBuilder<T> {
               Params.MODULE,
               analysis.startLine(),
               analysis.endLine(),
+              RAG_ROLE_SYNTHETIC,
+              true,
               lines));
     }
     analysis.types().forEach(type -> addType(chunks, file, lines, analysis.language(), type));
@@ -82,6 +88,8 @@ public abstract class CommonCodeChunkBuilder<T> {
             type.kind(),
             type.startLine(),
             type.endLine(),
+            RAG_ROLE_PRIMARY,
+            false,
             lines));
   }
 
@@ -127,6 +135,8 @@ public abstract class CommonCodeChunkBuilder<T> {
             "file",
             1,
             lines.size(),
+            RAG_ROLE_FILE,
+            false,
             lines));
   }
 
@@ -144,6 +154,7 @@ public abstract class CommonCodeChunkBuilder<T> {
       int startLine,
       int endLine) {
     boolean method = methodLike(memberType);
+    boolean synthetic = startLine <= 0 || endLine <= 0;
     chunks.add(
         chunk(
             method ? "Method" : "Field",
@@ -156,6 +167,8 @@ public abstract class CommonCodeChunkBuilder<T> {
             kind,
             startLine,
             endLine,
+            synthetic ? RAG_ROLE_SYNTHETIC : method ? RAG_ROLE_PRIMARY : RAG_ROLE_SECONDARY,
+            synthetic,
             lines));
   }
 
@@ -178,6 +191,8 @@ public abstract class CommonCodeChunkBuilder<T> {
       String kind,
       int startLine,
       int endLine,
+      String ragRole,
+      boolean synthetic,
       List<String> lines) {
     String text =
         text(
@@ -200,6 +215,12 @@ public abstract class CommonCodeChunkBuilder<T> {
         file.toString(),
         ownerFqn,
         signature,
+        name,
+        kind,
+        ragRole,
+        startLine,
+        endLine,
+        synthetic,
         text,
         sha256(text));
   }

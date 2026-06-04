@@ -24,6 +24,7 @@ class JavaCodeChunkBuilderTest {
         """
         package com.example;
         class Widget {
+          private String name;
           void work() {}
         }
         """;
@@ -41,7 +42,18 @@ class JavaCodeChunkBuilderTest {
     assertEquals("Method", ctor.sourceLabel());
     assertEquals("com.example.Widget", ctor.ownerFqn());
     assertEquals("com.example.Widget.<init>()", ctor.signature());
+    assertEquals("synthetic", ctor.ragRole());
+    assertTrue(ctor.synthetic());
     assertTrue(ctor.text().contains("Name: <init>"));
+
+    CodeChunkWrite field =
+        chunks.stream()
+            .filter(chunk -> "com.example.Widget#name".equals(chunk.sourceId()))
+            .findFirst()
+            .orElseThrow();
+    assertEquals("Field", field.sourceLabel());
+    assertEquals("secondary", field.ragRole());
+    assertFalse(field.synthetic());
   }
 
   @Test

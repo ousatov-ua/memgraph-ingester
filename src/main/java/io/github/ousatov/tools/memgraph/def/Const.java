@@ -635,6 +635,7 @@ public final class Const {
     public static final String SOURCE_ID = "sourceId";
     public static final String TEXT = "text";
     public static final String TEXT_HASH = "textHash";
+    public static final String RAG_ROLE = "ragRole";
     public static final String LANGUAGE = "language";
     public static final String LANGUAGE_NAME = "languageName";
     public static final String KIND = "kind";

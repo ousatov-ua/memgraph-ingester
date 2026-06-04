@@ -219,6 +219,12 @@ class GraphWriterIT {
                 TEST_FILE.toString(),
                 "",
                 "",
+                TEST_FILE.getFileName().toString(),
+                "file",
+                "file",
+                1,
+                1,
+                false,
                 "old docs",
                 "old-hash")));
     writer.replaceCodeChunksForFile(
@@ -232,6 +238,12 @@ class GraphWriterIT {
                 TEST_FILE.toString(),
                 "",
                 "",
+                TEST_FILE.getFileName().toString(),
+                "file",
+                "file",
+                1,
+                1,
+                false,
                 "new docs",
                 "new-hash")));
 
@@ -244,6 +256,23 @@ class GraphWriterIT {
             .list(row -> row.get("text").asString());
 
     assertEquals(List.of("new docs"), texts);
+
+    var chunk =
+        session
+            .run(
+                "MATCH (chunk:CodeChunk {project: $p, path: $path})"
+                    + " RETURN chunk.name AS name, chunk.kind AS kind, chunk.ragRole AS ragRole,"
+                    + " chunk.startLine AS startLine, chunk.endLine AS endLine,"
+                    + " chunk.isSynthetic AS isSynthetic",
+                Map.of("p", PROJECT, "path", TEST_FILE.toString()))
+            .single();
+
+    assertEquals(TEST_FILE.getFileName().toString(), chunk.get("name").asString());
+    assertEquals("file", chunk.get("kind").asString());
+    assertEquals("file", chunk.get("ragRole").asString());
+    assertEquals(1, chunk.get("startLine").asInt());
+    assertEquals(1, chunk.get("endLine").asInt());
+    assertFalse(chunk.get("isSynthetic").asBoolean());
 
     long linkCount =
         session
