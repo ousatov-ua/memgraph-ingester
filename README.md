@@ -776,6 +776,26 @@ Minimal `~/.copilot/mcp-config.json`:
 }
 ```
 
+### OpenCode MCP
+
+Minimal `~/.config/opencode/opencode.jsonc`:
+
+```json
+{
+  "mcp": {
+   "memgraphIngester": {
+      "type": "local",
+      "command": ["uvx", "memgraph-ingester-mcp"],
+      "enabled": true,
+      "environment": {
+	      "MEMGRAPH_INGESTER_MCP_BOLT_URI": "bolt://localhost:7687",
+        "MEMGRAPH_INGESTER_MCP_READ_ONLY": "false"      
+      }
+   }
+  }
+}
+```
+
 Set `MEMGRAPH_INGESTER_MCP_READ_ONLY` to `"true"` if you only want the agent to read. Keep it
 `"false"` when you want the agent to create or update Memory nodes.
 
