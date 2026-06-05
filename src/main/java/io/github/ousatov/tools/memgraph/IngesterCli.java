@@ -365,14 +365,14 @@ public final class IngesterCli implements Callable<Integer> {
       io.github.ousatov.tools.memgraph.vo.cli.InstallResult result =
           AgentInstructionsInstaller.install(
               target, project, instructions.withMemories, instructions.noMemgraphIngesterMcp);
-      log.info(
-          "Updated Memgraph instructions in {} with project '{}' (memories: {}).",
-          result.target(),
-          project,
-          result.includeMemories());
+      ConsoleOutput.success(
+          String.format(
+              "Updated Memgraph instructions in %s with project '%s' (memories: %s).",
+              result.target(), project, result.includeMemories()));
       return 0;
     } catch (IllegalArgumentException | IllegalStateException | IOException e) {
       log.error(e.getMessage());
+      ConsoleOutput.line("Error: " + e.getMessage());
       return 1;
     }
   }
