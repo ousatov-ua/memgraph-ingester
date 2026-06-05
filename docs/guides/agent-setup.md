@@ -18,6 +18,7 @@ memgraph-ingester -P my-project --instructions-agent codex
 memgraph-ingester -P my-project --instructions-agent claude
 memgraph-ingester -P my-project --instructions-agent gemini
 memgraph-ingester -P my-project --instructions-agent github
+memgraph-ingester -P my-project --instructions-agent copilot
 ```
 
 Include memory workflows:
@@ -99,6 +100,78 @@ Verify:
 claude mcp list
 ```
 
+## Gemini Configuration
+
+Add this to `~/.gemini/settings.json`:
+
+```json
+{
+  "mcpServers": {
+    "memgraphIngester": {
+      "command": "uvx",
+      "args": ["memgraph-ingester-mcp"],
+      "env": {
+        "MEMGRAPH_INGESTER_MCP_BOLT_URI": "bolt://localhost:7687",
+        "MEMGRAPH_INGESTER_MCP_READ_ONLY": "false"
+      },
+      "timeout": 5000,
+      "trust": false
+    }
+  }
+}
+```
+
+Verify:
+
+```bash
+gemini mcp list
+```
+
+## GitHub Copilot Configuration
+
+Add this to `~/.copilot/mcp-config.json`:
+
+```json
+{
+  "mcpServers": {
+    "memgraphIngester": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": ["memgraph-ingester-mcp"],
+      "env": {
+        "MEMGRAPH_INGESTER_MCP_BOLT_URI": "bolt://localhost:7687",
+        "MEMGRAPH_INGESTER_MCP_READ_ONLY": "false"
+      }
+    }
+  }
+}
+```
+
+## OpenCode Configuration
+
+Add this to `~/.config/opencode/opencode.jsonc`:
+
+```json
+{
+  "mcp": {
+    "memgraphIngester": {
+      "type": "local",
+      "command": ["uvx", "memgraph-ingester-mcp"],
+      "enabled": true,
+      "environment": {
+        "MEMGRAPH_INGESTER_MCP_BOLT_URI": "bolt://localhost:7687",
+        "MEMGRAPH_INGESTER_MCP_READ_ONLY": "false"
+      }
+    }
+  }
+}
+```
+
+## Read-Only Mode
+
+Set `MEMGRAPH_INGESTER_MCP_READ_ONLY` to `"true"` when the agent should only inspect code and
+memory. Keep it `"false"` when you want the agent to create, update, or close Memory records.
+
 ## Raw Cypher Fallback
 
 If the MCP server is not available, generate raw Memgraph/Cypher guidance:
@@ -108,3 +181,5 @@ memgraph-ingester --init-instructions -P my-project --no-memgraph-ingester-mcp
 ```
 
 Use this mode when an agent can read instructions but cannot call `memgraph-ingester-mcp` tools.
+Without MCP, the user or agent will also need [`mgconsole`](https://memgraph.com/docs/querying/overview)
+or another Bolt/Cypher client to query Memgraph directly.
