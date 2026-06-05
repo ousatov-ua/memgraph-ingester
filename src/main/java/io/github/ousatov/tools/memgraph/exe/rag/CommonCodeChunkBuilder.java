@@ -49,7 +49,7 @@ public abstract class CommonCodeChunkBuilder<T> {
     CodeChunkAnalysis analysis = analyzer.analyze(parsed);
     List<String> lines = readLines(file);
     List<CodeChunkWrite> chunks = new ArrayList<>();
-    addFileChunk(chunks, file, analysis.language(), lines);
+    addFileChunk(chunks, file, analysis, lines);
     if (!analysis.moduleFqn().isBlank()) {
       chunks.add(
           chunk(
@@ -65,6 +65,7 @@ public abstract class CommonCodeChunkBuilder<T> {
               analysis.endLine(),
               RAG_ROLE_SYNTHETIC,
               true,
+              Const.Symbols.EMPTY,
               lines));
     }
     analysis.types().forEach(type -> addType(chunks, file, lines, analysis.language(), type));
@@ -90,6 +91,7 @@ public abstract class CommonCodeChunkBuilder<T> {
             type.endLine(),
             RAG_ROLE_PRIMARY,
             false,
+            Const.Symbols.EMPTY,
             lines));
   }
 
@@ -122,12 +124,12 @@ public abstract class CommonCodeChunkBuilder<T> {
   }
 
   protected final void addFileChunk(
-      List<CodeChunkWrite> chunks, Path file, String language, List<String> lines) {
+      List<CodeChunkWrite> chunks, Path file, CodeChunkAnalysis analysis, List<String> lines) {
     chunks.add(
         chunk(
             "File",
             file.toString(),
-            language,
+            analysis.language(),
             file,
             Const.Symbols.EMPTY,
             Const.Symbols.EMPTY,
@@ -137,7 +139,40 @@ public abstract class CommonCodeChunkBuilder<T> {
             lines.size(),
             RAG_ROLE_FILE,
             false,
+            buildDefinesSummary(analysis),
             lines));
+  }
+
+  private static String buildDefinesSummary(CodeChunkAnalysis analysis) {
+    List<String> typeParts =
+        analysis.types().stream().map(t -> t.name() + " (" + t.kind() + ")").toList();
+    List<String> allMethodNames =
+        analysis.members().stream()
+            .filter(
+                m -> Params.METHOD.equals(m.memberType()) || Params.FUNCTION.equals(m.memberType()))
+            .map(MemberChunk::name)
+            .distinct()
+            .toList();
+    List<String> methodSample =
+        allMethodNames.size() > 10 ? allMethodNames.subList(0, 10) : allMethodNames;
+    if (typeParts.isEmpty() && methodSample.isEmpty()) {
+      return Const.Symbols.EMPTY;
+    }
+    StringBuilder sb = new StringBuilder();
+    if (!typeParts.isEmpty()) {
+      sb.append(String.join(", ", typeParts));
+    }
+    if (!methodSample.isEmpty()) {
+      if (!sb.isEmpty()) {
+        sb.append("; ");
+      }
+      sb.append("methods: ").append(String.join(", ", methodSample));
+      int extra = allMethodNames.size() - methodSample.size();
+      if (extra > 0) {
+        sb.append(" (+").append(extra).append(" more)");
+      }
+    }
+    return sb.toString();
   }
 
   @SuppressWarnings(Const.Warnings.TOO_MANY_PARAMETERS)
@@ -169,6 +204,7 @@ public abstract class CommonCodeChunkBuilder<T> {
             endLine,
             synthetic ? RAG_ROLE_SYNTHETIC : method ? RAG_ROLE_PRIMARY : RAG_ROLE_SECONDARY,
             synthetic,
+            Const.Symbols.EMPTY,
             lines));
   }
 
@@ -193,6 +229,7 @@ public abstract class CommonCodeChunkBuilder<T> {
       int endLine,
       String ragRole,
       boolean synthetic,
+      String defines,
       List<String> lines) {
     String text =
         text(
@@ -206,6 +243,7 @@ public abstract class CommonCodeChunkBuilder<T> {
             kind,
             startLine,
             endLine,
+            defines,
             lines);
     return new CodeChunkWrite(
         id(sourceLabel, sourceId),
@@ -245,6 +283,7 @@ public abstract class CommonCodeChunkBuilder<T> {
       String kind,
       int startLine,
       int endLine,
+      String defines,
       List<String> lines) {
     StringBuilder builder = new StringBuilder();
     builder.append("Language: ").append(language).append('\n');
@@ -252,8 +291,13 @@ public abstract class CommonCodeChunkBuilder<T> {
     builder.append("Source: ").append(sourceLabel).append(' ').append(sourceId).append('\n');
     appendField(builder, "Name", name);
     appendField(builder, "Kind", kind);
-    appendField(builder, "Owner", ownerFqn);
-    appendField(builder, "Signature", signature);
+    if (!sourceId.equals(ownerFqn)) {
+      appendField(builder, "Owner", ownerFqn);
+    }
+    if (!sourceId.equals(signature)) {
+      appendField(builder, "Signature", signature);
+    }
+    appendField(builder, "Defines", defines);
     builder.append("Source excerpt:\n").append(excerpt(lines, startLine, endLine)).append('\n');
     return builder.toString().strip();
   }
