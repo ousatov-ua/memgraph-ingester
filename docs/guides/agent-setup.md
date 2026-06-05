@@ -181,5 +181,5 @@ memgraph-ingester --init-instructions -P my-project --no-memgraph-ingester-mcp
 ```
 
 Use this mode when an agent can read instructions but cannot call `memgraph-ingester-mcp` tools.
-Without MCP, the user or agent will also need [`mgconsole`](https://memgraph.com/docs/querying/overview)
+Without MCP, the user or agent will also need [`mgconsole`](https://github.com/memgraph/mgconsole)
 or another Bolt/Cypher client to query Memgraph directly.
