@@ -40,7 +40,7 @@ The normal path is simple:
 2. Download one ingester executable.
 3. Run one command; the ingester selects Java, JS/TS, Python, or ctags fallback logic from each
    source file extension.
-4. Connect your AI agent through MCP or `mgconsole`.
+4. Connect your AI agent through MCP.
 
 No source code is uploaded by the ingester. It reads local files, writes graph nodes to your
 Memgraph instance over Bolt, and exits.
@@ -143,10 +143,12 @@ Runtime requirements by artifact:
 | Native executable | No | No, managed mode handles it | No, managed mode handles it | No, managed mode handles it |
 | Shaded JAR | Java 25 JRE | No, managed mode handles it | No, managed mode handles it | No, managed mode handles it |
 
+Required tools:
+
+- `memgraph-ingester-mcp`, needed for agents to query the graph through high-level MCP tools.
+
 Optional tools:
 
-- `memgraph-ingester-mcp`, if you want agents to query the graph through high-level MCP tools.
-- `mgconsole`, if you want to query Memgraph directly without MCP.
 - Node.js, Python 3.9+, or Universal Ctags only when you explicitly choose
   `--js-runtime-mode system`, `--python-runtime-mode system`, or `--ctags-runtime-mode system`.
   Set `MEMGRAPH_INGESTER_PYTHON` to override the system Python executable, or
@@ -320,7 +322,7 @@ or other language-specific semantics.
 With `memgraph-ingester-mcp`, ask your agent to call `server_status` for the project and confirm
 that languages and vector indexes are present.
 
-With `mgconsole`:
+DIY: With `mgconsole`:
 
 ```bash
 mgconsole --host localhost --port 7687 --output-format=csv
@@ -654,14 +656,11 @@ memgraph-ingester -P my-project --instructions-file .github/copilot-instructions
 
 Commit the updated instruction file so future agent sessions get the same graph guidance.
 
-## MCP or mgconsole
+## MCP
 
-MCP is optional. Agents should use
+MCP is required. Agents should use
 [`memgraph-ingester-mcp`](https://github.com/ousatov-ua/memgraph-ingester-mcp) for normal code graph
 and memory work. It exposes high-level project-scoped tools instead of only raw Cypher.
-
-**Preferred** Use `memgraph-ingester-mcp` when you want the agent to query the graph automatically.
-Use `mgconsole` when you want direct Cypher output. 
 
 Install and run the MCP server from PyPI with `uvx`:
 

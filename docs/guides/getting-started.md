@@ -25,7 +25,7 @@ For normal use you need:
 
 - A Memgraph instance with Bolt enabled.
 - A Memgraph Ingester executable or shaded JAR.
-- Optional `memgraph-ingester-mcp` when you want agents to use high-level graph tools.
+- `memgraph-ingester-mcp` when you want agents to use high-level graph tools.
 
 Native binaries do not require Java, Node.js, Python, or ctags for normal managed-mode parsing.
 The shaded JAR requires a Java 25 JRE.

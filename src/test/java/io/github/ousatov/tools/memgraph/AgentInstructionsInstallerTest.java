@@ -33,7 +33,7 @@ class AgentInstructionsInstallerTest {
     assertTrue(content.contains("Repo is indexed in Memgraph as **`sample-project`**"));
     assertTrue(content.contains("memgraph-ingester-mcp"));
     assertTrue(content.contains("### Code MCP Tools"));
-    assertTrue(content.contains("`code_search`: CodeChunk RAG discovery."));
+    assertTrue(content.contains("`code_search`: CodeChunk RAG discovery"));
     assertFalse(content.contains("Memory Schema"));
   }
 
@@ -54,39 +54,6 @@ class AgentInstructionsInstallerTest {
     assertTrue(content.contains("`memory_upsert`: create/update"));
     assertTrue(content.contains("Controlled values are enforced by the MCP."));
     assertFalse(content.contains("Memory Schema"));
-  }
-
-  @Test
-  void writesNoMcpCodeInstructionsWhenRequested() throws IOException {
-    Path target = tempDir.resolve("AGENTS.md");
-
-    io.github.ousatov.tools.memgraph.vo.cli.InstallResult result =
-        AgentInstructionsInstaller.install(target, "no-mcp-project", false, true);
-
-    String content = Files.readString(target);
-    assertEquals(target, result.target());
-    assertFalse(result.includeMemories());
-    assertTrue(content.contains("Repo is indexed in Memgraph as **`no-mcp-project`**"));
-    assertTrue(content.contains("`project: 'no-mcp-project'`."));
-    assertTrue(content.contains("Start `mgconsole`:"));
-    assertFalse(content.contains("memgraph-ingester-mcp"));
-    assertFalse(content.contains("### MCP Tools"));
-    assertFalse(content.contains("Memory Schema"));
-  }
-
-  @Test
-  void writesNoMcpMemoryInstructionsWhenRequested() throws IOException {
-    Path target = tempDir.resolve("AGENTS.md");
-
-    AgentInstructionsInstaller.install(target, "no-mcp-memory-project", true, true);
-
-    String content = Files.readString(target);
-    assertTrue(content.contains("Repo is indexed in Memgraph as **`no-mcp-memory-project`**"));
-    assertTrue(content.contains("`project: 'no-mcp-memory-project'`."));
-    assertTrue(content.contains("### Memory Schema"));
-    assertTrue(content.contains("Session Memory embedding refresh"));
-    assertFalse(content.contains("memgraph-ingester-mcp"));
-    assertFalse(content.contains("### MCP Tools"));
   }
 
   @Test

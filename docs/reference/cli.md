@@ -22,7 +22,6 @@
 | `--init-instructions` | `false` | Write or replace managed agent instructions and exit |
 | `--instructions-agent` | `codex` | Agent preset: `codex`, `claude`, `gemini`, `github`, or `copilot` |
 | `--instructions-file` | preset file | Instruction file to update |
-| `--no-memgraph-ingester-mcp` | `false` | Generate raw Cypher guidance instead of MCP tool guidance |
 | `--help` | | Print CLI help |
 | `--version` | | Print CLI version |
 

@@ -314,7 +314,6 @@ public final class IngesterCli implements Callable<Integer> {
     return instructions.initInstructions
         || instructions.withMemories
         || instructions.instructionsFile != null
-        || instructions.noMemgraphIngesterMcp
         || hasMatchedOption(Const.Cli.INSTRUCTIONS_AGENT);
   }
 
@@ -364,7 +363,7 @@ public final class IngesterCli implements Callable<Integer> {
               : instructions.instructionsFile;
       io.github.ousatov.tools.memgraph.vo.cli.InstallResult result =
           AgentInstructionsInstaller.install(
-              target, project, instructions.withMemories, instructions.noMemgraphIngesterMcp);
+              target, project, instructions.withMemories);
       ConsoleOutput.success(
           String.format(
               "Updated Memgraph instructions in %s with project '%s' (memories: %s).",

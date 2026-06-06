@@ -171,15 +171,3 @@ Add this to `~/.config/opencode/opencode.jsonc`:
 
 Set `MEMGRAPH_INGESTER_MCP_READ_ONLY` to `"true"` when the agent should only inspect code and
 memory. Keep it `"false"` when you want the agent to create, update, or close Memory records.
-
-## Raw Cypher Fallback
-
-If the MCP server is not available, generate raw Memgraph/Cypher guidance:
-
-```bash
-memgraph-ingester --init-instructions -P my-project --no-memgraph-ingester-mcp
-```
-
-Use this mode when an agent can read instructions but cannot call `memgraph-ingester-mcp` tools.
-Without MCP, the user or agent will also need [`mgconsole`](https://github.com/memgraph/mgconsole)
-or another Bolt/Cypher client to query Memgraph directly.

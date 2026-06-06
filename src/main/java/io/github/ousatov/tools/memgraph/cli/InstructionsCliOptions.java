@@ -37,14 +37,6 @@ public final class InstructionsCliOptions {
   public Path instructionsFile;
 
   @Option(
-      names = {Const.Cli.NO_MEMGRAPH_INGESTER_MCP},
-      description =
-          "Use raw Memgraph/Cypher agent instructions instead of memgraph-ingester-mcp tool "
-              + "guidance. Implies --init-instructions when explicitly provided.")
-  @SuppressWarnings(Const.Warnings.UNUSED)
-  public boolean noMemgraphIngesterMcp;
-
-  @Option(
       names = {"--with-memories"},
       description =
           "Apply managed agent instructions with optional Memory workflow guidance, and enable"
