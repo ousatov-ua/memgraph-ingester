@@ -1184,7 +1184,7 @@ Use the profile that matches your operating system.
 <dependency>
   <groupId>io.github.ousatov-ua</groupId>
   <artifactId>memgraph-ingester</artifactId>
-  <version>${release.version}</version>
+  <version>${memgraph-ingester.version}</version>
 </dependency>
 ```
 Please get the latest release version from [latest release page](https://github.com/ousatov-ua/memgraph-ingester/releases/latest)
