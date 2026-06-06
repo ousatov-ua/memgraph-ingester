@@ -10,6 +10,40 @@ annotations, decorators, and best-effort call relationships. It also creates opt
 that point back to source graph records, so semantic discovery can be verified through exact graph
 lookups.
 
+## Why This Saves Agent Context
+
+Memgraph Ingester helps agents start from structure instead of raw file scanning. They can ask the
+graph for the likely files, symbols, callers, callees, and semantic anchors before spending context
+on source reads.
+
+In a six-task comparison, Memgraph-backed runs used **41% fewer tokens overall**, with the strongest
+real task saving **62%**. They also needed **45% fewer tool calls** and **44% fewer opened files**.
+
+| Metric | With Memgraph | Without Memgraph | Reduction |
+| --- | ---: | ---: | ---: |
+| Tokens used | 354,970 | 605,578 | **41% fewer** |
+| Tool calls | 92 | 168 | **45% fewer** |
+| Files opened | 59 | 105 | **44% fewer** |
+
+These measurements were performed on this codebase. At the time of measurement, `cloc` reported
+**28,588 code lines** across tracked Java, JavaScript, Python, and TypeScript sources: **26,006**
+Java, **1,863** JavaScript, **645** Python, and **74** TypeScript.
+
+Measured task scope:
+
+| Task | Description |
+| --- | --- |
+| A | Provider onboarding |
+| B | Write-path performance |
+| C | Refactor impact |
+| D | Stale-snippet triage |
+| E | Stale-snippet fix |
+| F | CI triage |
+
+Quality remained high across the measured tasks, while the graph-guided runs spent less effort on
+discovery and kept more context available for understanding, editing, and verification. In the
+measured set, Memgraph also avoided the false positive seen without the graph.
+
 Supported inputs:
 
 | Language path | Coverage |
