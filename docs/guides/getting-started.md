@@ -121,16 +121,6 @@ memgraph-ingester \
   --project my-project
 ```
 
-For faster repeated runs:
-
-```bash
-memgraph-ingester \
-  --source . \
-  --bolt bolt://localhost:7687 \
-  --project my-project \
-  --incremental
-```
-
 To keep the graph fresh continuously:
 
 ```bash

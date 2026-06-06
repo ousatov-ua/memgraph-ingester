@@ -15,7 +15,6 @@
 | `--apply-schema` | `false` | Apply Memgraph constraints and indexes before ingestion |
 | `--wipe-project-code` | `false` | Delete this project's code graph before ingesting |
 | `--wipe-project-memories` | `false` | Delete this project's memory graph before ingesting |
-| `--incremental` | `false` | Skip files whose last-modified timestamp already matches the graph |
 | `--watch` | `false` | Watch the source tree and re-ingest changed files |
 | `--threads` | `1` | Parser threads; 4 to 8 is usually useful for large projects |
 | `--with-memories` | `false` | Include Memory workflow instructions and refresh MemoryChunk rows |
