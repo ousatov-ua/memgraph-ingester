@@ -27,7 +27,7 @@ analyzers:
 embedding:
   code-index-name: "code_chunk_embedding_v2"
   memory-index-name: "memory_chunk_embedding_v2"
-  model-name: "BAAI/bge-small-en-v1.5"
+  model-name: "sentence-transformers/all-MiniLM-L6-v2"
   property: "embedding"
   metric: "cos"
   scalar-kind: "f16"

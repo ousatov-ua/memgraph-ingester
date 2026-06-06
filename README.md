@@ -968,7 +968,7 @@ and `key: 'java:<package>'`, `key: 'js:<package>'`, or `key: 'python:<package>'`
 `targetType: 'Package'`.
 
 RAG vector indexes are created automatically for the ingester-managed defaults. The default
-`BAAI/bge-small-en-v1.5` model uses 384-dimensional embeddings and cosine similarity. Code chunk
+`sentence-transformers/all-MiniLM-L6-v2` model uses 384-dimensional embeddings and cosine similarity. Code chunk
 embeddings are computed by Memgraph during ingestion unless `--no-code-embeddings` is passed; the
 ingester discovers the selected model dimension, drops obsolete vector indexes and stale embedding
 values across all projects, creates `code_chunk_embedding_v2` if needed, and refreshes only stale
