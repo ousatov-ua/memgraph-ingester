@@ -148,8 +148,6 @@ class CypherResourceTest {
   void codeChunkRefreshResourcesPreserveEmbeddingOnlyWhenTextHashMatches() {
     String upsert = Const.Cypher.CYPHER_UPSERT_CODE_CHUNKS_BATCH;
     String callsByName = Const.Cypher.CYPHER_UPSERT_CALLS_BY_NAME_BATCH;
-    String linkFile = Const.Cypher.CYPHER_LINK_FILE_CODE_CHUNKS_BATCH;
-    String linkMethod = Const.Cypher.CYPHER_LINK_METHOD_CODE_CHUNKS_BATCH;
     String deleteMissing = Const.Cypher.CYPHER_DELETE_CODE_CHUNKS_FOR_FILES;
     String pathsMissingCodeChunks = Const.Cypher.CYPHER_GET_FILE_PATHS_MISSING_CODE_CHUNKS;
     String wipeCodeRag = Const.Cypher.CYPHER_WIPE_CODE_RAG_BATCH;
@@ -187,14 +185,18 @@ class CypherResourceTest {
     assertTrue(upsert.contains("SET chunk.embeddingDirty = true"));
     assertTrue(upsert.contains("previousTextHash = row.textHash"));
     assertTrue(upsert.contains("SET chunk.embeddingDirty = false"));
+    assertFalse(upsert.contains("DELETE rel"));
+    assertTrue(upsert.contains("MATCH (source:File"));
+    assertTrue(upsert.contains("MATCH (source:Class"));
+    assertTrue(upsert.contains("MATCH (source:Interface"));
+    assertTrue(upsert.contains("MATCH (source:Annotation"));
+    assertTrue(upsert.contains("MATCH (source:Method"));
+    assertTrue(upsert.contains("MATCH (source:Field"));
+    assertTrue(upsert.contains("MERGE (source)-[:HAS_RAG_CHUNK]->(chunk)"));
     assertTrue(callsByName.contains("UNWIND $rows AS row"));
     assertTrue(callsByName.contains("row.caller AS callerSignature"));
     assertTrue(callsByName.contains("MERGE (caller)-[call:CALLS]->(callee)"));
     assertTrue(callsByName.contains("SET call.count = coalesce(call.count, 0) + callCount"));
-    assertTrue(linkFile.contains("MATCH (source:File"));
-    assertTrue(linkFile.contains("MERGE (source)-[:HAS_RAG_CHUNK]->(chunk)"));
-    assertTrue(linkMethod.contains("MATCH (source:Method"));
-    assertTrue(linkMethod.contains("MERGE (source)-[:HAS_RAG_CHUNK]->(chunk)"));
 
     assertTrue(Const.Cypher.CYPHER_DELETE_CODE_CHUNKS_FOR_FILE.contains("chunk:CodeChunk"));
     assertTrue(deleteMissing.contains("chunk.path STARTS WITH $sourceRootPrefix"));

@@ -43,18 +43,6 @@ public final class Const {
         action("get-file-paths-missing-code-chunks.cypher");
     public static final String CYPHER_UPSERT_CODE_CHUNKS_BATCH =
         action("upsert-code-chunks-batch.cypher");
-    public static final String CYPHER_LINK_FILE_CODE_CHUNKS_BATCH =
-        action("link-file-code-chunks-batch.cypher");
-    public static final String CYPHER_LINK_CLASS_CODE_CHUNKS_BATCH =
-        action("link-class-code-chunks-batch.cypher");
-    public static final String CYPHER_LINK_INTERFACE_CODE_CHUNKS_BATCH =
-        action("link-interface-code-chunks-batch.cypher");
-    public static final String CYPHER_LINK_ANNOTATION_CODE_CHUNKS_BATCH =
-        action("link-annotation-code-chunks-batch.cypher");
-    public static final String CYPHER_LINK_METHOD_CODE_CHUNKS_BATCH =
-        action("link-method-code-chunks-batch.cypher");
-    public static final String CYPHER_LINK_FIELD_CODE_CHUNKS_BATCH =
-        action("link-field-code-chunks-batch.cypher");
     public static final String CYPHER_CODE_EMBEDDING_MODEL_INFO =
         action("embedding/code-embedding-model-info.cypher");
     public static final String CYPHER_CREATE_CODE_CHUNK_VECTOR_INDEX =
