@@ -658,7 +658,7 @@ Commit the updated instruction file so future agent sessions get the same graph 
 
 ## MCP
 
-MCP is required. Agents should use
+MCP is required. Agents have to use
 [`memgraph-ingester-mcp`](https://github.com/ousatov-ua/memgraph-ingester-mcp) for normal code graph
 and memory work. It exposes high-level project-scoped tools instead of only raw Cypher.
 
