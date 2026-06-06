@@ -1178,12 +1178,14 @@ mvn clean package -Pnative-windows -DskipTests
 
 Use the profile that matches your operating system.
 
+Please get the latest release version from [latest release page](https://github.com/ousatov-ua/memgraph-ingester/releases/latest)
+
 ### Use as a Maven dependency
 
 ```xml
 <dependency>
   <groupId>io.github.ousatov-ua</groupId>
   <artifactId>memgraph-ingester</artifactId>
-  <version>12.2.2</version>
+  <version>${release.version}</version>
 </dependency>
 ```
