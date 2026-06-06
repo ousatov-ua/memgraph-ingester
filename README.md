@@ -168,7 +168,7 @@ Memgraph Bolt listens on `bolt://localhost:7687`.
 
 ### 2. Download the Ingester
 
-Version in this repository: `12.2.1`.
+Version in this repository: `12.2.2`.
 
 #### 2.1 Brew
 
@@ -181,10 +181,10 @@ brew install memgraph-ingester
 
 | Platform | Download                                                                                                                                                         |
 |---|------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| Java shaded JAR | [memgraph-ingester.jar](https://github.com/ousatov-ua/memgraph-ingester/releases/download/v12.2.1/memgraph-ingester-12.2.1.jar)                                |
-| Linux AMD64 | [memgraph-ingester-linux-amd64.tar.gz](https://github.com/ousatov-ua/memgraph-ingester/releases/download/v12.2.1/memgraph-ingester-12.2.1-linux-amd64.tar.gz)  |
-| macOS ARM64 | [memgraph-ingester-macos-arm64.tar.gz](https://github.com/ousatov-ua/memgraph-ingester/releases/download/v12.2.1/memgraph-ingester-12.2.1-darwin-arm64.tar.gz) |
-| Windows AMD64 | [memgraph-ingester-windows-amd64.zip](https://github.com/ousatov-ua/memgraph-ingester/releases/download/v12.2.1/memgraph-ingester-12.2.1-windows-amd64.zip)            |
+| Java shaded JAR | [memgraph-ingester.jar](https://github.com/ousatov-ua/memgraph-ingester/releases/download/v12.2.2/memgraph-ingester-12.2.2.jar)                                |
+| Linux AMD64 | [memgraph-ingester-linux-amd64.tar.gz](https://github.com/ousatov-ua/memgraph-ingester/releases/download/v12.2.2/memgraph-ingester-12.2.2-linux-amd64.tar.gz)  |
+| macOS ARM64 | [memgraph-ingester-macos-arm64.tar.gz](https://github.com/ousatov-ua/memgraph-ingester/releases/download/v12.2.2/memgraph-ingester-12.2.2-darwin-arm64.tar.gz) |
+| Windows AMD64 | [memgraph-ingester-windows-amd64.zip](https://github.com/ousatov-ua/memgraph-ingester/releases/download/v12.2.2/memgraph-ingester-12.2.2-windows-amd64.zip)            |
 
 For native downloads: extract and put in path.
 
@@ -1194,6 +1194,6 @@ Use the profile that matches your operating system.
 <dependency>
   <groupId>io.github.ousatov-ua</groupId>
   <artifactId>memgraph-ingester</artifactId>
-  <version>12.2.1</version>
+  <version>12.2.2</version>
 </dependency>
 ```
