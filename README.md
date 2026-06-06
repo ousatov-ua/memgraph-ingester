@@ -135,6 +135,7 @@ For normal use:
 
 - Memgraph, either local, Docker, or an existing Bolt endpoint.
 - One ingester download from the release page.
+- `memgraph-ingester-mcp`, needed for agents to query the graph through high-level MCP tools.
 
 Runtime requirements by artifact:
 
@@ -142,10 +143,6 @@ Runtime requirements by artifact:
 |---|---:|---:|---:|---:|
 | Native executable | No | No, managed mode handles it | No, managed mode handles it | No, managed mode handles it |
 | Shaded JAR | Java 25 JRE | No, managed mode handles it | No, managed mode handles it | No, managed mode handles it |
-
-Required tools:
-
-- `memgraph-ingester-mcp`, needed for agents to query the graph through high-level MCP tools.
 
 Optional tools:
 
