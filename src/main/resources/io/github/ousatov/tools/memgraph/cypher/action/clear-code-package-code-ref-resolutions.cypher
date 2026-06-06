@@ -1,3 +1,3 @@
-MATCH (ref:CodeRef {project: $project})-[old:RESOLVES_TO]->()
-WHERE ref.targetType IN ['Code', 'Package']
+MATCH (ref:CodeRef {project: $project, targetType: 'Package'})-[old:RESOLVES_TO]->()
+WHERE NOT ref.key CONTAINS ':'
 DELETE old
