@@ -13,7 +13,9 @@
 
 ![memgraph-ingester-readme-banner-640x320.svg](image/memgraph-ingester-readme-banner-640x320.svg)
 
-`memgraph-ingester` indexes source files into [Memgraph](https://memgraph.com/) so AI agents can
+For a concise overview, read the [short web version](https://ousatov-ua.github.io/memgraph-ingester/).
+
+`Memgraph-ingester` indexes source files into [Memgraph](https://memgraph.com/) so AI agents can
 query a real code graph instead of repeatedly scanning raw files. It is RAG-enabled, but not as a
 loose pile of text chunks: retrieval is derived from code structure and connected back to files,
 symbols, relationships, and durable project knowledge.
