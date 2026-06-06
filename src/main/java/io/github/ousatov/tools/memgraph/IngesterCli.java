@@ -29,6 +29,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.StringJoiner;
 import java.util.concurrent.Callable;
 import org.neo4j.driver.Driver;
 import org.slf4j.Logger;
@@ -239,7 +240,7 @@ public final class IngesterCli implements Callable<Integer> {
           instructions.withMemories
               || wipe.memoryRag
               || hasMatchedOption(Const.Cli.MEMORY_EMBEDDINGS);
-      codeEmbeddingSettings = codeEmbed.toSettings(codeEmbed.enabled);
+      codeEmbeddingSettings = codeEmbed.toSettings(hasMatchedOption(Const.Cli.CODE_EMBEDDINGS));
       memoryEmbeddingSettings =
           memoryEmbed.toSettings(memoryEmbeddingsRequested, memoryEmbeddingsRequested);
     } catch (IllegalArgumentException e) {
@@ -296,6 +297,8 @@ public final class IngesterCli implements Callable<Integer> {
               wipe.codeRag,
               wipe.memoryRag,
               watch,
+              analysisCacheKey(
+                  selectedJsRuntimeMode, selectedPythonRuntimeMode, selectedCtagsRuntimeMode),
               codeEmbeddingSettings,
               memoryEmbeddingSettings);
       int failures = orchestrator.run(settings);
@@ -350,6 +353,31 @@ public final class IngesterCli implements Callable<Integer> {
         && commandSpec.commandLine() != null
         && commandSpec.commandLine().getParseResult() != null
         && commandSpec.commandLine().getParseResult().hasMatchedOption(optionName);
+  }
+
+  private String analysisCacheKey(
+      RuntimeMode selectedJsRuntimeMode,
+      RuntimeMode selectedPythonRuntimeMode,
+      RuntimeMode selectedCtagsRuntimeMode) {
+    return new StringJoiner("|")
+        .add("v1")
+        .add("classpath=" + value(classpath))
+        .add("jsCache=" + value(jsRuntime.resolvedCache()))
+        .add("jsNode=" + value(jsRuntime.nodeVersion))
+        .add("jsTypescript=" + value(jsRuntime.typescriptVersion))
+        .add("jsMode=" + value(selectedJsRuntimeMode))
+        .add("pythonCache=" + value(pythonRuntime.resolvedCache()))
+        .add("pythonVersion=" + value(pythonRuntime.version))
+        .add("pythonBuild=" + value(pythonRuntime.build))
+        .add("pythonMode=" + value(selectedPythonRuntimeMode))
+        .add("ctagsCache=" + value(ctagsRuntime.resolvedCache()))
+        .add("ctagsVersion=" + value(ctagsRuntime.version))
+        .add("ctagsMode=" + value(selectedCtagsRuntimeMode))
+        .toString();
+  }
+
+  private static String value(Object value) {
+    return value == null ? Const.Symbols.EMPTY : value.toString();
   }
 
   private Integer installAgentInstructions() {

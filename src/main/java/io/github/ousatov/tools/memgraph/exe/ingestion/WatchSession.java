@@ -152,7 +152,8 @@ final class WatchSession {
   void ingestChangedFiles(Set<Path> files) {
     IngestionRunStats stats = new IngestionRunStats(orchestrator.threads());
     try (Session session = orchestrator.driver().session()) {
-      GraphWriter writer = new GraphWriter(session, orchestrator.project(), stats);
+      GraphWriter writer =
+          new GraphWriter(session, orchestrator.project(), stats, orchestrator.analysisCacheKey());
       Set<Path> watchFiles = watchFilesForProcessing(files);
       Optional<WatchSourceSnapshot> sourceSnapshot = sourceSnapshotForWatch(writer);
       if (sourceSnapshot.isEmpty()) {

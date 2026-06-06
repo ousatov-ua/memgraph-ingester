@@ -30,7 +30,15 @@ END |
   SET chunk.embeddingDirty = true
 )
 FOREACH (_ IN CASE
-  WHEN previousTextHash = row.textHash THEN [1]
+  WHEN previousTextHash = row.textHash AND chunk.embedding IS NULL THEN [1]
+  ELSE []
+END |
+  SET chunk.embeddingDirty = true
+)
+FOREACH (_ IN CASE
+  WHEN previousTextHash = row.textHash
+    AND chunk.embedding IS NOT NULL
+    AND coalesce(chunk.embeddingDirty, false) = false THEN [1]
   ELSE []
 END |
   SET chunk.embeddingDirty = false

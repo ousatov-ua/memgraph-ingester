@@ -9,6 +9,7 @@ package io.github.ousatov.tools.memgraph.vo;
  * @param wipeCodeRag if true, deletes this project's derived CodeChunk rows before ingesting
  * @param wipeMemoryRag if true, deletes this project's derived MemoryChunk rows before ingesting
  * @param watch if true, enables file-system watch mode after initial ingestion
+ * @param analysisCacheKey current analyzer input fingerprint used for incremental skipping
  * @param codeEmbeddings Memgraph-managed code chunk embedding refresh settings
  * @param memoryEmbeddings Memgraph-managed memory chunk embedding refresh settings
  * @author Oleksii Usatov
@@ -21,6 +22,7 @@ public record Settings(
     boolean wipeCodeRag,
     boolean wipeMemoryRag,
     boolean watch,
+    String analysisCacheKey,
     EmbeddingSettings codeEmbeddings,
     EmbeddingSettings memoryEmbeddings) {
 
@@ -43,12 +45,37 @@ public record Settings(
         false,
         false,
         watch,
+        "",
         EmbeddingSettings.disabled(),
         EmbeddingSettings.disabled());
   }
 
+  public Settings(
+      boolean wipeAllData,
+      boolean applySchema,
+      boolean wipeProjectCode,
+      boolean wipeProjectMemories,
+      boolean wipeCodeRag,
+      boolean wipeMemoryRag,
+      boolean watch,
+      EmbeddingSettings codeEmbeddings,
+      EmbeddingSettings memoryEmbeddings) {
+    this(
+        wipeAllData,
+        applySchema,
+        wipeProjectCode,
+        wipeProjectMemories,
+        wipeCodeRag,
+        wipeMemoryRag,
+        watch,
+        "",
+        codeEmbeddings,
+        memoryEmbeddings);
+  }
+
   /** Ensures embedding settings are never null. */
   public Settings {
+    analysisCacheKey = analysisCacheKey == null ? "" : analysisCacheKey;
     codeEmbeddings = codeEmbeddings == null ? EmbeddingSettings.disabled() : codeEmbeddings;
     memoryEmbeddings = memoryEmbeddings == null ? EmbeddingSettings.disabled() : memoryEmbeddings;
   }

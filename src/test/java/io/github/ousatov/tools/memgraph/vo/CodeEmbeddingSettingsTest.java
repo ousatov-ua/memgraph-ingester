@@ -46,6 +46,15 @@ class CodeEmbeddingSettingsTest {
   }
 
   @Test
+  void defaultEnabledCodeEmbeddingOptionsRemainOptionalUnlessRequired() {
+    CodeEmbeddingCliOptions options = new CodeEmbeddingCliOptions();
+
+    assertTrue(options.toSettings(false).enabled());
+    assertFalse(options.toSettings(false).required());
+    assertTrue(options.toSettings(true).required());
+  }
+
+  @Test
   void explicitRequiredMemoryEmbeddingsEnableMemoryChunks() {
     EmbeddingSettings settings = new MemoryEmbeddingCliOptions().toSettings(false, true);
 
