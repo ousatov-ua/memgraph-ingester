@@ -167,36 +167,7 @@ public final class Const {
 
     public static final String CYPHER_WIPE_PROJECT_MEMORIES =
         action("wipe-project-memories.cypher");
-    public static final String CYPHER_CLEAR_CODE_PACKAGE_CODE_REF_RESOLUTIONS =
-        action("clear-code-package-code-ref-resolutions.cypher");
-    public static final String CYPHER_RESOLVE_JAVA_CODE_REFS_CODE =
-        action("Java/resolve-code-refs-code.cypher");
-    public static final String CYPHER_RESOLVE_JAVA_CODE_REFS_PACKAGE =
-        action("Java/resolve-code-refs-package.cypher");
-    public static final String CYPHER_RESOLVE_JAVASCRIPT_CODE_REFS_CODE =
-        action("Js/resolve-code-refs-code.cypher");
-    public static final String CYPHER_RESOLVE_JAVASCRIPT_CODE_REFS_PACKAGE =
-        action("Js/resolve-code-refs-package.cypher");
-    public static final String CYPHER_RESOLVE_PYTHON_CODE_REFS_CODE =
-        action("Python/resolve-code-refs-code.cypher");
-    public static final String CYPHER_RESOLVE_PYTHON_CODE_REFS_PACKAGE =
-        action("Python/resolve-code-refs-package.cypher");
-    public static final String CYPHER_RESOLVE_DYNAMIC_CODE_REFS_CODE =
-        action("resolve-dynamic-code-refs-code.cypher");
-    public static final String CYPHER_RESOLVE_DYNAMIC_CODE_REFS_PACKAGE =
-        action("resolve-dynamic-code-refs-package.cypher");
-    public static final String CYPHER_RESOLVE_CODE_REFS_FILE =
-        action("resolve-code-refs-file.cypher");
-    public static final String CYPHER_RESOLVE_CODE_REFS_CLASS =
-        action("resolve-code-refs-class.cypher");
-    public static final String CYPHER_RESOLVE_CODE_REFS_INTERFACE =
-        action("resolve-code-refs-interface.cypher");
-    public static final String CYPHER_RESOLVE_CODE_REFS_ANNOTATION =
-        action("resolve-code-refs-annotation.cypher");
-    public static final String CYPHER_RESOLVE_CODE_REFS_METHOD =
-        action("resolve-code-refs-method.cypher");
-    public static final String CYPHER_RESOLVE_CODE_REFS_FIELD =
-        action("resolve-code-refs-field.cypher");
+    public static final String CYPHER_RESOLVE_CODE_REFS = action("resolve-code-refs.cypher");
     public static final String CYPHER_UPSERT_PROJECT = action("upsert-project.cypher");
     public static final String CYPHER_UPSERT_FILE = action("upsert-file.cypher");
     public static final String CYPHER_UPSERT_PACKAGE = action("upsert-package.cypher");

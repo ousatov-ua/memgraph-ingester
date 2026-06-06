@@ -328,6 +328,33 @@ class MemoryGraphIT {
   }
 
   @Test
+  void resolveCodeRefsRemovesStaleUnresolvablePackageEdges() {
+    writer.upsertPackage("shared", SourceLanguage.JAVA);
+    session
+        .run(
+            "MATCH (pkg:Package {project: $p, name: 'shared', language: 'java'})"
+                + " MERGE (ref:CodeRef {project: $p, targetType: 'Package', key: 'shared'})"
+                + " MERGE (ref)-[:RESOLVES_TO]->(pkg)",
+            Map.of("p", PROJECT))
+        .consume();
+
+    writer.resolveCodeRefs();
+
+    long count =
+        session
+            .run(
+                "MATCH (:CodeRef {project: $p, targetType: 'Package', key: 'shared'})"
+                    + "-[:RESOLVES_TO]->()"
+                    + " RETURN count(*) AS n",
+                Map.of("p", PROJECT))
+            .single()
+            .get("n")
+            .asLong();
+
+    assertEquals(0, count);
+  }
+
+  @Test
   void resolveCodeRefsResolveDynamicCodeAndPackageEdges() {
     session
         .run(

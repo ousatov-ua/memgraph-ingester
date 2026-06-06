@@ -337,23 +337,7 @@ public final class GraphWriter {
 
   /** Refreshes {@code :CodeRef} resolution edges to the current project-scoped code graph. */
   public void resolveCodeRefs() {
-    List.of(
-            Cypher.CYPHER_CLEAR_CODE_PACKAGE_CODE_REF_RESOLUTIONS,
-            Cypher.CYPHER_RESOLVE_JAVA_CODE_REFS_CODE,
-            Cypher.CYPHER_RESOLVE_JAVA_CODE_REFS_PACKAGE,
-            Cypher.CYPHER_RESOLVE_JAVASCRIPT_CODE_REFS_CODE,
-            Cypher.CYPHER_RESOLVE_JAVASCRIPT_CODE_REFS_PACKAGE,
-            Cypher.CYPHER_RESOLVE_PYTHON_CODE_REFS_CODE,
-            Cypher.CYPHER_RESOLVE_PYTHON_CODE_REFS_PACKAGE,
-            Cypher.CYPHER_RESOLVE_DYNAMIC_CODE_REFS_CODE,
-            Cypher.CYPHER_RESOLVE_DYNAMIC_CODE_REFS_PACKAGE,
-            Cypher.CYPHER_RESOLVE_CODE_REFS_FILE,
-            Cypher.CYPHER_RESOLVE_CODE_REFS_CLASS,
-            Cypher.CYPHER_RESOLVE_CODE_REFS_INTERFACE,
-            Cypher.CYPHER_RESOLVE_CODE_REFS_ANNOTATION,
-            Cypher.CYPHER_RESOLVE_CODE_REFS_METHOD,
-            Cypher.CYPHER_RESOLVE_CODE_REFS_FIELD)
-        .forEach(q -> cypher.run(q, Map.of()));
+    cypher.run(Cypher.CYPHER_RESOLVE_CODE_REFS, Map.of());
   }
 
   /**
