@@ -128,12 +128,6 @@ public final class IngesterCli implements Callable<Integer> {
   private boolean wipeAllData;
 
   @Option(
-      names = {"--incremental"},
-      description = "Skip files whose last-modified timestamp matches the stored value")
-  @SuppressWarnings(Const.Warnings.UNUSED)
-  private boolean incremental;
-
-  @Option(
       names = {"-w", "--watch"},
       description = "Watch for changes in the source directory and automatically re-ingest")
   @SuppressWarnings(Const.Warnings.UNUSED)
@@ -241,8 +235,13 @@ public final class IngesterCli implements Callable<Integer> {
     EmbeddingSettings codeEmbeddingSettings;
     EmbeddingSettings memoryEmbeddingSettings;
     try {
-      codeEmbeddingSettings = codeEmbed.toSettings();
-      memoryEmbeddingSettings = memoryEmbed.toSettings(instructions.withMemories || wipe.memoryRag);
+      boolean memoryEmbeddingsRequested =
+          instructions.withMemories
+              || wipe.memoryRag
+              || hasMatchedOption(Const.Cli.MEMORY_EMBEDDINGS);
+      codeEmbeddingSettings = codeEmbed.toSettings(codeEmbed.enabled);
+      memoryEmbeddingSettings =
+          memoryEmbed.toSettings(memoryEmbeddingsRequested, memoryEmbeddingsRequested);
     } catch (IllegalArgumentException e) {
       log.error(e.getMessage());
       return 1;
@@ -296,7 +295,6 @@ public final class IngesterCli implements Callable<Integer> {
               wipe.projectMemories,
               wipe.codeRag,
               wipe.memoryRag,
-              incremental,
               watch,
               codeEmbeddingSettings,
               memoryEmbeddingSettings);
@@ -330,7 +328,6 @@ public final class IngesterCli implements Callable<Integer> {
         || wipe.projectMemories
         || wipe.codeRag
         || wipe.memoryRag
-        || incremental
         || hasMatchedOption(Const.Cli.THREADS)
         || hasMatchedOption(Const.Cli.THREADS_SHORT)
         || hasMatchedOption(Const.Cli.USER)

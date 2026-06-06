@@ -5,6 +5,8 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import io.github.ousatov.tools.memgraph.cli.CodeEmbeddingCliOptions;
+import io.github.ousatov.tools.memgraph.cli.MemoryEmbeddingCliOptions;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
@@ -21,10 +23,12 @@ class CodeEmbeddingSettingsTest {
 
     assertFalse(settings.enabled());
     assertEquals(EmbeddingSettings.DEFAULT_CODE_INDEX_NAME, settings.indexName());
-    assertEquals("memory_chunk_embedding_v1", EmbeddingSettings.DEFAULT_MEMORY_INDEX_NAME);
+    assertEquals("memory_chunk_embedding_v2", EmbeddingSettings.DEFAULT_MEMORY_INDEX_NAME);
     assertEquals(EmbeddingSettings.DEFAULT_MODEL_NAME, settings.modelName());
     assertEquals(EmbeddingSettings.DEFAULT_BATCH_SIZE, settings.batchSize());
     assertEquals(EmbeddingSettings.DEFAULT_CHUNK_SIZE, settings.chunkSize());
+    assertEquals(EmbeddingSettings.DEFAULT_PROCEDURE_MEMORY_MB, settings.procedureMemoryMb());
+    assertFalse(settings.required());
   }
 
   @Test
@@ -37,6 +41,31 @@ class CodeEmbeddingSettingsTest {
     assertEquals(EmbeddingSettings.DEFAULT_CODE_INDEX_NAME, code.indexName());
     assertEquals(EmbeddingSettings.DEFAULT_MEMORY_INDEX_NAME, memory.indexName());
     assertEquals(code.modelName(), memory.modelName());
+    assertFalse(code.required());
+    assertFalse(memory.required());
+  }
+
+  @Test
+  void explicitRequiredMemoryEmbeddingsEnableMemoryChunks() {
+    EmbeddingSettings settings = new MemoryEmbeddingCliOptions().toSettings(false, true);
+
+    assertTrue(settings.enabled());
+    assertTrue(settings.required());
+    assertEquals(EmbeddingSettings.DEFAULT_MEMORY_INDEX_NAME, settings.indexName());
+  }
+
+  @Test
+  void embeddingProcedureMemoryLimitCanBeConfiguredFromCli() {
+    CodeEmbeddingCliOptions codeOptions = new CodeEmbeddingCliOptions();
+    MemoryEmbeddingCliOptions memoryOptions = new MemoryEmbeddingCliOptions();
+    codeOptions.procedureMemoryMb = 1024;
+    memoryOptions.procedureMemoryMb = 768;
+
+    EmbeddingSettings code = codeOptions.toSettings(true);
+    EmbeddingSettings memory = memoryOptions.toSettings(true, true);
+
+    assertEquals(1024, code.procedureMemoryMb());
+    assertEquals(768, memory.procedureMemoryMb());
   }
 
   @Test

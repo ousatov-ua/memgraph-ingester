@@ -23,7 +23,9 @@ public record EmbeddingSettings(
     int dimensions,
     int remoteBatchSize,
     int concurrency,
-    int capacity) {
+    int procedureMemoryMb,
+    int capacity,
+    boolean required) {
 
   public static final String DEFAULT_CODE_INDEX_NAME =
       AppConfig.stringValue("embedding.code-index-name");
@@ -40,6 +42,8 @@ public record EmbeddingSettings(
   public static final int DEFAULT_REMOTE_BATCH_SIZE =
       AppConfig.intValue("embedding.remote-batch-size");
   public static final int DEFAULT_CONCURRENCY = AppConfig.intValue("embedding.concurrency");
+  public static final int DEFAULT_PROCEDURE_MEMORY_MB =
+      AppConfig.intValue("embedding.procedure-memory-mb");
   public static final int DEFAULT_CAPACITY = AppConfig.intValue("embedding.capacity");
 
   private static final List<String> CODE_CHUNK_METADATA_PROPERTIES =
@@ -72,6 +76,36 @@ public record EmbeddingSettings(
           Const.Params.CREATED_AT,
           Const.Params.UPDATED_AT);
 
+  public EmbeddingSettings(
+      boolean enabled,
+      String indexName,
+      String modelName,
+      String metric,
+      String scalarKind,
+      int batchSize,
+      int chunkSize,
+      String device,
+      int dimensions,
+      int remoteBatchSize,
+      int concurrency,
+      int capacity) {
+    this(
+        enabled,
+        indexName,
+        modelName,
+        metric,
+        scalarKind,
+        batchSize,
+        chunkSize,
+        device,
+        dimensions,
+        remoteBatchSize,
+        concurrency,
+        DEFAULT_PROCEDURE_MEMORY_MB,
+        capacity,
+        false);
+  }
+
   /** Normalizes defaults and validates numeric options. */
   public EmbeddingSettings {
     indexName = defaultIfBlank(indexName, DEFAULT_CODE_INDEX_NAME);
@@ -86,6 +120,7 @@ public record EmbeddingSettings(
     requireNonNegative(dimensions, "embedding dimensions");
     requireNonNegative(remoteBatchSize, "embedding remote batch size");
     requireNonNegative(concurrency, "embedding concurrency");
+    requireNonNegative(procedureMemoryMb, "embedding procedure memory mb");
     requireNonNegative(capacity, "embedding index capacity");
   }
 
@@ -103,7 +138,9 @@ public record EmbeddingSettings(
         DEFAULT_DIMENSIONS,
         DEFAULT_REMOTE_BATCH_SIZE,
         DEFAULT_CONCURRENCY,
-        DEFAULT_CAPACITY);
+        DEFAULT_PROCEDURE_MEMORY_MB,
+        DEFAULT_CAPACITY,
+        false);
   }
 
   /** Enabled defaults for {@code :MemoryChunk} embeddings. */
@@ -120,13 +157,36 @@ public record EmbeddingSettings(
         DEFAULT_DIMENSIONS,
         DEFAULT_REMOTE_BATCH_SIZE,
         DEFAULT_CONCURRENCY,
-        DEFAULT_CAPACITY);
+        DEFAULT_PROCEDURE_MEMORY_MB,
+        DEFAULT_CAPACITY,
+        false);
   }
 
   /** Disabled default used by callers that opt out of embedding refresh. */
   public static EmbeddingSettings disabled() {
     return new EmbeddingSettings(
-        false, null, null, null, null, 0, 0, Const.Symbols.EMPTY, 0, 0, 0, 0);
+        false, null, null, null, null, 0, 0, Const.Symbols.EMPTY, 0, 0, 0, 0, 0, false);
+  }
+
+  public EmbeddingSettings withRequired(boolean required) {
+    if (this.required == required) {
+      return this;
+    }
+    return new EmbeddingSettings(
+        enabled,
+        indexName,
+        modelName,
+        metric,
+        scalarKind,
+        batchSize,
+        chunkSize,
+        device,
+        dimensions,
+        remoteBatchSize,
+        concurrency,
+        procedureMemoryMb,
+        capacity,
+        required);
   }
 
   /** Returns the Memgraph embeddings module configuration for {@code embeddings.node_sentence}. */

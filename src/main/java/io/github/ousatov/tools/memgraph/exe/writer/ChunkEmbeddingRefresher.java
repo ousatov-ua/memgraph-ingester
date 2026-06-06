@@ -9,10 +9,12 @@ import io.github.ousatov.tools.memgraph.vo.EmbeddingSettings;
 import io.github.ousatov.tools.memgraph.vo.writer.EmbeddingBatchResult;
 import io.github.ousatov.tools.memgraph.vo.writer.EmbeddingRefreshResult;
 import io.github.ousatov.tools.memgraph.vo.writer.VectorIndexInfo;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
 import org.jspecify.annotations.NonNull;
 import org.neo4j.driver.Result;
@@ -34,6 +36,9 @@ final class ChunkEmbeddingRefresher {
   private static final Logger log = LoggerFactory.getLogger(ChunkEmbeddingRefresher.class);
 
   private static final Pattern CYPHER_IDENTIFIER = Pattern.compile("[A-Za-z_][A-Za-z0-9_]*");
+  private static final String NODE_SENTENCE_CALL = "CALL embeddings.node_sentence(chunks, $config)";
+  private static final int MODEL_INFO_RETRIES = 6;
+  private static final long MODEL_INFO_RETRY_DELAY_MS = 10_000;
 
   private final CypherExecutor cypher;
   private final Map<String, Integer> dimensionCache = new HashMap<>();
@@ -47,8 +52,8 @@ final class ChunkEmbeddingRefresher {
    *
    * @param settings embedding configuration
    * @param target either {@link EmbeddingTarget#CODE} or {@link EmbeddingTarget#MEMORY}
-   * @param dirtyOnly when {@code true}, limits refresh to chunks marked dirty; ignored when the
-   *     target has no dirty-count query
+   * @param dirtyOnly when {@code true}, refreshes dirty chunks first; required runs then backfill
+   *     any remaining stale chunks so missing embeddings are not hidden by an unchanged write
    */
   EmbeddingRefreshResult refresh(
       EmbeddingSettings settings, EmbeddingTarget target, boolean dirtyOnly) {
@@ -57,14 +62,32 @@ final class ChunkEmbeddingRefresher {
     }
     validateCypherIdentifier(settings.indexName(), target.indexNameParam());
 
+    dropObsoleteVectorIndexes(settings, target);
     int dimension = embeddingDimension(settings);
-    ensureVectorIndex(settings, target, dimension);
+    long clearedObsoleteEmbeddings = clearObsoleteChunkEmbeddings(settings, target, dimension);
+    ensureVectorIndex(settings, target, dimension, clearedObsoleteEmbeddings > 0);
+    if (settings.required()) {
+      verifyEmbeddingReadiness(settings, target, dimension);
+    }
 
     boolean useDirty = dirtyOnly && target.countDirtyCypher() != null;
-    long stale = useDirty ? countDirty(target) : countStale(settings, target, dimension);
+    long markedStale = useDirty ? countDirty(target) : countStale(settings, target, dimension);
+    long embedded = refreshMarkedChunks(settings, target, dimension, markedStale);
+    if (useDirty && settings.required()) {
+      long remainingStale = countStale(settings, target, dimension);
+      embedded += refreshMarkedChunks(settings, target, dimension, remainingStale);
+    }
+
+    if (settings.required()) {
+      verifyAllEmbeddingsCalculated(settings, target, dimension);
+    }
+    return new EmbeddingRefreshResult(embedded, dimension);
+  }
+
+  private long refreshMarkedChunks(
+      EmbeddingSettings settings, EmbeddingTarget target, int dimension, long stale) {
     long embedded = 0L;
     int batchSize = settings.batchSize();
-
     while (stale > 0) {
       EmbeddingBatchResult batch = refreshBatch(settings, target, dimension, batchSize);
       if (!batch.success()) {
@@ -90,7 +113,7 @@ final class ChunkEmbeddingRefresher {
       embedded += batchCount;
       stale -= batchCount;
     }
-    return new EmbeddingRefreshResult(embedded, dimension);
+    return embedded;
   }
 
   private int embeddingDimension(EmbeddingSettings settings) {
@@ -100,35 +123,176 @@ final class ChunkEmbeddingRefresher {
 
   private int queryDimension(EmbeddingSettings settings) {
     Map<String, Object> params = Map.of(Params.CONFIG, settings.modelConfiguration());
-    return cypher.read(
-        Cypher.CYPHER_CODE_EMBEDDING_MODEL_INFO,
-        params,
-        result -> {
-          if (!result.hasNext()) {
-            throw new ProcessingException("Memgraph embeddings.model_info returned no rows");
-          }
-          int dimension = result.next().get("info").get(Rag.DIMENSION).asInt(0);
-          if (dimension < 1) {
-            throw new ProcessingException(
-                "Memgraph embeddings.model_info returned invalid dimension " + dimension);
-          }
-          return dimension;
-        });
+    RuntimeException lastFailure = null;
+    for (int attempt = 1; attempt <= MODEL_INFO_RETRIES; attempt++) {
+      try {
+        return cypher.read(
+            Cypher.CYPHER_CODE_EMBEDDING_MODEL_INFO,
+            params,
+            result -> {
+              if (!result.hasNext()) {
+                throw new ProcessingException("Memgraph embeddings.model_info returned no rows");
+              }
+              int dimension = result.next().get("info").get(Rag.DIMENSION).asInt(0);
+              if (dimension < 1) {
+                throw new ProcessingException(
+                    "Memgraph embeddings.model_info returned invalid dimension " + dimension);
+              }
+              return dimension;
+            });
+      } catch (RuntimeException e) {
+        lastFailure = e;
+        log.warn(
+            "embeddings.model_info attempt {}/{} failed for model '{}': {}. Retrying in {}s…",
+            attempt,
+            MODEL_INFO_RETRIES,
+            settings.modelName(),
+            e.getMessage(),
+            MODEL_INFO_RETRY_DELAY_MS / 1000);
+        try {
+          TimeUnit.MILLISECONDS.sleep(MODEL_INFO_RETRY_DELAY_MS);
+        } catch (InterruptedException ie) {
+          Thread.currentThread().interrupt();
+          throw new ProcessingException("Interrupted while waiting for embedding model", ie);
+        }
+      }
+    }
+    throw new ProcessingException(
+        "embeddings.model_info failed after "
+            + MODEL_INFO_RETRIES
+            + " attempts for model '"
+            + settings.modelName()
+            + "'",
+        lastFailure);
   }
 
-  private void ensureVectorIndex(EmbeddingSettings settings, EmbeddingTarget target, int dim) {
+  private void ensureVectorIndex(
+      EmbeddingSettings settings, EmbeddingTarget target, int dim, boolean forceRecreate) {
     int capacity = vectorIndexCapacity(settings, countChunks(target));
     Optional<VectorIndexInfo> existing = vectorIndexInfo(settings.indexName());
     if (existing.isPresent()) {
-      verifyVectorIndex(settings, dim, existing.get(), target);
-      if (existing.get().capacity() >= capacity) {
-        return;
+      VectorIndexInfo index = existing.get();
+      verifyVectorIndexIdentity(index, settings.indexName(), target);
+      boolean needsRecreate =
+          forceRecreate
+              || index.dimension() != dim
+              || !settings.metric().equals(index.metric())
+              || (!index.scalarKind().isBlank()
+                  && !settings.scalarKind().equals(index.scalarKind()))
+              || index.capacity() < capacity;
+      if (needsRecreate) {
+        recreateVectorIndex(
+            settings.indexName(),
+            buildCreateIndexCypher(settings, target),
+            settings,
+            dim,
+            capacity);
       }
-      recreateVectorIndex(
-          settings.indexName(), buildCreateIndexCypher(settings, target), settings, dim, capacity);
-      return;
+    } else {
+      createVectorIndex(buildCreateIndexCypher(settings, target), settings, dim, capacity);
     }
-    createVectorIndex(buildCreateIndexCypher(settings, target), settings, dim, capacity);
+  }
+
+  private void dropObsoleteVectorIndexes(EmbeddingSettings settings, EmbeddingTarget target) {
+    List<String> toDropNames = obsoleteVectorIndexNames(settings, target);
+    for (String name : toDropNames) {
+      validateCypherIdentifier(name, "obsolete index name");
+      log.info("Dropping obsolete vector index '{}'", name);
+      cypher.run("DROP VECTOR INDEX " + name, Map.of());
+    }
+  }
+
+  private List<String> obsoleteVectorIndexNames(
+      EmbeddingSettings settings, EmbeddingTarget target) {
+    return cypher.read(
+        Cypher.CYPHER_SHOW_VECTOR_INDEX_INFO,
+        Map.of(),
+        result -> {
+          List<String> obsolete = new ArrayList<>();
+          while (result.hasNext()) {
+            var row = result.next();
+            String name = row.get("index_name").asString(Const.Symbols.EMPTY);
+            String label = row.get(Params.LABEL).asString(Const.Symbols.EMPTY);
+            String property = row.get(Params.PROPERTY).asString(Const.Symbols.EMPTY);
+            if (!name.equals(settings.indexName())
+                && target.chunkLabel().equals(label)
+                && EmbeddingSettings.DEFAULT_EMBEDDING_PROPERTY.equals(property)) {
+              obsolete.add(name);
+            }
+          }
+          return obsolete;
+        });
+  }
+
+  private long clearObsoleteChunkEmbeddings(
+      EmbeddingSettings settings, EmbeddingTarget target, int dimension) {
+    long cleared =
+        cypher.read(
+            target.clearObsoleteCypher(),
+            Map.of(Params.MODEL_NAME, settings.modelName(), Rag.DIMENSION, dimension),
+            result -> result.single().get(Params.COUNT).asLong());
+    if (cleared > 0) {
+      log.info(
+          "Cleared {} obsolete {} embedding value(s) across all projects",
+          cleared,
+          target.chunkLabel());
+    }
+    return cleared;
+  }
+
+  private void verifyEmbeddingReadiness(
+      EmbeddingSettings settings, EmbeddingTarget target, int dimension) {
+    List<String> obsoleteIndexes = obsoleteVectorIndexNames(settings, target);
+    if (!obsoleteIndexes.isEmpty()) {
+      throw new ProcessingException(
+          "Obsolete "
+              + target.chunkLabel()
+              + " vector index(es) still exist after cleanup: "
+              + obsoleteIndexes);
+    }
+    VectorIndexInfo index =
+        vectorIndexInfo(settings.indexName())
+            .orElseThrow(
+                () ->
+                    new ProcessingException(
+                        "Required vector index '"
+                            + settings.indexName()
+                            + "' was not created for "
+                            + target.chunkLabel()
+                            + " embeddings"));
+    verifyVectorIndexIdentity(index, settings.indexName(), target);
+    verifyVectorIndexConfiguration(settings, dimension, index, target);
+
+    long obsoleteEmbeddings = countObsoleteChunkEmbeddings(settings, target, dimension);
+    if (obsoleteEmbeddings > 0) {
+      throw new ProcessingException(
+          "Found "
+              + obsoleteEmbeddings
+              + " obsolete "
+              + target.chunkLabel()
+              + " embedding value(s) after cleanup");
+    }
+  }
+
+  private long countObsoleteChunkEmbeddings(
+      EmbeddingSettings settings, EmbeddingTarget target, int dimension) {
+    return cypher.read(
+        target.countObsoleteCypher(),
+        Map.of(Params.MODEL_NAME, settings.modelName(), Rag.DIMENSION, dimension),
+        result -> result.single().get(Params.COUNT).asLong());
+  }
+
+  private void verifyAllEmbeddingsCalculated(
+      EmbeddingSettings settings, EmbeddingTarget target, int dimension) {
+    long remaining = countStale(settings, target, dimension);
+    if (remaining > 0) {
+      throw new ProcessingException(
+          "Required "
+              + target.chunkLabel()
+              + " embedding refresh left "
+              + remaining
+              + " stale chunk(s)");
+    }
   }
 
   private void recreateVectorIndex(
@@ -188,7 +352,23 @@ final class ChunkEmbeddingRefresher {
             Params.CONFIG,
             config);
     return cypher.read(
-        target.batchCypher(), params, result -> getEmbeddingBatchResult(dimension, result));
+        batchCypher(settings, target),
+        params,
+        result -> getEmbeddingBatchResult(dimension, result));
+  }
+
+  static String batchCypher(EmbeddingSettings settings, EmbeddingTarget target) {
+    if (settings.procedureMemoryMb() == 0) {
+      return target.batchCypher();
+    }
+    String call =
+        NODE_SENTENCE_CALL + " PROCEDURE MEMORY LIMIT " + settings.procedureMemoryMb() + " MB";
+    String cypher = target.batchCypher().replace(NODE_SENTENCE_CALL, call);
+    if (cypher.equals(target.batchCypher())) {
+      throw new ProcessingException(
+          "Embedding batch Cypher does not contain expected embeddings.node_sentence call");
+    }
+    return cypher;
   }
 
   private @NonNull EmbeddingBatchResult getEmbeddingBatchResult(int dimension, Result result) {
@@ -286,19 +466,38 @@ final class ChunkEmbeddingRefresher {
         });
   }
 
-  private static void verifyVectorIndex(
-      EmbeddingSettings settings, int dimension, VectorIndexInfo index, EmbeddingTarget target) {
+  private static void verifyVectorIndexIdentity(
+      VectorIndexInfo index, String indexName, EmbeddingTarget target) {
     if (!target.chunkLabel().equals(index.label())
-        || !EmbeddingSettings.DEFAULT_EMBEDDING_PROPERTY.equals(index.property())
-        || dimension != index.dimension()
+        || !EmbeddingSettings.DEFAULT_EMBEDDING_PROPERTY.equals(index.property())) {
+      throw new ProcessingException(
+          "Vector index '"
+              + indexName
+              + "' targets label '"
+              + index.label()
+              + "' / property '"
+              + index.property()
+              + "' — cannot reuse it for "
+              + target.chunkLabel()
+              + " embeddings (expected label '"
+              + target.chunkLabel()
+              + "' / property '"
+              + EmbeddingSettings.DEFAULT_EMBEDDING_PROPERTY
+              + "')");
+    }
+  }
+
+  private static void verifyVectorIndexConfiguration(
+      EmbeddingSettings settings, int dimension, VectorIndexInfo index, EmbeddingTarget target) {
+    if (dimension != index.dimension()
         || !settings.metric().equals(index.metric())
         || (!index.scalarKind().isBlank() && !settings.scalarKind().equals(index.scalarKind()))) {
       throw new ProcessingException(
           "Vector index '"
               + settings.indexName()
-              + "' exists but is not compatible with requested "
+              + "' exists but does not match required "
               + target.chunkLabel()
-              + " embeddings");
+              + " embedding config");
     }
   }
 

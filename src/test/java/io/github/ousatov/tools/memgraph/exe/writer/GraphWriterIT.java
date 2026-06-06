@@ -289,6 +289,35 @@ class GraphWriterIT {
   }
 
   @Test
+  void replaceCodeChunksForFileClearsEmbeddingDirtyForUnchangedChunk() {
+    writer.upsertFile(TEST_FILE, SourceLanguage.JAVA);
+
+    CodeChunkWrite chunk =
+        new CodeChunkWrite(
+            "CCH-current",
+            "File",
+            TEST_FILE.toString(),
+            SourceLanguage.JAVA.graphName(),
+            TEST_FILE.toString(),
+            "",
+            "",
+            TEST_FILE.getFileName().toString(),
+            "file",
+            "file",
+            1,
+            1,
+            false,
+            "stable docs",
+            "stable-hash");
+
+    writer.replaceCodeChunksForFile(TEST_FILE, List.of(chunk));
+    assertTrue(codeChunkEmbeddingDirty("CCH-current"));
+
+    writer.replaceCodeChunksForFile(TEST_FILE, List.of(chunk));
+    assertFalse(codeChunkEmbeddingDirty("CCH-current"));
+  }
+
+  @Test
   void upsertFileRemovesOldLanguageCodeLinkWhenLanguageChanges() throws IOException {
     SourceLanguage ruby = SourceLanguage.of("ruby", "Ruby");
     SourceLanguage go = SourceLanguage.of("go", "Go");
@@ -311,6 +340,17 @@ class GraphWriterIT {
     } finally {
       Files.deleteIfExists(tempFile);
     }
+  }
+
+  private boolean codeChunkEmbeddingDirty(String id) {
+    return session
+        .run(
+            "MATCH (chunk:CodeChunk {project: $p, id: $id})"
+                + " RETURN chunk.embeddingDirty AS dirty",
+            Map.of("p", PROJECT, "id", id))
+        .single()
+        .get("dirty")
+        .asBoolean();
   }
 
   @Test

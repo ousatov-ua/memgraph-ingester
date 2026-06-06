@@ -1248,7 +1248,7 @@ class IngestionOrchestratorIT {
         new Thread(
             () -> {
               try {
-                orchestrator.run(new Settings(false, true, false, false, false, true));
+                orchestrator.run(new Settings(false, true, false, false, true));
               } catch (Throwable t) {
                 failure.set(t);
               }
@@ -1325,7 +1325,7 @@ class IngestionOrchestratorIT {
         new Thread(
             () -> {
               try {
-                orchestrator.run(new Settings(false, true, false, false, false, true));
+                orchestrator.run(new Settings(false, true, false, false, true));
               } catch (Throwable t) {
                 failure.set(t);
               }
@@ -1380,7 +1380,7 @@ class IngestionOrchestratorIT {
         new Thread(
             () -> {
               try {
-                orchestrator.run(new Settings(false, true, false, false, false, true));
+                orchestrator.run(new Settings(false, true, false, false, true));
               } catch (Throwable t) {
                 failure.set(t);
               }
@@ -1541,7 +1541,7 @@ class IngestionOrchestratorIT {
         new Thread(
             () -> {
               try {
-                orchestrator.run(new Settings(false, true, false, false, false, true));
+                orchestrator.run(new Settings(false, true, false, false, true));
               } catch (Throwable t) {
                 failure.set(t);
               }
@@ -2128,7 +2128,7 @@ class IngestionOrchestratorIT {
           .consume();
     }
 
-    int failures = orchestrator.run(new Settings(false, false, false, true, false, false));
+    int failures = orchestrator.run(new Settings(false, false, false, true, false));
 
     assertEquals(0, failures);
     try (Session s = driver.session()) {
@@ -2305,6 +2305,8 @@ class IngestionOrchestratorIT {
     assertEquals(0, normal.run(Settings.def()));
     assertTrue(classExists(currentProject, "com.example.Atomic"));
     assertTrue(methodExists(currentProject, "com.example.Atomic.oldMethod()"));
+    Files.setLastModifiedTime(
+        file, FileTime.fromMillis(System.currentTimeMillis() + TimeUnit.SECONDS.toMillis(5)));
 
     IngestionOrchestrator failing =
         new IngestionOrchestrator(
@@ -2408,6 +2410,8 @@ class IngestionOrchestratorIT {
     assertEquals(0, normal.run(Settings.def()));
     assertTrue(methodExists(currentProject, "com.example.Moved.oldMethod()"));
 
+    Files.setLastModifiedTime(
+        oldFile, FileTime.fromMillis(System.currentTimeMillis() + TimeUnit.SECONDS.toMillis(5)));
     Files.writeString(
         newFile,
         """
@@ -2910,7 +2914,7 @@ class IngestionOrchestratorIT {
         """);
     Files.delete(oldFile);
 
-    assertEquals(0, orchestrator.run(new Settings(false, false, false, false, true, false)));
+    assertEquals(0, orchestrator.run(Settings.def()));
 
     assertFalse(fileExistsInGraph(currentProject, oldFile));
     assertTrue(fileExistsInGraph(currentProject, newFile));
@@ -3198,7 +3202,7 @@ class IngestionOrchestratorIT {
           .consume();
     }
 
-    assertEquals(0, orchestrator.run(new Settings(false, false, false, false, true, false)));
+    assertEquals(0, orchestrator.run(Settings.def()));
 
     try (Session s = driver.session()) {
       long missingOwnerMetadata =
@@ -3260,7 +3264,7 @@ class IngestionOrchestratorIT {
           .consume();
     }
 
-    assertEquals(0, orchestrator.run(new Settings(false, false, false, false, true, false)));
+    assertEquals(0, orchestrator.run(Settings.def()));
     List<String> backfilledChunks = codeChunkTexts(currentProject, sourceFile);
     assertTrue(backfilledChunks.stream().anyMatch(text -> text.contains("Searchable widget docs")));
     assertTrue(backfilledChunks.stream().anyMatch(text -> text.contains("Searchable method docs")));
@@ -3284,7 +3288,7 @@ class IngestionOrchestratorIT {
           .consume();
     }
 
-    assertEquals(0, orchestrator.run(new Settings(false, false, false, false, true, false)));
+    assertEquals(0, orchestrator.run(Settings.def()));
     assertEquals(1, adapter.prepares());
   }
 
@@ -3344,7 +3348,7 @@ class IngestionOrchestratorIT {
           .consume();
     }
 
-    assertEquals(0, orchestrator.run(new Settings(false, false, false, false, true, false)));
+    assertEquals(0, orchestrator.run(Settings.def()));
 
     try (Session s = driver.session()) {
       long newThingCount =
@@ -3420,7 +3424,7 @@ class IngestionOrchestratorIT {
         serviceFile,
         FileTime.fromMillis(System.currentTimeMillis() + TimeUnit.SECONDS.toMillis(5)));
 
-    assertEquals(0, orchestrator.run(new Settings(false, false, false, false, true, false)));
+    assertEquals(0, orchestrator.run(Settings.def()));
 
     assertTrue(
         callEdgeExists(
@@ -3437,8 +3441,8 @@ class IngestionOrchestratorIT {
             sourceDir, currentProject, 1, driver, new ParseService(sourceDir));
 
     assertEquals(0, orchestrator.run(Settings.def()));
-    assertEquals(0, orchestrator.run(new Settings(false, false, true, false, true, false)));
-    assertEquals(0, orchestrator.run(new Settings(true, false, false, false, true, false)));
+    assertEquals(0, orchestrator.run(Settings.wipeProjCodeOnly()));
+    assertEquals(0, orchestrator.run(new Settings(true, false, false, false, false)));
 
     try (Session s = driver.session()) {
       long classCount =

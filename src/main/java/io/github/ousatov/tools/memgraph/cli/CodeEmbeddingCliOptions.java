@@ -57,6 +57,14 @@ public final class CodeEmbeddingCliOptions {
   public int concurrency = EmbeddingSettings.DEFAULT_CONCURRENCY;
 
   @Option(
+      names = {"--code-embedding-procedure-memory-mb"},
+      description =
+          "Optional Memgraph PROCEDURE MEMORY LIMIT for CodeChunk embedding calls in MB; 0 keeps"
+              + " Memgraph's default.")
+  @SuppressWarnings(Const.Warnings.UNUSED)
+  public int procedureMemoryMb = EmbeddingSettings.DEFAULT_PROCEDURE_MEMORY_MB;
+
+  @Option(
       names = {"--code-embedding-index-capacity"},
       description =
           "Optional vector index capacity; 0 uses the current CodeChunk count. The index uses "
@@ -64,7 +72,7 @@ public final class CodeEmbeddingCliOptions {
   @SuppressWarnings(Const.Warnings.UNUSED)
   public int capacity = EmbeddingSettings.DEFAULT_CAPACITY;
 
-  public EmbeddingSettings toSettings() {
+  public EmbeddingSettings toSettings(boolean required) {
     return new EmbeddingSettings(
         enabled,
         EmbeddingSettings.DEFAULT_CODE_INDEX_NAME,
@@ -77,6 +85,8 @@ public final class CodeEmbeddingCliOptions {
         EmbeddingSettings.DEFAULT_DIMENSIONS,
         remoteBatchSize,
         concurrency,
-        capacity);
+        procedureMemoryMb,
+        capacity,
+        required && enabled);
   }
 }

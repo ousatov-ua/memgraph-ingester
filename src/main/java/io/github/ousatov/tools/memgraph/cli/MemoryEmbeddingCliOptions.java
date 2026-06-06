@@ -61,6 +61,14 @@ public final class MemoryEmbeddingCliOptions {
   public int concurrency = EmbeddingSettings.DEFAULT_CONCURRENCY;
 
   @Option(
+      names = {"--memory-embedding-procedure-memory-mb"},
+      description =
+          "Optional Memgraph PROCEDURE MEMORY LIMIT for MemoryChunk embedding calls in MB; 0 keeps"
+              + " Memgraph's default.")
+  @SuppressWarnings(Const.Warnings.UNUSED)
+  public int procedureMemoryMb = EmbeddingSettings.DEFAULT_PROCEDURE_MEMORY_MB;
+
+  @Option(
       names = {"--memory-embedding-index-capacity"},
       description =
           "Optional MemoryChunk vector index capacity; 0 uses the current MemoryChunk count."
@@ -68,9 +76,9 @@ public final class MemoryEmbeddingCliOptions {
   @SuppressWarnings(Const.Warnings.UNUSED)
   public int capacity = EmbeddingSettings.DEFAULT_CAPACITY;
 
-  public EmbeddingSettings toSettings(boolean memoryRequired) {
+  public EmbeddingSettings toSettings(boolean memoryRequired, boolean required) {
     return new EmbeddingSettings(
-        memoryRequired && enabled,
+        (memoryRequired || required) && enabled,
         EmbeddingSettings.DEFAULT_MEMORY_INDEX_NAME,
         EmbeddingSettings.DEFAULT_MODEL_NAME,
         EmbeddingSettings.DEFAULT_METRIC,
@@ -81,6 +89,8 @@ public final class MemoryEmbeddingCliOptions {
         EmbeddingSettings.DEFAULT_DIMENSIONS,
         remoteBatchSize,
         concurrency,
-        capacity);
+        procedureMemoryMb,
+        capacity,
+        required && enabled);
   }
 }
