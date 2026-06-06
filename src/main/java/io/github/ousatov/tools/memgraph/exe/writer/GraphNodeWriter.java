@@ -108,5 +108,4 @@ final class GraphNodeWriter {
     List<Map<String, Object>> rows = writes.stream().map(BatchWrite::params).toList();
     cypher.runBatch(query, rows);
   }
-
 }
