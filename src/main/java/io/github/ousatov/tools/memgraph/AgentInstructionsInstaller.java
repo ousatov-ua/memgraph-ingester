@@ -48,8 +48,7 @@ final class AgentInstructionsInstaller {
     };
   }
 
-  static InstallResult install(
-      Path target, String project, boolean includeMemories)
+  static InstallResult install(Path target, String project, boolean includeMemories)
       throws IOException {
     if (target == null) {
       throw new IllegalArgumentException("--instructions-file resolved to an empty path");
@@ -58,8 +57,7 @@ final class AgentInstructionsInstaller {
       throw new IllegalArgumentException("--project is required");
     }
 
-    String block =
-        managedBlock(renderInstructions(project, includeMemories));
+    String block = managedBlock(renderInstructions(project, includeMemories));
     String existing =
         Files.exists(target)
             ? Files.readString(target, StandardCharsets.UTF_8)
@@ -117,8 +115,8 @@ final class AgentInstructionsInstaller {
     return offset;
   }
 
-  private static String renderInstructions(
-      String project, boolean includeMemories) throws IOException {
+  private static String renderInstructions(String project, boolean includeMemories)
+      throws IOException {
     String codeTemplate = CODE_TEMPLATE;
     String memoryTemplate = MEMORY_TEMPLATE;
     String code = readTemplate(codeTemplate).replace(PROJECT_TOKEN, project).stripTrailing();
