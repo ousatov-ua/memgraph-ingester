@@ -61,6 +61,7 @@ public final class GraphWriter {
   private final CommonGraphWriter.Dependencies dependencies;
   private final ChunkEmbeddingRefresher embeddingRefresher;
   private final IngestionRunStats stats;
+  private final String analysisCacheKey;
   private Set<String> retainedSourcePaths = Set.of();
   private String retainedSourceToken = Const.Symbols.EMPTY;
 
@@ -78,12 +79,24 @@ public final class GraphWriter {
    * @param stats optional run-level counters shared by the orchestrator
    */
   public GraphWriter(Session session, String project, IngestionRunStats stats) {
+    this(session, project, stats, Const.Symbols.EMPTY);
+  }
+
+  /**
+   * @param session Bolt session — must not be shared with other threads
+   * @param project project name used to scope all Cypher operations
+   * @param stats optional run-level counters shared by the orchestrator
+   * @param analysisCacheKey analyzer input fingerprint stored on file nodes
+   */
+  public GraphWriter(
+      Session session, String project, IngestionRunStats stats, String analysisCacheKey) {
     this.cypher = new CypherExecutor(session, project, stats);
     this.nodes = new GraphNodeWriter(cypher);
     CallEdgeWriter callEdges = new CallEdgeWriter(nodes);
     this.dependencies = new CommonGraphWriter.Dependencies(cypher, callEdges, nodes);
     this.embeddingRefresher = new ChunkEmbeddingRefresher(cypher);
     this.stats = stats;
+    this.analysisCacheKey = analysisCacheKey == null ? Const.Symbols.EMPTY : analysisCacheKey;
   }
 
   public CommonGraphWriter.Dependencies dependencies() {
@@ -356,7 +369,13 @@ public final class GraphWriter {
     try {
       return cypher.read(
           language.filesLastModifiedCypher(),
-          Map.of(Params.PATHS, paths, Params.LANGUAGE, language.graphName()),
+          Map.of(
+              Params.PATHS,
+              paths,
+              Params.LANGUAGE,
+              language.graphName(),
+              Params.ANALYSIS_CACHE_KEY,
+              analysisCacheKey),
           result -> {
             Map<String, Long> mtimes = HashMap.newHashMap(files.size() * 2);
             while (result.hasNext()) {
@@ -519,6 +538,8 @@ public final class GraphWriter {
             language.graphName(),
             Params.LANGUAGE_NAME,
             language.nodeName(),
+            Params.ANALYSIS_CACHE_KEY,
+            analysisCacheKey,
             Params.RETAINED_SOURCE_TOKEN,
             retainedSourceTokenFor(file)));
   }

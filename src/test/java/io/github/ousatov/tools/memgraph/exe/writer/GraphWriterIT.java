@@ -289,7 +289,7 @@ class GraphWriterIT {
   }
 
   @Test
-  void replaceCodeChunksForFileClearsEmbeddingDirtyForUnchangedChunk() {
+  void replaceCodeChunksForFileKeepsEmbeddingDirtyForUnchangedUnembeddedChunk() {
     writer.upsertFile(TEST_FILE, SourceLanguage.JAVA);
 
     CodeChunkWrite chunk =
@@ -314,7 +314,7 @@ class GraphWriterIT {
     assertTrue(codeChunkEmbeddingDirty("CCH-current"));
 
     writer.replaceCodeChunksForFile(TEST_FILE, List.of(chunk));
-    assertFalse(codeChunkEmbeddingDirty("CCH-current"));
+    assertTrue(codeChunkEmbeddingDirty("CCH-current"));
   }
 
   @Test
@@ -369,6 +369,28 @@ class GraphWriterIT {
               .asLong();
 
       assertTrue(lastModified > 0, "lastModified must be a positive epoch-millis value");
+    } finally {
+      Files.deleteIfExists(tempFile);
+    }
+  }
+
+  @Test
+  void fileLastModifiedCacheRequiresMatchingAnalysisCacheKey() throws IOException {
+    Path tempFile = Files.createTempFile("widget-cache-key-", ".java");
+    try {
+      GraphWriter keyAWriter = new GraphWriter(session, PROJECT, new IngestionRunStats(0), "key-a");
+      keyAWriter.upsertFile(tempFile, SourceLanguage.JAVA);
+
+      assertTrue(
+          keyAWriter
+              .getAllFileLastModified(List.of(tempFile), SourceLanguage.JAVA)
+              .containsKey(tempFile.toString()));
+
+      GraphWriter keyBWriter = new GraphWriter(session, PROJECT, new IngestionRunStats(0), "key-b");
+      assertFalse(
+          keyBWriter
+              .getAllFileLastModified(List.of(tempFile), SourceLanguage.JAVA)
+              .containsKey(tempFile.toString()));
     } finally {
       Files.deleteIfExists(tempFile);
     }

@@ -363,7 +363,8 @@ Normal re-ingestion is incremental by default. The ingester skips files whose fi
 ```
 
 Any wipe option disables incremental skipping for that run because data was intentionally removed
-before ingestion starts.
+before ingestion starts. Changes to analyzer inputs such as `--classpath` or runtime options also
+force unchanged files through a fresh parse once, then cache the new inputs for later re-runs.
 
 ### Watch mode
 

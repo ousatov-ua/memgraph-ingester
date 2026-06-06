@@ -87,6 +87,7 @@ public final class IngestionOrchestrator {
   private final List<LanguageAdapter<?>> languageAdapters;
   private final WatchSession watchSession = new WatchSession(this);
   private boolean incremental;
+  private String analysisCacheKey = "";
   private EmbeddingSettings codeEmbeddings = EmbeddingSettings.disabled();
   private EmbeddingSettings memoryEmbeddings = EmbeddingSettings.disabled();
 
@@ -151,6 +152,7 @@ public final class IngestionOrchestrator {
     log.debug("Proceeding with ingestion, settings: {}", settings);
     this.codeEmbeddings = settings.codeEmbeddings();
     this.memoryEmbeddings = settings.memoryEmbeddings();
+    this.analysisCacheKey = settings.analysisCacheKey();
     IngestionRunStats stats = new IngestionRunStats(threads);
     this.incremental = settings.incremental();
 
@@ -257,6 +259,10 @@ public final class IngestionOrchestrator {
 
   String project() {
     return project;
+  }
+
+  String analysisCacheKey() {
+    return analysisCacheKey;
   }
 
   int threads() {
@@ -590,7 +596,8 @@ public final class IngestionOrchestrator {
       return StoredFileState.empty();
     }
     try (Session session = driver.session()) {
-      GraphWriter writer = new GraphWriter(session, project);
+      GraphWriter writer =
+          new GraphWriter(session, project, new IngestionRunStats(0), analysisCacheKey);
       Map<String, Long> preloaded = new HashMap<>();
       Set<String> pathsMissingCodeChunks = new HashSet<>();
       Map<SourceLanguage, List<Path>> pathsByLanguage = new LinkedHashMap<>();
@@ -652,7 +659,7 @@ public final class IngestionOrchestrator {
           .add(file.path());
     }
     try (Session session = driver.session()) {
-      GraphWriter writer = new GraphWriter(session, project, stats);
+      GraphWriter writer = new GraphWriter(session, project, stats, analysisCacheKey);
       writer.setRetainedSourcePaths(retainedPaths);
       Set<Path> retainedPathSet = new HashSet<>(retainedPaths);
       Set<Path> refreshAfterDelete = new LinkedHashSet<>();
@@ -807,7 +814,7 @@ public final class IngestionOrchestrator {
     int failures = 0;
     int done = 0;
     try (Session session = driver.session()) {
-      GraphWriter writer = new GraphWriter(session, project, stats);
+      GraphWriter writer = new GraphWriter(session, project, stats, analysisCacheKey);
       writer.setRetainedSourcePaths(retainedSourcePaths);
       for (SourceFile file : files) {
         PreparedFile prepared =
@@ -1045,15 +1052,15 @@ public final class IngestionOrchestrator {
           });
     }
     pool.shutdown();
-    long deadlineNanos = System.nanoTime() + SHUTDOWN_TIMEOUT.toNanos();
+    long waitDeadlineNanos = System.nanoTime() + SHUTDOWN_TIMEOUT.toNanos();
 
     int failures = 0;
     int done = 0;
     try (Session session = driver.session()) {
-      GraphWriter writer = new GraphWriter(session, project, stats);
+      GraphWriter writer = new GraphWriter(session, project, stats, analysisCacheKey);
       writer.setRetainedSourcePaths(retainedSourcePaths);
       for (int i = 0; i < files.size(); i++) {
-        long remainingNanos = deadlineNanos - System.nanoTime();
+        long remainingNanos = waitDeadlineNanos - System.nanoTime();
         if (remainingNanos <= 0) {
           log.warn("Ingestion did not complete within {}.", SHUTDOWN_TIMEOUT);
           pool.shutdownNow();
@@ -1066,10 +1073,12 @@ public final class IngestionOrchestrator {
           throw new ProcessingException("Parallel ingestion preparation timed out");
         }
         PreparedFile prepared = takePrepared(future);
+        long writeStartNanos = System.nanoTime();
         if (!writePreparedFile(writer, prepared)) {
           log.info("Failure preparing file: {}", prepared.path());
           failures++;
         }
+        waitDeadlineNanos += System.nanoTime() - writeStartNanos;
         done++;
         progress.update(done);
       }
