@@ -1178,8 +1178,6 @@ mvn clean package -Pnative-windows -DskipTests
 
 Use the profile that matches your operating system.
 
-Please get the latest release version from [latest release page](https://github.com/ousatov-ua/memgraph-ingester/releases/latest)
-
 ### Use as a Maven dependency
 
 ```xml
@@ -1189,3 +1187,4 @@ Please get the latest release version from [latest release page](https://github.
   <version>${release.version}</version>
 </dependency>
 ```
+Please get the latest release version from [latest release page](https://github.com/ousatov-ua/memgraph-ingester/releases/latest)
