@@ -1,5 +1,6 @@
 package io.github.ousatov.tools.memgraph;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -28,6 +29,16 @@ class CypherResourceTest {
     } catch (IOException e) {
       throw new AssertionError(path + " could not be loaded", e);
     }
+  }
+
+  private static int occurrences(String text, String needle) {
+    int count = 0;
+    int index = text.indexOf(needle);
+    while (index >= 0) {
+      count++;
+      index = text.indexOf(needle, index + needle.length());
+    }
+    return count;
   }
 
   @Test
@@ -265,6 +276,22 @@ class CypherResourceTest {
     assertTrue(updateMemoryEmbeddingMetadata.contains("SET chunk.embeddingModel = $modelName"));
     assertTrue(updateMemoryEmbeddingMetadata.contains("chunk.embeddingDirty = false"));
     assertTrue(memoryFailureDetail.contains("substring(chunk.text, 0, 240) AS preview"));
+  }
+
+  @Test
+  void deleteStaleDefinitionsResourceConsolidatesDefinitionCleanup() {
+    String cypher = Const.Cypher.CYPHER_DELETE_STALE_DEFINITIONS_FOR_FILE;
+
+    assertEquals(
+        1,
+        occurrences(cypher, "OPTIONAL MATCH (other:File {project: $project})-[:DEFINES]->(node)"));
+    assertTrue(cypher.contains("collect(DISTINCT defines) AS staleDefines"));
+    assertTrue(cypher.contains("collect(DISTINCT node) AS candidates"));
+    assertFalse(cypher.contains("staleCurrentOwnerMembersDeleted"));
+    assertFalse(cypher.contains("staleOwnerMembersDeleted"));
+    assertFalse(cypher.contains("staleOwnersDeleted"));
+    assertFalse(cypher.contains("staleMethodsDeleted"));
+    assertFalse(cypher.contains("staleFieldsDeleted"));
   }
 
   @Test
