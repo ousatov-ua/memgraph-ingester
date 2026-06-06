@@ -1,5 +1,6 @@
 package io.github.ousatov.tools.memgraph;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -28,6 +29,16 @@ class CypherResourceTest {
     } catch (IOException e) {
       throw new AssertionError(path + " could not be loaded", e);
     }
+  }
+
+  private static int occurrences(String text, String needle) {
+    int count = 0;
+    int index = text.indexOf(needle);
+    while (index >= 0) {
+      count++;
+      index = text.indexOf(needle, index + needle.length());
+    }
+    return count;
   }
 
   @Test
@@ -148,8 +159,6 @@ class CypherResourceTest {
   void codeChunkRefreshResourcesPreserveEmbeddingOnlyWhenTextHashMatches() {
     String upsert = Const.Cypher.CYPHER_UPSERT_CODE_CHUNKS_BATCH;
     String callsByName = Const.Cypher.CYPHER_UPSERT_CALLS_BY_NAME_BATCH;
-    String linkFile = Const.Cypher.CYPHER_LINK_FILE_CODE_CHUNKS_BATCH;
-    String linkMethod = Const.Cypher.CYPHER_LINK_METHOD_CODE_CHUNKS_BATCH;
     String deleteMissing = Const.Cypher.CYPHER_DELETE_CODE_CHUNKS_FOR_FILES;
     String pathsMissingCodeChunks = Const.Cypher.CYPHER_GET_FILE_PATHS_MISSING_CODE_CHUNKS;
     String wipeCodeRag = Const.Cypher.CYPHER_WIPE_CODE_RAG_BATCH;
@@ -187,14 +196,18 @@ class CypherResourceTest {
     assertTrue(upsert.contains("SET chunk.embeddingDirty = true"));
     assertTrue(upsert.contains("previousTextHash = row.textHash"));
     assertTrue(upsert.contains("SET chunk.embeddingDirty = false"));
+    assertFalse(upsert.contains("DELETE rel"));
+    assertTrue(upsert.contains("MATCH (source:File"));
+    assertTrue(upsert.contains("MATCH (source:Class"));
+    assertTrue(upsert.contains("MATCH (source:Interface"));
+    assertTrue(upsert.contains("MATCH (source:Annotation"));
+    assertTrue(upsert.contains("MATCH (source:Method"));
+    assertTrue(upsert.contains("MATCH (source:Field"));
+    assertTrue(upsert.contains("MERGE (source)-[:HAS_RAG_CHUNK]->(chunk)"));
     assertTrue(callsByName.contains("UNWIND $rows AS row"));
     assertTrue(callsByName.contains("row.caller AS callerSignature"));
     assertTrue(callsByName.contains("MERGE (caller)-[call:CALLS]->(callee)"));
     assertTrue(callsByName.contains("SET call.count = coalesce(call.count, 0) + callCount"));
-    assertTrue(linkFile.contains("MATCH (source:File"));
-    assertTrue(linkFile.contains("MERGE (source)-[:HAS_RAG_CHUNK]->(chunk)"));
-    assertTrue(linkMethod.contains("MATCH (source:Method"));
-    assertTrue(linkMethod.contains("MERGE (source)-[:HAS_RAG_CHUNK]->(chunk)"));
 
     assertTrue(Const.Cypher.CYPHER_DELETE_CODE_CHUNKS_FOR_FILE.contains("chunk:CodeChunk"));
     assertTrue(deleteMissing.contains("chunk.path STARTS WITH $sourceRootPrefix"));
@@ -263,6 +276,22 @@ class CypherResourceTest {
     assertTrue(updateMemoryEmbeddingMetadata.contains("SET chunk.embeddingModel = $modelName"));
     assertTrue(updateMemoryEmbeddingMetadata.contains("chunk.embeddingDirty = false"));
     assertTrue(memoryFailureDetail.contains("substring(chunk.text, 0, 240) AS preview"));
+  }
+
+  @Test
+  void deleteStaleDefinitionsResourceConsolidatesDefinitionCleanup() {
+    String cypher = Const.Cypher.CYPHER_DELETE_STALE_DEFINITIONS_FOR_FILE;
+
+    assertEquals(
+        1,
+        occurrences(cypher, "OPTIONAL MATCH (other:File {project: $project})-[:DEFINES]->(node)"));
+    assertTrue(cypher.contains("collect(DISTINCT defines) AS staleDefines"));
+    assertTrue(cypher.contains("collect(DISTINCT node) AS candidates"));
+    assertFalse(cypher.contains("staleCurrentOwnerMembersDeleted"));
+    assertFalse(cypher.contains("staleOwnerMembersDeleted"));
+    assertFalse(cypher.contains("staleOwnersDeleted"));
+    assertFalse(cypher.contains("staleMethodsDeleted"));
+    assertFalse(cypher.contains("staleFieldsDeleted"));
   }
 
   @Test

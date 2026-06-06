@@ -60,8 +60,8 @@ class ConsoleProgressTest {
   @Test
   void embeddingAndIngestionProgressBarsShareColumnAndWidth() {
     String ingested = ConsoleProgress.renderFinite("Ingested source files", 1, 1, 0, false);
-    String codeChunk = ConsoleProgress.renderIndeterminate("Refreshing CodeChunk", 0, false);
-    String memoryChunk = ConsoleProgress.renderIndeterminate("Refreshing MemoryChunk", 0, false);
+    String codeChunk = ConsoleProgress.renderIndeterminate("Refreshing Code RAG", 0, false);
+    String memoryChunk = ConsoleProgress.renderIndeterminate("Refreshing Memory RAG", 0, false);
 
     assertAlignedProgressBar(ingested, codeChunk);
     assertAlignedProgressBar(ingested, memoryChunk);

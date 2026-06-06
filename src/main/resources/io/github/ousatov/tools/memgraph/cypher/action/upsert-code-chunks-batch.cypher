@@ -1,9 +1,6 @@
 UNWIND $rows AS row
 MERGE (chunk:CodeChunk {id: row.id, project: $project})
 WITH chunk, row, chunk.textHash AS previousTextHash
-OPTIONAL MATCH (source {project: $project})-[rel:HAS_RAG_CHUNK]->(chunk)
-DELETE rel
-WITH chunk, row, previousTextHash
 SET chunk.sourceLabel = row.sourceLabel,
     chunk.sourceId = row.sourceId,
     chunk.language = row.language,
@@ -43,3 +40,41 @@ FOREACH (_ IN CASE
 END |
   SET chunk.embeddingDirty = false
 )
+WITH chunk, row
+CALL {
+  WITH chunk, row
+  WITH chunk, row WHERE row.sourceLabel = 'File'
+  MATCH (source:File {path: row.sourceId, project: $project})
+  MERGE (source)-[:HAS_RAG_CHUNK]->(chunk)
+  RETURN 1 AS linked
+  UNION
+  WITH chunk, row
+  WITH chunk, row WHERE row.sourceLabel = 'Class'
+  MATCH (source:Class {fqn: row.sourceId, project: $project})
+  MERGE (source)-[:HAS_RAG_CHUNK]->(chunk)
+  RETURN 1 AS linked
+  UNION
+  WITH chunk, row
+  WITH chunk, row WHERE row.sourceLabel = 'Interface'
+  MATCH (source:Interface {fqn: row.sourceId, project: $project})
+  MERGE (source)-[:HAS_RAG_CHUNK]->(chunk)
+  RETURN 1 AS linked
+  UNION
+  WITH chunk, row
+  WITH chunk, row WHERE row.sourceLabel = 'Annotation'
+  MATCH (source:Annotation {fqn: row.sourceId, project: $project})
+  MERGE (source)-[:HAS_RAG_CHUNK]->(chunk)
+  RETURN 1 AS linked
+  UNION
+  WITH chunk, row
+  WITH chunk, row WHERE row.sourceLabel = 'Method'
+  MATCH (source:Method {signature: row.sourceId, project: $project})
+  MERGE (source)-[:HAS_RAG_CHUNK]->(chunk)
+  RETURN 1 AS linked
+  UNION
+  WITH chunk, row
+  WITH chunk, row WHERE row.sourceLabel = 'Field'
+  MATCH (source:Field {fqn: row.sourceId, project: $project})
+  MERGE (source)-[:HAS_RAG_CHUNK]->(chunk)
+  RETURN 1 AS linked
+}

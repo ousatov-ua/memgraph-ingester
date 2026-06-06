@@ -10,8 +10,22 @@ MERGE (a:Annotation {fqn: annotFqn, project: $project})
       a.kind = coalesce(a.kind, kind),
       a.isExternal = coalesce(a.isExternal, true)
 WITH ownerFqn, a
-MATCH (owner)
-WHERE owner.fqn = ownerFqn AND owner.project = $project
-  AND (owner:Class OR owner:Interface OR owner:Annotation OR owner:Field)
+CALL {
+  WITH ownerFqn, a
+  MATCH (owner:Class {fqn: ownerFqn, project: $project})
+  RETURN owner
+  UNION
+  WITH ownerFqn, a
+  MATCH (owner:Interface {fqn: ownerFqn, project: $project})
+  RETURN owner
+  UNION
+  WITH ownerFqn, a
+  MATCH (owner:Annotation {fqn: ownerFqn, project: $project})
+  RETURN owner
+  UNION
+  WITH ownerFqn, a
+  MATCH (owner:Field {fqn: ownerFqn, project: $project})
+  RETURN owner
+}
 WITH owner, a
 MERGE (owner)-[:ANNOTATED_WITH]->(a)

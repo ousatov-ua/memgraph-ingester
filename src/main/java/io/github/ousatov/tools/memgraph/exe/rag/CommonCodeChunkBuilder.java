@@ -37,6 +37,8 @@ public abstract class CommonCodeChunkBuilder<T> {
   private static final String RAG_ROLE_PRIMARY = "primary";
   private static final String RAG_ROLE_SECONDARY = "secondary";
   private static final String RAG_ROLE_SYNTHETIC = "synthetic";
+  private static final ThreadLocal<MessageDigest> SHA_256 =
+      ThreadLocal.withInitial(CommonCodeChunkBuilder::newSha256);
 
   private final CodeChunkAnalyzer<T> analyzer;
 
@@ -372,9 +374,14 @@ public abstract class CommonCodeChunkBuilder<T> {
   }
 
   private static String sha256(String text) {
+    MessageDigest digest = SHA_256.get();
+    digest.reset();
+    return HexFormat.of().formatHex(digest.digest(text.getBytes(StandardCharsets.UTF_8)));
+  }
+
+  private static MessageDigest newSha256() {
     try {
-      MessageDigest digest = MessageDigest.getInstance(Const.SystemParams.SHA_256);
-      return HexFormat.of().formatHex(digest.digest(text.getBytes(StandardCharsets.UTF_8)));
+      return MessageDigest.getInstance(Const.SystemParams.SHA_256);
     } catch (NoSuchAlgorithmException e) {
       throw new IllegalStateException("SHA-256 is unavailable", e);
     }

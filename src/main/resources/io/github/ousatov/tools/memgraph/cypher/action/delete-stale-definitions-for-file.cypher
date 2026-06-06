@@ -33,21 +33,18 @@ CALL {
   CALL {
     WITH staleRelationNodes
     UNWIND staleRelationNodes AS node
-    OPTIONAL MATCH (node)-[r:CALLS]->(:Method {project: $project})
-    WHERE node:Method
-    RETURN collect(DISTINCT r) AS relations
-    UNION
-    WITH staleRelationNodes
-    UNWIND staleRelationNodes AS node
-    OPTIONAL MATCH (node)-[r:ANNOTATED_WITH]->(:Annotation {project: $project})
-    WHERE node:Class OR node:Interface OR node:Annotation OR node:Method OR node:Field
-    RETURN collect(DISTINCT r) AS relations
-    UNION
-    WITH staleRelationNodes
-    UNWIND staleRelationNodes AS node
-    OPTIONAL MATCH (node)-[r]->()
-    WHERE (node:Class OR node:Interface OR node:Annotation)
-      AND type(r) IN ['EXTENDS', 'IMPLEMENTS']
+    OPTIONAL MATCH (node)-[r]->(target)
+    WHERE (node:Method AND type(r) = 'CALLS' AND target:Method AND target.project = $project)
+      OR (
+        (node:Class OR node:Interface OR node:Annotation OR node:Method OR node:Field)
+        AND type(r) = 'ANNOTATED_WITH'
+        AND target:Annotation
+        AND target.project = $project
+      )
+      OR (
+        (node:Class OR node:Interface OR node:Annotation)
+        AND type(r) IN ['EXTENDS', 'IMPLEMENTS']
+      )
     RETURN collect(DISTINCT r) AS relations
   }
   WITH collect(relations) AS relationGroups, staleSourceRelationNodes
@@ -64,32 +61,19 @@ CALL {
   RETURN relationshipsDeleted + size(pendingCalls) AS relationshipsDeleted
 }
 CALL {
-  MATCH (:File {path: $path, project: $project})-[defines:DEFINES]->(member)
-  MATCH (owner)-[:DECLARES]->(member)
-  WHERE owner.project = $project
+  MATCH (sourceFile:File {path: $path, project: $project})-[defines:DEFINES]->(node)
+  WHERE node.project = $project
     AND (
-      (owner:Class AND owner.fqn IN $classFqns)
-      OR (owner:Interface AND owner.fqn IN $interfaceFqns)
-      OR (owner:Annotation AND owner.fqn IN $annotationFqns)
+      (node:Class AND NOT node.fqn IN $classFqns)
+      OR (node:Interface AND NOT node.fqn IN $interfaceFqns)
+      OR (node:Annotation AND NOT node.fqn IN $annotationFqns)
+      OR (node:Method AND NOT node.signature IN $methodSignatures)
+      OR (node:Field AND NOT node.fqn IN $fieldFqns)
     )
-    AND member.project = $project
-    AND (
-      (member:Method AND NOT member.signature IN $methodSignatures)
-      OR (member:Field AND NOT member.fqn IN $fieldFqns)
-    )
-  WITH collect(DISTINCT defines) AS staleDefines, collect(DISTINCT member) AS candidates
-  FOREACH (defines IN staleDefines | DELETE defines)
-  WITH candidates
-  UNWIND candidates AS member
-  OPTIONAL MATCH (other:File {project: $project})-[:DEFINES]->(member)
-  WITH member, count(other) AS remainingDefinitions
-  WHERE remainingDefinitions = 0
-  WITH collect(DISTINCT member) AS staleMembers
-  FOREACH (member IN staleMembers | DETACH DELETE member)
-  RETURN size(staleMembers) AS staleCurrentOwnerMembersDeleted
-}
-CALL {
-  MATCH (sourceFile:File {path: $path, project: $project})-[:DEFINES]->(owner)-[:DECLARES]->(member)
+  RETURN defines, node
+  UNION
+  MATCH (sourceFile:File {path: $path, project: $project})-[:DEFINES]->(owner)
+      -[:DECLARES]->(member)
   MATCH (sourceFile)-[defines:DEFINES]->(member)
   WHERE owner.project = $project
     AND (
@@ -99,67 +83,15 @@ CALL {
     )
     AND member.project = $project
     AND (member:Method OR member:Field)
-  WITH collect(DISTINCT defines) AS staleDefines, collect(DISTINCT member) AS candidates
-  FOREACH (defines IN staleDefines | DELETE defines)
-  WITH candidates
-  UNWIND candidates AS member
-  OPTIONAL MATCH (otherFile:File {project: $project})-[:DEFINES]->(member)
-  WITH member, count(otherFile) AS retainedDefinitions
-  WHERE retainedDefinitions = 0
-  WITH collect(DISTINCT member) AS staleMembers
-  FOREACH (member IN staleMembers | DETACH DELETE member)
-  RETURN size(staleMembers) AS staleOwnerMembersDeleted
+  RETURN defines, member AS node
 }
-CALL {
-  MATCH (:File {path: $path, project: $project})-[defines:DEFINES]->(owner)
-  WHERE owner.project = $project
-    AND (
-      (owner:Class AND NOT owner.fqn IN $classFqns)
-      OR (owner:Interface AND NOT owner.fqn IN $interfaceFqns)
-      OR (owner:Annotation AND NOT owner.fqn IN $annotationFqns)
-    )
-  WITH collect(DISTINCT defines) AS staleDefines, collect(DISTINCT owner) AS candidates
-  FOREACH (defines IN staleDefines | DELETE defines)
-  WITH candidates
-  UNWIND candidates AS owner
-  OPTIONAL MATCH (definingFile:File {project: $project})-[:DEFINES]->(owner)
-  WITH owner, count(definingFile) AS remainingDefinitions
-  WHERE remainingDefinitions = 0
-  WITH collect(DISTINCT owner) AS staleOwners
-  FOREACH (owner IN staleOwners | DETACH DELETE owner)
-  RETURN size(staleOwners) AS staleOwnersDeleted
-}
-CALL {
-  MATCH (sourceFile:File {path: $path, project: $project})-[defines:DEFINES]->(method:Method {project: $project})
-  WHERE NOT method.signature IN $methodSignatures
-  WITH collect(DISTINCT defines) AS staleDefines, collect(DISTINCT method) AS candidates
-  FOREACH (defines IN staleDefines | DELETE defines)
-  WITH candidates
-  UNWIND candidates AS method
-  OPTIONAL MATCH (other:File {project: $project})-[:DEFINES]->(method)
-  WITH method, count(other) AS remainingDefinitions
-  WHERE remainingDefinitions = 0
-  WITH collect(DISTINCT method) AS staleMethods
-  FOREACH (method IN staleMethods | DETACH DELETE method)
-  RETURN size(staleMethods) AS staleMethodsDeleted
-}
-CALL {
-  MATCH (sourceFile:File {path: $path, project: $project})-[defines:DEFINES]->(field:Field {project: $project})
-  WHERE NOT field.fqn IN $fieldFqns
-  WITH collect(DISTINCT defines) AS staleDefines, collect(DISTINCT field) AS candidates
-  FOREACH (defines IN staleDefines | DELETE defines)
-  WITH candidates
-  UNWIND candidates AS field
-  OPTIONAL MATCH (other:File {project: $project})-[:DEFINES]->(field)
-  WITH field, count(other) AS remainingDefinitions
-  WHERE remainingDefinitions = 0
-  WITH collect(DISTINCT field) AS staleFields
-  FOREACH (field IN staleFields | DETACH DELETE field)
-  RETURN size(staleFields) AS staleFieldsDeleted
-}
-RETURN relationshipsDeleted
-  + staleCurrentOwnerMembersDeleted
-  + staleOwnerMembersDeleted
-  + staleOwnersDeleted
-  + staleMethodsDeleted
-  + staleFieldsDeleted AS deleted
+WITH relationshipsDeleted, collect(DISTINCT defines) AS staleDefines, collect(DISTINCT node) AS candidates
+FOREACH (defines IN staleDefines | DELETE defines)
+WITH relationshipsDeleted, candidates
+UNWIND candidates AS node
+OPTIONAL MATCH (other:File {project: $project})-[:DEFINES]->(node)
+WITH relationshipsDeleted, node, count(other) AS remainingDefinitions
+WHERE remainingDefinitions = 0
+WITH relationshipsDeleted, collect(DISTINCT node) AS staleDefinitions
+FOREACH (node IN staleDefinitions | DETACH DELETE node)
+RETURN relationshipsDeleted + size(staleDefinitions) AS deleted

@@ -1,7 +1,6 @@
 package io.github.ousatov.tools.memgraph.exe.writer;
 
 import io.github.ousatov.tools.memgraph.def.Const.Cypher;
-import io.github.ousatov.tools.memgraph.def.Const.Labels;
 import io.github.ousatov.tools.memgraph.def.Const.Params;
 import io.github.ousatov.tools.memgraph.vo.Method;
 import io.github.ousatov.tools.memgraph.vo.writer.AnnotationNodeWrite;
@@ -103,14 +102,6 @@ final class GraphNodeWriter {
 
   void upsertCodeChunks(Collection<CodeChunkWrite> chunks) {
     runBatch(Cypher.CYPHER_UPSERT_CODE_CHUNKS_BATCH, chunks);
-    runBatch(Cypher.CYPHER_LINK_FILE_CODE_CHUNKS_BATCH, chunksForLabel(chunks, Labels.FILE));
-    runBatch(Cypher.CYPHER_LINK_CLASS_CODE_CHUNKS_BATCH, chunksForLabel(chunks, Labels.CLASS));
-    runBatch(
-        Cypher.CYPHER_LINK_INTERFACE_CODE_CHUNKS_BATCH, chunksForLabel(chunks, Labels.INTERFACE));
-    runBatch(
-        Cypher.CYPHER_LINK_ANNOTATION_CODE_CHUNKS_BATCH, chunksForLabel(chunks, Labels.ANNOTATION));
-    runBatch(Cypher.CYPHER_LINK_METHOD_CODE_CHUNKS_BATCH, chunksForLabel(chunks, Labels.METHOD));
-    runBatch(Cypher.CYPHER_LINK_FIELD_CODE_CHUNKS_BATCH, chunksForLabel(chunks, Labels.FIELD));
   }
 
   private void runBatch(String query, Collection<? extends BatchWrite> writes) {
@@ -118,8 +109,4 @@ final class GraphNodeWriter {
     cypher.runBatch(query, rows);
   }
 
-  private static List<CodeChunkWrite> chunksForLabel(
-      Collection<CodeChunkWrite> chunks, String label) {
-    return chunks.stream().filter(chunk -> label.equals(chunk.sourceLabel())).toList();
-  }
 }
