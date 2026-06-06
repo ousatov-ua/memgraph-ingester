@@ -176,14 +176,7 @@ brew install memgraph-ingester
 
 #### 2.2 Windows and other binary distributions
 
-| Platform | Download                                                                                                                                                         |
-|---|------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| Java shaded JAR | [memgraph-ingester.jar](https://github.com/ousatov-ua/memgraph-ingester/releases/download/v12.2.2/memgraph-ingester-12.2.2.jar)                                |
-| Linux AMD64 | [memgraph-ingester-linux-amd64.tar.gz](https://github.com/ousatov-ua/memgraph-ingester/releases/download/v12.2.2/memgraph-ingester-12.2.2-linux-amd64.tar.gz)  |
-| macOS ARM64 | [memgraph-ingester-macos-arm64.tar.gz](https://github.com/ousatov-ua/memgraph-ingester/releases/download/v12.2.2/memgraph-ingester-12.2.2-darwin-arm64.tar.gz) |
-| Windows AMD64 | [memgraph-ingester-windows-amd64.zip](https://github.com/ousatov-ua/memgraph-ingester/releases/download/v12.2.2/memgraph-ingester-12.2.2-windows-amd64.zip)            |
-
-For native downloads: extract and put in path.
+Please download from the [release page](https://github.com/ousatov-ua/memgraph-ingester/releases/latest), extract, and put in the `PATH`.
 
 For the JAR:
 
