@@ -322,7 +322,7 @@ or other language-specific semantics.
 With `memgraph-ingester-mcp`, ask your agent to call `server_status` for the project and confirm
 that languages and vector indexes are present.
 
-DIY: With `mgconsole`:
+DIY. With `mgconsole`:
 
 ```bash
 mgconsole --host localhost --port 7687 --output-format=csv

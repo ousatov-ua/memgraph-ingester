@@ -98,7 +98,7 @@ memgraph-ingester \
 
 With `memgraph-ingester-mcp`, ask your agent to call `server_status` for the project.
 
-With `mgconsole`:
+DIY. With `mgconsole`:
 
 ```bash
 mgconsole --host localhost --port 7687 --output-format=csv

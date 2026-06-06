@@ -35,7 +35,7 @@ memgraph-ingester -P my-project --instructions-file .github/copilot-instructions
 
 ## Use the MCP Server
 
-Agents should normally use
+Agents have to use
 [`memgraph-ingester-mcp`](https://github.com/ousatov-ua/memgraph-ingester-mcp). It provides
 project-scoped tools for code lookup, RAG discovery, call graph traversal, memory search, and memory
 lifecycle updates.
