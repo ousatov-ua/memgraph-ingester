@@ -29,3 +29,9 @@ END |
   REMOVE chunk.embeddingDimensions
   SET chunk.embeddingDirty = true
 )
+FOREACH (_ IN CASE
+  WHEN previousTextHash = row.textHash THEN [1]
+  ELSE []
+END |
+  SET chunk.embeddingDirty = false
+)

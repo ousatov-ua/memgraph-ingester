@@ -185,6 +185,8 @@ class CypherResourceTest {
     assertTrue(upsert.contains("previousTextHash <> row.textHash"));
     assertTrue(upsert.contains("REMOVE chunk.embedding"));
     assertTrue(upsert.contains("SET chunk.embeddingDirty = true"));
+    assertTrue(upsert.contains("previousTextHash = row.textHash"));
+    assertTrue(upsert.contains("SET chunk.embeddingDirty = false"));
     assertTrue(callsByName.contains("UNWIND $rows AS row"));
     assertTrue(callsByName.contains("row.caller AS callerSignature"));
     assertTrue(callsByName.contains("MERGE (caller)-[call:CALLS]->(callee)"));

@@ -52,8 +52,8 @@ final class ChunkEmbeddingRefresher {
    *
    * @param settings embedding configuration
    * @param target either {@link EmbeddingTarget#CODE} or {@link EmbeddingTarget#MEMORY}
-   * @param dirtyOnly when {@code true}, limits refresh to chunks marked dirty; ignored when the
-   *     target has no dirty-count query
+   * @param dirtyOnly when {@code true}, refreshes dirty chunks first; required runs then backfill
+   *     any remaining stale chunks so missing embeddings are not hidden by an unchanged write
    */
   EmbeddingRefreshResult refresh(
       EmbeddingSettings settings, EmbeddingTarget target, boolean dirtyOnly) {
@@ -71,10 +71,23 @@ final class ChunkEmbeddingRefresher {
     }
 
     boolean useDirty = dirtyOnly && target.countDirtyCypher() != null;
-    long stale = useDirty ? countDirty(target) : countStale(settings, target, dimension);
+    long markedStale = useDirty ? countDirty(target) : countStale(settings, target, dimension);
+    long embedded = refreshMarkedChunks(settings, target, dimension, markedStale);
+    if (useDirty && settings.required()) {
+      long remainingStale = countStale(settings, target, dimension);
+      embedded += refreshMarkedChunks(settings, target, dimension, remainingStale);
+    }
+
+    if (settings.required()) {
+      verifyAllEmbeddingsCalculated(settings, target, dimension);
+    }
+    return new EmbeddingRefreshResult(embedded, dimension);
+  }
+
+  private long refreshMarkedChunks(
+      EmbeddingSettings settings, EmbeddingTarget target, int dimension, long stale) {
     long embedded = 0L;
     int batchSize = settings.batchSize();
-
     while (stale > 0) {
       EmbeddingBatchResult batch = refreshBatch(settings, target, dimension, batchSize);
       if (!batch.success()) {
@@ -100,10 +113,7 @@ final class ChunkEmbeddingRefresher {
       embedded += batchCount;
       stale -= batchCount;
     }
-    if (settings.required()) {
-      verifyAllEmbeddingsCalculated(settings, target, dimension);
-    }
-    return new EmbeddingRefreshResult(embedded, dimension);
+    return embedded;
   }
 
   private int embeddingDimension(EmbeddingSettings settings) {
