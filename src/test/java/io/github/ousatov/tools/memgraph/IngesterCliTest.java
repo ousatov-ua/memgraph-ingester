@@ -88,9 +88,12 @@ class IngesterCliTest {
     assertTrue(options.containsKey("--with-memories"));
     assertTrue(options.containsKey("--wipe-code-rag"));
     assertTrue(options.containsKey("--wipe-memory-rag"));
+    assertTrue(options.containsKey("--code-embedding-procedure-memory-mb"));
+    assertTrue(options.containsKey("--memory-embedding-procedure-memory-mb"));
     assertNull(options.get("--code-embedding-index"));
     assertNull(options.get("--code-embedding-model"));
     assertNull(options.get("--code-embedding-dimensions"));
+    assertNull(options.get("--incremental"));
   }
 
   @Test

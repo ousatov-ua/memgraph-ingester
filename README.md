@@ -158,7 +158,7 @@ Optional tools:
 ### 1. Start Memgraph
 
 ```bash
-docker run -p 7687:7687 -p 7444:7444 --name memgraph memgraph/memgraph-mage:3.9.0
+docker run -p 7687:7687 -p 7444:7444 --name memgraph --memory=4g --memory-swap=4g memgraph/memgraph-mage:3.9.0
 ```
 
 Memgraph Bolt listens on `bolt://localhost:7687`.
@@ -348,17 +348,20 @@ from other source roots. Re-ingestion refreshes retained files after deletes wit
 file's source root. Watch re-ingestion also skips delete cleanup after update failures, retries
 snapshot-failed batches, and reconciles delete-only snapshot failures.
 
-### Faster re-runs
+### Faster Re-Runs
 
-Use `--incremental` to skip files whose filesystem `lastModified` timestamp matches the graph:
+Normal re-ingestion is incremental by default. The ingester skips files whose filesystem
+`lastModified` timestamp matches the graph:
 
 ```bash
 <ingester> \
   --source src/main/java \
   --bolt bolt://localhost:7687 \
-  --project my-java-project \
-  --incremental
+  --project my-java-project
 ```
+
+Any wipe option disables incremental skipping for that run because data was intentionally removed
+before ingestion starts.
 
 ### Watch mode
 
@@ -814,21 +817,22 @@ Options:
 | `--wipe-memory-rag` |  | no | `false` | Delete this project's derived `:MemoryChunk` rows before ingesting. |
 | `--apply-schema` |  | no | `false` | Apply Memgraph constraints and indexes before ingesting. |
 | `--wipe-all` |  | no | `false` | Delete all data from Memgraph. |
-| `--incremental` |  | no | `false` | Skip files whose last-modified timestamp matches the graph. |
 | `--watch` | `-w` | no | `false` | Watch the source directory and re-ingest changes. |
 | `--[no-]code-embeddings` |  | no | `true` | Ask Memgraph to compute stale `:CodeChunk.embedding` values after ingestion/watch updates. |
 | `--code-embedding-device` |  | no | auto | Memgraph embeddings device, for example `cpu`, `cuda`, `cuda:0`, or `all`. |
-| `--code-embedding-batch-size` |  | no | `1024` | CodeChunk nodes per embedding call and local embedding batch size. Larger values are retried with smaller batches if Memgraph reports a failed embedding batch. |
+| `--code-embedding-batch-size` |  | no | `512` | CodeChunk nodes per embedding call and local embedding batch size. Larger values are retried with smaller batches if Memgraph reports a failed embedding batch. |
 | `--code-embedding-chunk-size` |  | no | `48` | Memgraph local multi-GPU `chunk_size`. |
 | `--code-embedding-remote-batch-size` |  | no | `0` | Remote provider batch size override; `0` keeps Memgraph's default. |
 | `--code-embedding-concurrency` |  | no | `0` | Remote provider concurrency override; `0` keeps Memgraph's default. |
+| `--code-embedding-procedure-memory-mb` |  | no | `0` | Optional Memgraph `PROCEDURE MEMORY LIMIT` for CodeChunk embedding calls in MB; `0` keeps Memgraph's default. |
 | `--code-embedding-index-capacity` |  | no | `0` | Vector index capacity; `0` uses automatic headroom for current and future CodeChunk rows. |
 | `--[no-]memory-embeddings` |  | no | `true` | With `--with-memories` or `--wipe-memory-rag`, sync `:MemoryChunk` rows and compute stale embeddings after ingestion/watch updates. |
 | `--memory-embedding-device` |  | no | auto | Memgraph embeddings device for MemoryChunk refresh. |
-| `--memory-embedding-batch-size` |  | no | `1024` | MemoryChunk nodes per embedding call and local embedding batch size. |
+| `--memory-embedding-batch-size` |  | no | `512` | MemoryChunk nodes per embedding call and local embedding batch size. |
 | `--memory-embedding-chunk-size` |  | no | `48` | Memgraph local MemoryChunk `chunk_size`. |
 | `--memory-embedding-remote-batch-size` |  | no | `0` | Remote provider batch size override for MemoryChunk refresh; `0` keeps Memgraph's default. |
 | `--memory-embedding-concurrency` |  | no | `0` | Remote provider concurrency override for MemoryChunk refresh; `0` keeps Memgraph's default. |
+| `--memory-embedding-procedure-memory-mb` |  | no | `0` | Optional Memgraph `PROCEDURE MEMORY LIMIT` for MemoryChunk embedding calls in MB; `0` keeps Memgraph's default. |
 | `--memory-embedding-index-capacity` |  | no | `0` | MemoryChunk vector index capacity; `0` uses automatic headroom for current and future MemoryChunk rows. |
 | `--classpath` |  | no | empty | Platform-separated JAR paths for Java symbol resolution. |
 | `--js-runtime-mode` |  | no | `managed` | `managed`, `system`, or `offline`. |
@@ -963,21 +967,22 @@ For `:CodeRef`, use `key: 'java'`, `key: 'js'`, or `key: 'python'` for `targetTy
 and `key: 'java:<package>'`, `key: 'js:<package>'`, or `key: 'python:<package>'` for
 `targetType: 'Package'`.
 
-RAG vector indexes are created automatically for the ingester-managed defaults. Recommended manual
-examples use 1024-dimensional embeddings and cosine similarity. Code chunk embeddings are computed
-by Memgraph during ingestion unless `--no-code-embeddings` is passed; the ingester discovers the
-selected model dimension, creates `code_chunk_embedding_v1` if needed, and refreshes only stale
-`:CodeChunk` vectors. Default index capacity includes growth headroom because Memgraph vector
-indexes are label-wide and may be reused by later projects or watch updates.
+RAG vector indexes are created automatically for the ingester-managed defaults. The default
+`BAAI/bge-small-en-v1.5` model uses 384-dimensional embeddings and cosine similarity. Code chunk
+embeddings are computed by Memgraph during ingestion unless `--no-code-embeddings` is passed; the
+ingester discovers the selected model dimension, drops obsolete vector indexes and stale embedding
+values across all projects, creates `code_chunk_embedding_v2` if needed, and refreshes only stale
+`:CodeChunk` vectors for the active project. Default index capacity includes growth headroom because
+Memgraph vector indexes are label-wide and may be reused by later projects or watch updates.
 
 ```cypher
-CREATE VECTOR INDEX memory_chunk_embedding_v1
+CREATE VECTOR INDEX memory_chunk_embedding_v2
 ON :MemoryChunk(embedding)
-WITH CONFIG {'dimension': 1024, 'capacity': 10000, 'metric': 'cos'};
+WITH CONFIG {'dimension': 384, 'capacity': 10000, 'metric': 'cos', 'scalar_kind': 'f16'};
 
-CREATE VECTOR INDEX code_chunk_embedding_v1
+CREATE VECTOR INDEX code_chunk_embedding_v2
 ON :CodeChunk(embedding)
-WITH CONFIG {'dimension': 1024, 'capacity': 50000, 'metric': 'cos', 'scalar_kind': 'f16'};
+WITH CONFIG {'dimension': 384, 'capacity': 50000, 'metric': 'cos', 'scalar_kind': 'f16'};
 ```
 
 `MemoryChunk.text` should include memory type, title, topic, lifecycle fields, body fields, and
@@ -994,7 +999,9 @@ current Memory records, deletes stale chunks for removed Memory records, and use
 `embeddings.node_sentence()` procedure for MemoryChunk vectors. `--wipe-memory-rag` deletes this
 project's derived MemoryChunks before the run, then syncs them again unless
 `--no-memory-embeddings` is passed. With `--code-embeddings`, it uses the same procedure for
-CodeChunk vectors. Metadata is excluded so only derived chunk text is embedded. If the connected
+CodeChunk vectors. Set `--code-embedding-procedure-memory-mb` or
+`--memory-embedding-procedure-memory-mb` to add a Memgraph `PROCEDURE MEMORY LIMIT ... MB` clause to
+the embedding procedure call. Metadata is excluded so only derived chunk text is embedded. If the connected
 Memgraph instance does not support embeddings or vector indexes,
 ingestion still completes and logs a warning; disable refresh with `--no-code-embeddings` or
 `--no-memory-embeddings`.

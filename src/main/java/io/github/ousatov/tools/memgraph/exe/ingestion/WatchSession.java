@@ -341,7 +341,7 @@ final class WatchSession {
     ConsoleStatusLine.withFinishedLine(System.err, () -> log.warn(message, arguments));
   }
 
-  private static boolean isInterruptedFailure(Throwable throwable) {
+  static boolean isInterruptedFailure(Throwable throwable) {
     for (Throwable current = throwable; current != null; current = current.getCause()) {
       if (current instanceof InterruptedException) {
         return true;

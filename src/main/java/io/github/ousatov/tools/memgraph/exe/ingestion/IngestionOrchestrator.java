@@ -43,7 +43,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CompletionService;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -150,14 +152,7 @@ public final class IngestionOrchestrator {
     this.codeEmbeddings = settings.codeEmbeddings();
     this.memoryEmbeddings = settings.memoryEmbeddings();
     IngestionRunStats stats = new IngestionRunStats(threads);
-    boolean effectiveIncremental = settings.incremental();
-    if (effectiveIncremental && (settings.wipeAllData() || settings.wipeProjectCode())) {
-      log.info(
-          "--incremental is incompatible with --wipe-all / --wipe-project-code: wiping removes"
-              + " stored timestamps, so incremental mode will be disabled for this run.");
-      effectiveIncremental = false;
-    }
-    this.incremental = effectiveIncremental;
+    this.incremental = settings.incremental();
 
     runBootstrap(settings, stats);
 
@@ -214,7 +209,15 @@ public final class IngestionOrchestrator {
           failures);
     }
 
-    runPostProcessing(stats);
+    try {
+      runPostProcessing(stats);
+    } catch (RuntimeException e) {
+      if (settings.watch() && WatchSession.isInterruptedFailure(e)) {
+        Thread.currentThread().interrupt();
+        return failures;
+      }
+      throw e;
+    }
 
     if (settings.watch()) {
       watchSession.start();
@@ -459,6 +462,16 @@ public final class IngestionOrchestrator {
     } catch (RuntimeException e) {
       if (progress != null) {
         progress.discard();
+      }
+      if (settings.required()) {
+        throw new ProcessingException(
+            "Required "
+                + chunkLabel
+                + " embedding refresh failed for project '"
+                + project
+                + "': "
+                + e.getMessage(),
+            e);
       }
       log.warn(
           "Skipping {} embedding refresh for project '{}': {}. {}",
@@ -1011,7 +1024,6 @@ public final class IngestionOrchestrator {
       return 0;
     }
     AtomicInteger threadCounter = new AtomicInteger();
-    @SuppressWarnings("java:S2095")
     ExecutorService pool =
         Executors.newFixedThreadPool(
             threads,
@@ -1020,35 +1032,40 @@ public final class IngestionOrchestrator {
               t.setDaemon(true);
               return t;
             });
-
-    List<Future<PreparedFile>> futures = new ArrayList<>(files.size());
-
-    try {
-      for (SourceFile file : files) {
-        futures.add(
-            pool.submit(
-                () ->
-                    prepareFileForIngestion(file, storedFiles, failedAdapterPreparations, stats)));
-      }
-      pool.shutdown();
-      if (!pool.awaitTermination(SHUTDOWN_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS)) {
-        log.warn("Ingestion did not complete within {}.", SHUTDOWN_TIMEOUT);
-        pool.shutdownNow();
-        throw new ProcessingException("Parallel ingestion preparation timed out");
-      }
-    } finally {
-      if (!pool.isShutdown()) {
-        pool.shutdownNow();
-      }
+    CompletionService<PreparedFile> cs = new ExecutorCompletionService<>(pool);
+    for (SourceFile file : files) {
+      cs.submit(
+          () -> {
+            try {
+              return prepareFileForIngestion(file, storedFiles, failedAdapterPreparations, stats);
+            } catch (RuntimeException e) {
+              log.warn("Thread failure on {}: {}", file.path(), e.getMessage());
+              return new PreparedFailure(file.path());
+            }
+          });
     }
+    pool.shutdown();
+    long deadlineNanos = System.nanoTime() + SHUTDOWN_TIMEOUT.toNanos();
 
     int failures = 0;
     int done = 0;
     try (Session session = driver.session()) {
       GraphWriter writer = new GraphWriter(session, project, stats);
       writer.setRetainedSourcePaths(retainedSourcePaths);
-      for (int i = 0; i < futures.size(); i++) {
-        PreparedFile prepared = preparedFile(files.get(i), futures.get(i));
+      for (int i = 0; i < files.size(); i++) {
+        long remainingNanos = deadlineNanos - System.nanoTime();
+        if (remainingNanos <= 0) {
+          log.warn("Ingestion did not complete within {}.", SHUTDOWN_TIMEOUT);
+          pool.shutdownNow();
+          throw new ProcessingException("Parallel ingestion preparation timed out");
+        }
+        Future<PreparedFile> future = cs.poll(remainingNanos, TimeUnit.NANOSECONDS);
+        if (future == null) {
+          log.warn("Ingestion did not complete within {}.", SHUTDOWN_TIMEOUT);
+          pool.shutdownNow();
+          throw new ProcessingException("Parallel ingestion preparation timed out");
+        }
+        PreparedFile prepared = takePrepared(future);
         if (!writePreparedFile(writer, prepared)) {
           log.info("Failure preparing file: {}", prepared.path());
           failures++;
@@ -1056,19 +1073,22 @@ public final class IngestionOrchestrator {
         done++;
         progress.update(done);
       }
+    } finally {
+      if (!pool.isTerminated()) {
+        pool.shutdownNow();
+      }
     }
     return failures;
   }
 
-  private PreparedFile preparedFile(SourceFile file, Future<PreparedFile> future) {
+  private static PreparedFile takePrepared(Future<PreparedFile> future) {
     try {
       return future.get();
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
       throw new ProcessingException("Interrupted during ingestion", e);
     } catch (ExecutionException e) {
-      log.warn("Thread failure on {}: {}", file.path(), e.getMessage());
-      return new PreparedFailure(file.path());
+      throw new ProcessingException("Unexpected execution failure during ingestion", e);
     }
   }
 }

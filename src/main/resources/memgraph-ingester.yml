@@ -25,9 +25,9 @@ analyzers:
   ctags:
     process-timeout: 30s
 embedding:
-  code-index-name: "code_chunk_embedding_v1"
-  memory-index-name: "memory_chunk_embedding_v1"
-  model-name: "all-MiniLM-L6-v2"
+  code-index-name: "code_chunk_embedding_v2"
+  memory-index-name: "memory_chunk_embedding_v2"
+  model-name: "BAAI/bge-small-en-v1.5"
   property: "embedding"
   metric: "cos"
   scalar-kind: "f16"
@@ -36,6 +36,7 @@ embedding:
   dimensions: 0
   remote-batch-size: 0
   concurrency: 0
+  procedure-memory-mb: 0
   capacity: 0
 writer:
   wipe-batch-size: 10_000

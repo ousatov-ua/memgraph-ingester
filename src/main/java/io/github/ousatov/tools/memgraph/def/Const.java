@@ -65,6 +65,10 @@ public final class Const {
         action("embedding/count-code-chunks.cypher");
     public static final String CYPHER_COUNT_DIRTY_CODE_CHUNK_EMBEDDINGS =
         action("embedding/count-dirty-code-chunk-embeddings.cypher");
+    public static final String CYPHER_CLEAR_OBSOLETE_CODE_CHUNK_EMBEDDINGS =
+        action("embedding/clear-obsolete-code-chunk-embeddings.cypher");
+    public static final String CYPHER_COUNT_OBSOLETE_CODE_CHUNK_EMBEDDINGS =
+        action("embedding/count-obsolete-code-chunk-embeddings.cypher");
     public static final String CYPHER_MARK_STALE_CODE_CHUNK_EMBEDDINGS =
         action("embedding/mark-stale-code-chunk-embeddings.cypher");
     public static final String CYPHER_REFRESH_CODE_CHUNK_EMBEDDING_BATCH =
@@ -85,6 +89,10 @@ public final class Const {
         action("embedding/wipe-memory-rag-batch.cypher");
     public static final String CYPHER_UPSERT_MEMORY_CHUNKS_BATCH =
         action("embedding/upsert-memory-chunks-batch.cypher");
+    public static final String CYPHER_CLEAR_OBSOLETE_MEMORY_CHUNK_EMBEDDINGS =
+        action("embedding/clear-obsolete-memory-chunk-embeddings.cypher");
+    public static final String CYPHER_COUNT_OBSOLETE_MEMORY_CHUNK_EMBEDDINGS =
+        action("embedding/count-obsolete-memory-chunk-embeddings.cypher");
     public static final String CYPHER_MARK_STALE_MEMORY_CHUNK_EMBEDDINGS =
         action("embedding/mark-stale-memory-chunk-embeddings.cypher");
     public static final String CYPHER_REFRESH_MEMORY_CHUNK_EMBEDDING_BATCH =
@@ -444,6 +452,8 @@ public final class Const {
     public static final String PASS = "--pass";
     public static final String THREADS_SHORT = "-t";
     public static final String THREADS = "--threads";
+    public static final String CODE_EMBEDDINGS = "--code-embeddings";
+    public static final String MEMORY_EMBEDDINGS = "--memory-embeddings";
     public static final String CLASSPATH = "--classpath";
     public static final String INSTRUCTIONS_AGENT = "--instructions-agent";
     public static final String JS_RUNTIME_MODE = "--js-runtime-mode";

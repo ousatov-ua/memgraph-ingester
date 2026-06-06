@@ -7,6 +7,8 @@ services:
       - "7687:7687"
       - "7444:7444"
     command: ["--log-level=DEBUG"]
+    mem_limit: 6g
+    memswap_limit: 6g
 
   lab:
     image: memgraph/lab:latest

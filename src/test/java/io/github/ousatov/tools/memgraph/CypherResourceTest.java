@@ -158,6 +158,8 @@ class CypherResourceTest {
     String showIndex = Const.Cypher.CYPHER_SHOW_VECTOR_INDEX_INFO;
     String countChunks = Const.Cypher.CYPHER_COUNT_CODE_CHUNKS;
     String countDirtyEmbeddings = Const.Cypher.CYPHER_COUNT_DIRTY_CODE_CHUNK_EMBEDDINGS;
+    String clearObsoleteEmbeddings = Const.Cypher.CYPHER_CLEAR_OBSOLETE_CODE_CHUNK_EMBEDDINGS;
+    String countObsoleteEmbeddings = Const.Cypher.CYPHER_COUNT_OBSOLETE_CODE_CHUNK_EMBEDDINGS;
     String markStaleEmbeddings = Const.Cypher.CYPHER_MARK_STALE_CODE_CHUNK_EMBEDDINGS;
     String refreshEmbeddings = Const.Cypher.CYPHER_REFRESH_CODE_CHUNK_EMBEDDING_BATCH;
     String updateEmbeddingMetadata = Const.Cypher.CYPHER_UPDATE_CODE_CHUNK_EMBEDDING_METADATA;
@@ -168,6 +170,10 @@ class CypherResourceTest {
     String deleteStaleMemoryChunks = Const.Cypher.CYPHER_DELETE_STALE_MEMORY_CHUNKS;
     String wipeMemoryRag = Const.Cypher.CYPHER_WIPE_MEMORY_RAG_BATCH;
     String upsertMemoryChunks = Const.Cypher.CYPHER_UPSERT_MEMORY_CHUNKS_BATCH;
+    String clearObsoleteMemoryEmbeddings =
+        Const.Cypher.CYPHER_CLEAR_OBSOLETE_MEMORY_CHUNK_EMBEDDINGS;
+    String countObsoleteMemoryEmbeddings =
+        Const.Cypher.CYPHER_COUNT_OBSOLETE_MEMORY_CHUNK_EMBEDDINGS;
     String markStaleMemoryEmbeddings = Const.Cypher.CYPHER_MARK_STALE_MEMORY_CHUNK_EMBEDDINGS;
     String refreshMemoryEmbeddings = Const.Cypher.CYPHER_REFRESH_MEMORY_CHUNK_EMBEDDING_BATCH;
     String updateMemoryEmbeddingMetadata =
@@ -204,6 +210,14 @@ class CypherResourceTest {
     assertFalse(countChunks.contains("{project: $project}"));
     assertTrue(countDirtyEmbeddings.contains("embeddingDirty: true"));
     assertTrue(countDirtyEmbeddings.contains("RETURN count(chunk) AS count"));
+    assertTrue(clearObsoleteEmbeddings.contains("MATCH (chunk:CodeChunk)"));
+    assertFalse(clearObsoleteEmbeddings.contains("{project: $project}"));
+    assertTrue(clearObsoleteEmbeddings.contains("REMOVE chunk.embedding"));
+    assertTrue(clearObsoleteEmbeddings.contains("chunk.embeddingModel <> $modelName"));
+    assertTrue(clearObsoleteEmbeddings.contains("chunk.embeddingDimensions <> $dimension"));
+    assertTrue(countObsoleteEmbeddings.contains("MATCH (chunk:CodeChunk)"));
+    assertFalse(countObsoleteEmbeddings.contains("{project: $project}"));
+    assertTrue(countObsoleteEmbeddings.contains("RETURN count(chunk) AS count"));
     assertTrue(markStaleEmbeddings.contains("RETURN count(chunk) AS count"));
     assertTrue(markStaleEmbeddings.contains("chunk.embeddingModel <> $modelName"));
     assertTrue(markStaleEmbeddings.contains("SET chunk.embeddingDirty = true"));
@@ -233,6 +247,12 @@ class CypherResourceTest {
     assertTrue(upsertMemoryChunks.contains("REMOVE chunk.embedding"));
     assertTrue(upsertMemoryChunks.contains("SET chunk.embeddingDirty = true"));
     assertTrue(upsertMemoryChunks.contains("MERGE (source)-[:HAS_RAG_CHUNK]->(chunk)"));
+    assertTrue(clearObsoleteMemoryEmbeddings.contains("MATCH (chunk:MemoryChunk)"));
+    assertFalse(clearObsoleteMemoryEmbeddings.contains("{project: $project}"));
+    assertTrue(clearObsoleteMemoryEmbeddings.contains("REMOVE chunk.embedding"));
+    assertTrue(clearObsoleteMemoryEmbeddings.contains("chunk.embeddingModel <> $modelName"));
+    assertTrue(countObsoleteMemoryEmbeddings.contains("MATCH (chunk:MemoryChunk)"));
+    assertFalse(countObsoleteMemoryEmbeddings.contains("{project: $project}"));
     assertTrue(markStaleMemoryEmbeddings.contains("chunk.embeddingModel <> $modelName"));
     assertTrue(markStaleMemoryEmbeddings.contains("SET chunk.embeddingDirty = true"));
     assertTrue(refreshMemoryEmbeddings.contains("CALL embeddings.node_sentence(chunks, $config)"));
