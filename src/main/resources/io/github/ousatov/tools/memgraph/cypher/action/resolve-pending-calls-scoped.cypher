@@ -3,15 +3,15 @@ MATCH (caller:Method {signature: pending.callerSignature, project: $project})
 WITH pending, caller,
      pending.callerSignature IN $callerSignatures AS callerChanged,
      pending.calleeOwnerFqn IN $ownerFqns AS ownerChanged
-OPTIONAL MATCH (pendingClass:Class {fqn: pending.calleeOwnerFqn, project: $project})-[:EXTENDS*1..16]->(changedClass:Class {project: $project})
+OPTIONAL MATCH (pendingClass:Class {fqn: pending.calleeOwnerFqn, project: $project})-[:EXTENDS*1..]->(changedClass:Class {project: $project})
 WHERE changedClass.fqn IN $ownerFqns
   AND NOT callerChanged
   AND NOT ownerChanged
-OPTIONAL MATCH (pendingInterface:Interface {fqn: pending.calleeOwnerFqn, project: $project})-[:EXTENDS*1..16]->(changedInterface:Interface {project: $project})
+OPTIONAL MATCH (pendingInterface:Interface {fqn: pending.calleeOwnerFqn, project: $project})-[:EXTENDS*1..]->(changedInterface:Interface {project: $project})
 WHERE changedInterface.fqn IN $ownerFqns
   AND NOT callerChanged
   AND NOT ownerChanged
-OPTIONAL MATCH (pendingImplementor:Class {fqn: pending.calleeOwnerFqn, project: $project})-[:EXTENDS*0..16]->(:Class {project: $project})-[:IMPLEMENTS]->(:Interface {project: $project})-[:EXTENDS*0..16]->(changedImplementedInterface:Interface {project: $project})
+OPTIONAL MATCH (pendingImplementor:Class {fqn: pending.calleeOwnerFqn, project: $project})-[:EXTENDS*0..]->(:Class {project: $project})-[:IMPLEMENTS]->(:Interface {project: $project})-[:EXTENDS*0..]->(changedImplementedInterface:Interface {project: $project})
 WHERE changedImplementedInterface.fqn IN $ownerFqns
   AND NOT callerChanged
   AND NOT ownerChanged
@@ -26,7 +26,7 @@ WHERE callerChanged
 	  OR changedImplementedInterfaces > 0
 OPTIONAL MATCH (owner {fqn: pending.calleeOwnerFqn, project: $project})-[:DECLARES]->(directCallee:Method {name: pending.calleeName, project: $project})
 WITH pending, caller, coalesce(pending.count, 1) AS callCount, collect(DISTINCT directCallee) AS directCandidates
-OPTIONAL MATCH classPath = (classOwner:Class {fqn: pending.calleeOwnerFqn, project: $project})-[:EXTENDS*1..16]->(declClass:Class {project: $project})-[:DECLARES]->(classCallee:Method {name: pending.calleeName, project: $project})
+OPTIONAL MATCH classPath = (classOwner:Class {fqn: pending.calleeOwnerFqn, project: $project})-[:EXTENDS*1..]->(declClass:Class {project: $project})-[:DECLARES]->(classCallee:Method {name: pending.calleeName, project: $project})
 WHERE size(directCandidates) = 0
 WITH pending, caller, callCount, directCandidates, declClass, size(nodes(classPath)) AS classDepth
 ORDER BY classDepth
@@ -35,11 +35,11 @@ WITH pending, caller, callCount, directCandidates,
      CASE WHEN size(declaringClasses) = 0 THEN null ELSE declaringClasses[0] END AS nearestClass
 OPTIONAL MATCH (nearestClass)-[:DECLARES]->(classCallee:Method {name: pending.calleeName, project: $project})
 WITH pending, caller, callCount, directCandidates, collect(DISTINCT classCallee) AS classCandidates
-OPTIONAL MATCH (classOwner:Class {fqn: pending.calleeOwnerFqn, project: $project})-[:EXTENDS*0..16]->(:Class {project: $project})-[:IMPLEMENTS]->(:Interface {project: $project})-[:EXTENDS*0..16]->(:Interface {project: $project})-[:DECLARES]->(classInterfaceCallee:Method {name: pending.calleeName, project: $project})
+OPTIONAL MATCH (classOwner:Class {fqn: pending.calleeOwnerFqn, project: $project})-[:EXTENDS*0..]->(:Class {project: $project})-[:IMPLEMENTS]->(:Interface {project: $project})-[:EXTENDS*0..]->(:Interface {project: $project})-[:DECLARES]->(classInterfaceCallee:Method {name: pending.calleeName, project: $project})
 WHERE size(directCandidates) = 0 AND size(classCandidates) = 0
 WITH pending, caller, callCount, directCandidates, classCandidates,
      collect(DISTINCT classInterfaceCallee) AS classInterfaceCandidates
-OPTIONAL MATCH (interfaceOwner:Interface {fqn: pending.calleeOwnerFqn, project: $project})-[:EXTENDS*1..16]->(:Interface {project: $project})-[:DECLARES]->(interfaceCallee:Method {name: pending.calleeName, project: $project})
+OPTIONAL MATCH (interfaceOwner:Interface {fqn: pending.calleeOwnerFqn, project: $project})-[:EXTENDS*1..]->(:Interface {project: $project})-[:DECLARES]->(interfaceCallee:Method {name: pending.calleeName, project: $project})
 WHERE size(directCandidates) = 0 AND size(classCandidates) = 0
 WITH pending, caller, callCount, directCandidates, classCandidates, classInterfaceCandidates,
      collect(DISTINCT interfaceCallee) AS interfaceCandidates

@@ -223,11 +223,17 @@ class CypherResourceTest {
         callsByName,
         "UNWIND $rows AS row",
         "row.caller AS callerSignature",
-        "[:EXTENDS*1..16]",
+        "[:EXTENDS*1..]",
         "WHERE size(directCandidates) = 0",
         "WHERE size(directCandidates) = 0 AND size(classCandidates) = 0",
         "MERGE (caller)-[call:CALLS]->(callee)",
         "SET call.count = coalesce(call.count, 0) + callCount");
+    assertFalse(callsByName.contains("[:EXTENDS*1..16]"));
+    assertFalse(callsByName.contains("[:EXTENDS*0..16]"));
+    assertFalse(Const.Cypher.CYPHER_RESOLVE_PENDING_CALLS.contains("[:EXTENDS*1..16]"));
+    assertFalse(Const.Cypher.CYPHER_RESOLVE_PENDING_CALLS.contains("[:EXTENDS*0..16]"));
+    assertFalse(Const.Cypher.CYPHER_RESOLVE_PENDING_CALLS_SCOPED.contains("[:EXTENDS*1..16]"));
+    assertFalse(Const.Cypher.CYPHER_RESOLVE_PENDING_CALLS_SCOPED.contains("[:EXTENDS*0..16]"));
 
     assertTrue(Const.Cypher.CYPHER_DELETE_CODE_CHUNKS_FOR_FILE.contains("chunk:CodeChunk"));
     assertContainsAll(
