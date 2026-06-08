@@ -310,7 +310,7 @@ public abstract class CommonCodeChunkBuilder<T> {
     int safeStart = startLine <= 0 ? 1 : Math.clamp(startLine, 1, lines.size());
     int safeEnd = endLine <= 0 ? safeStart : Math.clamp(endLine, safeStart, lines.size());
     int docStart = documentationStart(lines, safeStart);
-    int limitedEnd = Math.clamp(docStart + MAX_EXCERPT_LINES - 1, docStart, safeEnd);
+    int limitedEnd = Math.clamp(docStart + MAX_EXCERPT_LINES - (long) 1, docStart, safeEnd);
     return String.join(Const.Symbols.NEW_LINE, lines.subList(docStart - 1, limitedEnd));
   }
 
@@ -334,7 +334,7 @@ public abstract class CommonCodeChunkBuilder<T> {
   }
 
   private static int blockCommentStart(List<String> lines, int previous, int fallbackStartLine) {
-    int lowerBound = Math.clamp(previous - DOC_LOOKBACK_LINES, 0, previous);
+    int lowerBound = Math.clamp((long) previous - DOC_LOOKBACK_LINES, 0, previous);
     for (int i = previous; i >= lowerBound; i--) {
       String trimmed = lines.get(i).trim();
       if (trimmed.startsWith("/*")) {
@@ -346,7 +346,7 @@ public abstract class CommonCodeChunkBuilder<T> {
 
   private static int lineCommentStart(List<String> lines, int previous) {
     int current = previous;
-    int lowerBound = Math.clamp(previous - DOC_LOOKBACK_LINES, 0, previous);
+    int lowerBound = Math.clamp((long) previous - DOC_LOOKBACK_LINES, 0, previous);
     while (current >= lowerBound && isLineDocComment(lines.get(current).trim())) {
       current--;
     }

@@ -4,7 +4,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import com.github.javaparser.StaticJavaParser;
+import com.github.javaparser.JavaParser;
+import com.github.javaparser.ParserConfiguration;
+import com.github.javaparser.ast.CompilationUnit;
 import io.github.ousatov.tools.memgraph.vo.writer.CodeChunkWrite;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -17,6 +19,12 @@ import org.junit.jupiter.api.io.TempDir;
 class JavaCodeChunkBuilderTest {
 
   @TempDir private Path tempDir;
+
+  private static CompilationUnit parseJava25(String source) {
+    ParserConfiguration config = new ParserConfiguration();
+    config.setLanguageLevel(ParserConfiguration.LanguageLevel.JAVA_25);
+    return new JavaParser(config).parse(source).getResult().orElseThrow();
+  }
 
   @Test
   void emitsImplicitDefaultConstructorChunkForClassWithoutConstructor() throws IOException {
@@ -32,7 +40,7 @@ class JavaCodeChunkBuilderTest {
     Files.writeString(file, source);
 
     List<CodeChunkWrite> chunks =
-        new JavaCodeChunkBuilder().build(file, StaticJavaParser.parse(source));
+        new JavaCodeChunkBuilder().build(file, parseJava25(source));
 
     CodeChunkWrite ctor =
         chunks.stream()
@@ -69,9 +77,50 @@ class JavaCodeChunkBuilderTest {
     Files.writeString(file, source);
 
     List<CodeChunkWrite> chunks =
-        new JavaCodeChunkBuilder().build(file, StaticJavaParser.parse(source));
+        new JavaCodeChunkBuilder().build(file, parseJava25(source));
 
     assertFalse(
         chunks.stream().anyMatch(chunk -> "com.example.Widget.<init>()".equals(chunk.sourceId())));
+  }
+
+  @Test
+  void emitsSyntheticRecordConstructorAndAccessorChunks() throws IOException {
+    String source =
+        """
+        package com.example;
+        record Point(int x) {}
+        """;
+    Path file = tempDir.resolve("Point.java");
+    Files.writeString(file, source);
+
+    List<CodeChunkWrite> chunks =
+        new JavaCodeChunkBuilder().build(file, parseJava25(source));
+
+    CodeChunkWrite component =
+        chunks.stream()
+            .filter(chunk -> "com.example.Point#x".equals(chunk.sourceId()))
+            .findFirst()
+            .orElseThrow();
+    assertEquals("Field", component.sourceLabel());
+    assertEquals("secondary", component.ragRole());
+    assertFalse(component.synthetic());
+
+    CodeChunkWrite ctor =
+        chunks.stream()
+            .filter(chunk -> "com.example.Point.<init>(int)".equals(chunk.sourceId()))
+            .findFirst()
+            .orElseThrow();
+    assertEquals("Method", ctor.sourceLabel());
+    assertEquals("synthetic", ctor.ragRole());
+    assertTrue(ctor.synthetic());
+
+    CodeChunkWrite accessor =
+        chunks.stream()
+            .filter(chunk -> "com.example.Point.x()".equals(chunk.sourceId()))
+            .findFirst()
+            .orElseThrow();
+    assertEquals("Method", accessor.sourceLabel());
+    assertEquals("synthetic", accessor.ragRole());
+    assertTrue(accessor.synthetic());
   }
 }

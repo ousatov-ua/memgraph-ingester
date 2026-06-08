@@ -204,7 +204,7 @@ class IngesterCliInstructionsTest {
   private static String readString(Path path) {
     try {
       return Files.readString(path);
-    } catch (IOException e) {
+    } catch (IOException _) {
       return "";
     }
   }

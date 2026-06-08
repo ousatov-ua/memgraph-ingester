@@ -297,20 +297,20 @@ public final class ManagedPythonRuntime extends ManagedHttpInstaller {
           continue;
         }
         Path relative = stripTopDirectory(entry.getName());
-        if (relative == null) {
-          continue;
-        }
-        Path target = installRoot.resolve(relative).normalize();
-        if (!target.startsWith(installRoot)) {
-          throw new ProcessingException("Archive entry escapes CPython cache: " + entry.getName());
-        }
-        if (entry.isDirectory()) {
-          Files.createDirectories(target);
-        } else if (entry.isSymbolicLink()) {
-          extractSymbolicLink(entry, installRoot, target);
-        } else {
-          Files.createDirectories(target.getParent());
-          Files.copy(in, target, StandardCopyOption.REPLACE_EXISTING);
+        if (relative != null) {
+          Path target = installRoot.resolve(relative).normalize();
+          if (!target.startsWith(installRoot)) {
+            throw new ProcessingException(
+                "Archive entry escapes CPython cache: " + entry.getName());
+          }
+          if (entry.isDirectory()) {
+            Files.createDirectories(target);
+          } else if (entry.isSymbolicLink()) {
+            extractSymbolicLink(entry, installRoot, target);
+          } else {
+            Files.createDirectories(target.getParent());
+            Files.copy(in, target, StandardCopyOption.REPLACE_EXISTING);
+          }
         }
       }
     }

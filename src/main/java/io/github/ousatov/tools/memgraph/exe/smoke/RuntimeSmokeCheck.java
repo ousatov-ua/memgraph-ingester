@@ -26,9 +26,12 @@ public abstract class RuntimeSmokeCheck {
   public final int run() {
     Path tempDir = null;
     try {
-      tempDir = Files.createTempDirectory(tempDirPrefix());
+      Path tempRoot = Files.createDirectories(cacheRoot().resolve("smoke-checks"));
+      tempDir = Files.createTempDirectory(tempRoot, tempDirPrefix());
       execute(tempDir);
-      log.info("{} runtime check succeeded using cache {}", displayName(), cacheRoot());
+      if (log.isInfoEnabled()) {
+        log.info("{} runtime check succeeded using cache {}", displayName(), cacheRoot());
+      }
       return 0;
     } catch (IOException | RuntimeException e) {
       log.error("{} runtime check failed: {}", displayName(), e.getMessage());

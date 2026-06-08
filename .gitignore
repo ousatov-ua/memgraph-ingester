@@ -35,3 +35,5 @@ AGENTS.md
 GEMINI.md
 dependency-reduced-pom.xml
 .rtk
+copilot-instructions.md
+rtk-rewrite.json

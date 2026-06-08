@@ -44,12 +44,28 @@ class ParseServiceTest {
 
   @AfterEach
   void cleanup() throws IOException {
-    try (Stream<Path> walk = Files.walk(tempDir)) {
+    deleteDir(tempDir);
+  }
+
+  private static void deleteDir(Path dir) throws IOException {
+    try (Stream<Path> walk = Files.walk(dir)) {
       walk.sorted(Comparator.reverseOrder())
           .forEach(
               p -> {
                 var _ = p.toFile().delete();
               });
+    }
+  }
+
+  private record TempDirectory(Path path) implements AutoCloseable {
+
+    static TempDirectory create(String prefix) throws IOException {
+      return new TempDirectory(Files.createTempDirectory(prefix));
+    }
+
+    @Override
+    public void close() throws IOException {
+      deleteDir(path);
     }
   }
 
@@ -203,8 +219,8 @@ class ParseServiceTest {
     var compiler = ToolProvider.getSystemJavaCompiler();
     assumeTrue(compiler != null, "JDK compiler required for this test");
 
-    Path moduleDir = Files.createTempDirectory("module-info-compile-");
-    try {
+    try (TempDirectory module = TempDirectory.create("module-info-compile-")) {
+      Path moduleDir = module.path();
       Path src = moduleDir.resolve("module-info.java");
       Files.writeString(src, "module test.memgraph.ingester {}");
       int rc = compiler.run(null, null, null, "-d", moduleDir.toString(), src.toString());
@@ -223,10 +239,6 @@ class ParseServiceTest {
       assertTrue(
           svc.parse(file).isPresent(),
           "ParseService must work even when JAR contains module-info.class");
-    } finally {
-      try (Stream<Path> walk = Files.walk(moduleDir)) {
-        walk.sorted(Comparator.reverseOrder()).forEach(p -> p.toFile().delete());
-      }
     }
   }
 
@@ -235,8 +247,8 @@ class ParseServiceTest {
     var compiler = ToolProvider.getSystemJavaCompiler();
     assumeTrue(compiler != null, "JDK compiler required for this test");
 
-    Path moduleDir = Files.createTempDirectory("module-info-filter-");
-    try {
+    try (TempDirectory module = TempDirectory.create("module-info-filter-")) {
+      Path moduleDir = module.path();
       Path src = moduleDir.resolve("module-info.java");
       Files.writeString(src, "module test.filter.check {}");
       int rc = compiler.run(null, null, null, "-d", moduleDir.toString(), src.toString());
@@ -257,10 +269,6 @@ class ParseServiceTest {
         var names = zf.stream().map(ZipEntry::getName).toList();
         assertTrue(names.stream().noneMatch(n -> n.equals("module-info.class")));
         assertTrue(names.contains("com/example/Dummy.class"));
-      }
-    } finally {
-      try (Stream<Path> walk = Files.walk(moduleDir)) {
-        walk.sorted(Comparator.reverseOrder()).forEach(p -> p.toFile().delete());
       }
     }
   }

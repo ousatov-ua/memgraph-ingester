@@ -903,6 +903,18 @@ class IngestionOrchestratorIT {
     }
   }
 
+  private record TempDirectory(Path path) implements AutoCloseable {
+
+    static TempDirectory create(String prefix) throws IOException {
+      return new TempDirectory(Files.createTempDirectory(prefix));
+    }
+
+    @Override
+    public void close() throws IOException {
+      deleteDir(path);
+    }
+  }
+
   @AfterEach
   void cleanup() throws IOException {
     if (currentProject != null) {
@@ -1794,8 +1806,9 @@ class IngestionOrchestratorIT {
   void watchModeRefreshesRetainedFileFromOtherSourceRootAfterDelete() throws Exception {
     currentProject = PROJECT_BASE + "-watch-delete-moved-shared-other-root";
     sourceDir = Files.createTempDirectory("orch-watch-delete-moved-shared-root-a-");
-    Path otherRoot = Files.createTempDirectory("orch-watch-delete-moved-shared-root-b-");
-    try {
+    try (TempDirectory otherRootDir =
+        TempDirectory.create("orch-watch-delete-moved-shared-root-b-")) {
+      Path otherRoot = otherRootDir.path();
       Path rootA = sourceDir.resolve("com/example");
       Path rootB = otherRoot.resolve("com/example");
       Files.createDirectories(rootA);
@@ -1825,8 +1838,6 @@ class IngestionOrchestratorIT {
       assertTrue(fileExistsInGraph(currentProject, newShared));
       assertFalse(
           callEdgeExists(currentProject, "com.example.Shared.serve()", "com.example.Helper.go()"));
-    } finally {
-      deleteDir(otherRoot);
     }
   }
 
@@ -1834,8 +1845,8 @@ class IngestionOrchestratorIT {
   void watchModeRefreshesRetainedModuleFileWithStoredSourceRoot() throws Exception {
     currentProject = PROJECT_BASE + "-watch-delete-module-retained-root";
     sourceDir = Files.createTempDirectory("orch-watch-delete-module-root-a-");
-    Path otherRoot = Files.createTempDirectory("orch-watch-delete-module-root-b-");
-    try {
+    try (TempDirectory otherRootDir = TempDirectory.create("orch-watch-delete-module-root-b-")) {
+      Path otherRoot = otherRootDir.path();
       Path removedFile = sourceDir.resolve("shared.ts");
       Path retainedFile = otherRoot.resolve("shared.ts");
       Files.writeString(removedFile, "export const shared = true;\n");
@@ -1854,8 +1865,6 @@ class IngestionOrchestratorIT {
       rootAOrchestrator.ingestChangedFiles(Set.of(removedFile));
 
       assertEquals(List.of("js.test.shared_ts"), moduleFqnsForFile(currentProject, retainedFile));
-    } finally {
-      deleteDir(otherRoot);
     }
   }
 
@@ -2012,12 +2021,13 @@ class IngestionOrchestratorIT {
 
   @Test
   void parallelAndSequentialIngestSameNodeCount() throws Exception {
-    Path seqDir = buildSampleSourceTree();
-    Path parDir = buildSampleSourceTree();
     String seqProject = PROJECT_BASE + "-cmp-seq";
     String parProject = PROJECT_BASE + "-cmp-par";
 
-    try {
+    try (TempDirectory seq = new TempDirectory(buildSampleSourceTree());
+        TempDirectory par = new TempDirectory(buildSampleSourceTree())) {
+      Path seqDir = seq.path();
+      Path parDir = par.path();
       new IngestionOrchestrator(seqDir, seqProject, 1, driver, new ParseService(seqDir))
           .run(Settings.def());
       new IngestionOrchestrator(parDir, parProject, 4, driver, new ParseService(parDir))
@@ -2040,8 +2050,6 @@ class IngestionOrchestratorIT {
     } finally {
       wipeProjectCode(seqProject);
       wipeProjectCode(parProject);
-      deleteDir(seqDir);
-      deleteDir(parDir);
     }
   }
 
@@ -2510,8 +2518,8 @@ class IngestionOrchestratorIT {
   void missingFileCleanupPreservesDefinitionsFromOtherSourceRoots() throws Exception {
     currentProject = PROJECT_BASE + "-missing-file-other-root";
     sourceDir = Files.createTempDirectory("orch-missing-file-root-a-");
-    Path otherRoot = Files.createTempDirectory("orch-missing-file-root-b-");
-    try {
+    try (TempDirectory otherRootDir = TempDirectory.create("orch-missing-file-root-b-")) {
+      Path otherRoot = otherRootDir.path();
       Path rootA = sourceDir.resolve("com/example");
       Path rootB = otherRoot.resolve("com/example");
       Files.createDirectories(rootA);
@@ -2543,8 +2551,6 @@ class IngestionOrchestratorIT {
       assertFalse(fileExistsInGraph(currentProject, removedFile));
       assertTrue(fileExistsInGraph(currentProject, retainedFile));
       assertTrue(classExists(currentProject, "com.example.Shared"));
-    } finally {
-      deleteDir(otherRoot);
     }
   }
 
@@ -2552,8 +2558,8 @@ class IngestionOrchestratorIT {
   void missingFileCleanupRefreshesRetainedFileFromOtherSourceRoot() throws Exception {
     currentProject = PROJECT_BASE + "-missing-file-refresh-other-root";
     sourceDir = Files.createTempDirectory("orch-missing-file-refresh-root-a-");
-    Path otherRoot = Files.createTempDirectory("orch-missing-file-refresh-root-b-");
-    try {
+    try (TempDirectory otherRootDir = TempDirectory.create("orch-missing-file-refresh-root-b-")) {
+      Path otherRoot = otherRootDir.path();
       Path rootA = sourceDir.resolve("com/example");
       Path rootB = otherRoot.resolve("com/example");
       Files.createDirectories(rootA);
@@ -2583,8 +2589,6 @@ class IngestionOrchestratorIT {
       assertTrue(fileExistsInGraph(currentProject, retainedFile));
       assertFalse(
           callEdgeExists(currentProject, "com.example.Shared.serve()", "com.example.Helper.go()"));
-    } finally {
-      deleteDir(otherRoot);
     }
   }
 
@@ -2592,8 +2596,9 @@ class IngestionOrchestratorIT {
   void missingFileCleanupRefreshesRetainedJavaFileWithStoredSourceRoot() throws Exception {
     currentProject = PROJECT_BASE + "-missing-file-refresh-java-root";
     sourceDir = Files.createTempDirectory("orch-missing-file-refresh-java-root-a-");
-    Path otherRoot = Files.createTempDirectory("orch-missing-file-refresh-java-root-b-");
-    try {
+    try (TempDirectory otherRootDir =
+        TempDirectory.create("orch-missing-file-refresh-java-root-b-")) {
+      Path otherRoot = otherRootDir.path();
       Path rootA = sourceDir.resolve("com/example");
       Path rootB = otherRoot.resolve("com/example");
       Files.createDirectories(rootA);
@@ -2622,8 +2627,6 @@ class IngestionOrchestratorIT {
       assertTrue(fileExistsInGraph(currentProject, retainedFile));
       assertTrue(
           callEdgeExists(currentProject, "com.example.Shared.serve()", "com.example.Helper.go()"));
-    } finally {
-      deleteDir(otherRoot);
     }
   }
 
@@ -2631,8 +2634,8 @@ class IngestionOrchestratorIT {
   void changedFileCleanupPreservesCallsFromOtherSourceRoots() throws Exception {
     currentProject = PROJECT_BASE + "-changed-file-other-root";
     sourceDir = Files.createTempDirectory("orch-changed-file-root-a-");
-    Path otherRoot = Files.createTempDirectory("orch-changed-file-root-b-");
-    try {
+    try (TempDirectory otherRootDir = TempDirectory.create("orch-changed-file-root-b-")) {
+      Path otherRoot = otherRootDir.path();
       Path rootA = sourceDir.resolve("com/example");
       Path rootB = otherRoot.resolve("com/example");
       Files.createDirectories(rootA);
@@ -2687,8 +2690,6 @@ class IngestionOrchestratorIT {
       assertTrue(fileExistsInGraph(currentProject, sharedB));
       assertTrue(
           callEdgeExists(currentProject, "com.example.Shared.serve()", "com.example.Helper.go()"));
-    } finally {
-      deleteDir(otherRoot);
     }
   }
 
@@ -2696,8 +2697,8 @@ class IngestionOrchestratorIT {
   void changedFileCleanupIgnoresMissingOutsideRootRetainedFiles() throws Exception {
     currentProject = PROJECT_BASE + "-changed-file-missing-other-root";
     sourceDir = Files.createTempDirectory("orch-changed-file-missing-root-a-");
-    Path otherRoot = Files.createTempDirectory("orch-changed-file-missing-root-b-");
-    try {
+    try (TempDirectory otherRootDir = TempDirectory.create("orch-changed-file-missing-root-b-")) {
+      Path otherRoot = otherRootDir.path();
       Path rootA = sourceDir.resolve("com/example");
       Files.createDirectories(rootA);
       Path shared = rootA.resolve("Shared.java");
@@ -2728,8 +2729,6 @@ class IngestionOrchestratorIT {
 
       assertFalse(
           callEdgeExists(currentProject, "com.example.Shared.serve()", "com.example.Helper.go()"));
-    } finally {
-      deleteDir(otherRoot);
     }
   }
 
@@ -3691,13 +3690,12 @@ class IngestionOrchestratorIT {
   /** Sequential and parallel ingestion must produce the same CALLS edge count. */
   @Test
   void sequentialAndParallelProduceSameCallEdgeCount() throws Exception {
-    Path seqDir = null;
-    Path parDir = null;
     String seqProject = PROJECT_BASE + "-calls-seq";
     String parProject = PROJECT_BASE + "-calls-par";
-    try {
-      seqDir = Files.createTempDirectory("orch-calls-seq-");
-      parDir = Files.createTempDirectory("orch-calls-par-");
+    try (TempDirectory seq = TempDirectory.create("orch-calls-seq-");
+        TempDirectory par = TempDirectory.create("orch-calls-par-")) {
+      Path seqDir = seq.path();
+      Path parDir = par.path();
       for (Path dir : List.of(seqDir, parDir)) {
         Path pkgDir = dir.resolve("com/example");
         Files.createDirectories(pkgDir);
@@ -3747,8 +3745,6 @@ class IngestionOrchestratorIT {
     } finally {
       wipeProjectCode(seqProject);
       wipeProjectCode(parProject);
-      deleteDir(seqDir);
-      deleteDir(parDir);
     }
   }
 }

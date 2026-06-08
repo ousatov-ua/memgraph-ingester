@@ -60,12 +60,15 @@ public final class ManagedCtagsRuntime {
       AppConfig.durationValue("runtime.managed.ctags.http-timeout");
   private static final Pattern RELEASE_TAG_PATTERN =
       Pattern.compile("\"tag_name\"\\s*:\\s*\"([^\"]+)\"");
+
+  @SuppressWarnings("java:S5843")
   private static final Pattern ASSET_PATTERN =
       Pattern.compile(
           "\"url\"\\s*:\\s*\"[^\"]*/releases/assets/\\d+\".*?\"name\"\\s*:\\s*\"([^\"]+)\""
               + ".*?\"digest\"\\s*:\\s*(null|\"([^\"]+)\")"
               + ".*?\"browser_download_url\"\\s*:\\s*\"([^\"]+)\"",
           Pattern.DOTALL);
+
   private static final Pattern RELEASE_ASSET_HTML_PATTERN =
       Pattern.compile(
           "<a\\b[^>]*\\bhref=\"([^\"]*/releases/download/[^\"]+)\"[^>]*>(.*?)</a>", Pattern.DOTALL);

@@ -638,7 +638,7 @@ public final class GraphWriter {
         safeChunkCount > Integer.MAX_VALUE / VECTOR_INDEX_HEADROOM_MULTIPLIER
             ? Integer.MAX_VALUE
             : safeChunkCount * VECTOR_INDEX_HEADROOM_MULTIPLIER;
-    return (int) Math.clamp(withHeadroom, MIN_VECTOR_INDEX_CAPACITY, Integer.MAX_VALUE);
+    return Math.clamp(withHeadroom, MIN_VECTOR_INDEX_CAPACITY, Integer.MAX_VALUE);
   }
 
   private List<MemorySource> memoryChunkSources() {

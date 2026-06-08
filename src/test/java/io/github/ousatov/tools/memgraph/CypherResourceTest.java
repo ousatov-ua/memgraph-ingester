@@ -41,63 +41,73 @@ class CypherResourceTest {
     return count;
   }
 
+  private static void assertContainsAll(String text, String... snippets) {
+    for (String snippet : snippets) {
+      assertTrue(text.contains(snippet), () -> "Expected resource to contain: " + snippet);
+    }
+  }
+
   @Test
   void createSchemaContainsMemoryConstraints() {
     String schema = resource("create-schema.cypher");
 
-    assertTrue(schema.contains("CREATE CONSTRAINT ON (l:Language)"));
-    assertTrue(schema.contains("CREATE CONSTRAINT ON (m:Memory)"));
-    assertTrue(schema.contains("CREATE CONSTRAINT ON (d:Decision)"));
-    assertTrue(schema.contains("CREATE CONSTRAINT ON (i:Idea)"));
-    assertTrue(schema.contains("CREATE CONSTRAINT ON (c:Context)"));
-    assertTrue(schema.contains("CREATE CONSTRAINT ON (r:Rule)"));
-    assertTrue(schema.contains("CREATE CONSTRAINT ON (t:Task)"));
-    assertTrue(schema.contains("CREATE CONSTRAINT ON (f:Finding)"));
-    assertTrue(schema.contains("CREATE CONSTRAINT ON (q:Question)"));
-    assertTrue(schema.contains("CREATE CONSTRAINT ON (risk:Risk)"));
-    assertTrue(schema.contains("CREATE CONSTRAINT ON (adr:ADR)"));
-    assertTrue(schema.contains("CREATE CONSTRAINT ON (ref:CodeRef)"));
-    assertTrue(schema.contains("CREATE CONSTRAINT ON (mc:MemoryChunk)"));
-    assertTrue(schema.contains("CREATE CONSTRAINT ON (cc:CodeChunk)"));
+    assertContainsAll(
+        schema,
+        "CREATE CONSTRAINT ON (l:Language)",
+        "CREATE CONSTRAINT ON (m:Memory)",
+        "CREATE CONSTRAINT ON (d:Decision)",
+        "CREATE CONSTRAINT ON (i:Idea)",
+        "CREATE CONSTRAINT ON (c:Context)",
+        "CREATE CONSTRAINT ON (r:Rule)",
+        "CREATE CONSTRAINT ON (t:Task)",
+        "CREATE CONSTRAINT ON (f:Finding)",
+        "CREATE CONSTRAINT ON (q:Question)",
+        "CREATE CONSTRAINT ON (risk:Risk)",
+        "CREATE CONSTRAINT ON (adr:ADR)",
+        "CREATE CONSTRAINT ON (ref:CodeRef)",
+        "CREATE CONSTRAINT ON (mc:MemoryChunk)",
+        "CREATE CONSTRAINT ON (cc:CodeChunk)");
   }
 
   @Test
   void createSchemaContainsMemoryIndexes() {
     String schema = resource("create-schema.cypher");
 
-    assertTrue(schema.contains("CREATE INDEX ON :Memory(project)"));
-    assertTrue(schema.contains("CREATE INDEX ON :Language(project)"));
-    assertTrue(schema.contains("CREATE INDEX ON :Code(language)"));
-    assertTrue(schema.contains("CREATE INDEX ON :Decision(status)"));
-    assertTrue(schema.contains("CREATE INDEX ON :Decision(topic)"));
-    assertTrue(schema.contains("CREATE INDEX ON :Idea(status)"));
-    assertTrue(schema.contains("CREATE INDEX ON :Context(updatedAt)"));
-    assertTrue(schema.contains("CREATE INDEX ON :Method(ownerFqn)"));
-    assertTrue(schema.contains("CREATE INDEX ON :PendingCall(project)"));
-    assertTrue(schema.contains("CREATE INDEX ON :Rule(severity)"));
-    assertTrue(schema.contains("CREATE INDEX ON :Task(priority)"));
-    assertTrue(schema.contains("CREATE INDEX ON :Finding(type)"));
-    assertTrue(schema.contains("CREATE INDEX ON :Question(status)"));
-    assertTrue(schema.contains("CREATE INDEX ON :Risk(status)"));
-    assertTrue(schema.contains("CREATE INDEX ON :ADR(status)"));
-    assertTrue(schema.contains("CREATE INDEX ON :CodeRef(targetType)"));
-    assertTrue(schema.contains("CREATE INDEX ON :CodeRef(key)"));
-    assertTrue(schema.contains("CREATE INDEX ON :MemoryChunk(project)"));
-    assertTrue(schema.contains("CREATE INDEX ON :MemoryChunk(sourceLabel)"));
-    assertTrue(schema.contains("CREATE INDEX ON :MemoryChunk(sourceId)"));
-    assertTrue(schema.contains("CREATE INDEX ON :MemoryChunk(textHash)"));
-    assertTrue(schema.contains("CREATE INDEX ON :MemoryChunk(embeddingModel)"));
-    assertTrue(schema.contains("CREATE INDEX ON :MemoryChunk(embeddingDimensions)"));
-    assertTrue(schema.contains("CREATE INDEX ON :CodeChunk(project)"));
-    assertTrue(schema.contains("CREATE INDEX ON :CodeChunk(sourceLabel)"));
-    assertTrue(schema.contains("CREATE INDEX ON :CodeChunk(sourceId)"));
-    assertTrue(schema.contains("CREATE INDEX ON :CodeChunk(textHash)"));
-    assertTrue(schema.contains("CREATE INDEX ON :CodeChunk(embeddingModel)"));
-    assertTrue(schema.contains("CREATE INDEX ON :CodeChunk(embeddingDimensions)"));
-    assertTrue(schema.contains("CREATE INDEX ON :CodeChunk(language)"));
-    assertTrue(schema.contains("CREATE INDEX ON :CodeChunk(path)"));
-    assertTrue(schema.contains("CREATE INDEX ON :CodeChunk(ownerFqn)"));
-    assertTrue(schema.contains("CREATE INDEX ON :CodeChunk(signature)"));
+    assertContainsAll(
+        schema,
+        "CREATE INDEX ON :Memory(project)",
+        "CREATE INDEX ON :Language(project)",
+        "CREATE INDEX ON :Code(language)",
+        "CREATE INDEX ON :Decision(status)",
+        "CREATE INDEX ON :Decision(topic)",
+        "CREATE INDEX ON :Idea(status)",
+        "CREATE INDEX ON :Context(updatedAt)",
+        "CREATE INDEX ON :Method(ownerFqn)",
+        "CREATE INDEX ON :PendingCall(project)",
+        "CREATE INDEX ON :Rule(severity)",
+        "CREATE INDEX ON :Task(priority)",
+        "CREATE INDEX ON :Finding(type)",
+        "CREATE INDEX ON :Question(status)",
+        "CREATE INDEX ON :Risk(status)",
+        "CREATE INDEX ON :ADR(status)",
+        "CREATE INDEX ON :CodeRef(targetType)",
+        "CREATE INDEX ON :CodeRef(key)",
+        "CREATE INDEX ON :MemoryChunk(project)",
+        "CREATE INDEX ON :MemoryChunk(sourceLabel)",
+        "CREATE INDEX ON :MemoryChunk(sourceId)",
+        "CREATE INDEX ON :MemoryChunk(textHash)",
+        "CREATE INDEX ON :MemoryChunk(embeddingModel)",
+        "CREATE INDEX ON :MemoryChunk(embeddingDimensions)",
+        "CREATE INDEX ON :CodeChunk(project)",
+        "CREATE INDEX ON :CodeChunk(sourceLabel)",
+        "CREATE INDEX ON :CodeChunk(sourceId)",
+        "CREATE INDEX ON :CodeChunk(textHash)",
+        "CREATE INDEX ON :CodeChunk(embeddingModel)",
+        "CREATE INDEX ON :CodeChunk(embeddingDimensions)",
+        "CREATE INDEX ON :CodeChunk(language)",
+        "CREATE INDEX ON :CodeChunk(path)",
+        "CREATE INDEX ON :CodeChunk(ownerFqn)",
+        "CREATE INDEX ON :CodeChunk(signature)");
   }
 
   @Test
@@ -189,92 +199,117 @@ class CypherResourceTest {
         Const.Cypher.CYPHER_UPDATE_MEMORY_CHUNK_EMBEDDING_METADATA;
     String memoryFailureDetail = Const.Cypher.CYPHER_GET_MEMORY_CHUNK_EMBEDDING_FAILURE_DETAIL;
 
-    assertTrue(upsert.contains("MERGE (chunk:CodeChunk"));
-    assertTrue(upsert.contains("chunk.textHash AS previousTextHash"));
-    assertTrue(upsert.contains("previousTextHash <> row.textHash"));
-    assertTrue(upsert.contains("REMOVE chunk.embedding"));
-    assertTrue(upsert.contains("SET chunk.embeddingDirty = true"));
-    assertTrue(upsert.contains("previousTextHash = row.textHash"));
-    assertTrue(upsert.contains("SET chunk.embeddingDirty = false"));
+    assertContainsAll(
+        upsert,
+        "MERGE (chunk:CodeChunk",
+        "chunk.textHash AS previousTextHash",
+        "previousTextHash <> row.textHash",
+        "REMOVE chunk.embedding",
+        "SET chunk.embeddingDirty = true",
+        "previousTextHash = row.textHash",
+        "SET chunk.embeddingDirty = false",
+        "MATCH (source:File",
+        "MATCH (source:Class",
+        "MATCH (source:Interface",
+        "MATCH (source:Annotation",
+        "MATCH (source:Method",
+        "MATCH (source:Field",
+        "MERGE (source)-[:HAS_RAG_CHUNK]->(chunk)");
     assertFalse(upsert.contains("DELETE rel"));
-    assertTrue(upsert.contains("MATCH (source:File"));
-    assertTrue(upsert.contains("MATCH (source:Class"));
-    assertTrue(upsert.contains("MATCH (source:Interface"));
-    assertTrue(upsert.contains("MATCH (source:Annotation"));
-    assertTrue(upsert.contains("MATCH (source:Method"));
-    assertTrue(upsert.contains("MATCH (source:Field"));
-    assertTrue(upsert.contains("MERGE (source)-[:HAS_RAG_CHUNK]->(chunk)"));
-    assertTrue(callsByName.contains("UNWIND $rows AS row"));
-    assertTrue(callsByName.contains("row.caller AS callerSignature"));
-    assertTrue(callsByName.contains("MERGE (caller)-[call:CALLS]->(callee)"));
-    assertTrue(callsByName.contains("SET call.count = coalesce(call.count, 0) + callCount"));
+    assertContainsAll(
+        callsByName,
+        "UNWIND $rows AS row",
+        "row.caller AS callerSignature",
+        "MERGE (caller)-[call:CALLS]->(callee)",
+        "SET call.count = coalesce(call.count, 0) + callCount");
 
     assertTrue(Const.Cypher.CYPHER_DELETE_CODE_CHUNKS_FOR_FILE.contains("chunk:CodeChunk"));
-    assertTrue(deleteMissing.contains("chunk.path STARTS WITH $sourceRootPrefix"));
-    assertTrue(deleteMissing.contains("NOT chunk.path IN $paths"));
-    assertTrue(pathsMissingCodeChunks.contains("OPTIONAL MATCH (chunk:CodeChunk"));
-    assertTrue(pathsMissingCodeChunks.contains("WHERE chunkCount = 0"));
+    assertContainsAll(
+        deleteMissing, "chunk.path STARTS WITH $sourceRootPrefix", "NOT chunk.path IN $paths");
+    assertContainsAll(
+        pathsMissingCodeChunks, "OPTIONAL MATCH (chunk:CodeChunk", "WHERE chunkCount = 0");
     assertTrue(Const.Cypher.CYPHER_DELETE_CODE_CHUNKS_FOR_FILE_EXCEPT.contains("chunk.id IN $ids"));
-    assertTrue(wipeCodeRag.contains("MATCH (chunk:CodeChunk {project: $project})"));
-    assertTrue(wipeCodeRag.contains("DETACH DELETE chunk"));
-    assertTrue(wipeCodeRag.contains("RETURN count(chunk) AS deleted"));
+    assertContainsAll(
+        wipeCodeRag,
+        "MATCH (chunk:CodeChunk {project: $project})",
+        "DETACH DELETE chunk",
+        "RETURN count(chunk) AS deleted");
     assertTrue(modelInfo.contains("CALL embeddings.model_info($config)"));
     assertTrue(createIndex.contains("CREATE VECTOR INDEX __INDEX_NAME__"));
     assertTrue(showIndex.contains("SHOW VECTOR INDEX INFO"));
     assertTrue(countChunks.contains("RETURN count(chunk) AS count"));
     assertFalse(countChunks.contains("{project: $project}"));
-    assertTrue(countDirtyEmbeddings.contains("embeddingDirty: true"));
-    assertTrue(countDirtyEmbeddings.contains("RETURN count(chunk) AS count"));
-    assertTrue(clearObsoleteEmbeddings.contains("MATCH (chunk:CodeChunk)"));
+    assertContainsAll(countDirtyEmbeddings, "embeddingDirty: true", "RETURN count(chunk) AS count");
+    assertContainsAll(
+        clearObsoleteEmbeddings,
+        "MATCH (chunk:CodeChunk)",
+        "REMOVE chunk.embedding",
+        "chunk.embeddingModel <> $modelName",
+        "chunk.embeddingDimensions <> $dimension");
     assertFalse(clearObsoleteEmbeddings.contains("{project: $project}"));
-    assertTrue(clearObsoleteEmbeddings.contains("REMOVE chunk.embedding"));
-    assertTrue(clearObsoleteEmbeddings.contains("chunk.embeddingModel <> $modelName"));
-    assertTrue(clearObsoleteEmbeddings.contains("chunk.embeddingDimensions <> $dimension"));
-    assertTrue(countObsoleteEmbeddings.contains("MATCH (chunk:CodeChunk)"));
+    assertContainsAll(
+        countObsoleteEmbeddings, "MATCH (chunk:CodeChunk)", "RETURN count(chunk) AS count");
     assertFalse(countObsoleteEmbeddings.contains("{project: $project}"));
-    assertTrue(countObsoleteEmbeddings.contains("RETURN count(chunk) AS count"));
-    assertTrue(markStaleEmbeddings.contains("RETURN count(chunk) AS count"));
-    assertTrue(markStaleEmbeddings.contains("chunk.embeddingModel <> $modelName"));
-    assertTrue(markStaleEmbeddings.contains("SET chunk.embeddingDirty = true"));
-    assertTrue(refreshEmbeddings.contains("CALL embeddings.node_sentence(chunks, $config)"));
-    assertTrue(refreshEmbeddings.contains("embeddingDirty: true"));
-    assertTrue(refreshEmbeddings.contains("ORDER BY chunk.id"));
-    assertTrue(refreshEmbeddings.contains("RETURN success AS success"));
-    assertTrue(updateEmbeddingMetadata.contains("SET chunk.embeddingModel = $modelName"));
-    assertTrue(updateEmbeddingMetadata.contains("chunk.embeddingDirty = false"));
+    assertContainsAll(
+        markStaleEmbeddings,
+        "RETURN count(chunk) AS count",
+        "chunk.embeddingModel <> $modelName",
+        "SET chunk.embeddingDirty = true");
+    assertContainsAll(
+        refreshEmbeddings,
+        "CALL embeddings.node_sentence(chunks, $config)",
+        "embeddingDirty: true",
+        "ORDER BY chunk.id",
+        "RETURN success AS success");
+    assertContainsAll(
+        updateEmbeddingMetadata,
+        "SET chunk.embeddingModel = $modelName",
+        "chunk.embeddingDirty = false");
     assertTrue(failureDetail.contains("substring(chunk.text, 0, 240) AS preview"));
-    assertTrue(createMemoryIndex.contains("CREATE VECTOR INDEX __INDEX_NAME__"));
-    assertTrue(createMemoryIndex.contains("ON :MemoryChunk"));
+    assertContainsAll(createMemoryIndex, "CREATE VECTOR INDEX __INDEX_NAME__", "ON :MemoryChunk");
     assertTrue(countMemoryChunks.contains("MATCH (chunk:MemoryChunk"));
     assertFalse(countMemoryChunks.contains("{project: $project}"));
-    assertTrue(listMemorySources.contains("MATCH (root:Memory"));
-    assertTrue(listMemorySources.contains("HAS_RAG_CHUNK"));
+    assertContainsAll(listMemorySources, "MATCH (root:Memory", "HAS_RAG_CHUNK");
     assertFalse(listMemorySources.contains("ORDER BY sourceLabel, sourceId"));
-    assertTrue(deleteStaleMemoryChunks.contains("DETACH DELETE chunk"));
-    assertTrue(deleteStaleMemoryChunks.contains("MATCH (chunk:MemoryChunk {project: $project})"));
-    assertTrue(deleteStaleMemoryChunks.contains("HAS_RAG_CHUNK"));
+    assertContainsAll(
+        deleteStaleMemoryChunks,
+        "DETACH DELETE chunk",
+        "MATCH (chunk:MemoryChunk {project: $project})",
+        "HAS_RAG_CHUNK");
     assertFalse(deleteStaleMemoryChunks.contains("$rows"));
-    assertTrue(wipeMemoryRag.contains("MATCH (chunk:MemoryChunk {project: $project})"));
-    assertTrue(wipeMemoryRag.contains("DETACH DELETE chunk"));
-    assertTrue(wipeMemoryRag.contains("RETURN count(chunk) AS deleted"));
-    assertTrue(upsertMemoryChunks.contains("MERGE (chunk:MemoryChunk"));
-    assertTrue(upsertMemoryChunks.contains("previousTextHash <> row.textHash"));
-    assertTrue(upsertMemoryChunks.contains("REMOVE chunk.embedding"));
-    assertTrue(upsertMemoryChunks.contains("SET chunk.embeddingDirty = true"));
-    assertTrue(upsertMemoryChunks.contains("MERGE (source)-[:HAS_RAG_CHUNK]->(chunk)"));
-    assertTrue(clearObsoleteMemoryEmbeddings.contains("MATCH (chunk:MemoryChunk)"));
+    assertContainsAll(
+        wipeMemoryRag,
+        "MATCH (chunk:MemoryChunk {project: $project})",
+        "DETACH DELETE chunk",
+        "RETURN count(chunk) AS deleted");
+    assertContainsAll(
+        upsertMemoryChunks,
+        "MERGE (chunk:MemoryChunk",
+        "previousTextHash <> row.textHash",
+        "REMOVE chunk.embedding",
+        "SET chunk.embeddingDirty = true",
+        "MERGE (source)-[:HAS_RAG_CHUNK]->(chunk)");
+    assertContainsAll(
+        clearObsoleteMemoryEmbeddings,
+        "MATCH (chunk:MemoryChunk)",
+        "REMOVE chunk.embedding",
+        "chunk.embeddingModel <> $modelName");
     assertFalse(clearObsoleteMemoryEmbeddings.contains("{project: $project}"));
-    assertTrue(clearObsoleteMemoryEmbeddings.contains("REMOVE chunk.embedding"));
-    assertTrue(clearObsoleteMemoryEmbeddings.contains("chunk.embeddingModel <> $modelName"));
     assertTrue(countObsoleteMemoryEmbeddings.contains("MATCH (chunk:MemoryChunk)"));
     assertFalse(countObsoleteMemoryEmbeddings.contains("{project: $project}"));
-    assertTrue(markStaleMemoryEmbeddings.contains("chunk.embeddingModel <> $modelName"));
-    assertTrue(markStaleMemoryEmbeddings.contains("SET chunk.embeddingDirty = true"));
-    assertTrue(refreshMemoryEmbeddings.contains("CALL embeddings.node_sentence(chunks, $config)"));
-    assertTrue(refreshMemoryEmbeddings.contains("embeddingDirty: true"));
-    assertTrue(refreshMemoryEmbeddings.contains("ORDER BY chunk.id"));
-    assertTrue(updateMemoryEmbeddingMetadata.contains("SET chunk.embeddingModel = $modelName"));
-    assertTrue(updateMemoryEmbeddingMetadata.contains("chunk.embeddingDirty = false"));
+    assertContainsAll(
+        markStaleMemoryEmbeddings,
+        "chunk.embeddingModel <> $modelName",
+        "SET chunk.embeddingDirty = true");
+    assertContainsAll(
+        refreshMemoryEmbeddings,
+        "CALL embeddings.node_sentence(chunks, $config)",
+        "embeddingDirty: true",
+        "ORDER BY chunk.id");
+    assertContainsAll(
+        updateMemoryEmbeddingMetadata,
+        "SET chunk.embeddingModel = $modelName",
+        "chunk.embeddingDirty = false");
     assertTrue(memoryFailureDetail.contains("substring(chunk.text, 0, 240) AS preview"));
   }
 

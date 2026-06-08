@@ -179,87 +179,113 @@ public final class IngesterCli implements Callable<Integer> {
       }
     }
 
-    RuntimeMode selectedJsRuntimeMode;
-    RuntimeMode selectedPythonRuntimeMode;
-    RuntimeMode selectedCtagsRuntimeMode;
-    try {
-      selectedJsRuntimeMode = jsRuntime.parsedMode();
-      selectedPythonRuntimeMode = pythonRuntime.parsedMode();
-      selectedCtagsRuntimeMode = ctagsRuntime.parsedMode();
-    } catch (IllegalArgumentException e) {
-      log.error(e.getMessage());
+    SelectedRuntimeModes runtimeModes = selectedRuntimeModes();
+    if (runtimeModes == null) {
       return 1;
     }
-    if (jsRuntime.check || pythonRuntime.check || ctagsRuntime.check) {
-      int checkExit = 0;
-      if (jsRuntime.check) {
-        checkExit =
-            Math.max(
-                checkExit,
-                new JsRuntimeSmokeCheck(
-                        jsRuntime.resolvedCache(),
-                        jsRuntime.nodeVersion,
-                        jsRuntime.typescriptVersion,
-                        selectedJsRuntimeMode)
-                    .run());
-      }
-      if (pythonRuntime.check) {
-        checkExit =
-            Math.max(
-                checkExit,
-                new PythonRuntimeSmokeCheck(
-                        pythonRuntime.resolvedCache(),
-                        pythonRuntime.version,
-                        pythonRuntime.build,
-                        selectedPythonRuntimeMode)
-                    .run());
-      }
-      if (ctagsRuntime.check) {
-        checkExit =
-            Math.max(
-                checkExit,
-                new CtagsRuntimeSmokeCheck(
-                        ctagsRuntime.resolvedCache(),
-                        ctagsRuntime.version,
-                        selectedCtagsRuntimeMode)
-                    .run());
-      }
+    Integer checkExit = runRuntimeChecks(runtimeModes);
+    if (checkExit != null) {
       return checkExit;
     }
-    if (threads < 1) {
-      log.error("--threads must be >= 1 (got {})", threads);
+    if (!validateIngestionInputs()) {
       return 1;
     }
-    EmbeddingSettings codeEmbeddingSettings;
-    EmbeddingSettings memoryEmbeddingSettings;
+    SelectedEmbeddingSettings embeddingSettings = selectedEmbeddingSettings();
+    if (embeddingSettings == null) {
+      return 1;
+    }
+    return ingest(runtimeModes, embeddingSettings);
+  }
+
+  private SelectedRuntimeModes selectedRuntimeModes() {
+    try {
+      return new SelectedRuntimeModes(
+          jsRuntime.parsedMode(), pythonRuntime.parsedMode(), ctagsRuntime.parsedMode());
+    } catch (IllegalArgumentException e) {
+      log.error(e.getMessage());
+      return null;
+    }
+  }
+
+  private Integer runRuntimeChecks(SelectedRuntimeModes runtimeModes) {
+    if (!(jsRuntime.check || pythonRuntime.check || ctagsRuntime.check)) {
+      return null;
+    }
+    int checkExit = 0;
+    if (jsRuntime.check) {
+      checkExit =
+          Math.max(
+              checkExit,
+              new JsRuntimeSmokeCheck(
+                      jsRuntime.resolvedCache(),
+                      jsRuntime.nodeVersion,
+                      jsRuntime.typescriptVersion,
+                      runtimeModes.js())
+                  .run());
+    }
+    if (pythonRuntime.check) {
+      checkExit =
+          Math.max(
+              checkExit,
+              new PythonRuntimeSmokeCheck(
+                      pythonRuntime.resolvedCache(),
+                      pythonRuntime.version,
+                      pythonRuntime.build,
+                      runtimeModes.python())
+                  .run());
+    }
+    if (ctagsRuntime.check) {
+      checkExit =
+          Math.max(
+              checkExit,
+              new CtagsRuntimeSmokeCheck(
+                      ctagsRuntime.resolvedCache(), ctagsRuntime.version, runtimeModes.ctags())
+                  .run());
+    }
+    return checkExit;
+  }
+
+  private boolean validateIngestionInputs() {
+    if (threads < 1) {
+      log.error("--threads must be >= 1 (got {})", threads);
+      return false;
+    }
+    if (sourceRoot == null) {
+      log.error("--source is required");
+      return false;
+    }
+    if (!Files.isDirectory(sourceRoot)) {
+      log.error("--source must be an existing directory: {}", sourceRoot);
+      return false;
+    }
+    if (boltUrl == null || boltUrl.isBlank()) {
+      log.error("--bolt is required");
+      return false;
+    }
+    if (project == null || project.isBlank()) {
+      log.error("--project is required");
+      return false;
+    }
+    return true;
+  }
+
+  private SelectedEmbeddingSettings selectedEmbeddingSettings() {
     try {
       boolean memoryEmbeddingsRequested =
           instructions.withMemories
               || wipe.memoryRag
               || hasMatchedOption(Const.Cli.MEMORY_EMBEDDINGS);
-      codeEmbeddingSettings = codeEmbed.toSettings(hasMatchedOption(Const.Cli.CODE_EMBEDDINGS));
-      memoryEmbeddingSettings =
-          memoryEmbed.toSettings(memoryEmbeddingsRequested, memoryEmbeddingsRequested);
+      return new SelectedEmbeddingSettings(
+          codeEmbed.toSettings(hasMatchedOption(Const.Cli.CODE_EMBEDDINGS)),
+          memoryEmbed.toSettings(memoryEmbeddingsRequested, memoryEmbeddingsRequested));
     } catch (IllegalArgumentException e) {
       log.error(e.getMessage());
-      return 1;
+      return null;
     }
-    if (sourceRoot == null) {
-      log.error("--source is required");
-      return 1;
-    }
-    if (!Files.isDirectory(sourceRoot)) {
-      log.error("--source must be an existing directory: {}", sourceRoot);
-      return 1;
-    }
-    if (boltUrl == null || boltUrl.isBlank()) {
-      log.error("--bolt is required");
-      return 1;
-    }
-    if (project == null || project.isBlank()) {
-      log.error("--project is required");
-      return 1;
-    }
+  }
+
+  private Integer ingest(
+      SelectedRuntimeModes runtimeModes, SelectedEmbeddingSettings embeddingSettings) {
     log.debug("Using next classpath entries: {}", classpath);
     try (Driver driver = MemgraphDriver.open(boltUrl, user, pass)) {
       driver.verifyConnectivity();
@@ -272,14 +298,14 @@ public final class IngesterCli implements Callable<Integer> {
                   jsRuntime.resolvedCache(),
                   jsRuntime.nodeVersion,
                   jsRuntime.typescriptVersion,
-                  selectedJsRuntimeMode),
+                  runtimeModes.js()),
               new PythonRuntimeOptions(
                   pythonRuntime.resolvedCache(),
                   pythonRuntime.version,
                   pythonRuntime.build,
-                  selectedPythonRuntimeMode),
+                  runtimeModes.python()),
               new CtagsRuntimeOptions(
-                  ctagsRuntime.resolvedCache(), ctagsRuntime.version, selectedCtagsRuntimeMode));
+                  ctagsRuntime.resolvedCache(), ctagsRuntime.version, runtimeModes.ctags()));
       log.info(
           "Enabled source language adapters: {}",
           languageAdapters.stream().map(LanguageAdapter::displayName).toList());
@@ -294,10 +320,9 @@ public final class IngesterCli implements Callable<Integer> {
               wipe.codeRag,
               wipe.memoryRag,
               watch,
-              analysisCacheKey(
-                  selectedJsRuntimeMode, selectedPythonRuntimeMode, selectedCtagsRuntimeMode),
-              codeEmbeddingSettings,
-              memoryEmbeddingSettings);
+              analysisCacheKey(runtimeModes.js(), runtimeModes.python(), runtimeModes.ctags()),
+              embeddingSettings.code(),
+              embeddingSettings.memory());
       int failures = orchestrator.run(settings);
       if (failures > 0) {
         log.error("Ingestion finished with {} file failure(s).", failures);
@@ -307,6 +332,10 @@ public final class IngesterCli implements Callable<Integer> {
     log.info("Ingestion complete for project '{}'.", project);
     return 0;
   }
+
+  private record SelectedRuntimeModes(RuntimeMode js, RuntimeMode python, RuntimeMode ctags) {}
+
+  private record SelectedEmbeddingSettings(EmbeddingSettings code, EmbeddingSettings memory) {}
 
   private boolean shouldInstallInstructions() {
     return instructions.initInstructions
