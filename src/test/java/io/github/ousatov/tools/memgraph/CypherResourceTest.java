@@ -166,6 +166,7 @@ class CypherResourceTest {
   }
 
   @Test
+  @SuppressWarnings("java:S5961")
   void codeChunkRefreshResourcesPreserveEmbeddingOnlyWhenTextHashMatches() {
     String upsert = Const.Cypher.CYPHER_UPSERT_CODE_CHUNKS_BATCH;
     String callsByName = Const.Cypher.CYPHER_UPSERT_CALLS_BY_NAME_BATCH;

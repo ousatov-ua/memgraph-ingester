@@ -97,6 +97,7 @@ public final class AppConfig {
     }
   }
 
+  @SuppressWarnings("java:S3776")
   private static void parse(BufferedReader reader, Map<String, String> values) throws IOException {
     ArrayDeque<String> path = new ArrayDeque<>();
     String line;
