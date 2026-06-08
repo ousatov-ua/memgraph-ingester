@@ -175,6 +175,7 @@ class CypherResourceTest {
     String wipeCodeRag = Const.Cypher.CYPHER_WIPE_CODE_RAG_BATCH;
     String modelInfo = Const.Cypher.CYPHER_CODE_EMBEDDING_MODEL_INFO;
     String createIndex = Const.Cypher.CYPHER_CREATE_CODE_CHUNK_VECTOR_INDEX;
+    String tagCodeVectorLabel = Const.Cypher.CYPHER_TAG_CODE_CHUNK_VECTOR_INDEX_LABEL;
     String showIndex = Const.Cypher.CYPHER_SHOW_VECTOR_INDEX_INFO;
     String countChunks = Const.Cypher.CYPHER_COUNT_CODE_CHUNKS;
     String countDirtyEmbeddings = Const.Cypher.CYPHER_COUNT_DIRTY_CODE_CHUNK_EMBEDDINGS;
@@ -185,6 +186,7 @@ class CypherResourceTest {
     String updateEmbeddingMetadata = Const.Cypher.CYPHER_UPDATE_CODE_CHUNK_EMBEDDING_METADATA;
     String failureDetail = Const.Cypher.CYPHER_GET_CODE_CHUNK_EMBEDDING_FAILURE_DETAIL;
     String createMemoryIndex = Const.Cypher.CYPHER_CREATE_MEMORY_CHUNK_VECTOR_INDEX;
+    String tagMemoryVectorLabel = Const.Cypher.CYPHER_TAG_MEMORY_CHUNK_VECTOR_INDEX_LABEL;
     String countMemoryChunks = Const.Cypher.CYPHER_COUNT_MEMORY_CHUNKS;
     String listMemorySources = Const.Cypher.CYPHER_LIST_MEMORY_CHUNK_SOURCES;
     String deleteStaleMemoryChunks = Const.Cypher.CYPHER_DELETE_STALE_MEMORY_CHUNKS;
@@ -221,8 +223,17 @@ class CypherResourceTest {
         callsByName,
         "UNWIND $rows AS row",
         "row.caller AS callerSignature",
+        "[:EXTENDS*1..]",
+        "WHERE size(directCandidates) = 0",
+        "WHERE size(directCandidates) = 0 AND size(classCandidates) = 0",
         "MERGE (caller)-[call:CALLS]->(callee)",
         "SET call.count = coalesce(call.count, 0) + callCount");
+    assertFalse(callsByName.contains("[:EXTENDS*1..16]"));
+    assertFalse(callsByName.contains("[:EXTENDS*0..16]"));
+    assertFalse(Const.Cypher.CYPHER_RESOLVE_PENDING_CALLS.contains("[:EXTENDS*1..16]"));
+    assertFalse(Const.Cypher.CYPHER_RESOLVE_PENDING_CALLS.contains("[:EXTENDS*0..16]"));
+    assertFalse(Const.Cypher.CYPHER_RESOLVE_PENDING_CALLS_SCOPED.contains("[:EXTENDS*1..16]"));
+    assertFalse(Const.Cypher.CYPHER_RESOLVE_PENDING_CALLS_SCOPED.contains("[:EXTENDS*0..16]"));
 
     assertTrue(Const.Cypher.CYPHER_DELETE_CODE_CHUNKS_FOR_FILE.contains("chunk:CodeChunk"));
     assertContainsAll(
@@ -236,21 +247,27 @@ class CypherResourceTest {
         "DETACH DELETE chunk",
         "RETURN count(chunk) AS deleted");
     assertTrue(modelInfo.contains("CALL embeddings.model_info($config)"));
-    assertTrue(createIndex.contains("CREATE VECTOR INDEX __INDEX_NAME__"));
+    assertContainsAll(
+        createIndex, "CREATE VECTOR INDEX __INDEX_NAME__", "ON :__VECTOR_INDEX_LABEL__");
+    assertContainsAll(
+        tagCodeVectorLabel,
+        "MATCH (chunk:CodeChunk {project: $project})",
+        "SET chunk:__VECTOR_INDEX_LABEL__",
+        "RETURN count(chunk) AS count");
     assertTrue(showIndex.contains("SHOW VECTOR INDEX INFO"));
     assertTrue(countChunks.contains("RETURN count(chunk) AS count"));
-    assertFalse(countChunks.contains("{project: $project}"));
+    assertTrue(countChunks.contains("{project: $project}"));
     assertContainsAll(countDirtyEmbeddings, "embeddingDirty: true", "RETURN count(chunk) AS count");
     assertContainsAll(
         clearObsoleteEmbeddings,
-        "MATCH (chunk:CodeChunk)",
+        "MATCH (chunk:CodeChunk {project: $project})",
         "REMOVE chunk.embedding",
         "chunk.embeddingModel <> $modelName",
         "chunk.embeddingDimensions <> $dimension");
-    assertFalse(clearObsoleteEmbeddings.contains("{project: $project}"));
     assertContainsAll(
-        countObsoleteEmbeddings, "MATCH (chunk:CodeChunk)", "RETURN count(chunk) AS count");
-    assertFalse(countObsoleteEmbeddings.contains("{project: $project}"));
+        countObsoleteEmbeddings,
+        "MATCH (chunk:CodeChunk {project: $project})",
+        "RETURN count(chunk) AS count");
     assertContainsAll(
         markStaleEmbeddings,
         "RETURN count(chunk) AS count",
@@ -267,9 +284,15 @@ class CypherResourceTest {
         "SET chunk.embeddingModel = $modelName",
         "chunk.embeddingDirty = false");
     assertTrue(failureDetail.contains("substring(chunk.text, 0, 240) AS preview"));
-    assertContainsAll(createMemoryIndex, "CREATE VECTOR INDEX __INDEX_NAME__", "ON :MemoryChunk");
+    assertContainsAll(
+        createMemoryIndex, "CREATE VECTOR INDEX __INDEX_NAME__", "ON :__VECTOR_INDEX_LABEL__");
+    assertContainsAll(
+        tagMemoryVectorLabel,
+        "MATCH (chunk:MemoryChunk {project: $project})",
+        "SET chunk:__VECTOR_INDEX_LABEL__",
+        "RETURN count(chunk) AS count");
     assertTrue(countMemoryChunks.contains("MATCH (chunk:MemoryChunk"));
-    assertFalse(countMemoryChunks.contains("{project: $project}"));
+    assertTrue(countMemoryChunks.contains("{project: $project}"));
     assertContainsAll(listMemorySources, "MATCH (root:Memory", "HAS_RAG_CHUNK");
     assertFalse(listMemorySources.contains("ORDER BY sourceLabel, sourceId"));
     assertContainsAll(
@@ -292,12 +315,11 @@ class CypherResourceTest {
         "MERGE (source)-[:HAS_RAG_CHUNK]->(chunk)");
     assertContainsAll(
         clearObsoleteMemoryEmbeddings,
-        "MATCH (chunk:MemoryChunk)",
+        "MATCH (chunk:MemoryChunk {project: $project})",
         "REMOVE chunk.embedding",
         "chunk.embeddingModel <> $modelName");
-    assertFalse(clearObsoleteMemoryEmbeddings.contains("{project: $project}"));
-    assertTrue(countObsoleteMemoryEmbeddings.contains("MATCH (chunk:MemoryChunk)"));
-    assertFalse(countObsoleteMemoryEmbeddings.contains("{project: $project}"));
+    assertTrue(
+        countObsoleteMemoryEmbeddings.contains("MATCH (chunk:MemoryChunk {project: $project})"));
     assertContainsAll(
         markStaleMemoryEmbeddings,
         "chunk.embeddingModel <> $modelName",

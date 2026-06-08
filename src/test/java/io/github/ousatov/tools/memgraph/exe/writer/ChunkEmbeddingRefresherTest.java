@@ -34,6 +34,16 @@ class ChunkEmbeddingRefresherTest {
                 + "YIELD success, dimension"));
   }
 
+  @Test
+  void derivesStableProjectScopedIndexNamesAndLabels() {
+    String indexName = ChunkEmbeddingRefresher.projectVectorIndexName("idx", "My Project!");
+    String label =
+        ChunkEmbeddingRefresher.projectVectorIndexLabel(EmbeddingTarget.CODE, "My Project!");
+
+    assertEquals("idx_p_my_project_cfad424950cd", indexName);
+    assertEquals("CodeChunkEmbedding_p_my_project_cfad424950cd", label);
+  }
+
   private static EmbeddingSettings settingsWithProcedureMemory(int procedureMemoryMb) {
     return new EmbeddingSettings(
         true, "idx", "model", "cos", "f16", 128, 12, "", 0, 0, 0, procedureMemoryMb, 0, true);

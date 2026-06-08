@@ -9,9 +9,14 @@ import io.github.ousatov.tools.memgraph.vo.EmbeddingSettings;
 import io.github.ousatov.tools.memgraph.vo.writer.EmbeddingBatchResult;
 import io.github.ousatov.tools.memgraph.vo.writer.EmbeddingRefreshResult;
 import io.github.ousatov.tools.memgraph.vo.writer.VectorIndexInfo;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HexFormat;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
@@ -39,12 +44,16 @@ final class ChunkEmbeddingRefresher {
   private static final String NODE_SENTENCE_CALL = "CALL embeddings.node_sentence(chunks, $config)";
   private static final int MODEL_INFO_RETRIES = 6;
   private static final long MODEL_INFO_RETRY_DELAY_MS = 10_000;
+  private static final int PROJECT_TOKEN_SLUG_LIMIT = 48;
+  private static final int PROJECT_TOKEN_HASH_LENGTH = 12;
 
   private final CypherExecutor cypher;
+  private final String project;
   private final Map<String, Integer> dimensionCache = new HashMap<>();
 
-  ChunkEmbeddingRefresher(CypherExecutor cypher) {
+  ChunkEmbeddingRefresher(CypherExecutor cypher, String project) {
     this.cypher = cypher;
+    this.project = project;
   }
 
   /**
@@ -60,18 +69,33 @@ final class ChunkEmbeddingRefresher {
     if (!settings.enabled()) {
       return new EmbeddingRefreshResult(0L, 0);
     }
+    String indexName = projectVectorIndexName(settings.indexName(), project);
+    String indexLabel = projectVectorIndexLabel(target, project);
     validateCypherIdentifier(settings.indexName(), target.indexNameParam());
-
-    dropObsoleteVectorIndexes(settings, target);
-    int dimension = embeddingDimension(settings);
-    long clearedObsoleteEmbeddings = clearObsoleteChunkEmbeddings(settings, target, dimension);
-    ensureVectorIndex(settings, target, dimension, clearedObsoleteEmbeddings > 0);
-    if (settings.required()) {
-      verifyEmbeddingReadiness(settings, target, dimension);
-    }
+    validateCypherIdentifier(indexName, "project-scoped " + target.indexNameParam());
+    validateCypherIdentifier(indexLabel, "project-scoped " + target.chunkLabel() + " label");
 
     boolean useDirty = dirtyOnly && target.countDirtyCypher() != null;
-    long markedStale = useDirty ? countDirty(target) : countStale(settings, target, dimension);
+    dropObsoleteVectorIndexes(indexName, indexLabel, target);
+    int dimension = embeddingDimension(settings);
+    long clearedObsoleteEmbeddings = clearObsoleteChunkEmbeddings(settings, target, dimension);
+    tagVectorIndexLabel(target, indexLabel);
+    ensureVectorIndex(
+        settings, target, indexName, indexLabel, dimension, clearedObsoleteEmbeddings > 0);
+    if (settings.required()) {
+      verifyEmbeddingReadiness(settings, target, indexName, indexLabel, dimension);
+    }
+
+    Long dirtyCount = null;
+    if (useDirty) {
+      dirtyCount = countDirty(target);
+      if (dirtyCount == 0 && !settings.required()) {
+        return new EmbeddingRefreshResult(0L, dimension);
+      }
+    }
+
+    long markedStale =
+        useDirty && dirtyCount != null ? dirtyCount : countStale(settings, target, dimension);
     long embedded = refreshMarkedChunks(settings, target, dimension, markedStale);
     if (useDirty && settings.required()) {
       long remainingStale = countStale(settings, target, dimension);
@@ -167,12 +191,17 @@ final class ChunkEmbeddingRefresher {
   }
 
   private void ensureVectorIndex(
-      EmbeddingSettings settings, EmbeddingTarget target, int dim, boolean forceRecreate) {
+      EmbeddingSettings settings,
+      EmbeddingTarget target,
+      String indexName,
+      String indexLabel,
+      int dim,
+      boolean forceRecreate) {
     int capacity = vectorIndexCapacity(settings, countChunks(target));
-    Optional<VectorIndexInfo> existing = vectorIndexInfo(settings.indexName());
+    Optional<VectorIndexInfo> existing = vectorIndexInfo(indexName);
     if (existing.isPresent()) {
       VectorIndexInfo index = existing.get();
-      verifyVectorIndexIdentity(index, settings.indexName(), target);
+      verifyVectorIndexIdentity(index, indexName, indexLabel, target);
       boolean needsRecreate =
           forceRecreate
               || index.dimension() != dim
@@ -182,19 +211,21 @@ final class ChunkEmbeddingRefresher {
               || index.capacity() < capacity;
       if (needsRecreate) {
         recreateVectorIndex(
-            settings.indexName(),
-            buildCreateIndexCypher(settings, target),
+            indexName,
+            buildCreateIndexCypher(target, indexName, indexLabel),
             settings,
             dim,
             capacity);
       }
     } else {
-      createVectorIndex(buildCreateIndexCypher(settings, target), settings, dim, capacity);
+      createVectorIndex(
+          buildCreateIndexCypher(target, indexName, indexLabel), settings, dim, capacity);
     }
   }
 
-  private void dropObsoleteVectorIndexes(EmbeddingSettings settings, EmbeddingTarget target) {
-    List<String> toDropNames = obsoleteVectorIndexNames(settings, target);
+  private void dropObsoleteVectorIndexes(
+      String indexName, String indexLabel, EmbeddingTarget target) {
+    List<String> toDropNames = obsoleteVectorIndexNames(indexName, indexLabel, target);
     for (String name : toDropNames) {
       validateCypherIdentifier(name, "obsolete index name");
       log.info("Dropping obsolete vector index '{}'", name);
@@ -203,7 +234,7 @@ final class ChunkEmbeddingRefresher {
   }
 
   private List<String> obsoleteVectorIndexNames(
-      EmbeddingSettings settings, EmbeddingTarget target) {
+      String indexName, String indexLabel, EmbeddingTarget target) {
     return cypher.read(
         Cypher.CYPHER_SHOW_VECTOR_INDEX_INFO,
         Map.of(),
@@ -214,8 +245,9 @@ final class ChunkEmbeddingRefresher {
             String name = row.get("index_name").asString(Const.Symbols.EMPTY);
             String label = row.get(Params.LABEL).asString(Const.Symbols.EMPTY);
             String property = row.get(Params.PROPERTY).asString(Const.Symbols.EMPTY);
-            if (!name.equals(settings.indexName())
-                && target.chunkLabel().equals(label)
+            boolean sameTarget = target.chunkLabel().equals(label) || indexLabel.equals(label);
+            if (!name.equals(indexName)
+                && sameTarget
                 && EmbeddingSettings.DEFAULT_EMBEDDING_PROPERTY.equals(property)) {
               obsolete.add(name);
             }
@@ -233,16 +265,28 @@ final class ChunkEmbeddingRefresher {
             result -> result.single().get(Params.COUNT).asLong());
     if (cleared > 0) {
       log.info(
-          "Cleared {} obsolete {} embedding value(s) across all projects",
+          "Cleared {} obsolete {} embedding value(s) for project '{}'",
           cleared,
-          target.chunkLabel());
+          target.chunkLabel(),
+          project);
     }
     return cleared;
   }
 
+  private long tagVectorIndexLabel(EmbeddingTarget target, String indexLabel) {
+    return cypher.read(
+        buildTagVectorIndexLabelCypher(target, indexLabel),
+        Map.of(),
+        result -> result.single().get(Params.COUNT).asLong());
+  }
+
   private void verifyEmbeddingReadiness(
-      EmbeddingSettings settings, EmbeddingTarget target, int dimension) {
-    List<String> obsoleteIndexes = obsoleteVectorIndexNames(settings, target);
+      EmbeddingSettings settings,
+      EmbeddingTarget target,
+      String indexName,
+      String indexLabel,
+      int dimension) {
+    List<String> obsoleteIndexes = obsoleteVectorIndexNames(indexName, indexLabel, target);
     if (!obsoleteIndexes.isEmpty()) {
       throw new ProcessingException(
           "Obsolete "
@@ -251,17 +295,17 @@ final class ChunkEmbeddingRefresher {
               + obsoleteIndexes);
     }
     VectorIndexInfo index =
-        vectorIndexInfo(settings.indexName())
+        vectorIndexInfo(indexName)
             .orElseThrow(
                 () ->
                     new ProcessingException(
                         "Required vector index '"
-                            + settings.indexName()
+                            + indexName
                             + "' was not created for "
                             + target.chunkLabel()
                             + " embeddings"));
-    verifyVectorIndexIdentity(index, settings.indexName(), target);
-    verifyVectorIndexConfiguration(settings, dimension, index, target);
+    verifyVectorIndexIdentity(index, indexName, indexLabel, target);
+    verifyVectorIndexConfiguration(settings, dimension, index, indexName, target);
 
     long obsoleteEmbeddings = countObsoleteChunkEmbeddings(settings, target, dimension);
     if (obsoleteEmbeddings > 0) {
@@ -405,7 +449,7 @@ final class ChunkEmbeddingRefresher {
               + target.chunkLabel()
               + " id was returned");
     }
-    String id = ids.get(0);
+    String id = ids.getFirst();
     String detail =
         cypher.read(
             target.failureDetailCypher(),
@@ -434,14 +478,22 @@ final class ChunkEmbeddingRefresher {
             + detail);
   }
 
-  private String buildCreateIndexCypher(EmbeddingSettings settings, EmbeddingTarget target) {
+  private String buildCreateIndexCypher(
+      EmbeddingTarget target, String indexName, String indexLabel) {
     validateCypherIdentifier(
         EmbeddingSettings.DEFAULT_EMBEDDING_PROPERTY, "embedding property name");
     return target
         .createVectorIndexTemplate()
-        .replace(Params.INDEX_NAME_PLACEHOLDER, settings.indexName())
+        .replace(Params.INDEX_NAME_PLACEHOLDER, indexName)
+        .replace(Params.VECTOR_INDEX_LABEL_PLACEHOLDER, indexLabel)
         .replace(
             Params.EMBEDDING_PROPERTY_PLACEHOLDER, EmbeddingSettings.DEFAULT_EMBEDDING_PROPERTY);
+  }
+
+  private String buildTagVectorIndexLabelCypher(EmbeddingTarget target, String indexLabel) {
+    return target
+        .tagVectorIndexLabelTemplate()
+        .replace(Params.VECTOR_INDEX_LABEL_PLACEHOLDER, indexLabel);
   }
 
   private Optional<VectorIndexInfo> vectorIndexInfo(String indexName) {
@@ -467,8 +519,8 @@ final class ChunkEmbeddingRefresher {
   }
 
   private static void verifyVectorIndexIdentity(
-      VectorIndexInfo index, String indexName, EmbeddingTarget target) {
-    if (!target.chunkLabel().equals(index.label())
+      VectorIndexInfo index, String indexName, String indexLabel, EmbeddingTarget target) {
+    if (!indexLabel.equals(index.label())
         || !EmbeddingSettings.DEFAULT_EMBEDDING_PROPERTY.equals(index.property())) {
       throw new ProcessingException(
           "Vector index '"
@@ -479,8 +531,8 @@ final class ChunkEmbeddingRefresher {
               + index.property()
               + "' — cannot reuse it for "
               + target.chunkLabel()
-              + " embeddings (expected label '"
-              + target.chunkLabel()
+              + " embeddings (expected project label '"
+              + indexLabel
               + "' / property '"
               + EmbeddingSettings.DEFAULT_EMBEDDING_PROPERTY
               + "')");
@@ -488,13 +540,17 @@ final class ChunkEmbeddingRefresher {
   }
 
   private static void verifyVectorIndexConfiguration(
-      EmbeddingSettings settings, int dimension, VectorIndexInfo index, EmbeddingTarget target) {
+      EmbeddingSettings settings,
+      int dimension,
+      VectorIndexInfo index,
+      String indexName,
+      EmbeddingTarget target) {
     if (dimension != index.dimension()
         || !settings.metric().equals(index.metric())
         || (!index.scalarKind().isBlank() && !settings.scalarKind().equals(index.scalarKind()))) {
       throw new ProcessingException(
           "Vector index '"
-              + settings.indexName()
+              + indexName
               + "' exists but does not match required "
               + target.chunkLabel()
               + " embedding config");
@@ -513,6 +569,61 @@ final class ChunkEmbeddingRefresher {
     config.put(Rag.BATCH_SIZE, batchSize);
     config.put(Rag.CHUNK_SIZE, Math.min(settings.chunkSize(), batchSize));
     return config;
+  }
+
+  static String projectVectorIndexName(String baseIndexName, String project) {
+    validateCypherIdentifier(baseIndexName, "base vector index name");
+    return baseIndexName + "_" + projectToken(project);
+  }
+
+  static String projectVectorIndexLabel(EmbeddingTarget target, String project) {
+    return target.chunkLabel() + "Embedding_" + projectToken(project);
+  }
+
+  private static String projectToken(String project) {
+    String normalized = project == null ? Const.Symbols.EMPTY : project.strip();
+    if (normalized.isBlank()) {
+      throw new IllegalArgumentException("project must not be blank");
+    }
+    return "p_" + projectSlug(normalized) + "_" + projectHash(normalized);
+  }
+
+  private static String projectSlug(String project) {
+    StringBuilder slug = new StringBuilder();
+    boolean pendingUnderscore = false;
+    for (int i = 0; i < project.length(); i++) {
+      char ch = project.charAt(i);
+      if (isAsciiAlphaNumeric(ch)) {
+        if (pendingUnderscore) {
+          slug.append('_');
+        }
+        slug.append(Character.toLowerCase(ch));
+        pendingUnderscore = false;
+      } else if (!slug.isEmpty()) {
+        pendingUnderscore = true;
+      }
+      if (slug.length() >= PROJECT_TOKEN_SLUG_LIMIT) {
+        break;
+      }
+    }
+    if (slug.isEmpty()) {
+      return "project";
+    }
+    return slug.toString().toLowerCase(Locale.ROOT);
+  }
+
+  private static boolean isAsciiAlphaNumeric(char ch) {
+    return (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9');
+  }
+
+  private static String projectHash(String project) {
+    try {
+      byte[] digest =
+          MessageDigest.getInstance("SHA-256").digest(project.getBytes(StandardCharsets.UTF_8));
+      return HexFormat.of().formatHex(digest).substring(0, PROJECT_TOKEN_HASH_LENGTH);
+    } catch (NoSuchAlgorithmException e) {
+      throw new IllegalStateException("SHA-256 digest is unavailable", e);
+    }
   }
 
   static void validateCypherIdentifier(String value, String name) {

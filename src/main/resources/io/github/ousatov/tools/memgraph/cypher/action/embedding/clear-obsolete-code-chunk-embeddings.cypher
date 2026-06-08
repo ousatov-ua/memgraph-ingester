@@ -1,4 +1,4 @@
-MATCH (chunk:CodeChunk)
+MATCH (chunk:CodeChunk {project: $project})
 WHERE (chunk.embedding IS NOT NULL
     AND (chunk.embeddingModel IS NULL
       OR chunk.embeddingModel <> $modelName

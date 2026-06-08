@@ -94,7 +94,7 @@ public final class GraphWriter {
     this.nodes = new GraphNodeWriter(cypher);
     CallEdgeWriter callEdges = new CallEdgeWriter(nodes);
     this.dependencies = new CommonGraphWriter.Dependencies(cypher, callEdges, nodes);
-    this.embeddingRefresher = new ChunkEmbeddingRefresher(cypher);
+    this.embeddingRefresher = new ChunkEmbeddingRefresher(cypher, project);
     this.stats = stats;
     this.analysisCacheKey = analysisCacheKey == null ? Const.Symbols.EMPTY : analysisCacheKey;
   }

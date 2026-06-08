@@ -47,6 +47,8 @@ public final class Const {
         action("embedding/code-embedding-model-info.cypher");
     public static final String CYPHER_CREATE_CODE_CHUNK_VECTOR_INDEX =
         action("embedding/create-code-chunk-vector-index.cypher");
+    public static final String CYPHER_TAG_CODE_CHUNK_VECTOR_INDEX_LABEL =
+        action("embedding/tag-code-chunk-vector-index-label.cypher");
     public static final String CYPHER_SHOW_VECTOR_INDEX_INFO =
         action("embedding/show-vector-index-info.cypher");
     public static final String CYPHER_COUNT_CODE_CHUNKS =
@@ -67,6 +69,8 @@ public final class Const {
         action("embedding/get-code-chunk-embedding-failure-detail.cypher");
     public static final String CYPHER_CREATE_MEMORY_CHUNK_VECTOR_INDEX =
         action("embedding/create-memory-chunk-vector-index.cypher");
+    public static final String CYPHER_TAG_MEMORY_CHUNK_VECTOR_INDEX_LABEL =
+        action("embedding/tag-memory-chunk-vector-index-label.cypher");
     public static final String CYPHER_COUNT_MEMORY_CHUNKS =
         action("embedding/count-memory-chunks.cypher");
     public static final String CYPHER_LIST_MEMORY_CHUNK_SOURCES =
@@ -590,6 +594,7 @@ public final class Const {
     public static final String MEMORY_EMBEDDING_INDEX_NAME = "memory embedding index name";
     public static final String INDEX_NAME_PLACEHOLDER = "__INDEX_NAME__";
     public static final String EMBEDDING_PROPERTY_PLACEHOLDER = "__EMBEDDING_PROPERTY__";
+    public static final String VECTOR_INDEX_LABEL_PLACEHOLDER = "__VECTOR_INDEX_LABEL__";
     public static final String RECORD = "record";
     public static final String START = "start";
     public static final String END = "end";
