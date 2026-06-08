@@ -241,8 +241,21 @@ public class CommonGraphWriter {
     nodes.upsertPendingCallsByName(calls);
   }
 
+  protected void upsertCallsByName(Collection<PendingCallWrite> calls) {
+    nodes.upsertCallsByName(calls);
+  }
+
   protected void upsertCallEdge(String callerSignature, String ownerFqn, Node bodyNode) {
     callEdges.upsert(callerSignature, ownerFqn, bodyNode);
+  }
+
+  protected void collectCallEdges(
+      List<CallWrite> resolvedCalls,
+      List<PendingCallWrite> pendingCalls,
+      String callerSignature,
+      String ownerFqn,
+      Node bodyNode) {
+    callEdges.collect(resolvedCalls, pendingCalls, callerSignature, ownerFqn, bodyNode);
   }
 
   private static String classKind(boolean isEnum, boolean isRecord) {

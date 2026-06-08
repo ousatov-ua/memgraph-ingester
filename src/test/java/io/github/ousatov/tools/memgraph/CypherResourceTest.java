@@ -221,6 +221,9 @@ class CypherResourceTest {
         callsByName,
         "UNWIND $rows AS row",
         "row.caller AS callerSignature",
+        "[:EXTENDS*1..16]",
+        "WHERE size(directCandidates) = 0",
+        "WHERE size(directCandidates) = 0 AND size(classCandidates) = 0",
         "MERGE (caller)-[call:CALLS]->(callee)",
         "SET call.count = coalesce(call.count, 0) + callCount");
 
@@ -243,14 +246,14 @@ class CypherResourceTest {
     assertContainsAll(countDirtyEmbeddings, "embeddingDirty: true", "RETURN count(chunk) AS count");
     assertContainsAll(
         clearObsoleteEmbeddings,
-        "MATCH (chunk:CodeChunk)",
+        "MATCH (chunk:CodeChunk {project: $project})",
         "REMOVE chunk.embedding",
         "chunk.embeddingModel <> $modelName",
         "chunk.embeddingDimensions <> $dimension");
-    assertFalse(clearObsoleteEmbeddings.contains("{project: $project}"));
     assertContainsAll(
-        countObsoleteEmbeddings, "MATCH (chunk:CodeChunk)", "RETURN count(chunk) AS count");
-    assertFalse(countObsoleteEmbeddings.contains("{project: $project}"));
+        countObsoleteEmbeddings,
+        "MATCH (chunk:CodeChunk {project: $project})",
+        "RETURN count(chunk) AS count");
     assertContainsAll(
         markStaleEmbeddings,
         "RETURN count(chunk) AS count",
@@ -292,12 +295,11 @@ class CypherResourceTest {
         "MERGE (source)-[:HAS_RAG_CHUNK]->(chunk)");
     assertContainsAll(
         clearObsoleteMemoryEmbeddings,
-        "MATCH (chunk:MemoryChunk)",
+        "MATCH (chunk:MemoryChunk {project: $project})",
         "REMOVE chunk.embedding",
         "chunk.embeddingModel <> $modelName");
-    assertFalse(clearObsoleteMemoryEmbeddings.contains("{project: $project}"));
-    assertTrue(countObsoleteMemoryEmbeddings.contains("MATCH (chunk:MemoryChunk)"));
-    assertFalse(countObsoleteMemoryEmbeddings.contains("{project: $project}"));
+    assertTrue(
+        countObsoleteMemoryEmbeddings.contains("MATCH (chunk:MemoryChunk {project: $project})"));
     assertContainsAll(
         markStaleMemoryEmbeddings,
         "chunk.embeddingModel <> $modelName",

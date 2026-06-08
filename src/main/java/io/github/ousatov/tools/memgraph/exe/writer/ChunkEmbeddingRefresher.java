@@ -62,6 +62,15 @@ final class ChunkEmbeddingRefresher {
     }
     validateCypherIdentifier(settings.indexName(), target.indexNameParam());
 
+    boolean useDirty = dirtyOnly && target.countDirtyCypher() != null;
+    Long dirtyCount = null;
+    if (useDirty) {
+      dirtyCount = countDirty(target);
+      if (dirtyCount == 0 && !settings.required()) {
+        return new EmbeddingRefreshResult(0L, 0);
+      }
+    }
+
     dropObsoleteVectorIndexes(settings, target);
     int dimension = embeddingDimension(settings);
     long clearedObsoleteEmbeddings = clearObsoleteChunkEmbeddings(settings, target, dimension);
@@ -70,8 +79,8 @@ final class ChunkEmbeddingRefresher {
       verifyEmbeddingReadiness(settings, target, dimension);
     }
 
-    boolean useDirty = dirtyOnly && target.countDirtyCypher() != null;
-    long markedStale = useDirty ? countDirty(target) : countStale(settings, target, dimension);
+    long markedStale =
+        useDirty && dirtyCount != null ? dirtyCount : countStale(settings, target, dimension);
     long embedded = refreshMarkedChunks(settings, target, dimension, markedStale);
     if (useDirty && settings.required()) {
       long remainingStale = countStale(settings, target, dimension);

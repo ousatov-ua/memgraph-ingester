@@ -20,9 +20,11 @@ import io.github.ousatov.tools.memgraph.exe.writer.CommonGraphWriter;
 import io.github.ousatov.tools.memgraph.vo.Method;
 import io.github.ousatov.tools.memgraph.vo.writer.AnnotationNodeWrite;
 import io.github.ousatov.tools.memgraph.vo.writer.AnnotationWrite;
+import io.github.ousatov.tools.memgraph.vo.writer.CallWrite;
 import io.github.ousatov.tools.memgraph.vo.writer.ClassWrite;
 import io.github.ousatov.tools.memgraph.vo.writer.FieldWrite;
 import io.github.ousatov.tools.memgraph.vo.writer.InterfaceWrite;
+import io.github.ousatov.tools.memgraph.vo.writer.PendingCallWrite;
 import io.github.ousatov.tools.memgraph.vo.writer.TypeRelationWrite;
 import io.github.ousatov.tools.memgraph.vo.writer.TypeStructureWrites;
 import java.nio.file.Path;
@@ -51,7 +53,9 @@ public final class JavaGraphWriter extends CommonGraphWriter {
     TypeStructureWrites writes = new TypeStructureWrites();
     collectTypeStructure(file, pkg, null, decl, writes);
     upsertTypeStructure(writes);
-    upsertTypeMembers(file, pkg, null, decl);
+    JavaMemberWrites memberWrites = new JavaMemberWrites();
+    collectTypeMembers(pkg, null, decl, memberWrites);
+    upsertJavaMembers(file, memberWrites);
   }
 
   /**
@@ -81,11 +85,9 @@ public final class JavaGraphWriter extends CommonGraphWriter {
     collectImplementedTypes(fqn, decl, writes);
     collectNestedTypeStructure(file, pkg, fqn, decl.getMembers(), writes);
     upsertTypeStructure(writes);
-    upsertAnnotationsByFqn(fqn, decl);
-    decl.getEntries().forEach(entry -> upsertEnumConstant(file, fqn, entry));
-    decl.getFields().forEach(f -> upsertField(file, fqn, f));
-    upsertDeclaredMethods(file, fqn, decl.getMethods(), decl.getConstructors());
-    upsertNestedTypeMembers(file, pkg, fqn, decl.getMembers());
+    JavaMemberWrites memberWrites = new JavaMemberWrites();
+    collectEnumMembers(pkg, fqn, decl, memberWrites);
+    upsertJavaMembers(file, memberWrites);
   }
 
   /**
@@ -115,13 +117,9 @@ public final class JavaGraphWriter extends CommonGraphWriter {
     collectImplementedTypes(fqn, decl, writes);
     collectNestedTypeStructure(file, pkg, fqn, decl.getMembers(), writes);
     upsertTypeStructure(writes);
-    upsertAnnotationsByFqn(fqn, decl);
-    decl.getFields().forEach(f -> upsertField(file, fqn, f));
-    upsertRecordComponents(file, fqn, decl);
-    upsertDeclaredMethods(file, fqn, decl.getMethods(), decl.getConstructors());
-    upsertRecordCanonicalConstructor(file, fqn, decl);
-    upsertRecordAccessors(file, fqn, decl);
-    upsertNestedTypeMembers(file, pkg, fqn, decl.getMembers());
+    JavaMemberWrites memberWrites = new JavaMemberWrites();
+    collectRecordMembers(pkg, fqn, decl, memberWrites);
+    upsertJavaMembers(file, memberWrites);
   }
 
   /**
@@ -142,7 +140,7 @@ public final class JavaGraphWriter extends CommonGraphWriter {
                 Params.ANNOTATION,
                 Const.Symbols.EMPTY,
                 Const.Symbols.EMPTY)));
-    upsertAnnotationsByFqn(fqn, decl);
+    upsertAnnotationReferencesByFqn(annotationWrites(fqn, decl));
   }
 
   /**
@@ -151,7 +149,11 @@ public final class JavaGraphWriter extends CommonGraphWriter {
    * every callee node already exists.
    */
   public void upsertTypeCallEdges(String pkg, ClassOrInterfaceDeclaration decl) {
-    upsertTypeCallEdgesInternal(pkg, null, decl);
+    List<CallWrite> resolvedCalls = new ArrayList<>();
+    List<PendingCallWrite> nameCalls = new ArrayList<>();
+    collectTypeCallEdgesInternal(pkg, null, decl, resolvedCalls, nameCalls);
+    upsertCalls(resolvedCalls);
+    upsertCallsByName(nameCalls);
   }
 
   /**
@@ -160,7 +162,18 @@ public final class JavaGraphWriter extends CommonGraphWriter {
    */
   public void upsertEnumCallEdges(String pkg, EnumDeclaration decl) {
     String fqn = JavaTypeNames.buildFqn(pkg, decl.getNameAsString());
-    upsertCallEdgesForDecl(pkg, fqn, decl.getMethods(), decl.getConstructors(), decl.getMembers());
+    List<CallWrite> resolvedCalls = new ArrayList<>();
+    List<PendingCallWrite> nameCalls = new ArrayList<>();
+    collectCallEdgesForDecl(
+        pkg,
+        fqn,
+        decl.getMethods(),
+        decl.getConstructors(),
+        decl.getMembers(),
+        resolvedCalls,
+        nameCalls);
+    upsertCalls(resolvedCalls);
+    upsertCallsByName(nameCalls);
   }
 
   /**
@@ -169,7 +182,18 @@ public final class JavaGraphWriter extends CommonGraphWriter {
    */
   public void upsertRecordCallEdges(String pkg, RecordDeclaration decl) {
     String fqn = JavaTypeNames.buildFqn(pkg, decl.getNameAsString());
-    upsertCallEdgesForDecl(pkg, fqn, decl.getMethods(), decl.getConstructors(), decl.getMembers());
+    List<CallWrite> resolvedCalls = new ArrayList<>();
+    List<PendingCallWrite> nameCalls = new ArrayList<>();
+    collectCallEdgesForDecl(
+        pkg,
+        fqn,
+        decl.getMethods(),
+        decl.getConstructors(),
+        decl.getMembers(),
+        resolvedCalls,
+        nameCalls);
+    upsertCalls(resolvedCalls);
+    upsertCallsByName(nameCalls);
   }
 
   private static String typeFqn(String pkg, String outerFqn, String simpleName) {
@@ -178,14 +202,30 @@ public final class JavaGraphWriter extends CommonGraphWriter {
         : JavaTypeNames.buildFqn(pkg, simpleName);
   }
 
-  private void upsertTypeCallEdgesInternal(
-      String pkg, String outerFqn, ClassOrInterfaceDeclaration decl) {
+  private void collectTypeCallEdgesInternal(
+      String pkg,
+      String outerFqn,
+      ClassOrInterfaceDeclaration decl,
+      List<CallWrite> resolvedCalls,
+      List<PendingCallWrite> nameCalls) {
     String fqn = typeFqn(pkg, outerFqn, decl.getNameAsString());
-    decl.getMethods().forEach(m -> upsertCallEdge(JavaTypeNames.buildSignature(fqn, m), fqn, m));
+    decl.getMethods()
+        .forEach(
+            m ->
+                collectCallEdges(
+                    resolvedCalls, nameCalls, JavaTypeNames.buildSignature(fqn, m), fqn, m));
     decl.getConstructors()
-        .forEach(c -> upsertCallEdge(JavaTypeNames.buildConstructorSignature(fqn, c), fqn, c));
+        .forEach(
+            c ->
+                collectCallEdges(
+                    resolvedCalls,
+                    nameCalls,
+                    JavaTypeNames.buildConstructorSignature(fqn, c),
+                    fqn,
+                    c));
     nestedClassDeclarationsOf(decl.getMembers())
-        .forEach(nested -> upsertTypeCallEdgesInternal(pkg, fqn, nested));
+        .forEach(
+            nested -> collectTypeCallEdgesInternal(pkg, fqn, nested, resolvedCalls, nameCalls));
   }
 
   private void collectTypeStructure(
@@ -234,16 +274,16 @@ public final class JavaGraphWriter extends CommonGraphWriter {
     collectNestedTypeStructure(file, pkg, fqn, decl.getMembers(), writes);
   }
 
-  private void upsertTypeMembers(
-      Path file, String pkg, String outerFqn, ClassOrInterfaceDeclaration decl) {
+  private void collectTypeMembers(
+      String pkg, String outerFqn, ClassOrInterfaceDeclaration decl, JavaMemberWrites writes) {
     String fqn = typeFqn(pkg, outerFqn, decl.getNameAsString());
-    upsertAnnotationsByFqn(fqn, decl);
-    decl.getFields().forEach(f -> upsertField(file, fqn, f));
-    upsertDeclaredMethods(file, fqn, decl.getMethods(), decl.getConstructors());
+    writes.fqnAnnotations().addAll(annotationWrites(fqn, decl));
+    decl.getFields().forEach(f -> collectField(fqn, f, writes));
+    collectDeclaredMethods(fqn, decl.getMethods(), decl.getConstructors(), writes);
     if (!decl.isInterface() && decl.getConstructors().isEmpty()) {
-      upsertImplicitDefaultConstructor(file, fqn, decl);
+      collectImplicitDefaultConstructor(fqn, decl, writes);
     }
-    upsertNestedTypeMembers(file, pkg, fqn, decl.getMembers());
+    collectNestedTypeMembers(pkg, fqn, decl.getMembers(), writes);
   }
 
   private void collectNestedTypeStructure(
@@ -252,9 +292,10 @@ public final class JavaGraphWriter extends CommonGraphWriter {
         .forEach(nested -> collectTypeStructure(file, pkg, outerFqn, nested, writes));
   }
 
-  private void upsertNestedTypeMembers(Path file, String pkg, String outerFqn, List<?> members) {
+  private void collectNestedTypeMembers(
+      String pkg, String outerFqn, List<?> members, JavaMemberWrites writes) {
     nestedClassDeclarationsOf(members)
-        .forEach(nested -> upsertTypeMembers(file, pkg, outerFqn, nested));
+        .forEach(nested -> collectTypeMembers(pkg, outerFqn, nested, writes));
   }
 
   private void upsertTypeStructure(TypeStructureWrites writes) {
@@ -271,17 +312,25 @@ public final class JavaGraphWriter extends CommonGraphWriter {
         .map(ClassOrInterfaceDeclaration.class::cast);
   }
 
-  private void upsertCallEdgesForDecl(
+  private void collectCallEdgesForDecl(
       String pkg,
       String fqn,
       List<MethodDeclaration> methods,
       List<ConstructorDeclaration> constructors,
-      List<?> members) {
-    methods.forEach(m -> upsertCallEdge(JavaTypeNames.buildSignature(fqn, m), fqn, m));
+      List<?> members,
+      List<CallWrite> resolvedCalls,
+      List<PendingCallWrite> nameCalls) {
+    methods.forEach(
+        m ->
+            collectCallEdges(
+                resolvedCalls, nameCalls, JavaTypeNames.buildSignature(fqn, m), fqn, m));
     constructors.forEach(
-        c -> upsertCallEdge(JavaTypeNames.buildConstructorSignature(fqn, c), fqn, c));
+        c ->
+            collectCallEdges(
+                resolvedCalls, nameCalls, JavaTypeNames.buildConstructorSignature(fqn, c), fqn, c));
     nestedClassDeclarationsOf(members)
-        .forEach(nested -> upsertTypeCallEdgesInternal(pkg, fqn, nested));
+        .forEach(
+            nested -> collectTypeCallEdgesInternal(pkg, fqn, nested, resolvedCalls, nameCalls));
   }
 
   private void collectInheritance(
@@ -305,28 +354,47 @@ public final class JavaGraphWriter extends CommonGraphWriter {
         targetFqn -> sink.accept(new TypeRelationWrite(childFqn, targetFqn, JAVA_LANGUAGE)));
   }
 
-  private void upsertRecordComponents(Path file, String ownerFqn, RecordDeclaration decl) {
-    List<FieldWrite> fields = new ArrayList<>();
+  private void collectRecordMembers(
+      String pkg, String fqn, RecordDeclaration decl, JavaMemberWrites writes) {
+    writes.fqnAnnotations().addAll(annotationWrites(fqn, decl));
+    decl.getFields().forEach(f -> collectField(fqn, f, writes));
+    collectRecordComponents(fqn, decl, writes);
+    collectDeclaredMethods(fqn, decl.getMethods(), decl.getConstructors(), writes);
+    collectRecordCanonicalConstructor(fqn, decl, writes);
+    collectRecordAccessors(fqn, decl, writes);
+    collectNestedTypeMembers(pkg, fqn, decl.getMembers(), writes);
+  }
+
+  private void collectEnumMembers(
+      String pkg, String fqn, EnumDeclaration decl, JavaMemberWrites writes) {
+    writes.fqnAnnotations().addAll(annotationWrites(fqn, decl));
+    decl.getEntries().forEach(entry -> collectEnumConstant(fqn, entry, writes));
+    decl.getFields().forEach(f -> collectField(fqn, f, writes));
+    collectDeclaredMethods(fqn, decl.getMethods(), decl.getConstructors(), writes);
+    collectNestedTypeMembers(pkg, fqn, decl.getMembers(), writes);
+  }
+
+  private void collectRecordComponents(
+      String ownerFqn, RecordDeclaration decl, JavaMemberWrites writes) {
     for (Parameter param : decl.getParameters()) {
-      fields.add(
-          new FieldWrite(
-              ownerFqn,
-              ownerFqn + Const.Symbols.HASH + param.getNameAsString(),
-              param.getNameAsString(),
-              JavaTypeNames.resolveType(param.getType()),
-              false,
-              "private",
-              JAVA_LANGUAGE,
-              Const.Params.RECORD_COMPONENT));
-    }
-    upsertFieldNodes(file, fields);
-    for (Parameter param : decl.getParameters()) {
+      writes
+          .fields()
+          .add(
+              new FieldWrite(
+                  ownerFqn,
+                  ownerFqn + Const.Symbols.HASH + param.getNameAsString(),
+                  param.getNameAsString(),
+                  JavaTypeNames.resolveType(param.getType()),
+                  false,
+                  "private",
+                  JAVA_LANGUAGE,
+                  Const.Params.RECORD_COMPONENT));
       String fqn = ownerFqn + Const.Symbols.HASH + param.getNameAsString();
-      upsertAnnotationsByFqn(fqn, param);
+      writes.fqnAnnotations().addAll(annotationWrites(fqn, param));
     }
   }
 
-  private void upsertField(Path file, String ownerFqn, FieldDeclaration field) {
+  private void collectField(String ownerFqn, FieldDeclaration field, JavaMemberWrites writes) {
     List<FieldWrite> fields =
         field.getVariables().stream()
             .map(
@@ -341,14 +409,15 @@ public final class JavaGraphWriter extends CommonGraphWriter {
                         JAVA_LANGUAGE,
                         Params.FIELD))
             .toList();
-    upsertFieldNodes(file, fields);
-    fields.forEach(f -> upsertAnnotationsByFqn(f.fqn(), field));
+    writes.fields().addAll(fields);
+    fields.forEach(f -> writes.fqnAnnotations().addAll(annotationWrites(f.fqn(), field)));
   }
 
-  private void upsertEnumConstant(Path file, String ownerFqn, EnumConstantDeclaration entry) {
-    upsertFieldNodes(
-        file,
-        List.of(
+  private void collectEnumConstant(
+      String ownerFqn, EnumConstantDeclaration entry, JavaMemberWrites writes) {
+    writes
+        .fields()
+        .add(
             new FieldWrite(
                 ownerFqn,
                 ownerFqn + Const.Symbols.HASH + entry.getNameAsString(),
@@ -357,23 +426,28 @@ public final class JavaGraphWriter extends CommonGraphWriter {
                 true,
                 Params.PUBLIC,
                 JAVA_LANGUAGE,
-                Params.ENUM_MEMBER)));
+                Params.ENUM_MEMBER));
   }
 
-  private void upsertDeclaredMethods(
-      Path file,
+  private void collectDeclaredMethods(
       String ownerFqn,
       List<MethodDeclaration> methods,
-      List<ConstructorDeclaration> constructors) {
-    List<Method> writes = new ArrayList<>(methods.size() + constructors.size());
-    methods.forEach(method -> writes.add(methodWrite(ownerFqn, method)));
-    constructors.forEach(ctor -> writes.add(constructorWrite(ownerFqn, ctor)));
-    upsertMethodNodes(file, writes);
+      List<ConstructorDeclaration> constructors,
+      JavaMemberWrites writes) {
+    methods.forEach(method -> writes.methods().add(methodWrite(ownerFqn, method)));
+    constructors.forEach(ctor -> writes.methods().add(constructorWrite(ownerFqn, ctor)));
     methods.forEach(
-        method -> upsertAnnotationsBySig(JavaTypeNames.buildSignature(ownerFqn, method), method));
+        method ->
+            writes
+                .sigAnnotations()
+                .addAll(annotationWrites(JavaTypeNames.buildSignature(ownerFqn, method), method)));
     constructors.forEach(
         ctor ->
-            upsertAnnotationsBySig(JavaTypeNames.buildConstructorSignature(ownerFqn, ctor), ctor));
+            writes
+                .sigAnnotations()
+                .addAll(
+                    annotationWrites(
+                        JavaTypeNames.buildConstructorSignature(ownerFqn, ctor), ctor)));
   }
 
   private static Method methodWrite(String ownerFqn, MethodDeclaration method) {
@@ -402,40 +476,43 @@ public final class JavaGraphWriter extends CommonGraphWriter {
         false);
   }
 
-  private void upsertRecordCanonicalConstructor(Path file, String fqn, RecordDeclaration decl) {
+  private void collectRecordCanonicalConstructor(
+      String fqn, RecordDeclaration decl, JavaMemberWrites writes) {
     if (!JavaTypeNames.hasExplicitCanonicalConstructor(fqn, decl)) {
-      upsertMethodNode(
-          file,
-          new Method(
-              fqn,
-              JavaTypeNames.buildRecordCanonicalConstructorSignature(fqn, decl),
-              Labels.INIT,
-              Labels.VOID,
-              false,
-              decl.getAccessSpecifier().asString(),
-              0,
-              0,
-              true));
+      writes
+          .methods()
+          .add(
+              new Method(
+                  fqn,
+                  JavaTypeNames.buildRecordCanonicalConstructorSignature(fqn, decl),
+                  Labels.INIT,
+                  Labels.VOID,
+                  false,
+                  decl.getAccessSpecifier().asString(),
+                  0,
+                  0,
+                  true));
     }
   }
 
-  private void upsertImplicitDefaultConstructor(
-      Path file, String fqn, ClassOrInterfaceDeclaration decl) {
-    upsertMethodNode(
-        file,
-        new Method(
-            fqn,
-            fqn + Const.Symbols.DOT + Labels.INIT + Const.Symbols.PARENS,
-            Labels.INIT,
-            Labels.VOID,
-            false,
-            decl.getAccessSpecifier().asString(),
-            0,
-            0,
-            true));
+  private void collectImplicitDefaultConstructor(
+      String fqn, ClassOrInterfaceDeclaration decl, JavaMemberWrites writes) {
+    writes
+        .methods()
+        .add(
+            new Method(
+                fqn,
+                fqn + Const.Symbols.DOT + Labels.INIT + Const.Symbols.PARENS,
+                Labels.INIT,
+                Labels.VOID,
+                false,
+                decl.getAccessSpecifier().asString(),
+                0,
+                0,
+                true));
   }
 
-  private void upsertRecordAccessors(Path file, String fqn, RecordDeclaration decl) {
+  private void collectRecordAccessors(String fqn, RecordDeclaration decl, JavaMemberWrites writes) {
     var explicitMethods =
         decl.getMethods().stream()
             .filter(m -> m.getParameters().isEmpty())
@@ -446,53 +523,71 @@ public final class JavaGraphWriter extends CommonGraphWriter {
       String accessorName = param.getNameAsString();
       if (!explicitMethods.contains(accessorName)) {
         String sig = fqn + Const.Symbols.DOT + accessorName + Const.Symbols.PARENS;
-        upsertMethodNode(
-            file,
-            new Method(
-                fqn,
-                sig,
-                accessorName,
-                JavaTypeNames.resolveType(param.getType()),
-                false,
-                Params.PUBLIC,
-                0,
-                0,
-                true));
+        writes
+            .methods()
+            .add(
+                new Method(
+                    fqn,
+                    sig,
+                    accessorName,
+                    JavaTypeNames.resolveType(param.getType()),
+                    false,
+                    Params.PUBLIC,
+                    0,
+                    0,
+                    true));
       }
     }
   }
 
-  private void upsertAnnotationsByFqn(String ownerFqn, NodeWithAnnotations<?> node) {
-    upsertAnnotations(Params.OWNER, ownerFqn, node);
+  private void upsertJavaMembers(Path file, JavaMemberWrites writes) {
+    upsertFieldNodes(file, writes.fields());
+    upsertMethodNodes(file, writes.methods());
+    upsertAnnotationReferencesByFqn(writes.fqnAnnotations());
+    upsertAnnotationReferencesBySig(writes.sigAnnotations());
   }
 
-  private void upsertAnnotationsBySig(String sig, NodeWithAnnotations<?> node) {
-    upsertAnnotations(Params.SIG, sig, node);
+  private static List<AnnotationWrite> annotationWrites(
+      String paramValue, NodeWithAnnotations<?> node) {
+    return node.getAnnotations().stream()
+        .map(
+            ann -> {
+              String annotFqn;
+              try {
+                annotFqn = JavaTypeNames.normalizeNestedFqn(ann.resolve().getQualifiedName());
+              } catch (Exception _) {
+                annotFqn = ann.getNameAsString();
+              }
+              return new AnnotationWrite(
+                  paramValue,
+                  annotFqn,
+                  JavaTypeNames.nameFromFqn(annotFqn),
+                  JAVA_LANGUAGE,
+                  Params.ANNOTATION);
+            })
+        .toList();
   }
 
-  private void upsertAnnotations(String paramKey, String paramValue, NodeWithAnnotations<?> node) {
-    List<AnnotationWrite> annotations =
-        node.getAnnotations().stream()
-            .map(
-                ann -> {
-                  String annotFqn;
-                  try {
-                    annotFqn = JavaTypeNames.normalizeNestedFqn(ann.resolve().getQualifiedName());
-                  } catch (Exception _) {
-                    annotFqn = ann.getNameAsString();
-                  }
-                  return new AnnotationWrite(
-                      paramValue,
-                      annotFqn,
-                      JavaTypeNames.nameFromFqn(annotFqn),
-                      JAVA_LANGUAGE,
-                      Params.ANNOTATION);
-                })
-            .toList();
-    if (Params.OWNER.equals(paramKey)) {
-      upsertAnnotationReferencesByFqn(annotations);
-    } else {
-      upsertAnnotationReferencesBySig(annotations);
+  private static final class JavaMemberWrites {
+    private final List<FieldWrite> fields = new ArrayList<>();
+    private final List<Method> methods = new ArrayList<>();
+    private final List<AnnotationWrite> fqnAnnotations = new ArrayList<>();
+    private final List<AnnotationWrite> sigAnnotations = new ArrayList<>();
+
+    List<FieldWrite> fields() {
+      return fields;
+    }
+
+    List<Method> methods() {
+      return methods;
+    }
+
+    List<AnnotationWrite> fqnAnnotations() {
+      return fqnAnnotations;
+    }
+
+    List<AnnotationWrite> sigAnnotations() {
+      return sigAnnotations;
     }
   }
 }

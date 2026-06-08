@@ -39,6 +39,17 @@ final class CallEdgeWriter {
   void upsert(String callerSig, String ownerFqn, Node bodyNode) {
     List<CallWrite> resolvedCalls = new ArrayList<>();
     List<PendingCallWrite> nameCalls = new ArrayList<>();
+    collect(resolvedCalls, nameCalls, callerSig, ownerFqn, bodyNode);
+    nodes.upsertCalls(resolvedCalls);
+    nodes.upsertCallsByName(nameCalls);
+  }
+
+  void collect(
+      List<CallWrite> resolvedCalls,
+      List<PendingCallWrite> nameCalls,
+      String callerSig,
+      String ownerFqn,
+      Node bodyNode) {
     bodyNode
         .findAll(MethodCallExpr.class)
         .forEach(call -> upsertMethodCallEdge(resolvedCalls, nameCalls, callerSig, ownerFqn, call));
@@ -57,9 +68,6 @@ final class CallEdgeWriter {
         .findAll(ExplicitConstructorInvocationStmt.class)
         .forEach(
             stmt -> upsertExplicitCtorEdge(resolvedCalls, nameCalls, callerSig, ownerFqn, stmt));
-
-    nodes.upsertCalls(resolvedCalls);
-    nodes.upsertCallsByName(nameCalls);
   }
 
   private void upsertMethodCallEdge(
