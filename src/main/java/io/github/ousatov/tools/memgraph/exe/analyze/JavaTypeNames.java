@@ -113,9 +113,9 @@ public final class JavaTypeNames {
 
   /** Builds the canonical constructor signature for a Java record declaration. */
   public static String buildRecordCanonicalConstructorSignature(
-      String ownerFqn, RecordDeclaration record) {
+      String ownerFqn, RecordDeclaration recordDecl) {
     String params =
-        record.getParameters().stream()
+        recordDecl.getParameters().stream()
             .map(JavaTypeNames::resolveParamType)
             .collect(Collectors.joining(Const.Symbols.COMMA_SPACE));
     return ownerFqn
@@ -127,9 +127,10 @@ public final class JavaTypeNames {
   }
 
   /** Returns true when a record declares the canonical constructor explicitly. */
-  public static boolean hasExplicitCanonicalConstructor(String ownerFqn, RecordDeclaration record) {
-    String canonicalSignature = buildRecordCanonicalConstructorSignature(ownerFqn, record);
-    return record.getConstructors().stream()
+  public static boolean hasExplicitCanonicalConstructor(
+      String ownerFqn, RecordDeclaration recordDecl) {
+    String canonicalSignature = buildRecordCanonicalConstructorSignature(ownerFqn, recordDecl);
+    return recordDecl.getConstructors().stream()
         .anyMatch(
             c -> JavaTypeNames.buildConstructorSignature(ownerFqn, c).equals(canonicalSignature));
   }

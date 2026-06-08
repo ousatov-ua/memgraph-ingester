@@ -11,6 +11,7 @@ import java.util.Objects;
  *
  * @author Oleksii Usatov
  */
+@SuppressWarnings("java:S106")
 final class IngestionProgress implements AutoCloseable {
 
   private static final int PROGRESS_DIVISOR = 10;

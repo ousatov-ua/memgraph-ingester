@@ -81,11 +81,11 @@ final class FlatJsonObjectParser {
       if (current == '"') {
         return out.toString();
       }
-      if (current != '\\') {
+      if (current == '\\') {
+        out.append(escape());
+      } else {
         out.append(current);
-        continue;
       }
-      out.append(escape());
     }
     throw error("Unterminated string");
   }

@@ -97,33 +97,33 @@ public final class AppConfig {
     }
   }
 
+  @SuppressWarnings("java:S3776")
   private static void parse(BufferedReader reader, Map<String, String> values) throws IOException {
     ArrayDeque<String> path = new ArrayDeque<>();
     String line;
     while ((line = reader.readLine()) != null) {
       String trimmed = stripComment(line).trim();
-      if (trimmed.isEmpty()) {
-        continue;
+      if (!trimmed.isEmpty()) {
+        int indent = countLeadingSpaces(line);
+        if (indent % 2 != 0) {
+          throw new IllegalStateException("YAML indentation must use multiples of two spaces");
+        }
+        int depth = indent / 2;
+        while (path.size() > depth) {
+          path.removeLast();
+        }
+        int colon = trimmed.indexOf(':');
+        if (colon < 1) {
+          throw new IllegalStateException("Invalid YAML line: " + line);
+        }
+        String key = trimmed.substring(0, colon).trim();
+        String value = trimmed.substring(colon + 1).trim();
+        if (value.isEmpty()) {
+          path.addLast(key);
+        } else {
+          values.put(dotted(path, key), unquote(value));
+        }
       }
-      int indent = countLeadingSpaces(line);
-      if (indent % 2 != 0) {
-        throw new IllegalStateException("YAML indentation must use multiples of two spaces");
-      }
-      int depth = indent / 2;
-      while (path.size() > depth) {
-        path.removeLast();
-      }
-      int colon = trimmed.indexOf(':');
-      if (colon < 1) {
-        throw new IllegalStateException("Invalid YAML line: " + line);
-      }
-      String key = trimmed.substring(0, colon).trim();
-      String value = trimmed.substring(colon + 1).trim();
-      if (value.isEmpty()) {
-        path.addLast(key);
-        continue;
-      }
-      values.put(dotted(path, key), unquote(value));
     }
   }
 

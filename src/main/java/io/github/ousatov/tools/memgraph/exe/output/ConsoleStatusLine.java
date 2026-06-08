@@ -172,6 +172,7 @@ public final class ConsoleStatusLine {
     lastLength = 0;
   }
 
+  @SuppressWarnings("java:S127")
   static int visibleLength(String text) {
     int length = 0;
     for (int index = 0; index < text.length(); index++) {

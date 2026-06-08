@@ -23,12 +23,15 @@ public abstract class RuntimeSmokeCheck {
   }
 
   /** Runs the smoke check. Returns 0 on success, 1 on failure. */
+  @SuppressWarnings("java:S5443")
   public final int run() {
     Path tempDir = null;
     try {
       tempDir = Files.createTempDirectory(tempDirPrefix());
       execute(tempDir);
-      log.info("{} runtime check succeeded using cache {}", displayName(), cacheRoot());
+      if (log.isInfoEnabled()) {
+        log.info("{} runtime check succeeded using cache {}", displayName(), cacheRoot());
+      }
       return 0;
     } catch (IOException | RuntimeException e) {
       log.error("{} runtime check failed: {}", displayName(), e.getMessage());

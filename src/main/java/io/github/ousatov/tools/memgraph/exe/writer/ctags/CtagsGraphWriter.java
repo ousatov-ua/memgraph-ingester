@@ -24,6 +24,7 @@ public final class CtagsGraphWriter extends CommonGraphWriter {
   }
 
   /** Upserts the synthetic module owner used for file-level ctags declarations. */
+  @SuppressWarnings(Const.Warnings.TOO_MANY_PARAMETERS)
   public void upsertModule(
       Path file,
       SourceLanguage language,
@@ -137,6 +138,7 @@ public final class CtagsGraphWriter extends CommonGraphWriter {
   }
 
   /** Creates a field payload for the dynamic language. */
+  @SuppressWarnings(Const.Warnings.TOO_MANY_PARAMETERS)
   public static FieldWrite field(
       SourceLanguage language,
       String ownerFqn,

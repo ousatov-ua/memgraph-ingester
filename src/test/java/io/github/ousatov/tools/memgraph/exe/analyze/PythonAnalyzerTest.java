@@ -10,7 +10,6 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 import io.github.ousatov.tools.memgraph.vo.analysis.PythonAnalysis;
 import io.github.ousatov.tools.memgraph.vo.analysis.RuntimeMode;
 import java.io.IOException;
-import java.lang.reflect.Field;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -108,7 +107,7 @@ class PythonAnalyzerTest {
   }
 
   @Test
-  void withSourceRootReusesExtractedHelperScript() throws ReflectiveOperationException {
+  void withSourceRootReusesExtractedHelperScript() {
     ManagedPythonRuntime runtime =
         new ManagedPythonRuntime(
             tempDir.resolve("runtime"),
@@ -119,7 +118,7 @@ class PythonAnalyzerTest {
 
     PythonAnalyzer rebased = analyzer.withSourceRoot(tempDir.resolve("other-root"));
 
-    assertSame(helperScript(analyzer), helperScript(rebased));
+    assertSame(analyzer.helperScript(), rebased.helperScript());
   }
 
   @Test
@@ -651,12 +650,6 @@ class PythonAnalyzerTest {
             ManagedPythonRuntime.DEFAULT_PYTHON_VERSION,
             ManagedPythonRuntime.DEFAULT_PYTHON_BUILD,
             RuntimeMode.SYSTEM));
-  }
-
-  private static Path helperScript(PythonAnalyzer analyzer) throws ReflectiveOperationException {
-    Field field = PythonAnalyzer.class.getDeclaredField("helperScript");
-    field.setAccessible(true);
-    return (Path) field.get(analyzer);
   }
 
   private static boolean systemPythonAvailable() {

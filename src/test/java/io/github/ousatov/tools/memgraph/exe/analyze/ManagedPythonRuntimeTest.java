@@ -215,9 +215,7 @@ class ManagedPythonRuntimeTest {
     try {
       Files.createSymbolicLink(link, target.getFileName());
       symlinkCreated = true;
-    } catch (UnsupportedOperationException e) {
-      symlinkCreated = false;
-    } catch (IOException e) {
+    } catch (UnsupportedOperationException | IOException _) {
       symlinkCreated = false;
     } finally {
       Files.deleteIfExists(link);

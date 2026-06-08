@@ -4,6 +4,9 @@
 # Log file
 *.log
 
+# macOS metadata
+.DS_Store
+
 # BlueJ files
 *.ctxt
 
@@ -32,3 +35,5 @@ AGENTS.md
 GEMINI.md
 dependency-reduced-pom.xml
 .rtk
+copilot-instructions.md
+rtk-rewrite.json

@@ -35,7 +35,7 @@ final class ChunkEmbeddingRefresher {
 
   private static final Logger log = LoggerFactory.getLogger(ChunkEmbeddingRefresher.class);
 
-  private static final Pattern CYPHER_IDENTIFIER = Pattern.compile("[A-Za-z_][A-Za-z0-9_]*");
+  private static final Pattern CYPHER_IDENTIFIER = Pattern.compile("[A-Za-z_]\\w*");
   private static final String NODE_SENTENCE_CALL = "CALL embeddings.node_sentence(chunks, $config)";
   private static final int MODEL_INFO_RETRIES = 6;
   private static final long MODEL_INFO_RETRY_DELAY_MS = 10_000;

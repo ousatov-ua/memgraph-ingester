@@ -108,6 +108,7 @@ public final class ManagedNodeRuntime extends ManagedHttpInstaller {
     }
   }
 
+  @SuppressWarnings("java:S106")
   private void installManagedNode(ManagedRuntimePlatform platform, Path installDir, Path executable)
       throws IOException {
     String archiveName = nodeArchiveName(platform, nodeVersion);
@@ -134,8 +135,10 @@ public final class ManagedNodeRuntime extends ManagedHttpInstaller {
       verifySha256(archive, archiveName, downloadText(sumsUri), "Node.js");
       extractNodeArchive(archiveName, archive, installDir);
       if (!Files.isExecutable(executable)) {
-        @SuppressWarnings(Const.Warnings.IGNORED_RETURN_VALUE)
-        var _ = executable.toFile().setExecutable(true, true);
+        boolean executableSet = executable.toFile().setExecutable(true, true);
+        if (!executableSet && !Files.isExecutable(executable)) {
+          throw new ProcessingException("Could not mark managed Node.js executable: " + executable);
+        }
       }
       if (!Files.isExecutable(executable)) {
         throw new ProcessingException("Managed Node.js executable was not created: " + executable);

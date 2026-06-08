@@ -15,6 +15,7 @@ import org.neo4j.driver.Logging;
  */
 public final class MemgraphDriver {
 
+  @SuppressWarnings("java:S1874")
   private static final Config QUIET_CONFIG =
       Config.builder().withLogging(Logging.console(Level.WARNING)).build();
 

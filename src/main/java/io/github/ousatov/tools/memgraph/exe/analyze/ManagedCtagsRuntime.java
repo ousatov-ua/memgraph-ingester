@@ -60,12 +60,15 @@ public final class ManagedCtagsRuntime {
       AppConfig.durationValue("runtime.managed.ctags.http-timeout");
   private static final Pattern RELEASE_TAG_PATTERN =
       Pattern.compile("\"tag_name\"\\s*:\\s*\"([^\"]+)\"");
+
+  @SuppressWarnings("java:S5843")
   private static final Pattern ASSET_PATTERN =
       Pattern.compile(
           "\"url\"\\s*:\\s*\"[^\"]*/releases/assets/\\d+\".*?\"name\"\\s*:\\s*\"([^\"]+)\""
               + ".*?\"digest\"\\s*:\\s*(null|\"([^\"]+)\")"
               + ".*?\"browser_download_url\"\\s*:\\s*\"([^\"]+)\"",
           Pattern.DOTALL);
+
   private static final Pattern RELEASE_ASSET_HTML_PATTERN =
       Pattern.compile(
           "<a\\b[^>]*\\bhref=\"([^\"]*/releases/download/[^\"]+)\"[^>]*>(.*?)</a>", Pattern.DOTALL);
@@ -232,7 +235,7 @@ public final class ManagedCtagsRuntime {
           if (!extracted.equals(executable)) {
             Files.copy(extracted, executable, StandardCopyOption.REPLACE_EXISTING);
           }
-          executable.toFile().setExecutable(true, true);
+          ensureExecutable(executable);
           Files.writeString(
               installDir.resolve(INSTALL_READY_FILE),
               asset.name()
@@ -564,7 +567,17 @@ public final class ManagedCtagsRuntime {
     Files.createDirectories(target.getParent());
     Files.copy(in, target, StandardCopyOption.REPLACE_EXISTING);
     if (executableName.equals(target.getFileName().toString())) {
-      target.toFile().setExecutable(true, true);
+      ensureExecutable(target);
+    }
+  }
+
+  private static void ensureExecutable(Path executable) {
+    if (Files.isExecutable(executable)) {
+      return;
+    }
+    boolean executableSet = executable.toFile().setExecutable(true, true);
+    if (!executableSet && !Files.isExecutable(executable)) {
+      throw new ProcessingException("Could not mark Universal Ctags executable: " + executable);
     }
   }
 

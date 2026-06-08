@@ -13,6 +13,7 @@ import java.util.Objects;
  *
  * @author Oleksii Usatov
  */
+@SuppressWarnings("java:S106")
 final class ManagedRuntimeLoadingIndicator implements AutoCloseable {
 
   private static final Duration DEFAULT_INTERVAL =

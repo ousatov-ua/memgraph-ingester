@@ -92,6 +92,7 @@ public final class JsAnalyzer {
         line -> log.debug("Ignoring unknown JavaScript analyzer record: {}", line));
   }
 
+  @SuppressWarnings("java:S5443")
   private static Path extractHelperScript() {
     try {
       Path helperDir = Files.createTempDirectory("memgraph-ingester-js-analyzer-");
@@ -111,6 +112,10 @@ public final class JsAnalyzer {
     } catch (IOException e) {
       throw new ProcessingException("Could not extract JavaScript analyzer helper", e);
     }
+  }
+
+  Path helperScript() {
+    return helperScript;
   }
 
   public JsAnalysis analyze(Path file) {

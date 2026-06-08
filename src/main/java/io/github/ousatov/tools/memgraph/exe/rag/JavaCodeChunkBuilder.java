@@ -56,6 +56,225 @@ public final class JavaCodeChunkBuilder extends CommonCodeChunkBuilder<Compilati
       }
     }
 
+    private static void addClassOrInterface(
+        List<TypeChunk> types,
+        List<MemberChunk> members,
+        String pkg,
+        String outerFqn,
+        ClassOrInterfaceDeclaration decl) {
+      String fqn = typeFqn(pkg, outerFqn, decl.getNameAsString());
+      String label = decl.isInterface() ? Const.Labels.INTERFACE : Const.Labels.CLASS;
+      types.add(typeChunk(label, fqn, decl, decl.getNameAsString()));
+      decl.getFields().forEach(field -> addField(members, fqn, field));
+      decl.getMethods().forEach(method -> addMethod(members, fqn, method));
+      decl.getConstructors().forEach(ctor -> addConstructor(members, fqn, ctor));
+      if (!decl.isInterface() && decl.getConstructors().isEmpty()) {
+        addImplicitDefaultConstructor(members, fqn);
+      }
+      nestedClassDeclarationsOf(decl.getMembers())
+          .forEach(nested -> addClassOrInterface(types, members, pkg, fqn, nested));
+    }
+
+    private static void addEnum(
+        List<TypeChunk> types, List<MemberChunk> members, String pkg, EnumDeclaration decl) {
+      String fqn = JavaTypeNames.buildFqn(pkg, decl.getNameAsString());
+      types.add(typeChunk(Const.Labels.CLASS, fqn, decl, decl.getNameAsString()));
+      decl.getEntries().forEach(entry -> addEnumConstant(members, fqn, entry));
+      decl.getFields().forEach(field -> addField(members, fqn, field));
+      decl.getMethods().forEach(method -> addMethod(members, fqn, method));
+      decl.getConstructors().forEach(ctor -> addConstructor(members, fqn, ctor));
+      nestedClassDeclarationsOf(decl.getMembers())
+          .forEach(nested -> addClassOrInterface(types, members, pkg, fqn, nested));
+    }
+
+    private static void addRecord(
+        List<TypeChunk> types, List<MemberChunk> members, String pkg, RecordDeclaration decl) {
+      String fqn = JavaTypeNames.buildFqn(pkg, decl.getNameAsString());
+      types.add(typeChunk(Const.Labels.CLASS, fqn, decl, decl.getNameAsString()));
+      decl.getParameters().forEach(param -> addRecordComponent(members, fqn, param));
+      decl.getFields().forEach(field -> addField(members, fqn, field));
+      decl.getMethods().forEach(method -> addMethod(members, fqn, method));
+      decl.getConstructors().forEach(ctor -> addConstructor(members, fqn, ctor));
+      addRecordCanonicalConstructor(members, fqn, decl);
+      addRecordAccessors(members, fqn, decl);
+      nestedClassDeclarationsOf(decl.getMembers())
+          .forEach(nested -> addClassOrInterface(types, members, pkg, fqn, nested));
+    }
+
+    private static TypeChunk typeChunk(
+        String sourceLabel, String fqn, BodyDeclaration<?> decl, String name) {
+      return new TypeChunk(
+          sourceLabel,
+          fqn,
+          fqn,
+          name,
+          sourceLabel.toLowerCase(Locale.ROOT),
+          beginLineOf(decl),
+          endLineOf(decl));
+    }
+
+    private static void addField(
+        List<MemberChunk> members, String ownerFqn, FieldDeclaration field) {
+      field
+          .getVariables()
+          .forEach(
+              variable ->
+                  members.add(
+                      new MemberChunk(
+                          ownerFqn,
+                          Params.FIELD,
+                          Params.FIELD,
+                          ownerFqn + Const.Symbols.HASH + variable.getNameAsString(),
+                          variable.getNameAsString(),
+                          beginLineOf(field),
+                          endLineOf(field))));
+    }
+
+    private static void addRecordComponent(
+        List<MemberChunk> members, String ownerFqn, Parameter param) {
+      members.add(
+          new MemberChunk(
+              ownerFqn,
+              Params.FIELD,
+              Params.RECORD_COMPONENT,
+              ownerFqn + Const.Symbols.HASH + param.getNameAsString(),
+              param.getNameAsString(),
+              beginLineOf(param),
+              endLineOf(param)));
+    }
+
+    private static void addEnumConstant(
+        List<MemberChunk> members, String ownerFqn, EnumConstantDeclaration entry) {
+      members.add(
+          new MemberChunk(
+              ownerFqn,
+              Params.FIELD,
+              Params.ENUM_MEMBER,
+              ownerFqn + Const.Symbols.HASH + entry.getNameAsString(),
+              entry.getNameAsString(),
+              beginLineOf(entry),
+              endLineOf(entry)));
+    }
+
+    private static void addMethod(
+        List<MemberChunk> members, String ownerFqn, MethodDeclaration method) {
+      String signature = JavaTypeNames.buildSignature(ownerFqn, method);
+      members.add(
+          new MemberChunk(
+              ownerFqn,
+              Params.METHOD,
+              Params.METHOD,
+              signature,
+              method.getNameAsString(),
+              beginLineOf(method),
+              endLineOf(method)));
+    }
+
+    private static void addConstructor(
+        List<MemberChunk> members, String ownerFqn, ConstructorDeclaration ctor) {
+      String signature = JavaTypeNames.buildConstructorSignature(ownerFqn, ctor);
+      members.add(
+          new MemberChunk(
+              ownerFqn,
+              Params.CONSTRUCTOR,
+              Params.CONSTRUCTOR,
+              signature,
+              Labels.INIT,
+              beginLineOf(ctor),
+              endLineOf(ctor)));
+    }
+
+    private static void addRecordAccessors(
+        List<MemberChunk> members, String ownerFqn, RecordDeclaration decl) {
+      Set<String> explicitMethods =
+          decl.getMethods().stream()
+              .filter(method -> method.getParameters().isEmpty())
+              .map(MethodDeclaration::getNameAsString)
+              .collect(Collectors.toSet());
+      decl.getParameters().stream()
+          .filter(param -> !explicitMethods.contains(param.getNameAsString()))
+          .forEach(param -> addRecordAccessor(members, ownerFqn, param));
+    }
+
+    private static void addRecordCanonicalConstructor(
+        List<MemberChunk> members, String ownerFqn, RecordDeclaration decl) {
+      String canonicalParams =
+          decl.getParameters().stream()
+              .map(JavaTypeNames::resolveParamType)
+              .collect(Collectors.joining(Const.Symbols.COMMA_SPACE));
+      String canonicalSig =
+          ownerFqn
+              + Const.Symbols.DOT
+              + Labels.INIT
+              + Const.Symbols.LEFT_PAREN
+              + canonicalParams
+              + Const.Symbols.RIGHT_PAREN;
+      boolean hasCanonical =
+          decl.getConstructors().stream()
+              .anyMatch(
+                  c -> JavaTypeNames.buildConstructorSignature(ownerFqn, c).equals(canonicalSig));
+      if (!hasCanonical) {
+        members.add(
+            new MemberChunk(
+                ownerFqn,
+                Params.CONSTRUCTOR,
+                Params.CONSTRUCTOR,
+                canonicalSig,
+                Labels.INIT,
+                beginLineOf(decl),
+                endLineOf(decl),
+                true));
+      }
+    }
+
+    private static void addImplicitDefaultConstructor(List<MemberChunk> members, String ownerFqn) {
+      members.add(
+          new MemberChunk(
+              ownerFqn,
+              Params.CONSTRUCTOR,
+              Params.CONSTRUCTOR,
+              ownerFqn + Const.Symbols.DOT + Labels.INIT + Const.Symbols.PARENS,
+              Labels.INIT,
+              0,
+              0));
+    }
+
+    private static void addRecordAccessor(
+        List<MemberChunk> members, String ownerFqn, Parameter param) {
+      String accessorName = param.getNameAsString();
+      members.add(
+          new MemberChunk(
+              ownerFqn,
+              Params.METHOD,
+              Params.METHOD,
+              ownerFqn + Const.Symbols.DOT + accessorName + Const.Symbols.PARENS,
+              accessorName,
+              beginLineOf(param),
+              endLineOf(param),
+              true));
+    }
+
+    private static Stream<ClassOrInterfaceDeclaration> nestedClassDeclarationsOf(
+        List<BodyDeclaration<?>> members) {
+      return members.stream()
+          .filter(ClassOrInterfaceDeclaration.class::isInstance)
+          .map(ClassOrInterfaceDeclaration.class::cast);
+    }
+
+    private static String typeFqn(String pkg, String outerFqn, String simpleName) {
+      return outerFqn == null
+          ? JavaTypeNames.buildFqn(pkg, simpleName)
+          : outerFqn + Const.Symbols.DOLLAR + simpleName;
+    }
+
+    private static int beginLineOf(com.github.javaparser.ast.Node node) {
+      return node.getBegin().map(position -> position.line).orElse(0);
+    }
+
+    private static int endLineOf(com.github.javaparser.ast.Node node) {
+      return node.getEnd().map(position -> position.line).orElse(0);
+    }
+
     @Override
     public CodeChunkAnalysis analyze(CompilationUnit cu) {
       String pkg =
@@ -72,221 +291,5 @@ public final class JavaCodeChunkBuilder extends CommonCodeChunkBuilder<Compilati
           List.copyOf(types),
           List.copyOf(members));
     }
-  }
-
-  private static void addClassOrInterface(
-      List<TypeChunk> types,
-      List<MemberChunk> members,
-      String pkg,
-      String outerFqn,
-      ClassOrInterfaceDeclaration decl) {
-    String fqn = typeFqn(pkg, outerFqn, decl.getNameAsString());
-    String label = decl.isInterface() ? Const.Labels.INTERFACE : Const.Labels.CLASS;
-    types.add(typeChunk(label, fqn, decl, decl.getNameAsString()));
-    decl.getFields().forEach(field -> addField(members, fqn, field));
-    decl.getMethods().forEach(method -> addMethod(members, fqn, method));
-    decl.getConstructors().forEach(ctor -> addConstructor(members, fqn, ctor));
-    if (!decl.isInterface() && decl.getConstructors().isEmpty()) {
-      addImplicitDefaultConstructor(members, fqn);
-    }
-    nestedClassDeclarationsOf(decl.getMembers())
-        .forEach(nested -> addClassOrInterface(types, members, pkg, fqn, nested));
-  }
-
-  private static void addEnum(
-      List<TypeChunk> types, List<MemberChunk> members, String pkg, EnumDeclaration decl) {
-    String fqn = JavaTypeNames.buildFqn(pkg, decl.getNameAsString());
-    types.add(typeChunk(Const.Labels.CLASS, fqn, decl, decl.getNameAsString()));
-    decl.getEntries().forEach(entry -> addEnumConstant(members, fqn, entry));
-    decl.getFields().forEach(field -> addField(members, fqn, field));
-    decl.getMethods().forEach(method -> addMethod(members, fqn, method));
-    decl.getConstructors().forEach(ctor -> addConstructor(members, fqn, ctor));
-    nestedClassDeclarationsOf(decl.getMembers())
-        .forEach(nested -> addClassOrInterface(types, members, pkg, fqn, nested));
-  }
-
-  private static void addRecord(
-      List<TypeChunk> types, List<MemberChunk> members, String pkg, RecordDeclaration decl) {
-    String fqn = JavaTypeNames.buildFqn(pkg, decl.getNameAsString());
-    types.add(typeChunk(Const.Labels.CLASS, fqn, decl, decl.getNameAsString()));
-    decl.getParameters().forEach(param -> addRecordComponent(members, fqn, param));
-    decl.getFields().forEach(field -> addField(members, fqn, field));
-    decl.getMethods().forEach(method -> addMethod(members, fqn, method));
-    decl.getConstructors().forEach(ctor -> addConstructor(members, fqn, ctor));
-    addRecordCanonicalConstructor(members, fqn, decl);
-    addRecordAccessors(members, fqn, decl);
-    nestedClassDeclarationsOf(decl.getMembers())
-        .forEach(nested -> addClassOrInterface(types, members, pkg, fqn, nested));
-  }
-
-  private static TypeChunk typeChunk(
-      String sourceLabel, String fqn, BodyDeclaration<?> decl, String name) {
-    return new TypeChunk(
-        sourceLabel,
-        fqn,
-        fqn,
-        name,
-        sourceLabel.toLowerCase(Locale.ROOT),
-        beginLineOf(decl),
-        endLineOf(decl));
-  }
-
-  private static void addField(List<MemberChunk> members, String ownerFqn, FieldDeclaration field) {
-    field
-        .getVariables()
-        .forEach(
-            variable ->
-                members.add(
-                    new MemberChunk(
-                        ownerFqn,
-                        Params.FIELD,
-                        Params.FIELD,
-                        ownerFqn + Const.Symbols.HASH + variable.getNameAsString(),
-                        variable.getNameAsString(),
-                        beginLineOf(field),
-                        endLineOf(field))));
-  }
-
-  private static void addRecordComponent(
-      List<MemberChunk> members, String ownerFqn, Parameter param) {
-    members.add(
-        new MemberChunk(
-            ownerFqn,
-            Params.FIELD,
-            Const.Params.RECORD_COMPONENT,
-            ownerFqn + Const.Symbols.HASH + param.getNameAsString(),
-            param.getNameAsString(),
-            beginLineOf(param),
-            endLineOf(param)));
-  }
-
-  private static void addEnumConstant(
-      List<MemberChunk> members, String ownerFqn, EnumConstantDeclaration entry) {
-    members.add(
-        new MemberChunk(
-            ownerFqn,
-            Params.FIELD,
-            Params.ENUM_MEMBER,
-            ownerFqn + Const.Symbols.HASH + entry.getNameAsString(),
-            entry.getNameAsString(),
-            beginLineOf(entry),
-            endLineOf(entry)));
-  }
-
-  private static void addMethod(
-      List<MemberChunk> members, String ownerFqn, MethodDeclaration method) {
-    String signature = JavaTypeNames.buildSignature(ownerFqn, method);
-    members.add(
-        new MemberChunk(
-            ownerFqn,
-            Params.METHOD,
-            Params.METHOD,
-            signature,
-            method.getNameAsString(),
-            beginLineOf(method),
-            endLineOf(method)));
-  }
-
-  private static void addConstructor(
-      List<MemberChunk> members, String ownerFqn, ConstructorDeclaration ctor) {
-    String signature = JavaTypeNames.buildConstructorSignature(ownerFqn, ctor);
-    members.add(
-        new MemberChunk(
-            ownerFqn,
-            Params.CONSTRUCTOR,
-            Params.CONSTRUCTOR,
-            signature,
-            Labels.INIT,
-            beginLineOf(ctor),
-            endLineOf(ctor)));
-  }
-
-  private static void addImplicitDefaultConstructor(List<MemberChunk> members, String ownerFqn) {
-    members.add(
-        new MemberChunk(
-            ownerFqn,
-            Params.CONSTRUCTOR,
-            Params.CONSTRUCTOR,
-            ownerFqn + Const.Symbols.DOT + Labels.INIT + Const.Symbols.PARENS,
-            Labels.INIT,
-            0,
-            0));
-  }
-
-  private static void addRecordCanonicalConstructor(
-      List<MemberChunk> members, String ownerFqn, RecordDeclaration decl) {
-    String canonicalParams =
-        decl.getParameters().stream()
-            .map(JavaTypeNames::resolveParamType)
-            .collect(Collectors.joining(Const.Symbols.COMMA_SPACE));
-    String canonicalSig =
-        ownerFqn
-            + Const.Symbols.DOT
-            + Labels.INIT
-            + Const.Symbols.LEFT_PAREN
-            + canonicalParams
-            + Const.Symbols.RIGHT_PAREN;
-    boolean hasCanonical =
-        decl.getConstructors().stream()
-            .anyMatch(
-                c -> JavaTypeNames.buildConstructorSignature(ownerFqn, c).equals(canonicalSig));
-    if (!hasCanonical) {
-      members.add(
-          new MemberChunk(
-              ownerFqn,
-              Params.CONSTRUCTOR,
-              Params.CONSTRUCTOR,
-              canonicalSig,
-              Labels.INIT,
-              beginLineOf(decl),
-              endLineOf(decl)));
-    }
-  }
-
-  private static void addRecordAccessors(
-      List<MemberChunk> members, String ownerFqn, RecordDeclaration decl) {
-    Set<String> explicitMethods =
-        decl.getMethods().stream()
-            .filter(method -> method.getParameters().isEmpty())
-            .map(MethodDeclaration::getNameAsString)
-            .collect(Collectors.toSet());
-    decl.getParameters().stream()
-        .filter(param -> !explicitMethods.contains(param.getNameAsString()))
-        .forEach(param -> addRecordAccessor(members, ownerFqn, param));
-  }
-
-  private static void addRecordAccessor(
-      List<MemberChunk> members, String ownerFqn, Parameter param) {
-    String accessorName = param.getNameAsString();
-    members.add(
-        new MemberChunk(
-            ownerFqn,
-            Params.METHOD,
-            Params.METHOD,
-            ownerFqn + Const.Symbols.DOT + accessorName + Const.Symbols.PARENS,
-            accessorName,
-            beginLineOf(param),
-            endLineOf(param)));
-  }
-
-  private static Stream<ClassOrInterfaceDeclaration> nestedClassDeclarationsOf(
-      List<BodyDeclaration<?>> members) {
-    return members.stream()
-        .filter(ClassOrInterfaceDeclaration.class::isInstance)
-        .map(ClassOrInterfaceDeclaration.class::cast);
-  }
-
-  private static String typeFqn(String pkg, String outerFqn, String simpleName) {
-    return outerFqn == null
-        ? JavaTypeNames.buildFqn(pkg, simpleName)
-        : outerFqn + Const.Symbols.DOLLAR + simpleName;
-  }
-
-  private static int beginLineOf(com.github.javaparser.ast.Node node) {
-    return node.getBegin().map(position -> position.line).orElse(0);
-  }
-
-  private static int endLineOf(com.github.javaparser.ast.Node node) {
-    return node.getEnd().map(position -> position.line).orElse(0);
   }
 }
