@@ -16,7 +16,19 @@ public record MemberChunk(
     String key,
     String name,
     int startLine,
-    int endLine) {
+    int endLine,
+    boolean synthetic) {
+
+  public MemberChunk(
+      String ownerFqn,
+      String memberType,
+      String kind,
+      String key,
+      String name,
+      int startLine,
+      int endLine) {
+    this(ownerFqn, memberType, kind, key, name, startLine, endLine, startLine <= 0 || endLine <= 0);
+  }
 
   /** Builds the synthetic constructor chunk used by graph writers for implicit constructors. */
   public static MemberChunk syntheticConstructor(String ownerFqn, int startLine, int endLine) {
@@ -27,6 +39,7 @@ public record MemberChunk(
         ownerFqn + Const.Symbols.DOT + Labels.INIT + Const.Symbols.PARENS,
         Labels.INIT,
         startLine,
-        endLine);
+        endLine,
+        true);
   }
 }

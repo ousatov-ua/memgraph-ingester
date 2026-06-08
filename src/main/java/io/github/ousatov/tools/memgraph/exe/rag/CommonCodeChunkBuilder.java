@@ -113,7 +113,8 @@ public abstract class CommonCodeChunkBuilder<T> {
         member.key(),
         member.name(),
         member.startLine(),
-        member.endLine());
+        member.endLine(),
+        member.synthetic());
   }
 
   protected final List<String> readLines(Path file) {
@@ -188,9 +189,9 @@ public abstract class CommonCodeChunkBuilder<T> {
       String key,
       String name,
       int startLine,
-      int endLine) {
+      int endLine,
+      boolean synthetic) {
     boolean method = methodLike(memberType);
-    boolean synthetic = startLine <= 0 || endLine <= 0;
     String ragRole = memberRagRole(method, synthetic);
     chunks.add(
         chunk(

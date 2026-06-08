@@ -84,16 +84,34 @@ class RuntimeSmokeCheckTest {
     assertFalse(Files.exists(capturedNested[0]));
   }
 
+  @Test
+  void runDoesNotCreateSmokeFixtureUnderCacheRoot() throws IOException {
+    Path cacheRoot = Files.createTempDirectory("runtime-smoke-cache-root-");
+    Files.delete(cacheRoot);
+    RecordingCheck check = new RecordingCheck(false, false, cacheRoot);
+
+    int exit = check.run();
+
+    assertEquals(0, exit);
+    assertFalse(Files.exists(cacheRoot));
+  }
+
   private static final class RecordingCheck extends RuntimeSmokeCheck {
 
     private final boolean throwRuntime;
     private final boolean throwIo;
+    private final Path cacheRoot;
     private Path executedTempDir;
 
     RecordingCheck(boolean throwRuntime, boolean throwIo) {
+      this(throwRuntime, throwIo, Path.of("/tmp/recording-cache"));
+    }
+
+    RecordingCheck(boolean throwRuntime, boolean throwIo, Path cacheRoot) {
       super(LoggerFactory.getLogger(RecordingCheck.class));
       this.throwRuntime = throwRuntime;
       this.throwIo = throwIo;
+      this.cacheRoot = cacheRoot;
     }
 
     @Override
@@ -108,7 +126,7 @@ class RuntimeSmokeCheckTest {
 
     @Override
     protected Path cacheRoot() {
-      return Path.of("/tmp/recording-cache");
+      return cacheRoot;
     }
 
     @Override

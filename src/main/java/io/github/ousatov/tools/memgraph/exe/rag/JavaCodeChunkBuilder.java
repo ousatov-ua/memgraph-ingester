@@ -221,8 +221,9 @@ public final class JavaCodeChunkBuilder extends CommonCodeChunkBuilder<Compilati
                 Params.CONSTRUCTOR,
                 canonicalSig,
                 Labels.INIT,
-                0,
-                0));
+                beginLineOf(decl),
+                endLineOf(decl),
+                true));
       }
     }
 
@@ -248,8 +249,9 @@ public final class JavaCodeChunkBuilder extends CommonCodeChunkBuilder<Compilati
               Params.METHOD,
               ownerFqn + Const.Symbols.DOT + accessorName + Const.Symbols.PARENS,
               accessorName,
-              0,
-              0));
+              beginLineOf(param),
+              endLineOf(param),
+              true));
     }
 
     private static Stream<ClassOrInterfaceDeclaration> nestedClassDeclarationsOf(

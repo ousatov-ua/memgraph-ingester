@@ -15,7 +15,11 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-/** Unit tests for {@link JavaCodeChunkBuilder}. */
+/**
+ * Unit tests for {@link JavaCodeChunkBuilder}.
+ *
+ * @author Oleksii Usatov
+ */
 class JavaCodeChunkBuilderTest {
 
   @TempDir private Path tempDir;
@@ -39,8 +43,7 @@ class JavaCodeChunkBuilderTest {
     Path file = tempDir.resolve("Widget.java");
     Files.writeString(file, source);
 
-    List<CodeChunkWrite> chunks =
-        new JavaCodeChunkBuilder().build(file, parseJava25(source));
+    List<CodeChunkWrite> chunks = new JavaCodeChunkBuilder().build(file, parseJava25(source));
 
     CodeChunkWrite ctor =
         chunks.stream()
@@ -76,8 +79,7 @@ class JavaCodeChunkBuilderTest {
     Path file = tempDir.resolve("Widget.java");
     Files.writeString(file, source);
 
-    List<CodeChunkWrite> chunks =
-        new JavaCodeChunkBuilder().build(file, parseJava25(source));
+    List<CodeChunkWrite> chunks = new JavaCodeChunkBuilder().build(file, parseJava25(source));
 
     assertFalse(
         chunks.stream().anyMatch(chunk -> "com.example.Widget.<init>()".equals(chunk.sourceId())));
@@ -93,8 +95,7 @@ class JavaCodeChunkBuilderTest {
     Path file = tempDir.resolve("Point.java");
     Files.writeString(file, source);
 
-    List<CodeChunkWrite> chunks =
-        new JavaCodeChunkBuilder().build(file, parseJava25(source));
+    List<CodeChunkWrite> chunks = new JavaCodeChunkBuilder().build(file, parseJava25(source));
 
     CodeChunkWrite component =
         chunks.stream()
@@ -113,6 +114,7 @@ class JavaCodeChunkBuilderTest {
     assertEquals("Method", ctor.sourceLabel());
     assertEquals("synthetic", ctor.ragRole());
     assertTrue(ctor.synthetic());
+    assertTrue(ctor.text().contains("record Point(int x)"));
 
     CodeChunkWrite accessor =
         chunks.stream()
@@ -122,5 +124,6 @@ class JavaCodeChunkBuilderTest {
     assertEquals("Method", accessor.sourceLabel());
     assertEquals("synthetic", accessor.ragRole());
     assertTrue(accessor.synthetic());
+    assertTrue(accessor.text().contains("record Point(int x)"));
   }
 }
