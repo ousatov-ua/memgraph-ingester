@@ -46,6 +46,7 @@ import org.slf4j.LoggerFactory;
  *
  * @author Oleksii Usatov
  */
+@SuppressWarnings("java:S106")
 final class WatchSession {
 
   private static final Logger log = LoggerFactory.getLogger(WatchSession.class);
@@ -339,6 +340,9 @@ final class WatchSession {
   }
 
   static void logWatchWarning(String message, Object... arguments) {
+    if (!log.isWarnEnabled()) {
+      return;
+    }
     ConsoleStatusLine.withFinishedLine(System.err, () -> log.warn(message, arguments));
   }
 

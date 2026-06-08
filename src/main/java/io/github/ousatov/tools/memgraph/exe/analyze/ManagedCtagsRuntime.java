@@ -232,7 +232,7 @@ public final class ManagedCtagsRuntime {
           if (!extracted.equals(executable)) {
             Files.copy(extracted, executable, StandardCopyOption.REPLACE_EXISTING);
           }
-          executable.toFile().setExecutable(true, true);
+          ensureExecutable(executable);
           Files.writeString(
               installDir.resolve(INSTALL_READY_FILE),
               asset.name()
@@ -564,7 +564,17 @@ public final class ManagedCtagsRuntime {
     Files.createDirectories(target.getParent());
     Files.copy(in, target, StandardCopyOption.REPLACE_EXISTING);
     if (executableName.equals(target.getFileName().toString())) {
-      target.toFile().setExecutable(true, true);
+      ensureExecutable(target);
+    }
+  }
+
+  private static void ensureExecutable(Path executable) {
+    if (Files.isExecutable(executable)) {
+      return;
+    }
+    boolean executableSet = executable.toFile().setExecutable(true, true);
+    if (!executableSet && !Files.isExecutable(executable)) {
+      throw new ProcessingException("Could not mark Universal Ctags executable: " + executable);
     }
   }
 

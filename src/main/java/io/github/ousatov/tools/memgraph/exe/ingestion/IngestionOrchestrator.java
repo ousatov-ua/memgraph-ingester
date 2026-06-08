@@ -999,7 +999,7 @@ public final class IngestionOrchestrator {
       Thread.currentThread().interrupt();
       throw new ProcessingException("Interrupted during file retry", ie);
     }
-    return Math.min(backoffMs * 2, FILE_TX_MAX_BACKOFF_MS);
+    return Math.clamp(backoffMs * 2, 0L, FILE_TX_MAX_BACKOFF_MS);
   }
 
   @SuppressWarnings(value = {Const.Warnings.COGNITIVE_COMPLEXITY})

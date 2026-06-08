@@ -9,6 +9,7 @@ import java.util.Objects;
  *
  * @author Oleksii Usatov
  */
+@SuppressWarnings("java:S106")
 public final class ConsoleOutput {
 
   public static final String TITLE = "Memgraph ingester";

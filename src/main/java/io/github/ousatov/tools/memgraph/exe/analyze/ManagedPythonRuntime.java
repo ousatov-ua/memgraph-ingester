@@ -159,6 +159,7 @@ public final class ManagedPythonRuntime extends ManagedHttpInstaller {
     }
   }
 
+  @SuppressWarnings("java:S106")
   private void installStandalonePython(
       ManagedRuntimePlatform platform, Path installDir, Path executable) throws IOException {
     String archiveName = pythonArchiveName(platform, pythonVersion, pythonBuild);
@@ -182,8 +183,10 @@ public final class ManagedPythonRuntime extends ManagedHttpInstaller {
       verifySha256(archive, archiveName, downloadText(sumsUri), "CPython");
       extractTgz(archive, installDir);
       if (!Files.isExecutable(executable)) {
-        @SuppressWarnings(Const.Warnings.IGNORED_RETURN_VALUE)
-        var _ = executable.toFile().setExecutable(true, true);
+        boolean executableSet = executable.toFile().setExecutable(true, true);
+        if (!executableSet && !Files.isExecutable(executable)) {
+          throw new ProcessingException("Could not mark managed CPython executable: " + executable);
+        }
       }
       if (!Files.isExecutable(executable)) {
         throw new ProcessingException("Managed CPython executable was not created: " + executable);
@@ -211,8 +214,11 @@ public final class ManagedPythonRuntime extends ManagedHttpInstaller {
         throw new ProcessingException("Creating managed Python venv failed at " + venvDir);
       }
       if (!Files.isExecutable(executable)) {
-        @SuppressWarnings(Const.Warnings.IGNORED_RETURN_VALUE)
-        var _ = executable.toFile().setExecutable(true, true);
+        boolean executableSet = executable.toFile().setExecutable(true, true);
+        if (!executableSet && !Files.isExecutable(executable)) {
+          throw new ProcessingException(
+              "Could not mark managed Python venv executable: " + executable);
+        }
       }
       if (!Files.isExecutable(executable)) {
         throw new ProcessingException(

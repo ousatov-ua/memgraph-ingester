@@ -29,6 +29,7 @@ import org.neo4j.driver.Session;
  * @author Oleksii Usatov
  */
 @ExtendWith(MemgraphExtension.class)
+@SuppressWarnings("java:S5443")
 class MemoryGraphIT {
 
   private static final String PROJECT =
@@ -383,7 +384,6 @@ class MemoryGraphIT {
   }
 
   @Test
-  @SuppressWarnings("java:S5778")
   void memoryIdentityConstraintRejectsDuplicateDecisionIdsWithinProject() {
     session
         .run(
@@ -391,19 +391,10 @@ class MemoryGraphIT {
             Map.of("p", PROJECT))
         .consume();
 
-    assertThrows(
-        RuntimeException.class,
-        () ->
-            session
-                .run(
-                    "CREATE (:Decision {id: 'DEC-test-duplicate',"
-                        + " project: $p, status: 'accepted'})",
-                    Map.of("p", PROJECT))
-                .consume());
+    assertThrows(RuntimeException.class, this::createDuplicateDecision);
   }
 
   @Test
-  @SuppressWarnings("java:S5778")
   void codeRefIdentityConstraintRejectsDuplicateTargetsWithinProject() {
     session
         .run(
@@ -411,15 +402,23 @@ class MemoryGraphIT {
             Map.of("p", PROJECT))
         .consume();
 
-    assertThrows(
-        RuntimeException.class,
-        () ->
-            session
-                .run(
-                    "CREATE (:CodeRef {project: $p,"
-                        + " targetType: 'Class', key: 'com.example.Widget'})",
-                    Map.of("p", PROJECT))
-                .consume());
+    assertThrows(RuntimeException.class, this::createDuplicateCodeRef);
+  }
+
+  private void createDuplicateDecision() {
+    session
+        .run(
+            "CREATE (:Decision {id: 'DEC-test-duplicate', project: $p, status: 'accepted'})",
+            Map.of("p", PROJECT))
+        .consume();
+  }
+
+  private void createDuplicateCodeRef() {
+    session
+        .run(
+            "CREATE (:CodeRef {project: $p, targetType: 'Class', key: 'com.example.Widget'})",
+            Map.of("p", PROJECT))
+        .consume();
   }
 
   @Test

@@ -121,6 +121,7 @@ public final class ManagedTypescriptPackage extends ManagedHttpInstaller {
         : normalized;
   }
 
+  @SuppressWarnings("java:S106")
   private void install(Path typescriptDir) throws IOException {
     String metadata = downloadText(URI.create(TYPESCRIPT_REGISTRY + version));
     String tarball = extract(metadata, TARBALL_PATTERN, "TypeScript tarball URL");

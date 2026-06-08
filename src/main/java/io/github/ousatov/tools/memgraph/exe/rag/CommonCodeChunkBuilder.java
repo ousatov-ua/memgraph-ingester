@@ -1,6 +1,5 @@
 package io.github.ousatov.tools.memgraph.exe.rag;
 
-import com.github.javaparser.ast.Node;
 import io.github.ousatov.tools.memgraph.config.AppConfig;
 import io.github.ousatov.tools.memgraph.def.Const;
 import io.github.ousatov.tools.memgraph.def.Const.Params;
@@ -192,6 +191,7 @@ public abstract class CommonCodeChunkBuilder<T> {
       int endLine) {
     boolean method = methodLike(memberType);
     boolean synthetic = startLine <= 0 || endLine <= 0;
+    String ragRole = memberRagRole(method, synthetic);
     chunks.add(
         chunk(
             method ? "Method" : "Field",
@@ -204,10 +204,17 @@ public abstract class CommonCodeChunkBuilder<T> {
             kind,
             startLine,
             endLine,
-            synthetic ? RAG_ROLE_SYNTHETIC : method ? RAG_ROLE_PRIMARY : RAG_ROLE_SECONDARY,
+            ragRole,
             synthetic,
             Const.Symbols.EMPTY,
             lines));
+  }
+
+  private static String memberRagRole(boolean method, boolean synthetic) {
+    if (synthetic) {
+      return RAG_ROLE_SYNTHETIC;
+    }
+    return method ? RAG_ROLE_PRIMARY : RAG_ROLE_SECONDARY;
   }
 
   private static boolean methodLike(String memberType) {
@@ -217,7 +224,7 @@ public abstract class CommonCodeChunkBuilder<T> {
         || Params.MODULE.equals(memberType);
   }
 
-  @SuppressWarnings(Const.Warnings.TOO_MANY_PARAMETERS)
+  @SuppressWarnings("java:S107")
   protected final CodeChunkWrite chunk(
       String sourceLabel,
       String sourceId,
@@ -265,15 +272,7 @@ public abstract class CommonCodeChunkBuilder<T> {
         sha256(text));
   }
 
-  protected final int beginLine(Node node) {
-    return node.getBegin().map(position -> position.line).orElse(0);
-  }
-
-  protected final int endLine(Node node) {
-    return node.getEnd().map(position -> position.line).orElse(0);
-  }
-
-  @SuppressWarnings(Const.Warnings.TOO_MANY_PARAMETERS)
+  @SuppressWarnings("java:S107")
   private static String text(
       String language,
       Path file,
@@ -308,10 +307,10 @@ public abstract class CommonCodeChunkBuilder<T> {
     if (lines.isEmpty()) {
       return Const.Symbols.EMPTY;
     }
-    int safeStart = startLine <= 0 ? 1 : Math.min(startLine, lines.size());
-    int safeEnd = endLine <= 0 ? safeStart : Math.max(safeStart, Math.min(endLine, lines.size()));
+    int safeStart = startLine <= 0 ? 1 : Math.clamp(startLine, 1, lines.size());
+    int safeEnd = endLine <= 0 ? safeStart : Math.clamp(endLine, safeStart, lines.size());
     int docStart = documentationStart(lines, safeStart);
-    int limitedEnd = Math.min(safeEnd, docStart + MAX_EXCERPT_LINES - 1);
+    int limitedEnd = Math.clamp(docStart + MAX_EXCERPT_LINES - 1, docStart, safeEnd);
     return String.join(Const.Symbols.NEW_LINE, lines.subList(docStart - 1, limitedEnd));
   }
 
@@ -335,7 +334,7 @@ public abstract class CommonCodeChunkBuilder<T> {
   }
 
   private static int blockCommentStart(List<String> lines, int previous, int fallbackStartLine) {
-    int lowerBound = Math.max(0, previous - DOC_LOOKBACK_LINES);
+    int lowerBound = Math.clamp(previous - DOC_LOOKBACK_LINES, 0, previous);
     for (int i = previous; i >= lowerBound; i--) {
       String trimmed = lines.get(i).trim();
       if (trimmed.startsWith("/*")) {
@@ -347,7 +346,7 @@ public abstract class CommonCodeChunkBuilder<T> {
 
   private static int lineCommentStart(List<String> lines, int previous) {
     int current = previous;
-    int lowerBound = Math.max(0, previous - DOC_LOOKBACK_LINES);
+    int lowerBound = Math.clamp(previous - DOC_LOOKBACK_LINES, 0, previous);
     while (current >= lowerBound && isLineDocComment(lines.get(current).trim())) {
       current--;
     }
@@ -374,9 +373,13 @@ public abstract class CommonCodeChunkBuilder<T> {
   }
 
   private static String sha256(String text) {
-    MessageDigest digest = SHA_256.get();
-    digest.reset();
-    return HexFormat.of().formatHex(digest.digest(text.getBytes(StandardCharsets.UTF_8)));
+    try {
+      MessageDigest digest = SHA_256.get();
+      digest.reset();
+      return HexFormat.of().formatHex(digest.digest(text.getBytes(StandardCharsets.UTF_8)));
+    } finally {
+      SHA_256.remove();
+    }
   }
 
   private static MessageDigest newSha256() {

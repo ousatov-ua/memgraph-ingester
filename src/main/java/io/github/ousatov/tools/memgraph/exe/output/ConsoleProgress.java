@@ -14,6 +14,7 @@ import java.util.concurrent.TimeUnit;
  *
  * @author Oleksii Usatov
  */
+@SuppressWarnings("java:S106")
 public final class ConsoleProgress implements AutoCloseable {
 
   private static final int LABEL_WIDTH = 50;

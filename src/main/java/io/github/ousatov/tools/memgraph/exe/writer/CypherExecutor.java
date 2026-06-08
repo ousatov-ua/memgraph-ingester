@@ -206,7 +206,7 @@ final class CypherExecutor {
       Thread.currentThread().interrupt();
       throw new ProcessingException("Interrupted during retry", ie);
     }
-    long nextBackoffMs = Math.min(backoffMs * 2, MAX_BACKOFF_MS);
+    long nextBackoffMs = Math.clamp(backoffMs * 2, 0L, MAX_BACKOFF_MS);
     log.debug("Conflict on attempt {}; will retry: {}", attempt, e.getMessage());
     return nextBackoffMs;
   }

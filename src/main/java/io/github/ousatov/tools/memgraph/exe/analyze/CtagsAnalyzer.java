@@ -15,6 +15,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -129,12 +131,11 @@ public final class CtagsAnalyzer {
 
   private static List<String> arguments(String... values) {
     List<String> arguments = new ArrayList<>(BUILT_IN_OPTIONS);
-    for (String value : values) {
-      arguments.add(value);
-    }
+    Collections.addAll(arguments, values);
     return List.copyOf(arguments);
   }
 
+  @SuppressWarnings(Const.Warnings.COGNITIVE_COMPLEXITY)
   private CtagsAnalysis analysisFromTags(Path file, SourceLanguage language, List<CtagsTag> tags) {
     String modulePath = CtagsNames.modulePath(sourceRoot, file);
     String moduleFqn = CtagsNames.moduleFqn(language, sourceRoot, file);
@@ -153,15 +154,14 @@ public final class CtagsAnalyzer {
     }
     while (!pendingTypeTags.isEmpty()) {
       boolean resolvedAny = false;
-      for (int index = 0; index < pendingTypeTags.size(); ) {
-        CtagsTag tag = pendingTypeTags.get(index);
+      for (Iterator<CtagsTag> iterator = pendingTypeTags.iterator(); iterator.hasNext(); ) {
+        CtagsTag tag = iterator.next();
         Optional<String> ownerFqn = resolvedOwnerFqn(moduleFqn, tag.scope(), typeFqnsByScope);
         if (ownerFqn.isEmpty()) {
-          index++;
           continue;
         }
         addTypeDecl(types, typeFqnsByScope, tag, graphKind(tag.kind()), ownerFqn.get());
-        pendingTypeTags.remove(index);
+        iterator.remove();
         resolvedAny = true;
       }
       if (!resolvedAny) {
@@ -175,27 +175,26 @@ public final class CtagsAnalyzer {
     List<io.github.ousatov.tools.memgraph.vo.analysis.ctags.MemberDecl> members = new ArrayList<>();
     for (CtagsTag tag : tags) {
       String graphKind = graphKind(tag.kind());
-      if (isTypeGraphKind(graphKind) || !isMemberGraphKind(graphKind)) {
-        continue;
+      if (!isTypeGraphKind(graphKind) && isMemberGraphKind(graphKind)) {
+        String ownerFqn = ownerFqn(moduleFqn, tag.scope(), typeFqnsByScope);
+        String memberType = isMethodGraphKind(graphKind) ? Params.METHOD : Params.FIELD;
+        String key =
+            Params.METHOD.equals(memberType)
+                ? CtagsNames.methodSignature(ownerFqn, tag.name(), tag.signature())
+                : CtagsNames.childFqn(ownerFqn, tag.name());
+        members.add(
+            new io.github.ousatov.tools.memgraph.vo.analysis.ctags.MemberDecl(
+                ownerFqn,
+                memberType,
+                graphKind,
+                key,
+                tag.name(),
+                tag.typeref(),
+                tag.isStatic(),
+                tag.access(),
+                tag.line(),
+                tag.endLine()));
       }
-      String ownerFqn = ownerFqn(moduleFqn, tag.scope(), typeFqnsByScope);
-      String memberType = isMethodGraphKind(graphKind) ? Params.METHOD : Params.FIELD;
-      String key =
-          Params.METHOD.equals(memberType)
-              ? CtagsNames.methodSignature(ownerFqn, tag.name(), tag.signature())
-              : CtagsNames.childFqn(ownerFqn, tag.name());
-      members.add(
-          new io.github.ousatov.tools.memgraph.vo.analysis.ctags.MemberDecl(
-              ownerFqn,
-              memberType,
-              graphKind,
-              key,
-              tag.name(),
-              tag.typeref(),
-              tag.isStatic(),
-              tag.access(),
-              tag.line(),
-              tag.endLine()));
     }
     return new CtagsAnalysis(
         language, moduleFqn, moduleName, packageName, modulePath, 1, endLine, types, members);

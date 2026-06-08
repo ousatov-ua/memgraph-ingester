@@ -13,6 +13,7 @@ import java.time.format.DateTimeFormatter;
  *
  * @author Oleksii Usatov
  */
+@SuppressWarnings("java:S106")
 public final class SimpleLoggerFile {
 
   private static final String LOG_FILE_PROPERTY = "org.slf4j.simpleLogger.logFile";

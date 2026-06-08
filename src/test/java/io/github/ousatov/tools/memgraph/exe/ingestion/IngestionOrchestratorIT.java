@@ -1,6 +1,7 @@
 package io.github.ousatov.tools.memgraph.exe.ingestion;
 
 import static org.awaitility.Awaitility.await;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -27,6 +28,7 @@ import io.github.ousatov.tools.memgraph.schema.MemgraphDriver;
 import io.github.ousatov.tools.memgraph.vo.Settings;
 import io.github.ousatov.tools.memgraph.vo.adapter.SourceFileDefinitions;
 import io.github.ousatov.tools.memgraph.vo.analysis.RuntimeMode;
+import io.github.ousatov.tools.memgraph.vo.ingestion.SourceFile;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -60,6 +62,7 @@ import org.neo4j.driver.Session;
  * @author Oleksii Usatov
  */
 @ExtendWith(MemgraphExtension.class)
+@SuppressWarnings({"java:S5443", "java:S5961"})
 class IngestionOrchestratorIT {
 
   private static final String PROJECT_BASE =
@@ -621,7 +624,7 @@ class IngestionOrchestratorIT {
     @Override
     public SourceFileDefinitions collectDefinitions(Path parsed) {
       String modulePath = sourceRoot.relativize(parsed).toString().replace('\\', '/');
-      String moduleName = modulePath.replaceAll("[^A-Za-z0-9]", "_");
+      String moduleName = modulePath.replaceAll("\\W", "_");
       String moduleFqn = "js.test." + moduleName;
       return SourceFileDefinitions.of(
           List.of(moduleFqn), List.of(), List.of(), List.of(moduleFqn + ".<init>()"), List.of());
@@ -631,7 +634,7 @@ class IngestionOrchestratorIT {
     public boolean write(GraphWriter writer, Path file, Path parsed) {
       JsGraphWriter jsWriter = new JsGraphWriter(writer.dependencies());
       String modulePath = sourceRoot.relativize(file).toString().replace('\\', '/');
-      String moduleName = modulePath.replaceAll("[^A-Za-z0-9]", "_");
+      String moduleName = modulePath.replaceAll("\\W", "_");
       String moduleFqn = "js.test." + moduleName;
       writer.upsertFile(file, language());
       writer.upsertPackage("js.test", language());
@@ -1491,7 +1494,6 @@ class IngestionOrchestratorIT {
   }
 
   @Test
-  @SuppressWarnings("java:S2699")
   void retainedRefreshCatchesSourceRootLookupFailure() throws Exception {
     currentProject = PROJECT_BASE + "-retained-refresh-lookup-failure";
     sourceDir = Files.createTempDirectory("orch-retained-refresh-lookup-failure-src-");
@@ -1501,11 +1503,17 @@ class IngestionOrchestratorIT {
 
     Session closedSession = driver.session();
     IngestionRunStats stats = new IngestionRunStats(1);
-    GraphWriter writer = new GraphWriter(closedSession, currentProject, stats);
-    closedSession.close();
+    GraphWriter writer;
+    try (closedSession) {
+      writer = new GraphWriter(closedSession, currentProject, stats);
+    }
+    Set<Path> retainedFiles = Set.of(sourceDir.resolve("Retained.java"));
+    Map<Path, SourceFile> currentFilesByPath = Map.of();
 
-    orchestrator.refreshRetainedFilesAfterDelete(
-        writer, Set.of(sourceDir.resolve("Retained.java")), Map.of(), stats);
+    assertDoesNotThrow(
+        () ->
+            orchestrator.refreshRetainedFilesAfterDelete(
+                writer, retainedFiles, currentFilesByPath, stats));
   }
 
   @Test

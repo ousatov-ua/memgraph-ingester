@@ -94,6 +94,7 @@ public final class PythonAnalyzer {
         line -> log.debug("Ignoring unknown Python analyzer record: {}", line));
   }
 
+  @SuppressWarnings("java:S5443")
   private static Path extractHelperScript() {
     String resourcePath = HELPER_RESOURCE_DIR + HELPER_SCRIPT_NAME;
     try (InputStream in = PythonAnalyzer.class.getResourceAsStream(resourcePath)) {
@@ -109,6 +110,10 @@ public final class PythonAnalyzer {
     } catch (IOException e) {
       throw new ProcessingException("Could not extract Python analyzer helper", e);
     }
+  }
+
+  Path helperScript() {
+    return helperScript;
   }
 
   public PythonAnalysis analyze(Path file) {

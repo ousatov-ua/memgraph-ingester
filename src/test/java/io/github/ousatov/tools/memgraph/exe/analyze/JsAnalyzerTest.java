@@ -9,7 +9,6 @@ import io.github.ousatov.tools.memgraph.exception.ProcessingException;
 import io.github.ousatov.tools.memgraph.vo.analysis.JsAnalysis;
 import io.github.ousatov.tools.memgraph.vo.analysis.RuntimeMode;
 import java.io.IOException;
-import java.lang.reflect.Field;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.concurrent.TimeUnit;
@@ -29,7 +28,7 @@ class JsAnalyzerTest {
   @TempDir private static Path tempDir;
 
   @Test
-  void withSourceRootReusesExtractedHelperScripts() throws ReflectiveOperationException {
+  void withSourceRootReusesExtractedHelperScripts() {
     Path runtimeCache = tempDir.resolve("runtime");
     JsAnalyzer analyzer =
         new JsAnalyzer(
@@ -43,7 +42,7 @@ class JsAnalyzerTest {
 
     JsAnalyzer rebased = analyzer.withSourceRoot(tempDir.resolve("other-root"));
 
-    assertSame(helperScript(analyzer), helperScript(rebased));
+    assertSame(analyzer.helperScript(), rebased.helperScript());
   }
 
   @Test
@@ -765,12 +764,6 @@ class JsAnalyzerTest {
       assumeTrue(false, "Managed TypeScript package unavailable: " + e.getMessage());
       throw e;
     }
-  }
-
-  private static Path helperScript(JsAnalyzer analyzer) throws ReflectiveOperationException {
-    Field field = JsAnalyzer.class.getDeclaredField("helperScript");
-    field.setAccessible(true);
-    return (Path) field.get(analyzer);
   }
 
   private static boolean systemNodeAvailable() {

@@ -15,6 +15,7 @@ import org.slf4j.LoggerFactory;
  *
  * @author Oleksii Usatov
  */
+@SuppressWarnings("java:S5443")
 class RuntimeSmokeCheckTest {
 
   @Test

@@ -87,7 +87,7 @@ class ConsoleProgressTest {
     ByteArrayOutputStream bytes = new ByteArrayOutputStream();
     PrintStream out = new PrintStream(bytes, true, StandardCharsets.UTF_8);
 
-    try (ConsoleProgress _ =
+    try (var _ =
         ConsoleProgress.indeterminate("Resolving graph", out, true, Duration.ofSeconds(60), true)) {
       assertTrue(ConsoleStatusLine.hasExclusiveStatus(out));
     }

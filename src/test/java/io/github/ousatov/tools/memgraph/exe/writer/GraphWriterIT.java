@@ -49,6 +49,7 @@ import org.neo4j.driver.Session;
  * @author Oleksii Usatov
  */
 @ExtendWith(MemgraphExtension.class)
+@SuppressWarnings({"java:S5443", "java:S5961"})
 class GraphWriterIT {
 
   private static final String PROJECT = "test-gw-" + UUID.randomUUID().toString().substring(0, 8);

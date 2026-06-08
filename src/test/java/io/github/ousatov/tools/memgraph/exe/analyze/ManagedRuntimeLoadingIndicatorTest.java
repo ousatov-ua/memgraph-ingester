@@ -103,8 +103,7 @@ class ManagedRuntimeLoadingIndicatorTest {
     ByteArrayOutputStream bytes = new ByteArrayOutputStream();
     PrintStream out = new PrintStream(bytes, true, StandardCharsets.UTF_8);
 
-    try (ManagedRuntimeLoadingIndicator ignored =
-        ManagedRuntimeLoadingIndicator.start("test runtime", out, Duration.ofMillis(5))) {
+    try (var _ = ManagedRuntimeLoadingIndicator.start("test runtime", out, Duration.ofMillis(5))) {
       // Closing without marking success should leave a visible failure status.
     }
 

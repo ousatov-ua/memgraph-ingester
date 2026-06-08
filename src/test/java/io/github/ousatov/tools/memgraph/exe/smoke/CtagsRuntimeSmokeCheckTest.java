@@ -12,6 +12,7 @@ import org.junit.jupiter.api.Test;
  *
  * @author Oleksii Usatov
  */
+@SuppressWarnings("java:S5443")
 class CtagsRuntimeSmokeCheckTest {
 
   @Test

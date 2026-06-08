@@ -39,7 +39,7 @@ import org.slf4j.LoggerFactory;
  *
  * @author Oleksii Usatov
  */
-public final class ParseService {
+public final class ParseService implements AutoCloseable {
 
   private static final Logger log = LoggerFactory.getLogger(ParseService.class);
   private static final List<Path> STANDARD_JAVA_SOURCE_ROOT_SUFFIXES =
@@ -78,6 +78,11 @@ public final class ParseService {
    */
   public JavaParser parserForCurrentThread() {
     return parser.get();
+  }
+
+  @Override
+  public void close() {
+    parser.remove();
   }
 
   /**
@@ -151,6 +156,7 @@ public final class ParseService {
    * @return path to the filtered temp JAR
    * @throws IOException on read/write failure
    */
+  @SuppressWarnings("java:S5443")
   static Path createFilteredJar(Path originalJar) throws IOException {
     Path temp = Files.createTempFile("memgraph-ingester-filtered-", ".jar");
     temp.toFile().deleteOnExit();
