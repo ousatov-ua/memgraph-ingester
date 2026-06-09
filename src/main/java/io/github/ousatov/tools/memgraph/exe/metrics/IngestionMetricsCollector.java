@@ -39,6 +39,7 @@ public final class IngestionMetricsCollector {
           query(Params.IMPLEMENTS, "implements.cypher"),
           query("annotated_with", "annotated-with.cypher"),
           query("pending_calls", "pending-calls.cypher"),
+          query("pending_calls.name_only", "pending-calls-name-only.cypher"),
           query("resolved_code_refs", "resolved-code-refs.cypher"));
 
   private IngestionMetricsCollector() {

@@ -1,6 +1,7 @@
 package io.github.ousatov.tools.memgraph.exe.writer;
 
 import com.github.javaparser.ast.Node;
+import com.github.javaparser.ast.expr.LambdaExpr;
 import com.github.javaparser.ast.expr.MethodCallExpr;
 import com.github.javaparser.ast.expr.MethodReferenceExpr;
 import com.github.javaparser.ast.expr.ObjectCreationExpr;
@@ -84,6 +85,12 @@ final class CallEdgeWriter {
     }
   }
 
+  /**
+   * Records an unresolved call by owner/name. When the scope type is also unresolvable (e.g. a
+   * lambda-parameter receiver), only explicitly inferable receiver forms are recorded with an empty
+   * owner FQN so post-processing can still resolve them by unique method name instead of dropping
+   * them.
+   */
   private void upsertMethodCallFallback(
       List<PendingCallWrite> pendingCalls, String callerSig, String ownerFqn, MethodCallExpr call) {
     if (call.getScope().isEmpty()) {
@@ -91,9 +98,30 @@ final class CallEdgeWriter {
       return;
     }
     JavaTypeNames.resolveScopeTypeFqn(call)
-        .ifPresent(
-            scopeFqn ->
-                upsertCallByName(pendingCalls, callerSig, scopeFqn, call.getNameAsString()));
+        .ifPresentOrElse(
+            scopeFqn -> upsertCallByName(pendingCalls, callerSig, scopeFqn, call.getNameAsString()),
+            () -> upsertNameOnlyCallWhenLambdaParameter(pendingCalls, callerSig, call));
+  }
+
+  private void upsertNameOnlyCallWhenLambdaParameter(
+      List<PendingCallWrite> pendingCalls, String callerSig, MethodCallExpr call) {
+    if (isLambdaParameterScope(call)) {
+      pendingCalls.add(PendingCallWrite.allowNameOnly(callerSig, call.getNameAsString()));
+    }
+  }
+
+  private static boolean isLambdaParameterScope(MethodCallExpr call) {
+    var scope = call.getScope().orElse(null);
+    if (scope == null || !scope.isNameExpr()) {
+      return false;
+    }
+    String scopeName = scope.asNameExpr().getNameAsString();
+    return call.findAncestor(LambdaExpr.class)
+        .map(
+            lambda ->
+                lambda.getParameters().stream()
+                    .anyMatch(parameter -> scopeName.equals(parameter.getNameAsString())))
+        .orElse(false);
   }
 
   /**

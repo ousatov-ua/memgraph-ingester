@@ -19,6 +19,7 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * Writes homogeneous graph node and edge payloads through batch-capable Cypher statements.
@@ -92,8 +93,16 @@ final class GraphNodeWriter {
     runBatch(Cypher.CYPHER_UPSERT_CALLS_BATCH, calls);
   }
 
+  /**
+   * Resolves owner/name call records eagerly. Records with an empty owner FQN (unresolvable call
+   * scope, e.g. a lambda-parameter receiver) cannot be matched eagerly and are persisted as {@code
+   * PendingCall} nodes for post-processing name-only resolution.
+   */
   void upsertCallsByName(Collection<PendingCallWrite> calls) {
-    runBatch(Cypher.CYPHER_UPSERT_CALLS_BY_NAME_BATCH, calls);
+    Map<Boolean, List<PendingCallWrite>> byUnknownOwner =
+        calls.stream().collect(Collectors.partitioningBy(call -> call.ownerFqn().isEmpty()));
+    runBatch(Cypher.CYPHER_UPSERT_CALLS_BY_NAME_BATCH, byUnknownOwner.get(false));
+    runBatch(Cypher.CYPHER_UPSERT_PENDING_CALLS_BY_NAME_BATCH, byUnknownOwner.get(true));
   }
 
   void upsertPendingCallsByName(Collection<PendingCallWrite> calls) {

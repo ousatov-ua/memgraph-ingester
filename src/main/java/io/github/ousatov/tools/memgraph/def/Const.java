@@ -172,6 +172,7 @@ public final class Const {
     public static final String CYPHER_WIPE_PROJECT_MEMORIES =
         action("wipe-project-memories.cypher");
     public static final String CYPHER_RESOLVE_CODE_REFS = action("resolve-code-refs.cypher");
+    public static final String CYPHER_UPSERT_PROJECT_ROOT = action("upsert-project-root.cypher");
     public static final String CYPHER_UPSERT_PROJECT = action("upsert-project.cypher");
     public static final String CYPHER_UPSERT_FILE = action("upsert-file.cypher");
     public static final String CYPHER_UPSERT_PACKAGE = action("upsert-package.cypher");
@@ -408,7 +409,7 @@ public final class Const {
   /** Command line option names and aliases. */
   public static class Cli {
 
-    public static final String VERSION = "12.3.0";
+    public static final String VERSION = "12.3.1";
     public static final String USER_SHORT = "-u";
     public static final String USER = "--user";
     public static final String PASS_SHORT = "-p";
@@ -530,6 +531,7 @@ public final class Const {
     public static final String CALLEE_NAME = "calleeName";
     public static final String CALLEE_OWNER_FQN = "calleeOwnerFqn";
     public static final String CALLEE_SIGNATURE = "calleeSignature";
+    public static final String ALLOW_NAME_ONLY = "allowNameOnly";
     public static final String OWNER_FQN = "ownerFqn";
     public static final String OWNER_DISPLAY_NAME = "ownerDisplayName";
     public static final String FQN = "fqn";

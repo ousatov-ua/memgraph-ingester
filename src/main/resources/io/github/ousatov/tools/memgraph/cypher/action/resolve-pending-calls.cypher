@@ -21,11 +21,22 @@ WITH pending, caller, callCount, directCandidates, classCandidates, classInterfa
      collect(DISTINCT interfaceCallee) AS interfaceCandidates
 WITH pending, caller, callCount, directCandidates, classCandidates,
      classInterfaceCandidates + interfaceCandidates AS inheritedInterfaceCandidates
+OPTIONAL MATCH (nameOnlyCallee:Method {name: pending.calleeName, project: $project})
+WHERE pending.calleeOwnerFqn = ''
+  AND coalesce(pending.allowNameOnly, false) = true
+  AND size(directCandidates) = 0
+  AND size(classCandidates) = 0
+  AND size(inheritedInterfaceCandidates) = 0
+  AND nameOnlyCallee.startLine IS NOT NULL
+  AND nameOnlyCallee <> caller
+WITH pending, caller, callCount, directCandidates, classCandidates, inheritedInterfaceCandidates,
+     collect(DISTINCT nameOnlyCallee) AS nameOnlyCandidates
 WITH pending, caller, callCount,
      CASE
        WHEN size(directCandidates) > 0 THEN directCandidates
        WHEN size(classCandidates) > 0 THEN classCandidates
-       ELSE inheritedInterfaceCandidates
+       WHEN size(inheritedInterfaceCandidates) > 0 THEN inheritedInterfaceCandidates
+       ELSE nameOnlyCandidates
      END AS candidates
 WHERE size(candidates) = 1
 WITH pending, caller, candidates[0] AS callee, callCount

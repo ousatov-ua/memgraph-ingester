@@ -234,6 +234,15 @@ class CypherResourceTest {
     assertFalse(Const.Cypher.CYPHER_RESOLVE_PENDING_CALLS.contains("[:EXTENDS*0..16]"));
     assertFalse(Const.Cypher.CYPHER_RESOLVE_PENDING_CALLS_SCOPED.contains("[:EXTENDS*1..16]"));
     assertFalse(Const.Cypher.CYPHER_RESOLVE_PENDING_CALLS_SCOPED.contains("[:EXTENDS*0..16]"));
+    assertContainsAll(
+        Const.Cypher.CYPHER_UPSERT_PENDING_CALLS_BY_NAME_BATCH,
+        "row.allowNameOnly",
+        "pending.allowNameOnly");
+    assertContainsAll(
+        Const.Cypher.CYPHER_RESOLVE_PENDING_CALLS, "coalesce(pending.allowNameOnly, false) = true");
+    assertContainsAll(
+        Const.Cypher.CYPHER_RESOLVE_PENDING_CALLS_SCOPED,
+        "coalesce(pending.allowNameOnly, false) = true");
 
     assertTrue(Const.Cypher.CYPHER_DELETE_CODE_CHUNKS_FOR_FILE.contains("chunk:CodeChunk"));
     assertContainsAll(

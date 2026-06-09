@@ -271,6 +271,20 @@ class IngestionOrchestratorIT {
     }
   }
 
+  private static List<String> codeRootLanguages(String project) {
+    try (Session s = driver.session()) {
+      return s.run(
+              """
+              MATCH (:Project {name: $p})-[:CONTAINS]->(:Language)
+                    -[:CONTAINS]->(code:Code {project: $p})
+              RETURN code.language AS language
+              ORDER BY language
+              """,
+              Map.of("p", project))
+          .list(row -> row.get("language").asString());
+    }
+  }
+
   private static void createClassCodeRef(String project, String fqn) {
     try (Session s = driver.session()) {
       s.run(
@@ -383,6 +397,41 @@ class IngestionOrchestratorIT {
       writer.upsertFile(file, language());
       writer.upsertPackage("js.test", language());
       jsWriter.upsertModule(file, "js.test", "js.test.App", "App", "app.ts", 1, 1);
+      return true;
+    }
+  }
+
+  /**
+   * Minimal Python adapter used to verify language-root bootstrapping without invoking Python.
+   *
+   * @author Oleksii Usatov
+   */
+  private static final class StubPythonLanguageAdapter implements LanguageAdapter<Path> {
+
+    @Override
+    public SourceLanguage language() {
+      return SourceLanguage.PYTHON;
+    }
+
+    @Override
+    public boolean accepts(Path file) {
+      return file.toString().endsWith(".py");
+    }
+
+    @Override
+    public Optional<Path> parse(Path file) {
+      return Optional.of(file);
+    }
+
+    @Override
+    public SourceFileDefinitions collectDefinitions(Path parsed) {
+      return SourceFileDefinitions.empty();
+    }
+
+    @Override
+    public boolean write(GraphWriter writer, Path file, Path parsed) {
+      writer.upsertFile(file, language());
+      writer.upsertPackage("python.test", language());
       return true;
     }
   }
@@ -977,6 +1026,36 @@ class IngestionOrchestratorIT {
   }
 
   @Test
+  void wipeProjectCodeRecreatesOnlyDiscoveredLanguageRoots() throws Exception {
+    currentProject = PROJECT_BASE + "-discovered-roots";
+    sourceDir = Files.createTempDirectory("orch-discovered-roots-src-");
+    Path javaFile =
+        Files.writeString(
+            sourceDir.resolve("Good.java"), "public class Good { int ok() { return 1; } }");
+    IngestionOrchestrator orchestrator =
+        new IngestionOrchestrator(
+            sourceDir,
+            currentProject,
+            1,
+            driver,
+            List.of(
+                new JavaLanguageAdapter(new ParseService(sourceDir)),
+                new StubPythonLanguageAdapter()));
+
+    assertEquals(0, orchestrator.run(Settings.def()));
+    assertEquals(List.of("java"), codeRootLanguages(currentProject));
+    assertTrue(fileExistsInGraph(currentProject, javaFile));
+
+    Files.delete(javaFile);
+    Path pythonFile = Files.writeString(sourceDir.resolve("app.py"), "value = 1\n");
+
+    assertEquals(0, orchestrator.run(Settings.wipeProjCodeOnly()));
+    assertEquals(List.of("python"), codeRootLanguages(currentProject));
+    assertFalse(fileExistsInGraph(currentProject, javaFile));
+    assertTrue(fileExistsInGraph(currentProject, pythonFile));
+  }
+
+  @Test
   void reingestionAndWatchRefreshCodeChunksFromJavaDocumentation() throws Exception {
     sourceDir = Files.createTempDirectory("orch-rag-src-");
     currentProject = PROJECT_BASE + "-rag-chunks";
@@ -1276,6 +1355,10 @@ class IngestionOrchestratorIT {
         .pollInterval(Duration.ofMillis(50))
         .until(() -> worker.getState() == Thread.State.WAITING);
     await().pollDelay(Duration.ofMillis(300)).atMost(Duration.ofSeconds(1)).until(() -> true);
+    assertEquals(
+        List.of("java"),
+        codeRootLanguages(currentProject),
+        "Watch mode must bootstrap roots even when the initial source tree is empty");
 
     Path watchedFile = sourceDir.resolve("Watched.java");
     createClassCodeRef(currentProject, "Watched");
@@ -3522,6 +3605,125 @@ class IngestionOrchestratorIT {
               .get("n")
               .asLong();
       assertEquals(0, phantomMethods, "No phantom Method nodes must remain after phantom cleanup");
+    }
+  }
+
+  /**
+   * Verifies that a call whose receiver is a lambda parameter of an unresolvable functional
+   * interface is persisted as a name-only PendingCall and resolved to a CALLS edge during
+   * post-processing instead of being silently dropped.
+   */
+  @Test
+  void lambdaParameterCallResolvedViaNameOnlyPendingCall() throws Exception {
+    currentProject = PROJECT_BASE + "-lambda";
+    sourceDir = Files.createTempDirectory("orch-lambda-src-");
+    Path pkgDir = sourceDir.resolve("com/example");
+    Files.createDirectories(pkgDir);
+
+    // Handler comes from an unresolvable external library, so the lambda parameter type — and
+    // therefore the scope type of t.process() — cannot be resolved at parse time.
+    Files.writeString(
+        pkgDir.resolve("LambdaCaller.java"),
+        """
+        package com.example;
+
+        import com.unknown.lib.Handler;
+
+        public class LambdaCaller {
+          public void register(Handler<LambdaTarget> handler) {}
+
+          public void wire() {
+            register(t -> t.process());
+          }
+        }
+        """);
+    Files.writeString(
+        pkgDir.resolve("LambdaTarget.java"),
+        """
+        package com.example;
+
+        public class LambdaTarget {
+          public void process() {}
+        }
+        """);
+
+    int failures =
+        new IngestionOrchestrator(sourceDir, currentProject, 1, driver, new ParseService(sourceDir))
+            .run(Settings.def());
+
+    assertEquals(0, failures);
+    try (Session s = driver.session()) {
+      long callEdges =
+          s.run(
+                  "MATCH (:Method {name: 'wire', project: $p})"
+                      + "-[:CALLS]->(:Method {name: 'process', project: $p})"
+                      + " RETURN count(*) AS n",
+                  Map.of("p", currentProject))
+              .single()
+              .get("n")
+              .asLong();
+      assertEquals(
+          1, callEdges, "Lambda-parameter call must resolve via name-only PendingCall matching");
+
+      long unresolvedNameOnly =
+          s.run(
+                  "MATCH (p:PendingCall {project: $p}) WHERE p.calleeOwnerFqn = ''"
+                      + " RETURN count(p) AS n",
+                  Map.of("p", currentProject))
+              .single()
+              .get("n")
+              .asLong();
+      assertEquals(0, unresolvedNameOnly, "Resolved name-only PendingCall must be deleted");
+    }
+  }
+
+  @Test
+  void unresolvedExternalReceiverDoesNotResolveViaNameOnlyPendingCall() throws Exception {
+    currentProject = PROJECT_BASE + "-external-receiver";
+    sourceDir = Files.createTempDirectory("orch-external-receiver-src-");
+    Path pkgDir = sourceDir.resolve("com/example");
+    Files.createDirectories(pkgDir);
+
+    Files.writeString(
+        pkgDir.resolve("ExternalCaller.java"),
+        """
+        package com.example;
+
+        import com.unknown.lib.ExternalClient;
+
+        public class ExternalCaller {
+          private ExternalClient client;
+
+          public void run() {
+            client.process();
+          }
+
+          public void process() {}
+        }
+        """);
+
+    int failures =
+        new IngestionOrchestrator(sourceDir, currentProject, 1, driver, new ParseService(sourceDir))
+            .run(Settings.def());
+
+    assertEquals(0, failures);
+    try (Session s = driver.session()) {
+      long falseCallEdges =
+          s.run(
+                  "MATCH (:Method {project: $p, signature: $caller})"
+                      + "-[:CALLS]->(:Method {project: $p, signature: $callee})"
+                      + " RETURN count(*) AS n",
+                  Map.of(
+                      "p",
+                      currentProject,
+                      "caller",
+                      "com.example.ExternalCaller.run()",
+                      "callee",
+                      "com.example.ExternalCaller.process()"))
+              .single()
+              .get("n")
+              .asLong();
+      assertEquals(0, falseCallEdges, "External receiver must not resolve to local method by name");
     }
   }
 

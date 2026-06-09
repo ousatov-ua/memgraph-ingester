@@ -133,7 +133,7 @@ class IngestionMetricsTest {
 
   @Test
   void loadsMetricQueriesFromPackagedResources() {
-    assertEquals(15, IngestionMetricsCollector.resourceNames().size());
+    assertEquals(16, IngestionMetricsCollector.resourceNames().size());
     for (String resourceName : IngestionMetricsCollector.resourceNames()) {
       assertNotNull(
           IngestionMetricsCollector.class.getResource(
