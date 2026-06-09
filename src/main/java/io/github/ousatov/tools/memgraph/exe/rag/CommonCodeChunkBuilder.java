@@ -44,7 +44,7 @@ public abstract class CommonCodeChunkBuilder<T> {
   private static final int DOC_LOOKBACK_LINES = AppConfig.intValue("rag.doc-lookback-lines");
   private static final int ID_HASH_LENGTH = 16;
   private static final int MAX_WORDS = 32;
-  private static final int MIN_WORD_LENGTH = 2;
+  private static final int MIN_WORD_LENGTH = 3;
   private static final Pattern WORD_BOUNDARY =
       Pattern.compile("(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])|[^A-Za-z0-9]+");
   private static final String RAG_ROLE_FILE = "file";
@@ -294,7 +294,9 @@ public abstract class CommonCodeChunkBuilder<T> {
     appendField(builder, "Kind", kind);
     String owner = sourceId.equals(ownerFqn) ? Const.Symbols.EMPTY : simpleName(ownerFqn);
     appendField(builder, "Owner", owner);
-    appendField(builder, "Words", identifierWords(name, owner, defines));
+    // File chunks: restrict Words to type names + file stem; method vocabulary floods embeddings.
+    String wordsInput = "file".equals(kind) ? typeNamesOnly(defines) : defines;
+    appendField(builder, "Words", identifierWords(name, owner, wordsInput));
     appendField(builder, "Defines", defines);
     builder.append("Source excerpt:\n").append(excerpt(lines, startLine, endLine)).append('\n');
     return builder.toString().strip();
@@ -306,6 +308,21 @@ public abstract class CommonCodeChunkBuilder<T> {
       return Const.Symbols.EMPTY;
     }
     return JavaTypeNames.nameFromFqn(fqn);
+  }
+
+  /**
+   * Extracts the type-names portion of a {@link #buildDefinesSummary} string, stripping method
+   * names so file-chunk {@code Words:} lines don't flood the embedding with method vocabulary.
+   */
+  private static String typeNamesOnly(String defines) {
+    if (defines == null || defines.isBlank()) {
+      return Const.Symbols.EMPTY;
+    }
+    int methodsIdx = defines.indexOf("; methods:");
+    if (methodsIdx >= 0) {
+      return defines.substring(0, methodsIdx);
+    }
+    return defines.startsWith("methods:") ? Const.Symbols.EMPTY : defines;
   }
 
   /**

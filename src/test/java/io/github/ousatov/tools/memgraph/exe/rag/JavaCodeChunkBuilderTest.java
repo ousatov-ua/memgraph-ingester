@@ -94,7 +94,7 @@ class JavaCodeChunkBuilderTest {
                 Name: doWork
                 Kind: method
                 Owner: WidgetFactory
-                Words: do work widget factory
+                Words: work widget factory
                 Source excerpt:
                 """));
     assertFalse(method.text().contains("Path: "));
@@ -123,7 +123,7 @@ class JavaCodeChunkBuilderTest {
             .orElseThrow();
     assertTrue(fileChunk.text().contains("Name: WidgetFactory.java"));
     assertTrue(fileChunk.text().contains("Kind: file"));
-    assertTrue(fileChunk.text().contains("Words: widget factory java class methods do work"));
+    assertTrue(fileChunk.text().contains("Words: widget factory java class"));
     assertTrue(fileChunk.text().contains("Defines: WidgetFactory (class); methods: doWork"));
     assertTrue(fileChunk.text().contains("Source excerpt:\npackage com.example;"));
     assertFalse(fileChunk.text().contains("Path: "));

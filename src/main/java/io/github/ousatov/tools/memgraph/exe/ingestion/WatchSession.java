@@ -161,6 +161,7 @@ final class WatchSession {
         pendingFiles.addAll(watchFiles);
         if (reconcileDeletedWatchFiles(watchFiles, writer, stats)) {
           orchestrator.refreshDerivedGraphArtifacts(writer);
+          orchestrator.refreshChunkEmbeddings(writer, true);
         }
         return;
       }
