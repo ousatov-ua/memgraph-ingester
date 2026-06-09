@@ -1355,6 +1355,10 @@ class IngestionOrchestratorIT {
         .pollInterval(Duration.ofMillis(50))
         .until(() -> worker.getState() == Thread.State.WAITING);
     await().pollDelay(Duration.ofMillis(300)).atMost(Duration.ofSeconds(1)).until(() -> true);
+    assertEquals(
+        List.of("java"),
+        codeRootLanguages(currentProject),
+        "Watch mode must bootstrap roots even when the initial source tree is empty");
 
     Path watchedFile = sourceDir.resolve("Watched.java");
     createClassCodeRef(currentProject, "Watched");

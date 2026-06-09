@@ -157,7 +157,7 @@ public final class IngestionOrchestrator {
     this.incremental = settings.incremental();
 
     List<SourceFile> files = discoverSourceFiles();
-    runBootstrap(settings, stats, sourceLanguages(files));
+    runBootstrap(settings, stats, bootstrapLanguages(settings, files));
     stats.setTotalFiles(files.size());
     List<Path> retainedSourcePaths = retainedSourcePaths(files, stats);
     String discoveryMessage =
@@ -706,6 +706,10 @@ public final class IngestionOrchestrator {
         .flatMap(adapter -> adapter.staticLanguage().stream())
         .distinct()
         .toList();
+  }
+
+  private List<SourceLanguage> bootstrapLanguages(Settings settings, List<SourceFile> files) {
+    return settings.watch() ? languages() : sourceLanguages(files);
   }
 
   private static List<SourceLanguage> sourceLanguages(List<SourceFile> files) {
