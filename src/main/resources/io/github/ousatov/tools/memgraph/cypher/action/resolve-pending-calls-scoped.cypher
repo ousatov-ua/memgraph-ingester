@@ -24,7 +24,7 @@ WHERE callerChanged
   OR changedClassAncestors > 0
   OR changedInterfaceAncestors > 0
   OR changedImplementedInterfaces > 0
-  OR pending.calleeOwnerFqn = ''
+  OR (pending.calleeOwnerFqn = '' AND coalesce(pending.allowNameOnly, false) = true)
 OPTIONAL MATCH (owner {fqn: pending.calleeOwnerFqn, project: $project})-[:DECLARES]->(directCallee:Method {name: pending.calleeName, project: $project})
 WITH pending, caller, coalesce(pending.count, 1) AS callCount, collect(DISTINCT directCallee) AS directCandidates
 OPTIONAL MATCH classPath = (classOwner:Class {fqn: pending.calleeOwnerFqn, project: $project})-[:EXTENDS*1..]->(declClass:Class {project: $project})-[:DECLARES]->(classCallee:Method {name: pending.calleeName, project: $project})
@@ -48,6 +48,7 @@ WITH pending, caller, callCount, directCandidates, classCandidates,
      classInterfaceCandidates + interfaceCandidates AS inheritedInterfaceCandidates
 OPTIONAL MATCH (nameOnlyCallee:Method {name: pending.calleeName, project: $project})
 WHERE pending.calleeOwnerFqn = ''
+  AND coalesce(pending.allowNameOnly, false) = true
   AND size(directCandidates) = 0
   AND size(classCandidates) = 0
   AND size(inheritedInterfaceCandidates) = 0

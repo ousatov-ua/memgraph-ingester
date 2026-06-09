@@ -23,6 +23,7 @@ WITH pending, caller, callCount, directCandidates, classCandidates,
      classInterfaceCandidates + interfaceCandidates AS inheritedInterfaceCandidates
 OPTIONAL MATCH (nameOnlyCallee:Method {name: pending.calleeName, project: $project})
 WHERE pending.calleeOwnerFqn = ''
+  AND coalesce(pending.allowNameOnly, false) = true
   AND size(directCandidates) = 0
   AND size(classCandidates) = 0
   AND size(inheritedInterfaceCandidates) = 0

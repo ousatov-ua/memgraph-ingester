@@ -3124,6 +3124,70 @@ class GraphWriterIT {
   }
 
   @Test
+  void unmarkedNameOnlyPendingCallDoesNotResolveByUniqueMethodName() {
+    writer.upsertFile(TEST_FILE, SourceLanguage.JAVA);
+    writer.upsertPackage(PKG, SourceLanguage.JAVA);
+    ClassOrInterfaceDeclaration caller =
+        parseDecl("package com.example; public class Caller { public void run() {} }");
+    ClassOrInterfaceDeclaration target =
+        parseDecl("package com.example; public class LocalTarget { public void process() {} }");
+
+    javaWriter.upsertType(TEST_FILE, PKG, caller);
+    javaWriter.upsertType(TEST_FILE, PKG, target);
+    writer.upsertPendingCallsByName(
+        List.of(new PendingCallWrite("com.example.Caller.run()", "", "process")));
+    writer.resolvePendingCalls();
+
+    var row =
+        session
+            .run(
+                """
+                MATCH (pending:PendingCall {project: $p})
+                WITH count(pending) AS pendingAfter
+                OPTIONAL MATCH (:Method {signature: $callerSig, project: $p})-[call:CALLS]->
+                  (:Method {name: 'process', project: $p})
+                RETURN pendingAfter, count(DISTINCT call) AS calls
+                """,
+                Map.of("p", PROJECT, "callerSig", "com.example.Caller.run()"))
+            .single();
+
+    assertEquals(1, row.get("pendingAfter").asLong());
+    assertEquals(0, row.get("calls").asLong());
+  }
+
+  @Test
+  void allowedNameOnlyPendingCallResolvesByUniqueMethodName() {
+    writer.upsertFile(TEST_FILE, SourceLanguage.JAVA);
+    writer.upsertPackage(PKG, SourceLanguage.JAVA);
+    ClassOrInterfaceDeclaration caller =
+        parseDecl("package com.example; public class Caller { public void run() {} }");
+    ClassOrInterfaceDeclaration target =
+        parseDecl("package com.example; public class LocalTarget { public void process() {} }");
+
+    javaWriter.upsertType(TEST_FILE, PKG, caller);
+    javaWriter.upsertType(TEST_FILE, PKG, target);
+    writer.upsertPendingCallsByName(
+        List.of(PendingCallWrite.allowNameOnly("com.example.Caller.run()", "process")));
+    writer.resolvePendingCalls();
+
+    var row =
+        session
+            .run(
+                """
+                MATCH (pending:PendingCall {project: $p})
+                WITH count(pending) AS pendingAfter
+                OPTIONAL MATCH (:Method {signature: $callerSig, project: $p})-[call:CALLS]->
+                  (:Method {name: 'process', project: $p})
+                RETURN pendingAfter, count(DISTINCT call) AS calls
+                """,
+                Map.of("p", PROJECT, "callerSig", "com.example.Caller.run()"))
+            .single();
+
+    assertEquals(0, row.get("pendingAfter").asLong());
+    assertEquals(1, row.get("calls").asLong());
+  }
+
+  @Test
   void pendingCallsForFileDeletedBeforeReingest() {
     writer.upsertFile(TEST_FILE, SourceLanguage.JAVA);
     writer.upsertPackage(PKG, SourceLanguage.JAVA);

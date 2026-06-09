@@ -3677,6 +3677,56 @@ class IngestionOrchestratorIT {
     }
   }
 
+  @Test
+  void unresolvedExternalReceiverDoesNotResolveViaNameOnlyPendingCall() throws Exception {
+    currentProject = PROJECT_BASE + "-external-receiver";
+    sourceDir = Files.createTempDirectory("orch-external-receiver-src-");
+    Path pkgDir = sourceDir.resolve("com/example");
+    Files.createDirectories(pkgDir);
+
+    Files.writeString(
+        pkgDir.resolve("ExternalCaller.java"),
+        """
+        package com.example;
+
+        import com.unknown.lib.ExternalClient;
+
+        public class ExternalCaller {
+          private ExternalClient client;
+
+          public void run() {
+            client.process();
+          }
+
+          public void process() {}
+        }
+        """);
+
+    int failures =
+        new IngestionOrchestrator(sourceDir, currentProject, 1, driver, new ParseService(sourceDir))
+            .run(Settings.def());
+
+    assertEquals(0, failures);
+    try (Session s = driver.session()) {
+      long falseCallEdges =
+          s.run(
+                  "MATCH (:Method {project: $p, signature: $caller})"
+                      + "-[:CALLS]->(:Method {project: $p, signature: $callee})"
+                      + " RETURN count(*) AS n",
+                  Map.of(
+                      "p",
+                      currentProject,
+                      "caller",
+                      "com.example.ExternalCaller.run()",
+                      "callee",
+                      "com.example.ExternalCaller.process()"))
+              .single()
+              .get("n")
+              .asLong();
+      assertEquals(0, falseCallEdges, "External receiver must not resolve to local method by name");
+    }
+  }
+
   /** Verifies that phantom Method nodes created for JDK/external callees are cleaned up. */
   @Test
   void phantomExternalMethodNodesCleanedUpAfterIngestion() throws Exception {

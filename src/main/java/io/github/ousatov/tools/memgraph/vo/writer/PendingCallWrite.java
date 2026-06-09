@@ -9,10 +9,19 @@ import java.util.Map;
  * @author Oleksii Usatov
  */
 public record PendingCallWrite(
-    String callerSignature, String ownerFqn, String calleeName, int count) implements BatchWrite {
+    String callerSignature, String ownerFqn, String calleeName, int count, boolean allowNameOnly)
+    implements BatchWrite {
 
   public PendingCallWrite(String callerSignature, String ownerFqn, String calleeName) {
     this(callerSignature, ownerFqn, calleeName, 1);
+  }
+
+  public PendingCallWrite(String callerSignature, String ownerFqn, String calleeName, int count) {
+    this(callerSignature, ownerFqn, calleeName, count, false);
+  }
+
+  public static PendingCallWrite allowNameOnly(String callerSignature, String calleeName) {
+    return new PendingCallWrite(callerSignature, "", calleeName, 1, true);
   }
 
   @Override
@@ -25,6 +34,8 @@ public record PendingCallWrite(
         Params.CALLEE_NAME,
         calleeName,
         Params.COUNT,
-        count);
+        count,
+        Params.ALLOW_NAME_ONLY,
+        allowNameOnly);
   }
 }

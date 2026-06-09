@@ -531,6 +531,7 @@ public final class Const {
     public static final String CALLEE_NAME = "calleeName";
     public static final String CALLEE_OWNER_FQN = "calleeOwnerFqn";
     public static final String CALLEE_SIGNATURE = "calleeSignature";
+    public static final String ALLOW_NAME_ONLY = "allowNameOnly";
     public static final String OWNER_FQN = "ownerFqn";
     public static final String OWNER_DISPLAY_NAME = "ownerDisplayName";
     public static final String FQN = "fqn";
