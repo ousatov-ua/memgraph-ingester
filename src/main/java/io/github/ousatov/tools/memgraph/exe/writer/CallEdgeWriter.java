@@ -8,6 +8,7 @@ import com.github.javaparser.ast.stmt.ExplicitConstructorInvocationStmt;
 import com.github.javaparser.ast.type.ClassOrInterfaceType;
 import com.github.javaparser.resolution.declarations.ResolvedMethodDeclaration;
 import io.github.ousatov.tools.memgraph.def.Const.Labels;
+import io.github.ousatov.tools.memgraph.def.Const.Symbols;
 import io.github.ousatov.tools.memgraph.exe.analyze.JavaTypeNames;
 import io.github.ousatov.tools.memgraph.vo.writer.CallWrite;
 import io.github.ousatov.tools.memgraph.vo.writer.PendingCallWrite;
@@ -84,16 +85,19 @@ final class CallEdgeWriter {
     }
   }
 
+  /**
+   * Records an unresolved call by owner/name. When the scope type is also unresolvable (e.g. a
+   * lambda-parameter receiver), the call is recorded with an empty owner FQN so post-processing can
+   * still resolve it by unique method name instead of dropping it.
+   */
   private void upsertMethodCallFallback(
       List<PendingCallWrite> pendingCalls, String callerSig, String ownerFqn, MethodCallExpr call) {
     if (call.getScope().isEmpty()) {
       upsertCallByName(pendingCalls, callerSig, ownerFqn, call.getNameAsString());
       return;
     }
-    JavaTypeNames.resolveScopeTypeFqn(call)
-        .ifPresent(
-            scopeFqn ->
-                upsertCallByName(pendingCalls, callerSig, scopeFqn, call.getNameAsString()));
+    String scopeFqn = JavaTypeNames.resolveScopeTypeFqn(call).orElse(Symbols.EMPTY);
+    upsertCallByName(pendingCalls, callerSig, scopeFqn, call.getNameAsString());
   }
 
   /**

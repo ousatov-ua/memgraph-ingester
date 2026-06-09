@@ -3604,6 +3604,75 @@ class IngestionOrchestratorIT {
     }
   }
 
+  /**
+   * Verifies that a call whose receiver is a lambda parameter of an unresolvable functional
+   * interface is persisted as a name-only PendingCall and resolved to a CALLS edge during
+   * post-processing instead of being silently dropped.
+   */
+  @Test
+  void lambdaParameterCallResolvedViaNameOnlyPendingCall() throws Exception {
+    currentProject = PROJECT_BASE + "-lambda";
+    sourceDir = Files.createTempDirectory("orch-lambda-src-");
+    Path pkgDir = sourceDir.resolve("com/example");
+    Files.createDirectories(pkgDir);
+
+    // Handler comes from an unresolvable external library, so the lambda parameter type — and
+    // therefore the scope type of t.process() — cannot be resolved at parse time.
+    Files.writeString(
+        pkgDir.resolve("LambdaCaller.java"),
+        """
+        package com.example;
+
+        import com.unknown.lib.Handler;
+
+        public class LambdaCaller {
+          public void register(Handler<LambdaTarget> handler) {}
+
+          public void wire() {
+            register(t -> t.process());
+          }
+        }
+        """);
+    Files.writeString(
+        pkgDir.resolve("LambdaTarget.java"),
+        """
+        package com.example;
+
+        public class LambdaTarget {
+          public void process() {}
+        }
+        """);
+
+    int failures =
+        new IngestionOrchestrator(sourceDir, currentProject, 1, driver, new ParseService(sourceDir))
+            .run(Settings.def());
+
+    assertEquals(0, failures);
+    try (Session s = driver.session()) {
+      long callEdges =
+          s.run(
+                  "MATCH (:Method {name: 'wire', project: $p})"
+                      + "-[:CALLS]->(:Method {name: 'process', project: $p})"
+                      + " RETURN count(*) AS n",
+                  Map.of("p", currentProject))
+              .single()
+              .get("n")
+              .asLong();
+      assertEquals(
+          1, callEdges, "Lambda-parameter call must resolve via name-only PendingCall matching");
+
+      long unresolvedNameOnly =
+          s.run(
+                  "MATCH (p:PendingCall {project: $p}) WHERE p.calleeOwnerFqn = ''"
+                      + " RETURN count(p) AS n",
+                  Map.of("p", currentProject))
+              .single()
+              .get("n")
+              .asLong();
+      assertEquals(0, unresolvedNameOnly, "Resolved name-only PendingCall must be deleted");
+    }
+  }
+
   /** Verifies that phantom Method nodes created for JDK/external callees are cleaned up. */
   @Test
   void phantomExternalMethodNodesCleanedUpAfterIngestion() throws Exception {
