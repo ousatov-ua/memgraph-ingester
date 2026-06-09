@@ -37,7 +37,7 @@ public record CodeChunkWrite(
         Map.entry(Params.LANGUAGE, language),
         Map.entry(Params.PATH, path),
         Map.entry(Params.OWNER_FQN, ownerFqn),
-        Map.entry(Params.SIG, signature),
+        Map.entry(Params.SIGNATURE, signature),
         Map.entry(Params.NAME, name),
         Map.entry(Params.KIND, kind),
         Map.entry(Params.RAG_ROLE, ragRole),

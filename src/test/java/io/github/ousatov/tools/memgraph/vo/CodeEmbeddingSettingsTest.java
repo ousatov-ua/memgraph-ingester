@@ -98,8 +98,17 @@ class CodeEmbeddingSettingsTest {
 
     assertEquals("openai/text-embedding-3-small", config.get("model_name"));
     assertEquals("embedding", config.get("embedding_property"));
-    assertTrue(config.get("excluded_properties").toString().contains("project"));
-    assertTrue(config.get("excluded_properties").toString().contains("textHash"));
+    String excludedProperties = config.get("excluded_properties").toString();
+    assertTrue(excludedProperties.contains("project"));
+    assertTrue(excludedProperties.contains("textHash"));
+    assertTrue(excludedProperties.contains("name"));
+    assertTrue(excludedProperties.contains("kind"));
+    assertTrue(excludedProperties.contains("ragRole"));
+    assertTrue(excludedProperties.contains("startLine"));
+    assertTrue(excludedProperties.contains("endLine"));
+    assertTrue(excludedProperties.contains("isSynthetic"));
+    assertTrue(excludedProperties.contains("embeddingDirty"));
+    assertFalse(excludedProperties.contains("text,"));
     assertFalse((Boolean) config.get("return_embeddings"));
     assertEquals("cuda:0", config.get("device"));
     assertEquals(768, config.get("dimensions"));

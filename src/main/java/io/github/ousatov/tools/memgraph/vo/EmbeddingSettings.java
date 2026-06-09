@@ -46,6 +46,11 @@ public record EmbeddingSettings(
       AppConfig.intValue("embedding.procedure-memory-mb");
   public static final int DEFAULT_CAPACITY = AppConfig.intValue("embedding.capacity");
 
+  /**
+   * Every {@code :CodeChunk} property except {@code text}. The embeddings module concatenates all
+   * non-excluded properties into the embedded string, so anything missing here leaks noise into the
+   * model's limited input window.
+   */
   private static final List<String> CODE_CHUNK_METADATA_PROPERTIES =
       List.of(
           Const.Params.ID,
@@ -56,6 +61,13 @@ public record EmbeddingSettings(
           Const.Params.PATH,
           "ownerFqn",
           Const.Params.SIGNATURE,
+          Const.Params.NAME,
+          Const.Params.KIND,
+          Const.Params.RAG_ROLE,
+          Const.Params.START_LINE,
+          Const.Params.END_LINE,
+          Const.Params.IS_SYNTHETIC,
+          Const.Params.EMBEDDING_DIRTY,
           Const.Params.TEXT_HASH,
           DEFAULT_EMBEDDING_PROPERTY,
           Const.Params.EMBEDDING_MODEL,

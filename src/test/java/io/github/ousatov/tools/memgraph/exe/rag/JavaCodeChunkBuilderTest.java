@@ -68,6 +68,68 @@ class JavaCodeChunkBuilderTest {
   }
 
   @Test
+  void methodChunkTextLeadsWithEmbeddingFriendlyHead() throws IOException {
+    String source =
+        """
+        package com.example;
+        class WidgetFactory {
+          void doWork() {}
+        }
+        """;
+    Path file = tempDir.resolve("WidgetFactory.java");
+    Files.writeString(file, source);
+
+    List<CodeChunkWrite> chunks = new JavaCodeChunkBuilder().build(file, parseJava25(source));
+
+    CodeChunkWrite method =
+        chunks.stream()
+            .filter(chunk -> "com.example.WidgetFactory.doWork()".equals(chunk.sourceId()))
+            .findFirst()
+            .orElseThrow();
+    assertTrue(
+        method
+            .text()
+            .startsWith(
+                """
+                Name: doWork
+                Kind: method
+                Owner: WidgetFactory
+                Words: do work widget factory
+                Source excerpt:
+                """));
+    assertFalse(method.text().contains("Path: "));
+    assertFalse(method.text().contains("Language: "));
+    assertFalse(method.text().contains("com.example"));
+  }
+
+  @Test
+  void fileChunkTextIncludesDefinesAndSplitWords() throws IOException {
+    String source =
+        """
+        package com.example;
+        class WidgetFactory {
+          void doWork() {}
+        }
+        """;
+    Path file = tempDir.resolve("WidgetFactory.java");
+    Files.writeString(file, source);
+
+    List<CodeChunkWrite> chunks = new JavaCodeChunkBuilder().build(file, parseJava25(source));
+
+    CodeChunkWrite fileChunk =
+        chunks.stream()
+            .filter(chunk -> "File".equals(chunk.sourceLabel()))
+            .findFirst()
+            .orElseThrow();
+    assertTrue(fileChunk.text().contains("Name: WidgetFactory.java"));
+    assertTrue(fileChunk.text().contains("Kind: file"));
+    assertTrue(fileChunk.text().contains("Words: widget factory java class methods do work"));
+    assertTrue(fileChunk.text().contains("Defines: WidgetFactory (class); methods: doWork"));
+    assertTrue(fileChunk.text().contains("Source excerpt:\npackage com.example;"));
+    assertFalse(fileChunk.text().contains("Path: "));
+  }
+
+  @Test
   void doesNotEmitImplicitDefaultConstructorChunkForInterface() throws IOException {
     String source =
         """

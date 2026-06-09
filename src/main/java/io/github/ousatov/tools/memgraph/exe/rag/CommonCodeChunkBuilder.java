@@ -3,6 +3,7 @@ package io.github.ousatov.tools.memgraph.exe.rag;
 import io.github.ousatov.tools.memgraph.config.AppConfig;
 import io.github.ousatov.tools.memgraph.def.Const;
 import io.github.ousatov.tools.memgraph.def.Const.Params;
+import io.github.ousatov.tools.memgraph.exe.analyze.JavaTypeNames;
 import io.github.ousatov.tools.memgraph.vo.rag.CodeChunkAnalysis;
 import io.github.ousatov.tools.memgraph.vo.rag.MemberChunk;
 import io.github.ousatov.tools.memgraph.vo.rag.TypeChunk;
@@ -15,14 +16,24 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.HexFormat;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 /**
  * Shared mechanics for building derived {@code :CodeChunk} rows.
  *
  * <p>Language-specific builders own parser details. This base class only handles stable chunk IDs,
  * text hashing, source excerpts, and documentation-comment lookback.
+ *
+ * <p>The chunk text is embedding-oriented: a compact natural-language head (name, kind, owner
+ * simple name, split identifier words) followed by the verbatim source excerpt. Path, language, and
+ * FQN metadata are intentionally omitted from the text — they live in dedicated node properties and
+ * would waste the embedding model's limited input window (256 word pieces for the default model,
+ * head-truncated).
  *
  * @param <T> parser-owned source model
  * @author Oleksii Usatov
@@ -32,6 +43,10 @@ public abstract class CommonCodeChunkBuilder<T> {
   private static final int MAX_EXCERPT_LINES = AppConfig.intValue("rag.max-excerpt-lines");
   private static final int DOC_LOOKBACK_LINES = AppConfig.intValue("rag.doc-lookback-lines");
   private static final int ID_HASH_LENGTH = 16;
+  private static final int MAX_WORDS = 32;
+  private static final int MIN_WORD_LENGTH = 2;
+  private static final Pattern WORD_BOUNDARY =
+      Pattern.compile("(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])|[^A-Za-z0-9]+");
   private static final String RAG_ROLE_FILE = "file";
   private static final String RAG_ROLE_PRIMARY = "primary";
   private static final String RAG_ROLE_SECONDARY = "secondary";
@@ -241,20 +256,7 @@ public abstract class CommonCodeChunkBuilder<T> {
       boolean synthetic,
       String defines,
       List<String> lines) {
-    String text =
-        text(
-            language,
-            file,
-            sourceLabel,
-            sourceId,
-            ownerFqn,
-            signature,
-            name,
-            kind,
-            startLine,
-            endLine,
-            defines,
-            lines);
+    String text = text(sourceId, ownerFqn, name, kind, startLine, endLine, defines, lines);
     return new CodeChunkWrite(
         id(sourceLabel, sourceId),
         sourceLabel,
@@ -273,14 +275,14 @@ public abstract class CommonCodeChunkBuilder<T> {
         sha256(text));
   }
 
+  /**
+   * Builds the embedding-oriented chunk text. The {@code Source excerpt:} marker and the verbatim
+   * excerpt body are a stable contract consumed by downstream tooling — keep them unchanged.
+   */
   @SuppressWarnings("java:S107")
   private static String text(
-      String language,
-      Path file,
-      String sourceLabel,
       String sourceId,
       String ownerFqn,
-      String signature,
       String name,
       String kind,
       int startLine,
@@ -288,20 +290,46 @@ public abstract class CommonCodeChunkBuilder<T> {
       String defines,
       List<String> lines) {
     StringBuilder builder = new StringBuilder();
-    builder.append("Language: ").append(language).append('\n');
-    builder.append("Path: ").append(file).append('\n');
-    builder.append("Source: ").append(sourceLabel).append(' ').append(sourceId).append('\n');
     appendField(builder, "Name", name);
     appendField(builder, "Kind", kind);
-    if (!sourceId.equals(ownerFqn)) {
-      appendField(builder, "Owner", ownerFqn);
-    }
-    if (!sourceId.equals(signature)) {
-      appendField(builder, "Signature", signature);
-    }
+    String owner = sourceId.equals(ownerFqn) ? Const.Symbols.EMPTY : simpleName(ownerFqn);
+    appendField(builder, "Owner", owner);
+    appendField(builder, "Words", identifierWords(name, owner, defines));
     appendField(builder, "Defines", defines);
     builder.append("Source excerpt:\n").append(excerpt(lines, startLine, endLine)).append('\n');
     return builder.toString().strip();
+  }
+
+  /** Returns the last dot-separated segment of an FQN, or the value itself when not qualified. */
+  private static String simpleName(String fqn) {
+    if (fqn == null || fqn.isBlank()) {
+      return Const.Symbols.EMPTY;
+    }
+    return JavaTypeNames.nameFromFqn(fqn);
+  }
+
+  /**
+   * Splits identifier inputs into deduplicated lowercase words (camelCase, snake_case, dotted) so
+   * natural-language queries can match identifier vocabulary; capped at {@link #MAX_WORDS}.
+   */
+  private static String identifierWords(String... inputs) {
+    Set<String> words = new LinkedHashSet<>();
+    for (String input : inputs) {
+      addIdentifierWords(words, input);
+    }
+    return words.stream().limit(MAX_WORDS).collect(Collectors.joining(" "));
+  }
+
+  private static void addIdentifierWords(Set<String> words, String input) {
+    if (input == null || input.isBlank()) {
+      return;
+    }
+    for (String token : WORD_BOUNDARY.split(input)) {
+      String word = token.toLowerCase(Locale.ROOT);
+      if (word.length() >= MIN_WORD_LENGTH) {
+        words.add(word);
+      }
+    }
   }
 
   private static String excerpt(List<String> lines, int startLine, int endLine) {

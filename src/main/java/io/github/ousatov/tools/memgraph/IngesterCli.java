@@ -385,8 +385,10 @@ public final class IngesterCli implements Callable<Integer> {
       RuntimeMode selectedJsRuntimeMode,
       RuntimeMode selectedPythonRuntimeMode,
       RuntimeMode selectedCtagsRuntimeMode) {
+    // v2: embedding-oriented CodeChunk text format — forces a full re-ingest so every chunk is
+    // rebuilt and re-embedded with the new layout.
     return new StringJoiner("|")
-        .add("v1")
+        .add("v2")
         .add("classpath=" + value(classpath))
         .add("jsCache=" + value(jsRuntime.resolvedCache()))
         .add("jsNode=" + value(jsRuntime.nodeVersion))
