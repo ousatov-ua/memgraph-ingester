@@ -156,9 +156,8 @@ public final class IngestionOrchestrator {
     IngestionRunStats stats = new IngestionRunStats(threads);
     this.incremental = settings.incremental();
 
-    runBootstrap(settings, stats);
-
     List<SourceFile> files = discoverSourceFiles();
+    runBootstrap(settings, stats, sourceLanguages(files));
     stats.setTotalFiles(files.size());
     List<Path> retainedSourcePaths = retainedSourcePaths(files, stats);
     String discoveryMessage =
@@ -273,7 +272,8 @@ public final class IngestionOrchestrator {
     return driver;
   }
 
-  private void runBootstrap(Settings settings, IngestionRunStats stats) {
+  private void runBootstrap(
+      Settings settings, IngestionRunStats stats, List<SourceLanguage> sourceLanguages) {
     try (Session bootstrap = driver.session()) {
       GraphWriter bootstrapWriter = new GraphWriter(bootstrap, project, stats);
       if (settings.wipeAllData()) {
@@ -310,7 +310,7 @@ public final class IngestionOrchestrator {
         log.info("Wiping existing MemoryChunk RAG rows for project '{}'...", project);
         bootstrapWriter.wipeMemoryRag();
       }
-      bootstrapWriter.upsertProject(sourceRoot, languages());
+      bootstrapWriter.upsertProject(sourceRoot, sourceLanguages);
       log.debug(
           "Upserted :Project -> :Language -> :Code and :Project -> :Memory anchors for '{}'",
           project);
@@ -706,6 +706,10 @@ public final class IngestionOrchestrator {
         .flatMap(adapter -> adapter.staticLanguage().stream())
         .distinct()
         .toList();
+  }
+
+  private static List<SourceLanguage> sourceLanguages(List<SourceFile> files) {
+    return files.stream().map(SourceFile::language).distinct().toList();
   }
 
   private List<SourceLanguage> languagesForCleanup(

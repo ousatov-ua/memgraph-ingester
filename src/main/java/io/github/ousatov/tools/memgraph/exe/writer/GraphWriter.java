@@ -480,6 +480,7 @@ public final class GraphWriter {
 
   /** Creates or refreshes selected {@code :Project -> :Language -> :Code} roots. */
   public void upsertProject(Path sourceRoot, List<SourceLanguage> languages) {
+    cypher.run(Cypher.CYPHER_UPSERT_PROJECT_ROOT, Map.of());
     for (SourceLanguage language : languages) {
       cypher.run(
           Cypher.CYPHER_UPSERT_PROJECT,

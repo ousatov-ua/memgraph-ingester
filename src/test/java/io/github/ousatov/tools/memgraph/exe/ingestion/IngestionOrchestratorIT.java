@@ -271,6 +271,20 @@ class IngestionOrchestratorIT {
     }
   }
 
+  private static List<String> codeRootLanguages(String project) {
+    try (Session s = driver.session()) {
+      return s.run(
+              """
+              MATCH (:Project {name: $p})-[:CONTAINS]->(:Language)
+                    -[:CONTAINS]->(code:Code {project: $p})
+              RETURN code.language AS language
+              ORDER BY language
+              """,
+              Map.of("p", project))
+          .list(row -> row.get("language").asString());
+    }
+  }
+
   private static void createClassCodeRef(String project, String fqn) {
     try (Session s = driver.session()) {
       s.run(
@@ -383,6 +397,41 @@ class IngestionOrchestratorIT {
       writer.upsertFile(file, language());
       writer.upsertPackage("js.test", language());
       jsWriter.upsertModule(file, "js.test", "js.test.App", "App", "app.ts", 1, 1);
+      return true;
+    }
+  }
+
+  /**
+   * Minimal Python adapter used to verify language-root bootstrapping without invoking Python.
+   *
+   * @author Oleksii Usatov
+   */
+  private static final class StubPythonLanguageAdapter implements LanguageAdapter<Path> {
+
+    @Override
+    public SourceLanguage language() {
+      return SourceLanguage.PYTHON;
+    }
+
+    @Override
+    public boolean accepts(Path file) {
+      return file.toString().endsWith(".py");
+    }
+
+    @Override
+    public Optional<Path> parse(Path file) {
+      return Optional.of(file);
+    }
+
+    @Override
+    public SourceFileDefinitions collectDefinitions(Path parsed) {
+      return SourceFileDefinitions.empty();
+    }
+
+    @Override
+    public boolean write(GraphWriter writer, Path file, Path parsed) {
+      writer.upsertFile(file, language());
+      writer.upsertPackage("python.test", language());
       return true;
     }
   }
@@ -974,6 +1023,36 @@ class IngestionOrchestratorIT {
       assertEquals(1, javaFiles);
       assertEquals(1, jsFiles);
     }
+  }
+
+  @Test
+  void wipeProjectCodeRecreatesOnlyDiscoveredLanguageRoots() throws Exception {
+    currentProject = PROJECT_BASE + "-discovered-roots";
+    sourceDir = Files.createTempDirectory("orch-discovered-roots-src-");
+    Path javaFile =
+        Files.writeString(
+            sourceDir.resolve("Good.java"), "public class Good { int ok() { return 1; } }");
+    IngestionOrchestrator orchestrator =
+        new IngestionOrchestrator(
+            sourceDir,
+            currentProject,
+            1,
+            driver,
+            List.of(
+                new JavaLanguageAdapter(new ParseService(sourceDir)),
+                new StubPythonLanguageAdapter()));
+
+    assertEquals(0, orchestrator.run(Settings.def()));
+    assertEquals(List.of("java"), codeRootLanguages(currentProject));
+    assertTrue(fileExistsInGraph(currentProject, javaFile));
+
+    Files.delete(javaFile);
+    Path pythonFile = Files.writeString(sourceDir.resolve("app.py"), "value = 1\n");
+
+    assertEquals(0, orchestrator.run(Settings.wipeProjCodeOnly()));
+    assertEquals(List.of("python"), codeRootLanguages(currentProject));
+    assertFalse(fileExistsInGraph(currentProject, javaFile));
+    assertTrue(fileExistsInGraph(currentProject, pythonFile));
   }
 
   @Test
