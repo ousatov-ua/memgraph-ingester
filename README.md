@@ -57,6 +57,8 @@ Quality stayed high across both approaches, while graph-guided runs kept the age
 less discovery churn, fewer irrelevant reads, and cleaner signal for the final answer. In the
 measured set, the Memgraph-backed run also avoided the false positive seen without the graph.
 
+Please visit the latest benchmark results in [benchmarks](https://github.com/memgraph/memgraph/tree/main/benchmarks)
+
 Languages supported:
 - **Java**
 - **JavaScript/TypeScript**

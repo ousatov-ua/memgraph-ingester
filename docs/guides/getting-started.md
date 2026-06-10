@@ -44,6 +44,8 @@ Quality remained high across the measured tasks, while the graph-guided runs spe
 discovery and kept more context available for understanding, editing, and verification. In the
 measured set, Memgraph also avoided the false positive seen without the graph.
 
+Please visit the latest benchmark results in [benchmarks](https://github.com/memgraph/memgraph/tree/main/benchmarks)
+
 Supported inputs:
 
 | Language path | Coverage |
