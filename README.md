@@ -177,7 +177,7 @@ For normal use:
 
 - Memgraph, either local, Docker, or an existing Bolt endpoint.
 - One ingester download from the release page.
-- `memgraph-ingester-mcp`, needed for agents to query the graph through high-level MCP tools.
+- `memgraph-ingester-mcp`, needed for agents to query the graph through high-level MCP tools **OR** Python.3.11+
 
 Runtime requirements by artifact:
 

@@ -41,7 +41,14 @@ memgraph-ingester -P my-project --no-mcp
 memgraph-ingester -P my-project --no-mcp --with-memories
 ```
 
-## Use the MCP Server
+## Without MCP
+
+You will need Python 3.11+.
+
+Use `--no-mcp` to install such instructions for different agents to skip the MCP server and use the `mgtools` CLI from the
+[`memgraph-ingester-tool`](https://pypi.org/project/memgraph-ingester-tool/) PyPI package instead.
+
+## MCP Server
 
 Agents have to use
 [`memgraph-ingester-mcp`](https://github.com/ousatov-ua/memgraph-ingester-mcp). It provides
