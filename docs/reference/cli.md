@@ -21,6 +21,7 @@
 | `--init-instructions` | `false` | Write or replace managed agent instructions and exit |
 | `--instructions-agent` | `codex` | Agent preset: `codex`, `claude`, `gemini`, `github`, or `copilot` |
 | `--instructions-file` | preset file | Instruction file to update |
+| `--no-mcp` | `false` | Install `mgtools` CLI instruction templates for agents without MCP access; implies `--init-instructions` |
 | `--help` | | Print CLI help |
 | `--version` | | Print CLI version |
 

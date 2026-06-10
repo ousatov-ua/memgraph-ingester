@@ -7,4 +7,4 @@ import java.nio.file.Path;
  *
  * @author Oleksii Usatov
  */
-public record InstallResult(Path target, boolean includeMemories) {}
+public record InstallResult(Path target, boolean includeMemories, boolean noMcp) {}

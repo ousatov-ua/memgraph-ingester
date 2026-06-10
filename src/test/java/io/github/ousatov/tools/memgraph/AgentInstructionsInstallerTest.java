@@ -24,7 +24,7 @@ class AgentInstructionsInstallerTest {
     Path target = tempDir.resolve("AGENTS.md");
 
     io.github.ousatov.tools.memgraph.vo.cli.InstallResult result =
-        AgentInstructionsInstaller.install(target, "sample-project", false);
+        AgentInstructionsInstaller.install(target, "sample-project", false, false);
 
     String content = Files.readString(target);
     assertEquals(target, result.target());
@@ -41,7 +41,7 @@ class AgentInstructionsInstallerTest {
   void includesMemoryInstructionsWhenRequested() throws IOException {
     Path target = tempDir.resolve("CLAUDE.md");
 
-    AgentInstructionsInstaller.install(target, "memory-project", true);
+    AgentInstructionsInstaller.install(target, "memory-project", true, false);
 
     String content = Files.readString(target);
     assertTrue(content.contains("Repo is indexed in Memgraph as **`memory-project`**"));
@@ -60,7 +60,7 @@ class AgentInstructionsInstallerTest {
   void memoryInstructionsUseMcpToolsByDefault() throws IOException {
     Path target = tempDir.resolve("AGENTS.md");
 
-    AgentInstructionsInstaller.install(target, "memory-project", true);
+    AgentInstructionsInstaller.install(target, "memory-project", true, false);
 
     String content = Files.readString(target);
     assertTrue(
@@ -72,13 +72,42 @@ class AgentInstructionsInstallerTest {
   }
 
   @Test
+  void writesNoMcpCodeInstructionsWhenRequested() throws IOException {
+    Path target = tempDir.resolve("AGENTS.md");
+
+    io.github.ousatov.tools.memgraph.vo.cli.InstallResult result =
+        AgentInstructionsInstaller.install(target, "no-mcp-project", false, true);
+
+    String content = Files.readString(target);
+    assertTrue(result.noMcp());
+    assertTrue(content.contains("Repo is indexed in Memgraph as **`no-mcp-project`**"));
+    assertTrue(content.contains("mgtools"));
+    assertTrue(content.contains("### Code Commands"));
+    assertFalse(content.contains("### Code MCP Tools"));
+    assertFalse(content.contains("## Memories"));
+  }
+
+  @Test
+  void writesNoMcpMemoryInstructionsWhenRequested() throws IOException {
+    Path target = tempDir.resolve("AGENTS.md");
+
+    AgentInstructionsInstaller.install(target, "no-mcp-project", true, true);
+
+    String content = Files.readString(target);
+    assertTrue(content.contains("## Memories"));
+    assertTrue(content.contains("--project \"no-mcp-project\""));
+    assertTrue(content.contains("### Memory Commands"));
+    assertFalse(content.contains("### Memory MCP Tools"));
+  }
+
+  @Test
   void replacesExistingManagedBlock() throws IOException {
     Path target = tempDir.resolve("AGENTS.md");
-    AgentInstructionsInstaller.install(target, "old-project", true);
+    AgentInstructionsInstaller.install(target, "old-project", true, false);
     String managedBlock = Files.readString(target);
     Files.writeString(target, "before\n\n" + managedBlock + "\nafter\n");
 
-    AgentInstructionsInstaller.install(target, "new-project", false);
+    AgentInstructionsInstaller.install(target, "new-project", false, false);
 
     String content = Files.readString(target);
     assertTrue(content.startsWith("before\n\n"));
@@ -92,7 +121,7 @@ class AgentInstructionsInstallerTest {
   @Test
   void replacesManagedBlockWhenEarlierUserTextMentionsEndMarker() throws IOException {
     Path target = tempDir.resolve("AGENTS.md");
-    AgentInstructionsInstaller.install(target, "old-project", true);
+    AgentInstructionsInstaller.install(target, "old-project", true, false);
     String managedBlock = Files.readString(target);
     Files.writeString(
         target,
@@ -102,7 +131,7 @@ class AgentInstructionsInstallerTest {
         """
             + managedBlock);
 
-    AgentInstructionsInstaller.install(target, "new-project", false);
+    AgentInstructionsInstaller.install(target, "new-project", false, false);
 
     String content = Files.readString(target);
     assertTrue(content.contains("notes mention <!-- memgraph-ingester:end --> literally"));
@@ -114,10 +143,10 @@ class AgentInstructionsInstallerTest {
   @Test
   void replacingManagedBlockIsIdempotent() throws IOException {
     Path target = tempDir.resolve("AGENTS.md");
-    AgentInstructionsInstaller.install(target, "same-project", false);
+    AgentInstructionsInstaller.install(target, "same-project", false, false);
     String firstInstall = Files.readString(target);
 
-    AgentInstructionsInstaller.install(target, "same-project", false);
+    AgentInstructionsInstaller.install(target, "same-project", false, false);
 
     assertEquals(firstInstall, Files.readString(target));
   }
@@ -142,7 +171,7 @@ class AgentInstructionsInstallerTest {
         outro
         """);
 
-    AgentInstructionsInstaller.install(target, "modern-project", false);
+    AgentInstructionsInstaller.install(target, "modern-project", false, false);
 
     String content = Files.readString(target);
     assertTrue(content.contains("intro"));
@@ -163,7 +192,7 @@ class AgentInstructionsInstallerTest {
             + legacyBlock("legacy-two")
             + "\noutro\n");
 
-    AgentInstructionsInstaller.install(target, "modern-project", false);
+    AgentInstructionsInstaller.install(target, "modern-project", false, false);
 
     String content = Files.readString(target);
     assertTrue(content.contains("intro"));

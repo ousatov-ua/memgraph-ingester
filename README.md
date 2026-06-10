@@ -661,12 +661,14 @@ memgraph-ingester --init-instructions -P my-project --with-memories
 memgraph-ingester -P my-project --instructions-agent codex --with-memories
 ```
 
-Use raw Memgraph/Cypher instructions when the agent will not have
-`memgraph-ingester-mcp` available:
+Use `--no-mcp` when the agent will not have `memgraph-ingester-mcp` available: the installed
+instructions use the `mgtools` CLI from the
+[`memgraph-ingester-tool`](https://pypi.org/project/memgraph-ingester-tool/) PyPI package instead
+of MCP tools:
 
 ```bash
-memgraph-ingester --init-instructions -P my-project --no-memgraph-ingester-mcp
-memgraph-ingester --init-instructions -P my-project --with-memories --no-memgraph-ingester-mcp
+memgraph-ingester --init-instructions -P my-project --no-mcp
+memgraph-ingester --init-instructions -P my-project --with-memories --no-mcp
 ```
 
 Agent presets choose the default target file:
@@ -678,7 +680,7 @@ memgraph-ingester --init-instructions -P my-project --instructions-agent gemini
 memgraph-ingester --init-instructions -P my-project --instructions-agent github
 ```
 
-When `--instructions-agent` or `--no-memgraph-ingester-mcp` is present, `--init-instructions` is
+When `--instructions-agent` or `--no-mcp` is present, `--init-instructions` is
 optional.
 
 Use `--instructions-file` to target a specific file:
@@ -888,7 +890,7 @@ Options:
 | `--init-instructions` |  | no | `false` | Write or replace managed agent instructions and exit. Includes Code guidance by default. |
 | `--instructions-agent` |  | no | `codex` | Agent preset: `codex`, `claude`, `gemini`, `github`, or `copilot`. Implies `--init-instructions` when explicitly provided. |
 | `--instructions-file` |  | no | preset file | Instruction file to update. Overrides `--instructions-agent` and implies `--init-instructions`. |
-| `--no-memgraph-ingester-mcp` |  | no | `false` | Use raw Memgraph/Cypher instruction templates instead of `memgraph-ingester-mcp` tool guidance. Implies `--init-instructions` when explicitly provided. |
+| `--no-mcp` |  | no | `false` | Install instruction templates that use the `mgtools` CLI instead of `memgraph-ingester-mcp` tool guidance. Implies `--init-instructions`. |
 | `--with-memories` |  | no | `false` | Include optional Memory workflow instructions when initializing agents, and enable MemoryChunk refresh for ingestion runs. |
 | `--help` |  | no |  | Print CLI help. |
 | `--version` |  | no |  | Print CLI version. |

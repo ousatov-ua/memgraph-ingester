@@ -37,6 +37,15 @@ public final class InstructionsCliOptions {
   public Path instructionsFile;
 
   @Option(
+      names = {"--no-mcp"},
+      description =
+          "Install agent instructions for environments without an MCP server: templates use the"
+              + " mgtools CLI instead of memgraph-ingester-mcp tools. Implies"
+              + " --init-instructions.")
+  @SuppressWarnings(Const.Warnings.UNUSED)
+  public boolean noMcp;
+
+  @Option(
       names = {"--with-memories"},
       description =
           "Apply managed agent instructions with optional Memory workflow guidance, and enable"

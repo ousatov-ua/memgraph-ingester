@@ -46,6 +46,29 @@ class IngesterCliInstructionsTest {
   }
 
   @Test
+  void noMcpAppliesNoMcpTemplatesAndImpliesInitInstructions() throws IOException {
+    Path target = tempDir.resolve("AGENTS.md");
+
+    int exitCode =
+        new CommandLine(new IngesterCli())
+            .execute(
+                "--no-mcp",
+                "-P",
+                "cli-no-mcp-project",
+                "--instructions-file",
+                target.toString(),
+                "--with-memories");
+
+    String content = Files.readString(target);
+    assertEquals(0, exitCode);
+    assertTrue(content.contains("Repo is indexed in Memgraph as **`cli-no-mcp-project`**"));
+    assertTrue(content.contains("### Code Commands"));
+    assertTrue(content.contains("### Memory Commands"));
+    assertFalse(content.contains("### Code MCP Tools"));
+    assertFalse(content.contains("### Memory MCP Tools"));
+  }
+
+  @Test
   void instructionsFileImpliesInitInstructions() throws IOException {
     Path target = tempDir.resolve("AGENTS.md");
 

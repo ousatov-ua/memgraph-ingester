@@ -340,6 +340,7 @@ public final class IngesterCli implements Callable<Integer> {
   private boolean shouldInstallInstructions() {
     return instructions.initInstructions
         || instructions.withMemories
+        || instructions.noMcp
         || instructions.instructionsFile != null
         || hasMatchedOption(Const.Cli.INSTRUCTIONS_AGENT);
   }
@@ -414,11 +415,16 @@ public final class IngesterCli implements Callable<Integer> {
               ? AgentInstructionsInstaller.defaultInstructionFile(instructions.instructionsAgent)
               : instructions.instructionsFile;
       io.github.ousatov.tools.memgraph.vo.cli.InstallResult result =
-          AgentInstructionsInstaller.install(target, project, instructions.withMemories);
+          AgentInstructionsInstaller.install(
+              target, project, instructions.withMemories, instructions.noMcp);
       ConsoleOutput.success(
           String.format(
-              "Updated Memgraph instructions in %s with project '%s' (memories: %s).",
-              result.target(), project, result.includeMemories()));
+              "Updated Memgraph instructions in %s with project '%s' (memories: %s, templates:"
+                  + " %s).",
+              result.target(),
+              project,
+              result.includeMemories(),
+              result.noMcp() ? "no-mcp" : "mcp"));
       return 0;
     } catch (IllegalArgumentException | IllegalStateException | IOException e) {
       log.error(e.getMessage());

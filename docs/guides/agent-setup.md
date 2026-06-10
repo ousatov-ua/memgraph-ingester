@@ -33,6 +33,14 @@ Target a custom instruction file:
 memgraph-ingester -P my-project --instructions-file .github/copilot-instructions.md
 ```
 
+No MCP server available? Install templates that drive the `mgtools` CLI from the
+[`memgraph-ingester-tool`](https://pypi.org/project/memgraph-ingester-tool/) PyPI package instead:
+
+```bash
+memgraph-ingester -P my-project --no-mcp
+memgraph-ingester -P my-project --no-mcp --with-memories
+```
+
 ## Use the MCP Server
 
 Agents have to use

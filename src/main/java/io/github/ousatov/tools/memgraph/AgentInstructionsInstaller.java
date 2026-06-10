@@ -20,6 +20,8 @@ final class AgentInstructionsInstaller {
 
   private static final String CODE_TEMPLATE = "AI-memgraph-code-template.md";
   private static final String MEMORY_TEMPLATE = "AI-memgraph-memory-template.md";
+  private static final String CODE_NO_MCP_TEMPLATE = "AI-memgraph-code-no-mcp-template.md";
+  private static final String MEMORY_NO_MCP_TEMPLATE = "AI-memgraph-memory-no-mcp-template.md";
   private static final String PROJECT_TOKEN = "{{PROJECT_NAME}}";
   private static final String START_MARKER = "<!-- memgraph-ingester:start -->";
   private static final String END_MARKER = "<!-- memgraph-ingester:end -->";
@@ -48,7 +50,7 @@ final class AgentInstructionsInstaller {
     };
   }
 
-  static InstallResult install(Path target, String project, boolean includeMemories)
+  static InstallResult install(Path target, String project, boolean includeMemories, boolean noMcp)
       throws IOException {
     if (target == null) {
       throw new IllegalArgumentException("--instructions-file resolved to an empty path");
@@ -57,7 +59,7 @@ final class AgentInstructionsInstaller {
       throw new IllegalArgumentException("--project is required");
     }
 
-    String block = managedBlock(renderInstructions(project, includeMemories));
+    String block = managedBlock(renderInstructions(project, includeMemories, noMcp));
     String existing =
         Files.exists(target)
             ? Files.readString(target, StandardCharsets.UTF_8)
@@ -68,7 +70,7 @@ final class AgentInstructionsInstaller {
       Files.createDirectories(parent);
     }
     Files.writeString(target, updated, StandardCharsets.UTF_8);
-    return new InstallResult(target, includeMemories);
+    return new InstallResult(target, includeMemories, noMcp);
   }
 
   private static String replaceManagedBlock(String existing, String block) {
@@ -115,10 +117,10 @@ final class AgentInstructionsInstaller {
     return offset;
   }
 
-  private static String renderInstructions(String project, boolean includeMemories)
+  private static String renderInstructions(String project, boolean includeMemories, boolean noMcp)
       throws IOException {
-    String codeTemplate = CODE_TEMPLATE;
-    String memoryTemplate = MEMORY_TEMPLATE;
+    String codeTemplate = noMcp ? CODE_NO_MCP_TEMPLATE : CODE_TEMPLATE;
+    String memoryTemplate = noMcp ? MEMORY_NO_MCP_TEMPLATE : MEMORY_TEMPLATE;
     String code = readTemplate(codeTemplate).replace(PROJECT_TOKEN, project).stripTrailing();
     if (!includeMemories) {
       return code + System.lineSeparator();
