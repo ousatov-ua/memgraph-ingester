@@ -693,11 +693,11 @@ Commit the updated instruction file so future agent sessions get the same graph 
 
 ## MCP
 
-MCP is required. Agents have to use
+Agents have to use
 [`memgraph-ingester-mcp`](https://github.com/ousatov-ua/memgraph-ingester-mcp) for normal code graph
 and memory work. It exposes high-level project-scoped tools instead of only raw Cypher.
 
-Install and run the MCP server from PyPI with `uvx`:
+Install and run the MCP server from PyPI with `uvx` (see below instructions for different agents)
 
 ```bash
 uvx memgraph-ingester-mcp
@@ -709,6 +709,16 @@ Common environment variables:
 |---|---|---|
 | `MEMGRAPH_INGESTER_MCP_BOLT_URI` | `bolt://localhost:7687` | Memgraph Bolt URI |
 | `MEMGRAPH_INGESTER_MCP_READ_ONLY` | `false` | Disable memory write tools when `true` |
+
+
+## Without MCP
+
+In this case if you don't want/cannot use the MCP server, you will need Python 3.11+.
+
+Use `--no-mcp` to skip the MCP server and use the `mgtools` CLI from the
+[`memgraph-ingester-tool`](https://pypi.org/project/memgraph-ingester-tool/) PyPI package instead.
+https://pypi.org/project/memgraph-ingester-tool/
+
 
 ### Claude MCP
 
