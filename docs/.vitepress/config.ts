@@ -40,6 +40,7 @@ export default defineConfig({
       { text: 'Guide', link: '/guides/getting-started' },
       { text: 'Agent Setup', link: '/guides/agent-setup' },
       { text: 'CLI Reference', link: '/reference/cli' },
+      { text: 'Benchmarks', link: '/benchmarks/' },
     ],
     sidebar: {
       '/guides/': [
@@ -55,6 +56,16 @@ export default defineConfig({
         {
           text: 'Reference',
           items: [{ text: 'CLI Reference', link: '/reference/cli' }],
+        },
+      ],
+      '/benchmarks/': [
+        {
+          text: 'Benchmarks',
+          items: [
+            { text: 'Overview', link: '/benchmarks/' },
+            { text: 'Task Definitions', link: '/benchmarks/tasks' },
+            { text: 'Full Results', link: '/benchmarks/res' },
+          ],
         },
       ],
     },
