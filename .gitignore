@@ -37,3 +37,6 @@ dependency-reduced-pom.xml
 .rtk
 copilot-instructions.md
 rtk-rewrite.json
+node_modules
+.venv-mgtools
+*.iml
