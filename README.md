@@ -713,9 +713,9 @@ Common environment variables:
 
 ## Without MCP
 
-In this case if you don't want/cannot use the MCP server, you will need Python 3.11+.
+You will need Python 3.11+.
 
-Use `--no-mcp` to skip the MCP server and use the `mgtools` CLI from the
+Use `--no-mcp` to install such instructions for different agents to skip the MCP server and use the `mgtools` CLI from the
 [`memgraph-ingester-tool`](https://pypi.org/project/memgraph-ingester-tool/) PyPI package instead.
 https://pypi.org/project/memgraph-ingester-tool/
 
