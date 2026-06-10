@@ -691,6 +691,15 @@ memgraph-ingester -P my-project --instructions-file .github/copilot-instructions
 
 Commit the updated instruction file so future agent sessions get the same graph guidance.
 
+## Without MCP
+
+You will need Python 3.11+.
+
+Use `--no-mcp` to install such instructions for different agents to skip the MCP server and use the `mgtools` CLI from the
+[`memgraph-ingester-tool`](https://pypi.org/project/memgraph-ingester-tool/) PyPI package instead.
+https://pypi.org/project/memgraph-ingester-tool/
+
+
 ## MCP
 
 Agents have to use
@@ -709,15 +718,6 @@ Common environment variables:
 |---|---|---|
 | `MEMGRAPH_INGESTER_MCP_BOLT_URI` | `bolt://localhost:7687` | Memgraph Bolt URI |
 | `MEMGRAPH_INGESTER_MCP_READ_ONLY` | `false` | Disable memory write tools when `true` |
-
-
-## Without MCP
-
-You will need Python 3.11+.
-
-Use `--no-mcp` to install such instructions for different agents to skip the MCP server and use the `mgtools` CLI from the
-[`memgraph-ingester-tool`](https://pypi.org/project/memgraph-ingester-tool/) PyPI package instead.
-https://pypi.org/project/memgraph-ingester-tool/
 
 
 ### Claude MCP
