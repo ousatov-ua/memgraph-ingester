@@ -31,7 +31,7 @@ embedding:
   property: "embedding"
   metric: "cos"
   scalar-kind: "f16"
-  batch-size: 512
+  batch-size: 256
   chunk-size: 48
   dimensions: 0
   remote-batch-size: 0
