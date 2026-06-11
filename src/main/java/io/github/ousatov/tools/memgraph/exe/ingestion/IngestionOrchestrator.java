@@ -444,11 +444,10 @@ public final class IngestionOrchestrator {
             + "'...";
     logEmbeddingRefresh(watchMode, refreshingMessage);
     long startedNanos = System.nanoTime();
-    String consoleMessage = "Refreshing " + chunkLabel;
     ConsoleProgress progress =
         watchMode || !ConsoleStatusLine.isInteractive()
             ? null
-            : ConsoleProgress.indeterminate(consoleMessage);
+            : ConsoleProgress.indeterminate("Refreshing RAG (" + chunkLabel + ")");
     try {
       EmbeddingRefreshResult result = refreshFn.apply(writer);
       String refreshedMessage =
