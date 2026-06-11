@@ -489,9 +489,9 @@ public final class IngestionOrchestrator {
   }
 
   /**
-   * Joins the in-flight model warm-up before any vector-index work and seeds the fetched
-   * dimensions into the writer. When the model is still loading, shows an indeterminate console
-   * progress so the wait between ingestion and embedding refresh is not a silent pause.
+   * Joins the in-flight model warm-up before any vector-index work and seeds the fetched dimensions
+   * into the writer. When the model is still loading, shows an indeterminate console progress so
+   * the wait between ingestion and embedding refresh is not a silent pause.
    */
   private void seedWarmedEmbeddingDimensions(GraphWriter writer, boolean watchMode) {
     CompletableFuture<Map<EmbeddingSettings, Integer>> future =

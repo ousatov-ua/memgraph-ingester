@@ -473,9 +473,9 @@ final class ChunkEmbeddingRefresher {
   }
 
   /**
-   * Stamps embedding metadata in a follow-up statement: Memgraph permits only a RETURN clause
-   * after the writeable {@code embeddings.node_sentence} call, so this cannot be folded into the
-   * batch query.
+   * Stamps embedding metadata in a follow-up statement: Memgraph permits only a RETURN clause after
+   * the writeable {@code embeddings.node_sentence} call, so this cannot be folded into the batch
+   * query.
    */
   private void updateMetadata(
       EmbeddingSettings settings, EmbeddingTarget target, int dimension, List<String> ids) {

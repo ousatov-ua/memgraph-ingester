@@ -11,8 +11,8 @@ import picocli.CommandLine.Command;
 /**
  * Pins picocli parsing of the negatable embedding flags: the plain form must enable, the {@code
  * --no-} form must disable, and the default is enabled. Guards against picocli's
- * toggle-against-default semantics, which otherwise parse a default-true negatable flag like
- * {@code --code-embeddings} as {@code false}.
+ * toggle-against-default semantics, which otherwise parse a default-true negatable flag like {@code
+ * --code-embeddings} as {@code false}.
  *
  * @author Oleksii Usatov
  */
