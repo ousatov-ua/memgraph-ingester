@@ -19,6 +19,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
 import org.jspecify.annotations.NonNull;
@@ -140,30 +141,69 @@ final class ChunkEmbeddingRefresher {
     return embedded;
   }
 
+  /**
+   * Best-effort embedding model warm-up: performs a single read-only {@code embeddings.model_info}
+   * call so the Memgraph-side model loads before the embedding refresh phase needs it. Creates no
+   * graph state and never throws — any failure is logged at debug level and deferred to the regular
+   * refresh path.
+   *
+   * @return the model dimension when the call succeeds, so it can be {@linkplain #seedDimension
+   *     seeded} into the refresher that later runs {@link #refresh}; empty otherwise
+   */
+  OptionalInt warmUp(EmbeddingSettings settings) {
+    if (!settings.enabled()) {
+      return OptionalInt.empty();
+    }
+    try {
+      int dimension = fetchDimension(settings);
+      seedDimension(settings, dimension);
+      log.debug("Warmed embedding model '{}' ({} dimensions)", settings.modelName(), dimension);
+      return OptionalInt.of(dimension);
+    } catch (RuntimeException e) {
+      log.debug(
+          "Embedding model warm-up skipped for '{}': {}", settings.modelName(), e.getMessage());
+      return OptionalInt.empty();
+    }
+  }
+
+  /** Caches a known model dimension so {@link #refresh} skips its own model_info query. */
+  void seedDimension(EmbeddingSettings settings, int dimension) {
+    dimensionCache.putIfAbsent(dimensionCacheKey(settings), dimension);
+  }
+
   private int embeddingDimension(EmbeddingSettings settings) {
-    String cacheKey = settings.modelName() + ":" + settings.dimensions();
-    return dimensionCache.computeIfAbsent(cacheKey, ignored -> queryDimension(settings));
+    return dimensionCache.computeIfAbsent(
+        dimensionCacheKey(settings), ignored -> queryDimension(settings));
+  }
+
+  private static String dimensionCacheKey(EmbeddingSettings settings) {
+    return settings.modelName() + ":" + settings.dimensions();
+  }
+
+  /** Runs one {@code embeddings.model_info} call and returns the validated model dimension. */
+  private int fetchDimension(EmbeddingSettings settings) {
+    Map<String, Object> params = Map.of(Params.CONFIG, settings.modelConfiguration());
+    return cypher.read(
+        Cypher.CYPHER_CODE_EMBEDDING_MODEL_INFO,
+        params,
+        result -> {
+          if (!result.hasNext()) {
+            throw new ProcessingException("Memgraph embeddings.model_info returned no rows");
+          }
+          int dimension = result.next().get("info").get(Rag.DIMENSION).asInt(0);
+          if (dimension < 1) {
+            throw new ProcessingException(
+                "Memgraph embeddings.model_info returned invalid dimension " + dimension);
+          }
+          return dimension;
+        });
   }
 
   private int queryDimension(EmbeddingSettings settings) {
-    Map<String, Object> params = Map.of(Params.CONFIG, settings.modelConfiguration());
     RuntimeException lastFailure = null;
     for (int attempt = 1; attempt <= MODEL_INFO_RETRIES; attempt++) {
       try {
-        return cypher.read(
-            Cypher.CYPHER_CODE_EMBEDDING_MODEL_INFO,
-            params,
-            result -> {
-              if (!result.hasNext()) {
-                throw new ProcessingException("Memgraph embeddings.model_info returned no rows");
-              }
-              int dimension = result.next().get("info").get(Rag.DIMENSION).asInt(0);
-              if (dimension < 1) {
-                throw new ProcessingException(
-                    "Memgraph embeddings.model_info returned invalid dimension " + dimension);
-              }
-              return dimension;
-            });
+        return fetchDimension(settings);
       } catch (RuntimeException e) {
         lastFailure = e;
         log.warn(

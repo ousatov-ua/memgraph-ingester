@@ -43,6 +43,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionService;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorCompletionService;
@@ -51,6 +52,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import org.jspecify.annotations.NonNull;
@@ -90,6 +92,8 @@ public final class IngestionOrchestrator {
   private String analysisCacheKey = "";
   private EmbeddingSettings codeEmbeddings = EmbeddingSettings.disabled();
   private EmbeddingSettings memoryEmbeddings = EmbeddingSettings.disabled();
+  private final AtomicReference<CompletableFuture<Map<EmbeddingSettings, Integer>>>
+      embeddingWarmupFuture = new AtomicReference<>();
 
   /**
    * @param sourceRoot root directory to walk for {@code .java} files
@@ -158,6 +162,16 @@ public final class IngestionOrchestrator {
 
     List<SourceFile> files = discoverSourceFiles();
     runBootstrap(settings, stats, bootstrapLanguages(settings, files));
+    startEmbeddingModelWarmup();
+    try {
+      return runIngestion(settings, stats, files);
+    } finally {
+      joinEmbeddingModelWarmup();
+    }
+  }
+
+  /** Runs discovery-to-post-processing ingestion after bootstrap and warm-up start. */
+  private int runIngestion(Settings settings, IngestionRunStats stats, List<SourceFile> files) {
     stats.setTotalFiles(files.size());
     List<Path> retainedSourcePaths = retainedSourcePaths(files, stats);
     String discoveryMessage =
@@ -401,7 +415,79 @@ public final class IngestionOrchestrator {
     log.debug("Refreshed :CodeRef resolution edges for '{}'", project);
   }
 
+  /**
+   * Starts a background warm-up of the Memgraph embedding model so the post-processing embedding
+   * refresh does not pay the cold model-load cost. Started only after bootstrap so the read-only
+   * {@code embeddings.model_info} transaction never overlaps schema DDL; {@link
+   * #refreshChunkEmbeddings} joins the future before any vector-index work begins and seeds the
+   * fetched dimensions into its writer, and {@link #run} joins any unconsumed warm-up before
+   * returning so the background session never outlives the run.
+   */
+  private void startEmbeddingModelWarmup() {
+    List<EmbeddingSettings> candidates =
+        embeddingWarmupCandidates(codeEmbeddings, memoryEmbeddings);
+    if (candidates.isEmpty()) {
+      return;
+    }
+    registerEmbeddingModelWarmup(
+        CompletableFuture.supplyAsync(() -> warmUpEmbeddingModels(candidates)));
+  }
+
+  /** Registers an in-flight warm-up consumed exactly once by {@link #joinEmbeddingModelWarmup}. */
+  void registerEmbeddingModelWarmup(CompletableFuture<Map<EmbeddingSettings, Integer>> future) {
+    embeddingWarmupFuture.set(future);
+  }
+
+  /** Warms each candidate model and returns the dimensions fetched for successful warm-ups. */
+  private Map<EmbeddingSettings, Integer> warmUpEmbeddingModels(
+      List<EmbeddingSettings> candidates) {
+    Map<EmbeddingSettings, Integer> dimensions = new LinkedHashMap<>();
+    try (Session session = driver.session()) {
+      GraphWriter writer = new GraphWriter(session, project);
+      for (EmbeddingSettings settings : candidates) {
+        writer
+            .warmUpEmbeddingModel(settings)
+            .ifPresent(dimension -> dimensions.put(settings, dimension));
+      }
+    } catch (RuntimeException e) {
+      log.debug("Embedding model warm-up failed: {}", e.getMessage());
+    }
+    return Map.copyOf(dimensions);
+  }
+
+  /** Returns enabled embedding settings deduplicated by model name and dimensions. */
+  static List<EmbeddingSettings> embeddingWarmupCandidates(EmbeddingSettings... allSettings) {
+    Map<String, EmbeddingSettings> byModel = new LinkedHashMap<>();
+    for (EmbeddingSettings settings : allSettings) {
+      if (settings != null && settings.enabled()) {
+        byModel.putIfAbsent(settings.modelName() + ":" + settings.dimensions(), settings);
+      }
+    }
+    return List.copyOf(byModel.values());
+  }
+
+  /**
+   * Waits for an in-flight model warm-up so embedding refresh DDL cannot overlap it and the
+   * background session cannot outlive the run.
+   *
+   * @return dimensions fetched by the warm-up; empty when none is pending or it failed
+   */
+  private Map<EmbeddingSettings, Integer> joinEmbeddingModelWarmup() {
+    CompletableFuture<Map<EmbeddingSettings, Integer>> future =
+        embeddingWarmupFuture.getAndSet(null);
+    if (future == null) {
+      return Map.of();
+    }
+    try {
+      return future.join();
+    } catch (RuntimeException e) {
+      log.debug("Embedding model warm-up completed exceptionally: {}", e.getMessage());
+      return Map.of();
+    }
+  }
+
   void refreshChunkEmbeddings(GraphWriter writer, boolean watchMode) {
+    joinEmbeddingModelWarmup().forEach(writer::seedEmbeddingDimension);
     if (codeEmbeddings.enabled()) {
       refreshEmbeddingType(
           writer,

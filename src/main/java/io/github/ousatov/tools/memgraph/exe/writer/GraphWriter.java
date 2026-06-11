@@ -26,6 +26,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.Set;
 import java.util.UUID;
 import org.neo4j.driver.Session;
@@ -631,6 +632,22 @@ public final class GraphWriter {
   /** Refreshes stale {@code :MemoryChunk.embedding} values using Memgraph's embeddings module. */
   public EmbeddingRefreshResult refreshMemoryChunkEmbeddings(EmbeddingSettings settings) {
     return embeddingRefresher.refresh(settings, EmbeddingTarget.MEMORY, false);
+  }
+
+  /**
+   * Best-effort warm-up of the Memgraph embedding model via a single read-only {@code
+   * embeddings.model_info} call. Writes no graph state and never throws.
+   *
+   * @return the model dimension when the call succeeds, so callers can {@linkplain
+   *     #seedEmbeddingDimension seed} the writer that later runs the refresh; empty otherwise
+   */
+  public OptionalInt warmUpEmbeddingModel(EmbeddingSettings settings) {
+    return embeddingRefresher.warmUp(settings);
+  }
+
+  /** Caches a known embedding model dimension, e.g. carried over from a prior warm-up. */
+  public void seedEmbeddingDimension(EmbeddingSettings settings, int dimension) {
+    embeddingRefresher.seedDimension(settings, dimension);
   }
 
   static int defaultVectorIndexCapacity(long chunkCount) {
