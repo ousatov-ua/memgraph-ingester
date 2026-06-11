@@ -47,6 +47,23 @@ class CypherResourceTest {
     }
   }
 
+  /**
+   * Memgraph rejects any clause except RETURN after a writeable procedure call, so an embedding
+   * batch query must end with YIELD followed directly by RETURN after the {@code
+   * embeddings.node_sentence} call.
+   */
+  private static void assertEndsWithReturnAfterNodeSentence(String cypher) {
+    int callIndex = cypher.indexOf("CALL embeddings.node_sentence");
+    assertTrue(callIndex >= 0, "Expected an embeddings.node_sentence call");
+    String afterCall = cypher.substring(callIndex).strip();
+    assertTrue(
+        afterCall.matches(
+            "(?s)CALL embeddings\\.node_sentence\\([^)]*\\)\\s+YIELD [^\\n]*\\s+RETURN [^\\n]*"),
+        () ->
+            "Only YIELD and RETURN may follow the writeable node_sentence call, but was:\n"
+                + afterCall);
+  }
+
   @Test
   void createSchemaContainsMemoryConstraints() {
     String schema = resource("create-schema.cypher");
@@ -281,13 +298,17 @@ class CypherResourceTest {
         markStaleEmbeddings,
         "RETURN count(chunk) AS count",
         "chunk.embeddingModel <> $modelName",
+        "coalesce(chunk.embeddingDirty, false) = false",
         "SET chunk.embeddingDirty = true");
     assertContainsAll(
         refreshEmbeddings,
         "CALL embeddings.node_sentence(chunks, $config)",
         "embeddingDirty: true",
-        "ORDER BY chunk.id",
         "RETURN success AS success");
+    assertFalse(refreshEmbeddings.contains("ORDER BY"));
+    // Memgraph permits only RETURN after the writeable node_sentence CALL; metadata stamping
+    // must stay a separate statement.
+    assertEndsWithReturnAfterNodeSentence(refreshEmbeddings);
     assertContainsAll(
         updateEmbeddingMetadata,
         "SET chunk.embeddingModel = $modelName",
@@ -332,12 +353,14 @@ class CypherResourceTest {
     assertContainsAll(
         markStaleMemoryEmbeddings,
         "chunk.embeddingModel <> $modelName",
+        "coalesce(chunk.embeddingDirty, false) = false",
         "SET chunk.embeddingDirty = true");
     assertContainsAll(
         refreshMemoryEmbeddings,
         "CALL embeddings.node_sentence(chunks, $config)",
-        "embeddingDirty: true",
-        "ORDER BY chunk.id");
+        "embeddingDirty: true");
+    assertFalse(refreshMemoryEmbeddings.contains("ORDER BY"));
+    assertEndsWithReturnAfterNodeSentence(refreshMemoryEmbeddings);
     assertContainsAll(
         updateMemoryEmbeddingMetadata,
         "SET chunk.embeddingModel = $modelName",

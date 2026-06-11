@@ -24,6 +24,7 @@ record EmbeddingTarget(
     /* {@code null} when the chunk type does not support dirty-only refresh. */
     @Nullable String countDirtyCypher,
     String batchCypher,
+    /* Separate statement: Memgraph allows only RETURN after the writeable node_sentence CALL. */
     String updateMetadataCypher,
     String failureDetailCypher,
     boolean includePathInFailureDetail,

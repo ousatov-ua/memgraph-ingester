@@ -14,6 +14,9 @@ public final class CodeEmbeddingCliOptions {
   @Option(
       names = {"--code-embeddings"},
       defaultValue = Const.Params.TRUE,
+      // fallbackValue + arity stop picocli from toggling a default-true negatable flag to false.
+      fallbackValue = Const.Params.TRUE,
+      arity = "0..1",
       negatable = true,
       description =
           "Use Memgraph's embeddings module for stale :CodeChunk embeddings after"

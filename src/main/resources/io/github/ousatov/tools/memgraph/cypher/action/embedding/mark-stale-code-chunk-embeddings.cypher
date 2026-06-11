@@ -6,5 +6,6 @@ WHERE chunk.text IS NOT NULL
     OR chunk.embeddingModel <> $modelName
     OR chunk.embeddingDimensions IS NULL
     OR chunk.embeddingDimensions <> $dimension)
-SET chunk.embeddingDirty = true
+FOREACH (_ IN CASE WHEN coalesce(chunk.embeddingDirty, false) = false THEN [1] ELSE [] END |
+  SET chunk.embeddingDirty = true)
 RETURN count(chunk) AS count

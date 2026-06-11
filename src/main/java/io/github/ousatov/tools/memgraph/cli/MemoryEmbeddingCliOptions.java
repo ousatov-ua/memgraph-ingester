@@ -14,6 +14,9 @@ public final class MemoryEmbeddingCliOptions {
   @Option(
       names = {"--memory-embeddings"},
       defaultValue = Const.Params.TRUE,
+      // fallbackValue + arity stop picocli from toggling a default-true negatable flag to false.
+      fallbackValue = Const.Params.TRUE,
+      arity = "0..1",
       negatable = true,
       description =
           "With --with-memories, sync :MemoryChunk rows and refresh stale embeddings after"

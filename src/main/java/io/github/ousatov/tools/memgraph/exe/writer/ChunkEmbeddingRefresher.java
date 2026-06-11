@@ -472,6 +472,11 @@ final class ChunkEmbeddingRefresher {
     return new EmbeddingBatchResult(success, row.get(Params.IDS).asList(Value::asString));
   }
 
+  /**
+   * Stamps embedding metadata in a follow-up statement: Memgraph permits only a RETURN clause
+   * after the writeable {@code embeddings.node_sentence} call, so this cannot be folded into the
+   * batch query.
+   */
   private void updateMetadata(
       EmbeddingSettings settings, EmbeddingTarget target, int dimension, List<String> ids) {
     if (ids.isEmpty()) {

@@ -10,15 +10,25 @@ one subcommand per tool. Pass `--project "{{PROJECT_NAME}}"` on every call unles
 
 Install once into a local Python virtual environment (Python >= 3.11):
 
+- Linux and macOS
+
 ```bash
 python3 -m venv .venv-mgtools
 .venv-mgtools/bin/pip install --quiet --upgrade memgraph-ingester-tool
 .venv-mgtools/bin/mgtools server_status --project "{{PROJECT_NAME}}"   # verify connectivity
 ```
+- Windows
 
-Always call the venv binary by path (`.venv-mgtools/bin/mgtools …`); do not rely on `PATH`
-or shell state persisting between tool invocations. Connection settings come from environment
-variables and can be prefixed inline per call:
+```powershell
+python3 -m venv .venv-mgtools
+.venv-mgtools\Scripts\pip install --quiet --upgrade memgraph-ingester-tool
+.venv-mgtools\Scripts\mgtools server_status --project "{{PROJECT_NAME}}"
+```
+
+**Always call the venv binary by path; do not rely on `PATH`
+or shell state persisting between tool invocations.**
+
+Connection settings come from environment variables and can be prefixed inline per call:
 
 | Variable | Default |
 | --- | --- |
@@ -27,8 +37,17 @@ variables and can be prefixed inline per call:
 | `MEMGRAPH_TOOLS_PROJECT` | _none_ (else pass `--project`) |
 | `MEMGRAPH_TOOLS_READ_ONLY` | `false` (set `true` to reject writes) |
 
+- Linux and macOS
+
 ```bash
 MEMGRAPH_TOOLS_BOLT_URI="bolt://127.0.0.1:7687" .venv-mgtools/bin/mgtools \
+  code_search "authentication filter" --project "{{PROJECT_NAME}}" --limit 5
+```
+
+- Windows
+
+```powershell
+MEMGRAPH_TOOLS_BOLT_URI="bolt://127.0.0.1:7687" .venv-mgtools\Scripts\mgtools \
   code_search "authentication filter" --project "{{PROJECT_NAME}}" --limit 5
 ```
 

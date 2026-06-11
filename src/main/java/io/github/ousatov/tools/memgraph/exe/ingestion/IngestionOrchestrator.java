@@ -469,15 +469,17 @@ public final class IngestionOrchestrator {
   /**
    * Waits for an in-flight model warm-up so embedding refresh DDL cannot overlap it and the
    * background session cannot outlive the run.
-   *
-   * @return dimensions fetched by the warm-up; empty when none is pending or it failed
    */
-  private Map<EmbeddingSettings, Integer> joinEmbeddingModelWarmup() {
+  private void joinEmbeddingModelWarmup() {
     CompletableFuture<Map<EmbeddingSettings, Integer>> future =
         embeddingWarmupFuture.getAndSet(null);
-    if (future == null) {
-      return Map.of();
+    if (future != null) {
+      joinWarmup(future);
     }
+  }
+
+  private Map<EmbeddingSettings, Integer> joinWarmup(
+      CompletableFuture<Map<EmbeddingSettings, Integer>> future) {
     try {
       return future.join();
     } catch (RuntimeException e) {
@@ -486,8 +488,32 @@ public final class IngestionOrchestrator {
     }
   }
 
+  /**
+   * Joins the in-flight model warm-up before any vector-index work and seeds the fetched
+   * dimensions into the writer. When the model is still loading, shows an indeterminate console
+   * progress so the wait between ingestion and embedding refresh is not a silent pause.
+   */
+  private void seedWarmedEmbeddingDimensions(GraphWriter writer, boolean watchMode) {
+    CompletableFuture<Map<EmbeddingSettings, Integer>> future =
+        embeddingWarmupFuture.getAndSet(null);
+    if (future == null) {
+      return;
+    }
+    ConsoleProgress progress =
+        watchMode || future.isDone() || !ConsoleStatusLine.isInteractive()
+            ? null
+            : ConsoleProgress.indeterminate("Loading embedding model");
+    try {
+      joinWarmup(future).forEach(writer::seedEmbeddingDimension);
+    } finally {
+      if (progress != null) {
+        progress.discard();
+      }
+    }
+  }
+
   void refreshChunkEmbeddings(GraphWriter writer, boolean watchMode) {
-    joinEmbeddingModelWarmup().forEach(writer::seedEmbeddingDimension);
+    seedWarmedEmbeddingDimensions(writer, watchMode);
     if (codeEmbeddings.enabled()) {
       refreshEmbeddingType(
           writer,

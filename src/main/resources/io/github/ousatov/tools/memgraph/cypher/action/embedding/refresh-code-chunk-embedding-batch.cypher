@@ -1,7 +1,6 @@
 MATCH (chunk:CodeChunk {project: $project, embeddingDirty: true})
 WHERE chunk.text IS NOT NULL
 WITH chunk
-ORDER BY chunk.id
 LIMIT $limit
 WITH collect(chunk) AS chunks
 WITH chunks, [chunk IN chunks | chunk.id] AS ids
