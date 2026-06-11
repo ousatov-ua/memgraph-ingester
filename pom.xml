@@ -1,23 +1,19 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0">
   <modelVersion>4.0.0</modelVersion>
-
   <groupId>io.github.ousatov-ua</groupId>
   <artifactId>memgraph-ingester</artifactId>
-  <version>12.4.1</version>
+  <version>12.4.2</version>
   <packaging>jar</packaging>
-
   <name>Memgraph Ingester</name>
   <description>Ingester of Java structure in Memgraph. Speed-up Claude Code!</description>
   <url>https://github.com/ousatov-ua/memgraph-ingester</url>
-
   <licenses>
     <license>
       <name>MIT License</name>
       <url>https://opensource.org/licenses/MIT</url>
     </license>
   </licenses>
-
   <developers>
     <developer>
       <id>ousatov-ua</id>
@@ -25,7 +21,6 @@
       <email>oleksii.usatov@proton.me</email>
     </developer>
   </developers>
-
   <properties>
     <maven.compiler.release>25</maven.compiler.release>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
@@ -43,12 +38,11 @@
     <commons-compress.version>1.28.0</commons-compress.version>
     <xz.version>1.12</xz.version>
     <metrics.bolt>bolt://localhost:7687</metrics.bolt>
-    <metrics.expected></metrics.expected>
-    <metrics.pass></metrics.pass>
+    <metrics.expected/>
+    <metrics.pass/>
     <metrics.project>${project.artifactId}</metrics.project>
-    <metrics.user></metrics.user>
+    <metrics.user/>
   </properties>
-
   <dependencies>
     <!-- JavaParser with symbol resolution -->
     <dependency>
@@ -56,21 +50,18 @@
       <artifactId>javaparser-symbol-solver-core</artifactId>
       <version>${javaparser.version}</version>
     </dependency>
-
     <!-- Neo4j Bolt driver — Memgraph is Bolt-compatible -->
     <dependency>
       <groupId>org.neo4j.driver</groupId>
       <artifactId>neo4j-java-driver</artifactId>
       <version>${neo4j.driver.version}</version>
     </dependency>
-
     <!-- CLI arg parsing -->
     <dependency>
       <groupId>info.picocli</groupId>
       <artifactId>picocli</artifactId>
       <version>${picocli.version}</version>
     </dependency>
-
     <!-- Managed Node.js/TypeScript cache archive extraction -->
     <dependency>
       <groupId>org.apache.commons</groupId>
@@ -82,14 +73,12 @@
       <artifactId>xz</artifactId>
       <version>${xz.version}</version>
     </dependency>
-
     <!-- Logging -->
     <dependency>
       <groupId>org.slf4j</groupId>
       <artifactId>slf4j-simple</artifactId>
       <version>2.0.16</version>
     </dependency>
-
     <!-- JUnit 5 -->
     <dependency>
       <groupId>org.junit.jupiter</groupId>
@@ -97,7 +86,6 @@
       <version>5.11.4</version>
       <scope>test</scope>
     </dependency>
-
     <dependency>
       <groupId>org.testcontainers</groupId>
       <artifactId>testcontainers</artifactId>
@@ -111,7 +99,6 @@
       <scope>test</scope>
     </dependency>
   </dependencies>
-
   <build>
     <resources>
       <resource>
@@ -154,7 +141,6 @@
         <groupId>com.diffplug.spotless</groupId>
         <artifactId>spotless-maven-plugin</artifactId>
         <version>${spotless.version}</version>
-
         <executions>
           <execution>
             <goals>
@@ -162,14 +148,12 @@
             </goals>
           </execution>
         </executions>
-
         <configuration>
           <java>
             <includes>
               <include>src/main/**/*.java</include>
               <include>src/test/**/*.java</include>
             </includes>
-
             <!-- Google Java Format -->
             <googleJavaFormat>
               <version>1.34.1</version>
@@ -177,10 +161,8 @@
               <reflowLongStrings>true</reflowLongStrings>
               <formatJavadoc>true</formatJavadoc>
             </googleJavaFormat>
-
             <importOrder/>
             <removeUnusedImports/>
-
             <trimTrailingWhitespace/>
             <endWithNewline/>
           </java>
@@ -285,7 +267,6 @@
           </gpgArguments>
         </configuration>
       </plugin>
-
       <!-- Sonatype Central publisher -->
       <plugin>
         <groupId>org.sonatype.central</groupId>
@@ -348,7 +329,6 @@
       </plugin>
     </plugins>
   </build>
-
   <profiles>
     <profile>
       <id>shade</id>
@@ -369,8 +349,7 @@
                   <finalName>memgraph-ingester</finalName>
                   <minimizeJar>true</minimizeJar>
                   <transformers>
-                    <transformer
-                      implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
+                    <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
                       <mainClass>io.github.ousatov.tools.memgraph.IngesterCli</mainClass>
                     </transformer>
                   </transformers>
@@ -552,7 +531,6 @@
       </build>
     </profile>
   </profiles>
-
   <scm>
     <connection>scm:git:git://github.com/ousatov-ua/memgraph-ingester.git</connection>
     <developerConnection>scm:git:ssh://github.com/ousatov-ua/memgraph-ingester.git</developerConnection>
