@@ -205,9 +205,7 @@ docker run -p 7687:7687 -p 7444:7444 --name memgraph --memory=4g --memory-swap=4
 
 Memgraph Bolt listens on `bolt://localhost:7687`.
 
-### 2. Download the Ingester
-
-Version in this repository: `12.2.2`.
+### 2. Install the Ingester
 
 #### 2.1 Brew
 
