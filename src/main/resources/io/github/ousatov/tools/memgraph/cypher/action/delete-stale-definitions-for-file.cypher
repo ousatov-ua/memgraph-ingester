@@ -1,5 +1,6 @@
+MATCH (sourceFile:File {path: $path, project: $project})
 CALL {
-  MATCH (sourceFile:File {path: $path, project: $project})
+  WITH sourceFile
   CALL {
     WITH sourceFile
     MATCH (sourceFile)-[:DEFINES]->(node)
@@ -61,7 +62,8 @@ CALL {
   RETURN relationshipsDeleted + size(pendingCalls) AS relationshipsDeleted
 }
 CALL {
-  MATCH (sourceFile:File {path: $path, project: $project})-[defines:DEFINES]->(node)
+  WITH sourceFile
+  MATCH (sourceFile)-[defines:DEFINES]->(node)
   WHERE node.project = $project
     AND (
       (node:Class AND NOT node.fqn IN $classFqns)
@@ -72,8 +74,8 @@ CALL {
     )
   RETURN defines, node
   UNION
-  MATCH (sourceFile:File {path: $path, project: $project})-[:DEFINES]->(owner)
-      -[:DECLARES]->(member)
+  WITH sourceFile
+  MATCH (sourceFile)-[:DEFINES]->(owner)-[:DECLARES]->(member)
   MATCH (sourceFile)-[defines:DEFINES]->(member)
   WHERE owner.project = $project
     AND (
