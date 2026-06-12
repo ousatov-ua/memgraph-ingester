@@ -27,35 +27,35 @@ after file, grepping broad paths, and spending context on guesswork, the agent c
 graph questions first: exact symbols, callers, callees, file outlines, semantic anchors, and project
 memory.
 
-In a six-task comparison, Memgraph-backed runs used **41% fewer tokens overall**: **354,970** tokens
-with Memgraph versus **605,578** without it. The strongest task cut token use by **62%**.
+In a six-task comparison, Memgraph-backed runs used **65% fewer tokens overall**: **4,920,496**
+billed tokens with Memgraph versus **13,934,313** without it. The strongest task cut token use by **86%**.
 
-The same runs also needed **45% fewer tool calls** and **44% fewer opened files**:
+The same runs also needed **26% fewer tool calls** and **42% fewer opened files**:
 
 | Metric | With Memgraph | Without Memgraph | Reduction |
 | --- | ---: | ---: | ---: |
-| Tokens used | 354,970 | 605,578 | **41% fewer** |
-| Tool calls | 92 | 168 | **45% fewer** |
-| Files opened | 59 | 105 | **44% fewer** |
+| Tokens used | 4,920,496 | 13,934,313 | **65% fewer** |
+| Tool calls | 190 | 258 | **26% fewer** |
+| Files opened | 65 | 112 | **42% fewer** |
 
 These measurements were performed on this codebase. At the time of measurement, `cloc` reported
-**28,588 code lines** across tracked Java, JavaScript, Python, and TypeScript sources: **26,006**
-Java, **1,863** JavaScript, **645** Python, and **74** TypeScript.
+**29,743 code lines** across tracked Java, JavaScript, Python, and TypeScript sources: **27,148**
+Java, **1,863** JavaScript, **647** Python, and **85** TypeScript.
 
 Measured task scope:
 
 | Task | Description |
 | --- | --- |
-| A | Provider onboarding |
-| B | Write-path performance |
+| A | Architecture exploration |
+| B | Performance audit |
 | C | Refactor impact |
-| D | Stale-snippet triage |
-| E | Stale-snippet fix |
+| D | Data-flow trace |
+| E | Bug diagnosis |
 | F | CI triage |
 
-Quality stayed high across both approaches, while graph-guided runs kept the agent more focused:
-less discovery churn, fewer irrelevant reads, and cleaner signal for the final answer. In the
-measured set, the Memgraph-backed run also avoided the false positive seen without the graph.
+Quality stayed high across both approaches, and graph-backed runs were cheaper on five of the six
+tasks. In the CI triage task, the Memgraph-backed run pinpointed two concrete regressions that the
+run without the graph could not reproduce and left as unconfirmed hypotheses.
 
 Please visit the latest benchmark results on the
 [benchmarks page](https://ousatov-ua.github.io/memgraph-ingester/benchmarks/) of the documentation site.
