@@ -11,6 +11,9 @@ import org.junit.jupiter.api.Test;
 
 class ConsoleStatusLineTest {
 
+  private static final String HIDE_CURSOR = "\u001B[?25l";
+  private static final String SHOW_CURSOR = "\u001B[?25h";
+
   @Test
   void lineClearsActiveStatusBeforePrintingMessage() {
     ByteArrayOutputStream bytes = new ByteArrayOutputStream();
@@ -135,5 +138,80 @@ class ConsoleStatusLineTest {
 
     assertFalse(ConsoleStatusLine.hasActiveStatus(out));
     assertFalse(ConsoleStatusLine.hasExclusiveStatus(out));
+  }
+
+  @Test
+  void statusSessionHidesCursorAfterStatusOutputStartsUntilFinalSessionCloses() {
+    ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+    PrintStream out = new PrintStream(bytes, true, StandardCharsets.UTF_8);
+
+    try (var _ = ConsoleStatusLine.openStatusSession(out)) {
+      assertFalse(bytes.toString(StandardCharsets.UTF_8).contains(HIDE_CURSOR));
+
+      ConsoleStatusLine.update(out, "Progress: 1/2");
+
+      try (var _ = ConsoleStatusLine.openExclusiveStatusSession(out)) {
+        assertTrue(ConsoleStatusLine.hasActiveStatus(out));
+        assertTrue(ConsoleStatusLine.hasExclusiveStatus(out));
+        ConsoleStatusLine.update(out, "Progress: 2/2");
+      }
+
+      String nestedOutput = bytes.toString(StandardCharsets.UTF_8);
+      assertTrue(nestedOutput.startsWith("\r"));
+      assertTrue(nestedOutput.indexOf(HIDE_CURSOR) > 0);
+      assertEquals(1, countOccurrences(nestedOutput, HIDE_CURSOR));
+      assertFalse(nestedOutput.contains(SHOW_CURSOR));
+    }
+
+    String output = bytes.toString(StandardCharsets.UTF_8);
+    assertEquals(1, countOccurrences(output, HIDE_CURSOR));
+    assertEquals(1, countOccurrences(output, SHOW_CURSOR));
+    assertTrue(output.endsWith(SHOW_CURSOR));
+    assertTrue(ConsoleStatusLine.hasActiveLine(out));
+    ConsoleStatusLine.finish(out);
+    assertFalse(ConsoleStatusLine.hasActiveStatus(out));
+  }
+
+  @Test
+  void shutdownRestoreShowsCursorAndClearsStatusSessions() {
+    ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+    PrintStream out = new PrintStream(bytes, true, StandardCharsets.UTF_8);
+
+    try (var _ = ConsoleStatusLine.openStatusSession(out)) {
+      assertTrue(ConsoleStatusLine.hasActiveStatus(out));
+      ConsoleStatusLine.update(out, "Progress: 1/2");
+
+      ConsoleStatusLine.restoreCursorForShutdown();
+
+      assertFalse(ConsoleStatusLine.hasActiveStatus(out));
+    }
+
+    String output = bytes.toString(StandardCharsets.UTF_8);
+    assertEquals(1, countOccurrences(output, HIDE_CURSOR));
+    assertEquals(1, countOccurrences(output, SHOW_CURSOR));
+    assertTrue(output.endsWith(SHOW_CURSOR));
+  }
+
+  @Test
+  void directStatusUpdateDoesNotToggleCursorWithoutSession() {
+    ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+    PrintStream out = new PrintStream(bytes, true, StandardCharsets.UTF_8);
+
+    ConsoleStatusLine.update(out, "Progress: 1/2");
+    ConsoleStatusLine.finish(out);
+
+    String output = bytes.toString(StandardCharsets.UTF_8);
+    assertFalse(output.contains(HIDE_CURSOR));
+    assertFalse(output.contains(SHOW_CURSOR));
+  }
+
+  private static int countOccurrences(String text, String value) {
+    int count = 0;
+    int index = 0;
+    while ((index = text.indexOf(value, index)) >= 0) {
+      count++;
+      index += value.length();
+    }
+    return count;
   }
 }

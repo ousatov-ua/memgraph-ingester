@@ -15,12 +15,18 @@ public final class ConsoleStatusLine {
 
   private static final Object LOCK = new Object();
   private static final String ERASE_LINE = "\u001B[2K";
+  private static final String HIDE_CURSOR = "\u001B[?25l";
+  private static final String SHOW_CURSOR = "\u001B[?25h";
 
   private static PrintStream activeOut;
   private static int lastLength;
   private static boolean active;
+  private static boolean shutdownHookRegistered;
   private static final Map<PrintStream, Integer> statusSessions = new IdentityHashMap<>();
   private static final Map<PrintStream, Integer> exclusiveStatusSessions = new IdentityHashMap<>();
+  private static final Map<PrintStream, Boolean> hiddenCursorStreams = new IdentityHashMap<>();
+  private static final Map<PrintStream, Boolean> outputHiddenCursorStreams =
+      new IdentityHashMap<>();
 
   private ConsoleStatusLine() {
     throw new UnsupportedOperationException("Utility class");
@@ -59,6 +65,7 @@ public final class ConsoleStatusLine {
   private static StatusSession openStatusSession(PrintStream out, boolean exclusive) {
     PrintStream stream = Objects.requireNonNull(out, Const.Params.OUT);
     synchronized (LOCK) {
+      registerShutdownHook();
       statusSessions.merge(stream, 1, Integer::sum);
       if (exclusive) {
         exclusiveStatusSessions.merge(stream, 1, Integer::sum);
@@ -74,6 +81,7 @@ public final class ConsoleStatusLine {
       clearDifferentActiveStream(stream);
       int visibleLength = visibleLength(text);
       stream.print('\r');
+      hideCursorForStatusIfNeeded(stream);
       clearLine(stream);
       stream.print(text);
       if (lastLength > visibleLength) {
@@ -83,6 +91,19 @@ public final class ConsoleStatusLine {
       active = true;
       activeOut = stream;
       stream.flush();
+    }
+  }
+
+  static void hideCursorUntilShutdown(PrintStream out) {
+    PrintStream stream = Objects.requireNonNull(out, Const.Params.OUT);
+    synchronized (LOCK) {
+      registerShutdownHook();
+      boolean alreadyHidden =
+          outputHiddenCursorStreams.containsKey(stream) || hiddenCursorStreams.containsKey(stream);
+      outputHiddenCursorStreams.put(stream, true);
+      if (!alreadyHidden) {
+        hideCursor(stream);
+      }
     }
   }
 
@@ -198,6 +219,51 @@ public final class ConsoleStatusLine {
     stream.print('\r');
   }
 
+  private static void registerShutdownHook() {
+    if (shutdownHookRegistered) {
+      return;
+    }
+    shutdownHookRegistered = true;
+    try {
+      Runtime.getRuntime().addShutdownHook(new Thread(ConsoleStatusLine::restoreCursorForShutdown));
+    } catch (IllegalStateException _) {
+      // JVM already shutting down; best effort cursor restore continues in normal close paths.
+    }
+  }
+
+  static void restoreCursorForShutdown() {
+    synchronized (LOCK) {
+      Map<PrintStream, Boolean> restoreStreams = new IdentityHashMap<>();
+      restoreStreams.putAll(outputHiddenCursorStreams);
+      restoreStreams.putAll(hiddenCursorStreams);
+      restoreStreams.keySet().forEach(ConsoleStatusLine::showCursor);
+      outputHiddenCursorStreams.clear();
+      hiddenCursorStreams.clear();
+      statusSessions.clear();
+      exclusiveStatusSessions.clear();
+      reset();
+    }
+  }
+
+  private static void hideCursorForStatusIfNeeded(PrintStream stream) {
+    if (statusSessions.containsKey(stream)
+        && !hiddenCursorStreams.containsKey(stream)
+        && !outputHiddenCursorStreams.containsKey(stream)) {
+      hideCursor(stream);
+      hiddenCursorStreams.put(stream, true);
+    }
+  }
+
+  private static void hideCursor(PrintStream stream) {
+    stream.print(HIDE_CURSOR);
+    stream.flush();
+  }
+
+  private static void showCursor(PrintStream stream) {
+    stream.print(SHOW_CURSOR);
+    stream.flush();
+  }
+
   public static final class StatusSession implements AutoCloseable {
 
     private final PrintStream out;
@@ -211,9 +277,16 @@ public final class ConsoleStatusLine {
 
     private static void closeStatusSession(PrintStream stream, boolean exclusive) {
       synchronized (LOCK) {
+        boolean hadSession = statusSessions.containsKey(stream);
         decrementSession(statusSessions, stream);
         if (exclusive) {
           decrementSession(exclusiveStatusSessions, stream);
+        }
+        if (hadSession
+            && !statusSessions.containsKey(stream)
+            && hiddenCursorStreams.remove(stream) != null
+            && !outputHiddenCursorStreams.containsKey(stream)) {
+          showCursor(stream);
         }
       }
     }

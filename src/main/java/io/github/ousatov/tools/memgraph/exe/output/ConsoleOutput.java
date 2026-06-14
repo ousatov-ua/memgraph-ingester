@@ -74,6 +74,9 @@ public final class ConsoleOutput {
     boolean colors = AnsiStyle.colorsEnabled(interactive);
     String border = "+" + "-".repeat(TITLE_WIDTH) + "+";
     ConsoleStatusLine.line(stream, AnsiStyle.frame(border, colors));
+    if (interactive) {
+      ConsoleStatusLine.hideCursorUntilShutdown(stream);
+    }
     ConsoleStatusLine.line(
         stream,
         AnsiStyle.frame("|", colors)

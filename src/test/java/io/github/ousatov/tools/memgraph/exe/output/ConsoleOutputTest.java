@@ -16,6 +16,9 @@ import org.junit.jupiter.api.Test;
  */
 class ConsoleOutputTest {
 
+  private static final String HIDE_CURSOR = "\u001B[?25l";
+  private static final String SHOW_CURSOR = "\u001B[?25h";
+
   @Test
   void titleBannerPrintsExpectedApplicationName() {
     ByteArrayOutputStream bytes = new ByteArrayOutputStream();
@@ -44,10 +47,43 @@ class ConsoleOutputTest {
   }
 
   @Test
+  void interactiveTitleHidesCursorJustAfterOutputStartsUntilShutdown() {
+    ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+    PrintStream out = new PrintStream(bytes, true, StandardCharsets.UTF_8);
+
+    ConsoleOutput.printTitle(out, true);
+
+    String titleOutput = bytes.toString(StandardCharsets.UTF_8);
+    int firstLineBreak = titleOutput.indexOf('\n');
+    int hideCursor = titleOutput.indexOf(HIDE_CURSOR);
+    assertTrue(firstLineBreak >= 0);
+    assertTrue(hideCursor > firstLineBreak);
+    assertEquals(1, countOccurrences(titleOutput, HIDE_CURSOR));
+    assertTrue(titleOutput.contains(ConsoleOutput.TITLE));
+
+    ConsoleStatusLine.restoreCursorForShutdown();
+
+    String output = bytes.toString(StandardCharsets.UTF_8);
+    assertEquals(1, countOccurrences(output, HIDE_CURSOR));
+    assertEquals(1, countOccurrences(output, SHOW_CURSOR));
+    assertTrue(output.endsWith(SHOW_CURSOR));
+  }
+
+  @Test
   void successUsesMutedGreenAccent() {
     String styled = AnsiStyle.success("Watch mode for src activated.", true);
 
     assertTrue(styled.contains("\u001B[32m"));
     assertTrue(styled.contains("Watch mode for src activated."));
+  }
+
+  private static int countOccurrences(String text, String value) {
+    int count = 0;
+    int index = 0;
+    while ((index = text.indexOf(value, index)) >= 0) {
+      count++;
+      index += value.length();
+    }
+    return count;
   }
 }
