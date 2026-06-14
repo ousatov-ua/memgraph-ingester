@@ -25,7 +25,7 @@ public final class ConsoleProgress implements AutoCloseable {
   private static final String[] SPINNER = {"-", "\\", "|", "/"};
 
   private final PrintStream out;
-  private final String label;
+  private String label;
   private final Integer total;
   private final boolean interactive;
   private final boolean colors;
@@ -135,6 +135,16 @@ public final class ConsoleProgress implements AutoCloseable {
       return;
     }
     render(label, Math.clamp(done, 0, total));
+  }
+
+  /** Updates the label for an indeterminate progress indicator on the same status row. */
+  public synchronized void updateIndeterminateLabel(String label) {
+    Objects.requireNonNull(label, "label");
+    if (total != null || closed) {
+      return;
+    }
+    this.label = label;
+    render(0);
   }
 
   /** Stops the animation and leaves {@code text} on the active status row. */

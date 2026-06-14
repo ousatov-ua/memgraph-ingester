@@ -26,6 +26,7 @@ import io.github.ousatov.tools.memgraph.vo.ingestion.SourceFile;
 import io.github.ousatov.tools.memgraph.vo.ingestion.StoredFileState;
 import io.github.ousatov.tools.memgraph.vo.writer.EmbeddingRefreshResult;
 import java.io.IOException;
+import java.io.PrintStream;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -215,8 +216,14 @@ public final class IngestionOrchestrator {
       }
     }
 
+    ConsoleProgress postIngestionProgress = openPostIngestionProgress();
     if (failures == 0) {
-      deleteMissingSourceFiles(files, retainedSourcePaths, stats);
+      try {
+        deleteMissingSourceFiles(files, retainedSourcePaths, stats);
+      } catch (RuntimeException e) {
+        discardProgress(postIngestionProgress);
+        throw e;
+      }
     } else {
       log.warn(
           "Skipping missing-file cleanup because {} file(s) failed to ingest; existing graph"
@@ -225,8 +232,9 @@ public final class IngestionOrchestrator {
     }
 
     try {
-      runPostProcessing(stats);
+      runPostProcessing(stats, postIngestionProgress);
     } catch (RuntimeException e) {
+      discardProgress(postIngestionProgress);
       if (settings.watch() && WatchSession.isInterruptedFailure(e)) {
         Thread.currentThread().interrupt();
         return failures;
@@ -238,6 +246,25 @@ public final class IngestionOrchestrator {
       watchSession.start();
     }
     return failures;
+  }
+
+  /** Opens a short visible transition between source ingestion and RAG refresh progress. */
+  @SuppressWarnings("java:S106")
+  private static ConsoleProgress openPostIngestionProgress() {
+    return openPostIngestionProgress(System.err, ConsoleStatusLine.isInteractive());
+  }
+
+  static ConsoleProgress openPostIngestionProgress(PrintStream out, boolean interactive) {
+    return ConsoleProgress.indeterminate(
+        "Preparing RAG refresh", out, interactive, Duration.ofMillis(120), true);
+  }
+
+  /** Clears a transient progress indicator if it was opened. */
+  private static ConsoleProgress discardProgress(ConsoleProgress progress) {
+    if (progress != null) {
+      progress.discard();
+    }
+    return null;
   }
 
   private Map<LanguageAdapter<?>, RuntimeException> prepareAdapters(
@@ -333,11 +360,11 @@ public final class IngestionOrchestrator {
     }
   }
 
-  private void runPostProcessing(IngestionRunStats stats) {
+  private void runPostProcessing(IngestionRunStats stats, ConsoleProgress postIngestionProgress) {
     try (Session session = driver.session()) {
       GraphWriter postWriter = new GraphWriter(session, project, stats);
       refreshDerivedGraphArtifacts(postWriter);
-      refreshChunkEmbeddings(postWriter, false);
+      refreshChunkEmbeddings(postWriter, false, postIngestionProgress);
       ConsoleOutput.finishStatus();
       printMetrics(session);
       printPerformance(stats);
@@ -488,19 +515,15 @@ public final class IngestionOrchestrator {
     }
   }
 
-  /**
-   * Joins the in-flight model warm-up before any vector-index work and seeds the fetched dimensions
-   * into the writer. When the model is still loading, shows an indeterminate console progress so
-   * the wait between ingestion and embedding refresh is not a silent pause.
-   */
-  private void seedWarmedEmbeddingDimensions(GraphWriter writer, boolean watchMode) {
+  private void seedWarmedEmbeddingDimensions(
+      GraphWriter writer, boolean watchMode, ConsoleProgress activeProgress) {
     CompletableFuture<Map<EmbeddingSettings, Integer>> future =
         embeddingWarmupFuture.getAndSet(null);
     if (future == null) {
       return;
     }
     ConsoleProgress progress =
-        watchMode || future.isDone() || !ConsoleStatusLine.isInteractive()
+        activeProgress != null || watchMode || future.isDone()
             ? null
             : ConsoleProgress.indeterminate("Loading embedding model");
     try {
@@ -513,39 +536,54 @@ public final class IngestionOrchestrator {
   }
 
   void refreshChunkEmbeddings(GraphWriter writer, boolean watchMode) {
-    seedWarmedEmbeddingDimensions(writer, watchMode);
-    if (codeEmbeddings.enabled()) {
-      refreshEmbeddingType(
-          writer,
-          watchMode,
-          codeEmbeddings,
-          "CodeChunk",
-          w -> w.refreshCodeChunkEmbeddings(codeEmbeddings, watchMode),
-          "Ingestion completed; use --no-code-embeddings to suppress this warning or run a"
-              + " Memgraph image with embeddings and vector-index support.");
-    }
-    if (!memoryEmbeddings.enabled()) {
-      return;
-    }
-    long memoryChunkCount = writer.upsertMemoryChunks();
-    log.debug("Upserted {} MemoryChunk row(s) for '{}'", memoryChunkCount, project);
-    refreshEmbeddingType(
-        writer,
-        watchMode,
-        memoryEmbeddings,
-        "MemoryChunk",
-        w -> w.refreshMemoryChunkEmbeddings(memoryEmbeddings),
-        "MemoryChunk rows were synced; use --no-memory-embeddings to suppress this warning or run"
-            + " a Memgraph image with embeddings and vector-index support.");
+    refreshChunkEmbeddings(writer, watchMode, null);
   }
 
-  private void refreshEmbeddingType(
+  void refreshChunkEmbeddings(
+      GraphWriter writer, boolean watchMode, ConsoleProgress postIngestionProgress) {
+    ConsoleProgress pendingProgress = postIngestionProgress;
+    try {
+      seedWarmedEmbeddingDimensions(writer, watchMode, pendingProgress);
+      if (codeEmbeddings.enabled()) {
+        pendingProgress =
+            refreshEmbeddingType(
+                writer,
+                watchMode,
+                codeEmbeddings,
+                "CodeChunk",
+                w -> w.refreshCodeChunkEmbeddings(codeEmbeddings, watchMode),
+                "Ingestion completed; use --no-code-embeddings to suppress this warning or run a"
+                    + " Memgraph image with embeddings and vector-index support.",
+                pendingProgress);
+      }
+      if (!memoryEmbeddings.enabled()) {
+        return;
+      }
+      long memoryChunkCount = writer.upsertMemoryChunks();
+      log.debug("Upserted {} MemoryChunk row(s) for '{}'", memoryChunkCount, project);
+      pendingProgress =
+          refreshEmbeddingType(
+              writer,
+              watchMode,
+              memoryEmbeddings,
+              "MemoryChunk",
+              w -> w.refreshMemoryChunkEmbeddings(memoryEmbeddings),
+              "MemoryChunk rows were synced; use --no-memory-embeddings to suppress this warning or"
+                  + " run a Memgraph image with embeddings and vector-index support.",
+              pendingProgress);
+    } finally {
+      discardProgress(pendingProgress);
+    }
+  }
+
+  private ConsoleProgress refreshEmbeddingType(
       GraphWriter writer,
       boolean watchMode,
       EmbeddingSettings settings,
       String chunkLabel,
       Function<GraphWriter, EmbeddingRefreshResult> refreshFn,
-      String warnDetail) {
+      String warnDetail,
+      ConsoleProgress transitionProgress) {
     String refreshingMessage =
         "Refreshing "
             + chunkLabel
@@ -554,12 +592,11 @@ public final class IngestionOrchestrator {
             + "' with Memgraph model '"
             + settings.modelName()
             + "'...";
+    ConsoleProgress progress =
+        openEmbeddingRefreshProgress(
+            watchMode, "Refreshing RAG (" + chunkLabel + ")", transitionProgress);
     logEmbeddingRefresh(watchMode, refreshingMessage);
     long startedNanos = System.nanoTime();
-    ConsoleProgress progress =
-        watchMode || !ConsoleStatusLine.isInteractive()
-            ? null
-            : ConsoleProgress.indeterminate("Refreshing RAG (" + chunkLabel + ")");
     try {
       EmbeddingRefreshResult result = refreshFn.apply(writer);
       String refreshedMessage =
@@ -573,13 +610,9 @@ public final class IngestionOrchestrator {
               + result.dimension()
               + " dimensions).";
       logEmbeddingRefresh(watchMode, refreshedMessage);
-      if (progress != null) {
-        progress.discard();
-      }
+      progress = discardProgress(progress);
     } catch (RuntimeException e) {
-      if (progress != null) {
-        progress.discard();
-      }
+      progress = discardProgress(progress);
       if (settings.required()) {
         throw new ProcessingException(
             "Required "
@@ -601,6 +634,16 @@ public final class IngestionOrchestrator {
           .stats()
           .recordPhaseNanos(IngestionRunStats.PHASE_EMBEDDING, System.nanoTime() - startedNanos);
     }
+    return progress;
+  }
+
+  private static ConsoleProgress openEmbeddingRefreshProgress(
+      boolean watchMode, String label, ConsoleProgress transitionProgress) {
+    if (transitionProgress != null) {
+      transitionProgress.updateIndeterminateLabel(label);
+      return transitionProgress;
+    }
+    return watchMode ? null : ConsoleProgress.indeterminate(label);
   }
 
   private void logEmbeddingRefresh(boolean watchMode, String message) {

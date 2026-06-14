@@ -60,11 +60,15 @@ class ConsoleProgressTest {
   @Test
   void embeddingAndIngestionProgressBarsShareColumnAndWidth() {
     String ingested = ConsoleProgress.renderFinite("Ingested source files", 1, 1, 0, false);
+    String preparing = ConsoleProgress.renderIndeterminate("Preparing RAG refresh", 0, false);
     String codeChunk = ConsoleProgress.renderIndeterminate("Refreshing Code RAG", 0, false);
     String memoryChunk = ConsoleProgress.renderIndeterminate("Refreshing Memory RAG", 0, false);
 
+    assertAlignedProgressBar(ingested, preparing);
     assertAlignedProgressBar(ingested, codeChunk);
     assertAlignedProgressBar(ingested, memoryChunk);
+    assertTrue(preparing.contains("Preparing RAG refresh"));
+    assertTrue(preparing.contains("[==>"));
     assertTrue(codeChunk.contains("[==>"));
     assertTrue(memoryChunk.contains("[==>"));
   }
@@ -95,6 +99,24 @@ class ConsoleProgressTest {
     String output = bytes.toString(StandardCharsets.UTF_8);
     assertTrue(output.contains("\r"));
     assertTrue(output.contains("Resolving graph"));
+    assertFalse(ConsoleStatusLine.hasExclusiveStatus(out));
+  }
+
+  @Test
+  void indeterminateProgressCanUpdateLabelOnSameStatusLine() {
+    ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+    PrintStream out = new PrintStream(bytes, true, StandardCharsets.UTF_8);
+
+    try (ConsoleProgress progress =
+        ConsoleProgress.indeterminate(
+            "Preparing RAG refresh", out, true, Duration.ofSeconds(60), true)) {
+      progress.updateIndeterminateLabel("Refreshing RAG (CodeChunk)");
+      assertTrue(ConsoleStatusLine.hasExclusiveStatus(out));
+    }
+
+    String output = bytes.toString(StandardCharsets.UTF_8);
+    assertTrue(output.contains("Preparing RAG refresh"));
+    assertTrue(output.contains("Refreshing RAG (CodeChunk)"));
     assertFalse(ConsoleStatusLine.hasExclusiveStatus(out));
   }
 
