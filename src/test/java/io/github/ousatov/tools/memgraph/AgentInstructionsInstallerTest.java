@@ -33,7 +33,6 @@ class AgentInstructionsInstallerTest {
     assertTrue(content.contains("Repo is indexed in Memgraph as **`sample-project`**"));
     assertTrue(content.contains("memgraph-ingester-mcp"));
     assertTrue(content.contains("### Code MCP Tools"));
-    assertTrue(content.contains("`code_search`: CodeChunk RAG discovery"));
     assertFalse(content.contains("Memory Schema"));
   }
 

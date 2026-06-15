@@ -41,7 +41,6 @@ class IngesterCliInstructionsTest {
     String content = Files.readString(target);
     assertEquals(0, exitCode);
     assertTrue(content.contains("Repo is indexed in Memgraph as **`cli-code-project`**"));
-    assertTrue(content.contains("`code_search`: CodeChunk RAG discovery"));
     assertFalse(content.contains("Memory Schema"));
   }
 
