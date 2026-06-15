@@ -4,7 +4,11 @@ Repo is indexed in Memgraph as **`{{PROJECT_NAME}}`**. Without MCP, use the **`m
 CLI from `memgraph-ingester-tool`; it exposes MCP endpoints as subcommands. Pass
 `--project "{{PROJECT_NAME}}"` unless `MEMGRAPH_TOOLS_PROJECT` is exported.
 
-Install once (Python >= 3.11) and verify connectivity:
+Before running any `mgtools` command in a checkout, ensure the project-local venv exists and
+verify connectivity. This setup is required, not optional: if `.venv-mgtools/bin/mgtools`
+(`.venv-mgtools\Scripts\mgtools` on Windows) is missing, run the install commands first. If the
+venv already exists, run the `pip install --upgrade memgraph-ingester-tool` command before
+the first `mgtools` call in the session.
 
 ```bash
 python3 -m venv .venv-mgtools
@@ -13,11 +17,13 @@ python3 -m venv .venv-mgtools
 ```
 
 Always call the venv binary by path (`.venv-mgtools/bin/mgtools`, or
-`.venv-mgtools\Scripts\mgtools` on Windows); do not rely on `PATH`. Env vars:
+`.venv-mgtools\Scripts\mgtools` on Windows); do not rely on `PATH`, global `mgtools`,
+`uv tool run`, `uvx`, or `pipx` while the venv setup can be created or repaired. Env vars:
 `MEMGRAPH_TOOLS_BOLT_URI` (default `bolt://127.0.0.1:7687`), username/password/database/project,
 read-only mode.
 
-If `mgtools` or Memgraph is unavailable, switch to regular tools and **mention it**.
+If the venv install/repair fails, Python >= 3.11 is unavailable, or Memgraph is unavailable,
+switch to regular tools and **mention the exact reason and fallback used**.
 
 1. **`mgtools` graph commands** for structure, relationships, symbols, metadata, RAG.
 2. **Source files** for lines after graph lookup.
