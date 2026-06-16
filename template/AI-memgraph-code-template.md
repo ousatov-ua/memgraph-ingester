@@ -20,8 +20,6 @@ If the graph returns no relevant rows, fall back to text search and say why.
 
 ### Code Triggers
 
-- **NO DELEGATION:** do architecture/code investigations, member/caller lookups, and graph queries
-  yourself with the MCP.
 - **Use graph selectively:** start with `server_status` for pending-work/status, `code_orientation`
   only for broad orientation, and exact tools for known targets.
 - **Stop waste:** divide work between graph results and source reads. Do not re-read source to

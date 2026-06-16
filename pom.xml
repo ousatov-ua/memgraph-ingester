@@ -3,7 +3,7 @@
   <modelVersion>4.0.0</modelVersion>
   <groupId>io.github.ousatov-ua</groupId>
   <artifactId>memgraph-ingester</artifactId>
-  <version>12.4.8</version>
+  <version>12.4.9</version>
   <packaging>jar</packaging>
   <name>Memgraph Ingester</name>
   <description>Ingester of Java structure in Memgraph. Speed-up Claude Code!</description>
