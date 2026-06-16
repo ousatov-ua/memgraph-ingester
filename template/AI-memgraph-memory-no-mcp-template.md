@@ -19,7 +19,6 @@ shell state persisting between tool invocations. Write commands (`memory_upsert`
 
 ### Memory Triggers
 
-- **NO DELEGATION:** never delegate memory state queries, lifecycle changes, or memory/code-ref lookups to subagents. Run `mgtools` yourself.
 - **Status/pending-work:** call `memory_orientation --compact` first, then Git if local changes matter. Use Git alone only when explicitly asked for Git-only status.
 - **Orientation reuse:** reuse session-scoped orientation unless memory changed, the user asks for refresh, or scope changed.
 - **Broad history/context:** use `memory_search` with 1-3 concise, hypothesis-specific queries and `--limit 5`. Treat hits as discovery only, then call `memory_get` only for selected IDs before acting.
