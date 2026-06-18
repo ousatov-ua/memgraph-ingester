@@ -2,6 +2,7 @@ package io.github.ousatov.tools.memgraph.exe.output;
 
 import io.github.ousatov.tools.memgraph.def.Const;
 import java.io.PrintStream;
+import java.util.List;
 import java.util.Objects;
 
 /**
@@ -17,6 +18,7 @@ public final class ConsoleOutput {
   private static final String HIDE_CURSOR = "\u001B[?25l";
   private static final String SHOW_CURSOR = "\u001B[?25h";
   private static final int TITLE_WIDTH = 56;
+  private static final String CHECK_MARK = "\u2713 "; // ✓
 
   private ConsoleOutput() {
     throw new UnsupportedOperationException("Utility class");
@@ -48,9 +50,9 @@ public final class ConsoleOutput {
 
   /** Prints a colored persistent success line on the process error stream. */
   public static void success(String text) {
-    line(
-        System.err,
-        AnsiStyle.success(text, AnsiStyle.colorsEnabled(ConsoleStatusLine.isInteractive())));
+    boolean colors = AnsiStyle.colorsEnabled(ConsoleStatusLine.isInteractive());
+    String prefix = colors ? CHECK_MARK : Const.Symbols.EMPTY;
+    line(System.err, AnsiStyle.success(prefix + text, colors));
   }
 
   /** Rewrites the active console status line. */
@@ -104,19 +106,45 @@ public final class ConsoleOutput {
   public static void printTitle(PrintStream out, boolean interactive) {
     PrintStream stream = Objects.requireNonNull(out, Const.Params.OUT);
     boolean colors = AnsiStyle.colorsEnabled(interactive);
+    if (colors) {
+      printRoundedTitle(stream);
+    } else {
+      printAsciiTitle(stream);
+    }
+  }
+
+  private static void printAsciiTitle(PrintStream stream) {
     String border = "+" + "-".repeat(TITLE_WIDTH) + "+";
-    ConsoleStatusLine.line(stream, AnsiStyle.frame(border, colors));
+    ConsoleStatusLine.line(stream, border);
+    ConsoleStatusLine.line(stream, "|" + center(TITLE, TITLE_WIDTH) + "|");
+    ConsoleStatusLine.line(stream, "|" + center("version " + Const.Cli.VERSION, TITLE_WIDTH) + "|");
+    ConsoleStatusLine.line(stream, border);
+  }
+
+  private static void printRoundedTitle(PrintStream stream) {
+    String dashes = "\u2500".repeat(TITLE_WIDTH); // ─
+    String left = AnsiStyle.frame("\u2502", true); // │
+    String right = AnsiStyle.frame("\u2502", true);
+    ConsoleStatusLine.line(stream, AnsiStyle.frame("\u256D" + dashes + "\u256E", true)); // ╭ ╮
+    ConsoleStatusLine.line(stream, left + AnsiStyle.bold(center(TITLE, TITLE_WIDTH), true) + right);
     ConsoleStatusLine.line(
         stream,
-        AnsiStyle.frame("|", colors)
-            + AnsiStyle.bold(center(TITLE, TITLE_WIDTH), colors)
-            + AnsiStyle.frame("|", colors));
-    ConsoleStatusLine.line(
-        stream,
-        AnsiStyle.frame("|", colors)
-            + center("version " + Const.Cli.VERSION, TITLE_WIDTH)
-            + AnsiStyle.frame("|", colors));
-    ConsoleStatusLine.line(stream, AnsiStyle.frame(border, colors));
+        left + AnsiStyle.muted(center("version " + Const.Cli.VERSION, TITLE_WIDTH), true) + right);
+    ConsoleStatusLine.line(stream, AnsiStyle.frame("\u2570" + dashes + "\u256F", true)); // ╰ ╯
+  }
+
+  /**
+   * Renders a two-column report as a boxed table, colored when the terminal supports it and plain
+   * ASCII otherwise.
+   */
+  public static String table(
+      String title, String labelHeader, String valueHeader, List<ConsoleTable.Row> rows) {
+    return ConsoleTable.render(
+        title,
+        labelHeader,
+        valueHeader,
+        rows,
+        AnsiStyle.colorsEnabled(ConsoleStatusLine.isInteractive()));
   }
 
   /** Opens a finite progress indicator. */

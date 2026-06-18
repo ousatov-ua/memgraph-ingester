@@ -23,7 +23,23 @@ public final class ConsoleProgress implements AutoCloseable {
   private static final int MARKER_WIDTH = 3;
   private static final String TRUNCATION = "...";
   private static final String[] SPINNER = {"-", "\\", "|", "/"};
-  private static final Duration DEFAULT_INTERVAL = Duration.ofMillis(120);
+
+  // Modern interactive glyphs (used only on a color-capable TTY).
+  private static final String[] BRAILLE = {
+    "\u280B", "\u2819", "\u2839", "\u2838", "\u283C",
+    "\u2834", "\u2826", "\u2827", "\u2807", "\u280F"
+  };
+  private static final char FULL_BLOCK = '\u2588'; // █
+  private static final char EMPTY_BLOCK = '\u2591'; // ░
+  private static final char MEDIUM_SHADE = '\u2592'; // ▒
+  private static final char DARK_SHADE = '\u2593'; // ▓
+  // Symmetric glow (dim edges -> bright core) that travels for indeterminate bars.
+  private static final char[] GLOW = {
+    EMPTY_BLOCK, MEDIUM_SHADE, DARK_SHADE, FULL_BLOCK, DARK_SHADE, MEDIUM_SHADE, EMPTY_BLOCK
+  };
+  private static final String CHECK_MARK = "\u2713"; // ✓
+
+  private static final Duration DEFAULT_INTERVAL = Duration.ofMillis(80);
 
   private final PrintStream out;
   private final String label;
@@ -209,6 +225,22 @@ public final class ConsoleProgress implements AutoCloseable {
   }
 
   static String renderFinite(String label, int done, int total, int frame, boolean colors) {
+    return colors
+        ? renderFiniteFancy(label, done, total, frame)
+        : renderFiniteAscii(label, done, total, frame);
+  }
+
+  static String renderIndeterminate(String label, int frame, boolean colors) {
+    return colors ? renderIndeterminateFancy(label, frame) : renderIndeterminateAscii(label, frame);
+  }
+
+  static String renderComplete(String label, boolean colors) {
+    return colors ? renderCompleteFancy(label) : renderCompleteAscii(label);
+  }
+
+  // ---- Plain ASCII rendering (log files, dumb terminals, NO_COLOR) ----
+
+  private static String renderFiniteAscii(String label, int done, int total, int frame) {
     int percent = total == 0 ? 100 : (int) Math.round(done * 100.0 / total);
     int filled = total == 0 ? BAR_WIDTH : Math.clamp(done * BAR_WIDTH / total, 0, BAR_WIDTH);
     String bar =
@@ -217,22 +249,19 @@ public final class ConsoleProgress implements AutoCloseable {
             : "=".repeat(filled)
                 + ">"
                 + Const.Symbols.SPACE.repeat(Math.max(0, BAR_WIDTH - filled - 1));
-    String spinner = AnsiStyle.spinner(SPINNER[Math.floorMod(frame, SPINNER.length)], colors);
-    return spinner
+    return SPINNER[Math.floorMod(frame, SPINNER.length)]
         + Const.Symbols.SPACE
-        + AnsiStyle.bold(formatLabel(label), colors)
+        + formatLabel(label)
         + Const.Symbols.SPACE
-        + AnsiStyle.progress("[" + bar + "]", colors)
+        + "["
+        + bar
+        + "]"
         + Const.Symbols.SPACE
         + percent
-        + "%"
-        + Const.Symbols.SPACE
-        + done
-        + Const.Symbols.SLASH
-        + total;
+        + "%";
   }
 
-  static String renderIndeterminate(String label, int frame, boolean colors) {
+  private static String renderIndeterminateAscii(String label, int frame) {
     int maxOffset = INDETERMINATE_WIDTH - MARKER_WIDTH;
     int cycle = maxOffset * 2;
     int offset = Math.floorMod(frame, cycle);
@@ -243,19 +272,105 @@ public final class ConsoleProgress implements AutoCloseable {
         Const.Symbols.SPACE.repeat(position)
             + marker
             + Const.Symbols.SPACE.repeat(INDETERMINATE_WIDTH - position - MARKER_WIDTH);
-    return AnsiStyle.spinner(SPINNER[Math.floorMod(frame, SPINNER.length)], colors)
+    return SPINNER[Math.floorMod(frame, SPINNER.length)]
         + Const.Symbols.SPACE
-        + AnsiStyle.bold(formatLabel(label), colors)
+        + formatLabel(label)
         + Const.Symbols.SPACE
-        + AnsiStyle.progress("[" + track + "]", colors);
+        + "["
+        + track
+        + "]";
   }
 
-  static String renderComplete(String label, boolean colors) {
-    return AnsiStyle.spinner(SPINNER[0], colors)
+  private static String renderCompleteAscii(String label) {
+    return SPINNER[0]
         + Const.Symbols.SPACE
-        + AnsiStyle.bold(formatLabel(label), colors)
+        + formatLabel(label)
         + Const.Symbols.SPACE
-        + AnsiStyle.progress("[" + "=".repeat(BAR_WIDTH) + "]", colors);
+        + "["
+        + "=".repeat(BAR_WIDTH)
+        + "]";
+  }
+
+  // ---- Modern Unicode rendering (interactive color terminal) ----
+
+  private static String renderFiniteFancy(String label, int done, int total, int frame) {
+    int percent = total == 0 ? 100 : (int) Math.round(done * 100.0 / total);
+    double fraction = total == 0 ? 1.0 : (double) done / total;
+    return AnsiStyle.spinner(braille(frame), true)
+        + Const.Symbols.SPACE
+        + AnsiStyle.bold(formatLabel(label), true)
+        + Const.Symbols.SPACE
+        + smoothBar(fraction)
+        + Const.Symbols.SPACE
+        + AnsiStyle.muted(formatPercent(percent), true);
+  }
+
+  private static String renderIndeterminateFancy(String label, int frame) {
+    return AnsiStyle.spinner(braille(frame), true)
+        + Const.Symbols.SPACE
+        + AnsiStyle.bold(formatLabel(label), true)
+        + Const.Symbols.SPACE
+        + flowingGlow(frame);
+  }
+
+  /**
+   * Builds an indeterminate bar as a soft {@link #GLOW} pulse that travels left to right and wraps
+   * seamlessly, fading into the track instead of sliding a hard-edged block.
+   */
+  private static String flowingGlow(int frame) {
+    char[] cells = new char[INDETERMINATE_WIDTH];
+    boolean[] lit = new boolean[INDETERMINATE_WIDTH];
+    java.util.Arrays.fill(cells, EMPTY_BLOCK);
+    int head = Math.floorMod(frame, INDETERMINATE_WIDTH);
+    for (int k = 0; k < GLOW.length; k++) {
+      int idx = Math.floorMod(head + k, INDETERMINATE_WIDTH);
+      cells[idx] = GLOW[k];
+      lit[idx] = true;
+    }
+    StringBuilder bar = new StringBuilder();
+    int i = 0;
+    while (i < INDETERMINATE_WIDTH) {
+      boolean run = lit[i];
+      StringBuilder segment = new StringBuilder();
+      while (i < INDETERMINATE_WIDTH && lit[i] == run) {
+        segment.append(cells[i]);
+        i++;
+      }
+      bar.append(
+          run
+              ? AnsiStyle.progress(segment.toString(), true)
+              : AnsiStyle.track(segment.toString(), true));
+    }
+    return bar.toString();
+  }
+
+  private static String renderCompleteFancy(String label) {
+    return AnsiStyle.success(CHECK_MARK, true)
+        + Const.Symbols.SPACE
+        + AnsiStyle.bold(formatLabel(label), true)
+        + Const.Symbols.SPACE
+        + AnsiStyle.success(String.valueOf(FULL_BLOCK).repeat(BAR_WIDTH), true);
+  }
+
+  /**
+   * Builds a {@value #BAR_WIDTH}-cell bar filled in whole cells so the blue fill always sits flush
+   * against the gray track with no sub-cell glyph between them.
+   */
+  private static String smoothBar(double fraction) {
+    int full =
+        Math.clamp((int) Math.floor(Math.clamp(fraction, 0.0, 1.0) * BAR_WIDTH), 0, BAR_WIDTH);
+    int empty = BAR_WIDTH - full;
+    return AnsiStyle.progress(String.valueOf(FULL_BLOCK).repeat(full), true)
+        + AnsiStyle.track(String.valueOf(EMPTY_BLOCK).repeat(empty), true);
+  }
+
+  private static String braille(int frame) {
+    return BRAILLE[Math.floorMod(frame, BRAILLE.length)];
+  }
+
+  private static String formatPercent(int percent) {
+    String value = percent + "%";
+    return Const.Symbols.SPACE.repeat(Math.max(0, 4 - value.length())) + value;
   }
 
   private static String formatLabel(String label) {

@@ -24,8 +24,8 @@ class ConsoleProgressTest {
 
     assertTrue(rendered.contains("Installing packages"));
     assertTrue(rendered.contains("[==============>"));
-    assertTrue(rendered.contains("50%"));
-    assertTrue(rendered.endsWith("5/10"));
+    assertTrue(rendered.endsWith("50%"));
+    assertFalse(rendered.contains("5/10"), "raw done/total counts are hidden");
   }
 
   @Test
@@ -36,6 +36,38 @@ class ConsoleProgressTest {
     assertTrue(rendered.contains("\u001B[96m"));
     assertFalse(rendered.contains("\u001B[31m"));
     assertFalse(rendered.contains("\u001B[91m"));
+  }
+
+  @Test
+  void finiteRendererUsesWholeCellUnicodeBarInColorMode() {
+    String rendered = ConsoleProgress.renderFinite("Installing packages", 5, 10, 0, true);
+
+    assertTrue(rendered.contains("\u280B"), "braille spinner frame");
+    assertTrue(rendered.contains("\u2588"), "full block fill");
+    assertTrue(rendered.contains("\u2591"), "dim track");
+    assertFalse(
+        rendered.contains("\u258C"), "no eighth-block sub-cell glyph between fill and track");
+    assertTrue(rendered.contains("50%"));
+    assertFalse(rendered.contains("5/10"), "raw done/total counts are hidden");
+  }
+
+  @Test
+  void indeterminateRendererUsesCometOverTrackInColorMode() {
+    String rendered = ConsoleProgress.renderIndeterminate("Resolving graph", 0, true);
+
+    assertTrue(rendered.contains("\u280B"), "braille spinner frame");
+    assertTrue(rendered.contains("\u2588"), "bright comet segment");
+    assertTrue(rendered.contains("\u2591"), "dim track");
+    assertTrue(rendered.contains("Resolving graph"));
+  }
+
+  @Test
+  void completeRendererUsesCheckMarkAndFullUnicodeBarInColorMode() {
+    String rendered = ConsoleProgress.renderComplete("Loaded managed runtime: Node.js", true);
+
+    assertTrue(rendered.contains("\u2713"), "check mark");
+    assertTrue(rendered.contains("\u2588".repeat(29)), "full unicode bar");
+    assertTrue(rendered.contains("\u001B[32m"), "green success accent");
   }
 
   @Test
@@ -155,12 +187,13 @@ class ConsoleProgressTest {
     PrintStream out = new PrintStream(bytes, true, StandardCharsets.UTF_8);
 
     try (var _ = ConsoleProgress.finite("Scanning source files", 10, out, true, false)) {
-      waitForOutput(bytes, "0/10");
+      waitForOutput(bytes, "0%");
     }
 
     String output = bytes.toString(StandardCharsets.UTF_8);
     assertTrue(output.contains("Scanning source files"));
-    assertTrue(output.contains("0/10"));
+    assertTrue(output.contains("0%"));
+    assertFalse(output.contains("0/10"), "raw done/total counts are hidden");
   }
 
   @Test
@@ -175,7 +208,7 @@ class ConsoleProgressTest {
       }
     }
 
-    assertFalse(bytes.toString(StandardCharsets.UTF_8).contains("0/10"));
+    assertFalse(bytes.toString(StandardCharsets.UTF_8).contains("0%"));
   }
 
   private static void assertAlignedProgressBar(String expected, String actual) {

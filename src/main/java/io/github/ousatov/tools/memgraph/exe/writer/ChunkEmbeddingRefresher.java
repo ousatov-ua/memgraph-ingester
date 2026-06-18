@@ -7,6 +7,7 @@ import io.github.ousatov.tools.memgraph.def.Const.Rag;
 import io.github.ousatov.tools.memgraph.exception.ProcessingException;
 import io.github.ousatov.tools.memgraph.vo.EmbeddingSettings;
 import io.github.ousatov.tools.memgraph.vo.writer.EmbeddingBatchResult;
+import io.github.ousatov.tools.memgraph.vo.writer.EmbeddingProgressListener;
 import io.github.ousatov.tools.memgraph.vo.writer.EmbeddingRefreshResult;
 import io.github.ousatov.tools.memgraph.vo.writer.VectorIndexInfo;
 import java.nio.charset.StandardCharsets;
@@ -64,9 +65,13 @@ final class ChunkEmbeddingRefresher {
    * @param target either {@link EmbeddingTarget#CODE} or {@link EmbeddingTarget#MEMORY}
    * @param dirtyOnly when {@code true}, refreshes dirty chunks first; required runs then backfill
    *     any remaining stale chunks so missing embeddings are not hidden by an unchanged write
+   * @param listener receives per-batch progress so callers can render a finite progress bar
    */
   EmbeddingRefreshResult refresh(
-      EmbeddingSettings settings, EmbeddingTarget target, boolean dirtyOnly) {
+      EmbeddingSettings settings,
+      EmbeddingTarget target,
+      boolean dirtyOnly,
+      EmbeddingProgressListener listener) {
     if (!settings.enabled()) {
       return new EmbeddingRefreshResult(0L, 0);
     }
@@ -97,10 +102,13 @@ final class ChunkEmbeddingRefresher {
 
     long markedStale =
         useDirty && dirtyCount != null ? dirtyCount : countStale(settings, target, dimension);
-    long embedded = refreshMarkedChunks(settings, target, dimension, markedStale);
+    listener.onProgress(0L, markedStale);
+    long embedded = refreshMarkedChunks(settings, target, dimension, markedStale, listener);
     if (useDirty && settings.required()) {
       long remainingStale = countStale(settings, target, dimension);
-      embedded += refreshMarkedChunks(settings, target, dimension, remainingStale);
+      embedded +=
+          refreshMarkedChunks(
+              settings, target, dimension, remainingStale, EmbeddingProgressListener.NONE);
     }
 
     if (settings.required()) {
@@ -110,7 +118,12 @@ final class ChunkEmbeddingRefresher {
   }
 
   private long refreshMarkedChunks(
-      EmbeddingSettings settings, EmbeddingTarget target, int dimension, long stale) {
+      EmbeddingSettings settings,
+      EmbeddingTarget target,
+      int dimension,
+      long stale,
+      EmbeddingProgressListener listener) {
+    long total = stale;
     long embedded = 0L;
     int batchSize = settings.batchSize();
     while (stale > 0) {
@@ -137,6 +150,7 @@ final class ChunkEmbeddingRefresher {
       updateMetadata(settings, target, dimension, batch.ids());
       embedded += batchCount;
       stale -= batchCount;
+      listener.onProgress(embedded, total);
     }
     return embedded;
   }

@@ -11,6 +11,8 @@ final class AnsiStyle {
 
   private static final String RESET = "\u001B[0m";
   private static final String BOLD = "\u001B[1m";
+  private static final String DIM = "\u001B[2m";
+  private static final String GRAY = "\u001B[90m";
   private static final String BRIGHT_BLUE = "\u001B[94m";
   private static final String BRIGHT_CYAN = "\u001B[96m";
   private static final String GREEN = "\u001B[32m";
@@ -46,6 +48,16 @@ final class AnsiStyle {
 
   static String success(String text, boolean enabled) {
     return wrap(text, enabled, GREEN);
+  }
+
+  /** Muted accent for an empty progress-bar track. */
+  static String track(String text, boolean enabled) {
+    return wrap(text, enabled, GRAY);
+  }
+
+  /** Subdued accent for secondary metrics such as percent and counts. */
+  static String muted(String text, boolean enabled) {
+    return wrap(text, enabled, DIM);
   }
 
   private static boolean isDumbTerminal() {

@@ -50,7 +50,7 @@ final class IngestionProgress implements AutoCloseable {
     }
     int clampedDone = Math.clamp(done, 0, total);
     this.done = Math.max(this.done, clampedDone);
-    if (total == 0 || (clampedDone % step != 0 && clampedDone != total)) {
+    if (total == 0 || (clampedDone < renderedDone + step && clampedDone != total)) {
       return;
     }
     if (interactive && ConsoleStatusLine.hasExclusiveStatus(out)) {

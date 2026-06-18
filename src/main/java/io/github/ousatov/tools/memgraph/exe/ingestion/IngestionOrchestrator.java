@@ -8,11 +8,13 @@ import io.github.ousatov.tools.memgraph.exe.adapter.JavaLanguageAdapter;
 import io.github.ousatov.tools.memgraph.exe.adapter.LanguageAdapter;
 import io.github.ousatov.tools.memgraph.exe.adapter.SourceLanguage;
 import io.github.ousatov.tools.memgraph.exe.analyze.ParseService;
+import io.github.ousatov.tools.memgraph.exe.metrics.IngestionMetrics;
 import io.github.ousatov.tools.memgraph.exe.metrics.IngestionMetricsCollector;
 import io.github.ousatov.tools.memgraph.exe.metrics.IngestionRunStats;
 import io.github.ousatov.tools.memgraph.exe.output.ConsoleOutput;
 import io.github.ousatov.tools.memgraph.exe.output.ConsoleProgress;
 import io.github.ousatov.tools.memgraph.exe.output.ConsoleStatusLine;
+import io.github.ousatov.tools.memgraph.exe.output.ConsoleTable;
 import io.github.ousatov.tools.memgraph.exe.writer.GraphWriter;
 import io.github.ousatov.tools.memgraph.schema.Memgraph;
 import io.github.ousatov.tools.memgraph.vo.EmbeddingSettings;
@@ -24,6 +26,7 @@ import io.github.ousatov.tools.memgraph.vo.ingestion.PreparedSkip;
 import io.github.ousatov.tools.memgraph.vo.ingestion.PreparedWrite;
 import io.github.ousatov.tools.memgraph.vo.ingestion.SourceFile;
 import io.github.ousatov.tools.memgraph.vo.ingestion.StoredFileState;
+import io.github.ousatov.tools.memgraph.vo.writer.EmbeddingProgressListener;
 import io.github.ousatov.tools.memgraph.vo.writer.EmbeddingRefreshResult;
 import java.io.IOException;
 import java.nio.file.FileVisitResult;
@@ -40,6 +43,7 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -53,6 +57,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.BiFunction;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import org.jspecify.annotations.NonNull;
@@ -531,7 +536,7 @@ public final class IngestionOrchestrator {
           watchMode,
           codeEmbeddings,
           "CodeChunk",
-          w -> w.refreshCodeChunkEmbeddings(codeEmbeddings, watchMode),
+          (w, listener) -> w.refreshCodeChunkEmbeddings(codeEmbeddings, watchMode, listener),
           "Ingestion completed; use --no-code-embeddings to suppress this warning or run a"
               + " Memgraph image with embeddings and vector-index support.");
     }
@@ -545,7 +550,7 @@ public final class IngestionOrchestrator {
         watchMode,
         memoryEmbeddings,
         "MemoryChunk",
-        w -> w.refreshMemoryChunkEmbeddings(memoryEmbeddings),
+        (w, listener) -> w.refreshMemoryChunkEmbeddings(memoryEmbeddings, listener),
         "MemoryChunk rows were synced; use --no-memory-embeddings to suppress this warning or run"
             + " a Memgraph image with embeddings and vector-index support.");
   }
@@ -555,7 +560,7 @@ public final class IngestionOrchestrator {
       boolean watchMode,
       EmbeddingSettings settings,
       String chunkLabel,
-      Function<GraphWriter, EmbeddingRefreshResult> refreshFn,
+      BiFunction<GraphWriter, EmbeddingProgressListener, EmbeddingRefreshResult> refreshFn,
       String warnDetail) {
     String refreshingMessage =
         "Refreshing "
@@ -567,12 +572,12 @@ public final class IngestionOrchestrator {
             + "'...";
     logEmbeddingRefresh(watchMode, refreshingMessage);
     long startedNanos = System.nanoTime();
-    ConsoleProgress progress =
-        watchMode || !ConsoleStatusLine.isInteractive()
-            ? null
-            : ConsoleProgress.indeterminate("Refreshing RAG (" + chunkLabel + ")");
+    RagRefreshProgress progress =
+        watchMode || !ConsoleStatusLine.isInteractive() ? null : new RagRefreshProgress(chunkLabel);
+    EmbeddingProgressListener listener =
+        progress == null ? EmbeddingProgressListener.NONE : progress::update;
     try {
-      EmbeddingRefreshResult result = refreshFn.apply(writer);
+      EmbeddingRefreshResult result = refreshFn.apply(writer, listener);
       String refreshedMessage =
           "Refreshed "
               + result.embedded()
@@ -622,10 +627,64 @@ public final class IngestionOrchestrator {
     }
   }
 
+  /**
+   * Renders RAG refresh progress: an indeterminate spinner while Memgraph prepares the vector index
+   * and counts stale chunks, then a finite bar once the number of chunks to embed is known and the
+   * batched embedding loop begins.
+   */
+  private static final class RagRefreshProgress {
+
+    private final String label;
+    private ConsoleProgress indeterminate;
+    private ConsoleProgress finite;
+    private int total;
+
+    private RagRefreshProgress(String chunkLabel) {
+      this.label = "Refreshing RAG (" + chunkLabel + ")";
+      this.indeterminate = ConsoleProgress.indeterminate(label);
+    }
+
+    private synchronized void update(long embedded, long chunkTotal) {
+      if (chunkTotal <= 0) {
+        return;
+      }
+      if (finite == null) {
+        total = (int) Math.min(chunkTotal, Integer.MAX_VALUE);
+        discardIndeterminate();
+        finite = ConsoleProgress.finite(label, total);
+      }
+      finite.update((int) Math.min(embedded, total));
+    }
+
+    private synchronized void discard() {
+      discardIndeterminate();
+      if (finite != null) {
+        finite.discard();
+        finite = null;
+      }
+    }
+
+    private void discardIndeterminate() {
+      if (indeterminate != null) {
+        indeterminate.discard();
+        indeterminate = null;
+      }
+    }
+  }
+
   @SuppressWarnings({Const.Warnings.STANDARD_OUTPUT, Const.Warnings.BROAD_EXCEPTION})
   private void printMetrics(Session session) {
     try {
-      printReport(IngestionMetricsCollector.collect(session, project).toMarkdownTable());
+      IngestionMetrics metrics = IngestionMetricsCollector.collect(session, project);
+      List<ConsoleTable.Row> rows =
+          metrics.rows().stream()
+              .map(
+                  row ->
+                      new ConsoleTable.Row(
+                          row.name(), String.format(Locale.US, "%,d", row.value())))
+              .toList();
+      System.out.print(ConsoleOutput.table("Ingestion Metrics", "metric", "value", rows));
+      logReport(metrics.toMarkdownTable());
     } catch (RuntimeException | LinkageError e) {
       log.warn("Could not print ingestion metrics for '{}': {}", project, e.getMessage());
     }
@@ -638,12 +697,6 @@ public final class IngestionOrchestrator {
     } catch (RuntimeException | LinkageError e) {
       log.warn("Could not print ingestion performance for '{}': {}", project, e.getMessage());
     }
-  }
-
-  @SuppressWarnings(Const.Warnings.STANDARD_OUTPUT)
-  private static void printReport(String report) {
-    System.out.print(report);
-    logReport(report);
   }
 
   private static void logReport(String report) {

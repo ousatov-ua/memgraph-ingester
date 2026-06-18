@@ -32,6 +32,25 @@ class ConsoleOutputTest {
   }
 
   @Test
+  void titleBannerUsesRoundedBorderWhenColorsEnabled() {
+    ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+    PrintStream out = new PrintStream(bytes, true, StandardCharsets.UTF_8);
+
+    ConsoleOutput.printTitle(out, true);
+
+    String output = bytes.toString(StandardCharsets.UTF_8);
+    assertTrue(output.contains(ConsoleOutput.TITLE));
+    assertEquals(4, output.lines().count());
+    if (AnsiStyle.colorsEnabled(true)) {
+      assertTrue(output.contains("\u256D"), "rounded top-left corner");
+      assertTrue(output.contains("\u2570"), "rounded bottom-left corner");
+      assertTrue(output.contains("\u2500"), "horizontal frame");
+    } else {
+      assertTrue(output.startsWith("+---"));
+    }
+  }
+
+  @Test
   void persistentLinePreservesActiveStatusLine() {
     ByteArrayOutputStream bytes = new ByteArrayOutputStream();
     PrintStream out = new PrintStream(bytes, true, StandardCharsets.UTF_8);

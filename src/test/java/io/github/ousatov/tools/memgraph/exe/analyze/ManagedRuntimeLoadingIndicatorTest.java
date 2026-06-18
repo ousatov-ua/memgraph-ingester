@@ -51,9 +51,7 @@ class ManagedRuntimeLoadingIndicatorTest {
     String output = bytes.toString(StandardCharsets.UTF_8);
     assertTrue(output.contains("\r"));
     assertTrue(output.contains("Loading managed runtime: test runtime"));
-    assertTrue(output.contains("[==>"));
     assertTrue(output.contains("Loaded managed runtime: test runtime"));
-    assertTrue(output.contains("[=============================]"));
     assertFalse(output.contains("Loaded managed runtime: test runtime."));
     assertEquals(1, output.chars().filter(ch -> ch == '\n').count());
     assertFalse(ConsoleStatusLine.hasExclusiveStatus(out));
@@ -91,9 +89,7 @@ class ManagedRuntimeLoadingIndicatorTest {
     String output = bytes.toString(StandardCharsets.UTF_8);
     assertTrue(output.contains("\r"));
     assertTrue(output.contains("Loading managed runtime: test runtime"));
-    assertTrue(output.contains("[==>"));
     assertTrue(output.contains("Loaded managed runtime: test runtime"));
-    assertTrue(output.contains("[=============================]"));
     assertFalse(output.contains("Loaded managed runtime: test runtime."));
     assertEquals(1, output.chars().filter(ch -> ch == '\n').count());
   }

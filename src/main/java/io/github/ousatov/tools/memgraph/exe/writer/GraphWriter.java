@@ -13,6 +13,7 @@ import io.github.ousatov.tools.memgraph.vo.rag.MemorySource;
 import io.github.ousatov.tools.memgraph.vo.writer.AnnotationWrite;
 import io.github.ousatov.tools.memgraph.vo.writer.CallWrite;
 import io.github.ousatov.tools.memgraph.vo.writer.CodeChunkWrite;
+import io.github.ousatov.tools.memgraph.vo.writer.EmbeddingProgressListener;
 import io.github.ousatov.tools.memgraph.vo.writer.EmbeddingRefreshResult;
 import io.github.ousatov.tools.memgraph.vo.writer.PendingCallWrite;
 import java.io.IOException;
@@ -645,12 +646,30 @@ public final class GraphWriter {
    */
   public EmbeddingRefreshResult refreshCodeChunkEmbeddings(
       EmbeddingSettings settings, boolean dirtyOnly) {
-    return embeddingRefresher.refresh(settings, EmbeddingTarget.CODE, dirtyOnly);
+    return refreshCodeChunkEmbeddings(settings, dirtyOnly, EmbeddingProgressListener.NONE);
+  }
+
+  /**
+   * Refreshes {@code :CodeChunk.embedding} values, reporting per-batch progress to {@code
+   * listener}.
+   */
+  public EmbeddingRefreshResult refreshCodeChunkEmbeddings(
+      EmbeddingSettings settings, boolean dirtyOnly, EmbeddingProgressListener listener) {
+    return embeddingRefresher.refresh(settings, EmbeddingTarget.CODE, dirtyOnly, listener);
   }
 
   /** Refreshes stale {@code :MemoryChunk.embedding} values using Memgraph's embeddings module. */
   public EmbeddingRefreshResult refreshMemoryChunkEmbeddings(EmbeddingSettings settings) {
-    return embeddingRefresher.refresh(settings, EmbeddingTarget.MEMORY, false);
+    return refreshMemoryChunkEmbeddings(settings, EmbeddingProgressListener.NONE);
+  }
+
+  /**
+   * Refreshes stale {@code :MemoryChunk.embedding} values, reporting per-batch progress to {@code
+   * listener}.
+   */
+  public EmbeddingRefreshResult refreshMemoryChunkEmbeddings(
+      EmbeddingSettings settings, EmbeddingProgressListener listener) {
+    return embeddingRefresher.refresh(settings, EmbeddingTarget.MEMORY, false, listener);
   }
 
   /**

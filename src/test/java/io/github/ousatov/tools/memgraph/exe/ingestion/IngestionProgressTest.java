@@ -1,5 +1,6 @@
 package io.github.ousatov.tools.memgraph.exe.ingestion;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -28,12 +29,12 @@ class IngestionProgressTest {
     assertFalse(ConsoleStatusLine.hasActiveStatus(out));
 
     String output = bytes.toString(StandardCharsets.UTF_8);
-    assertTrue(output.contains("0/64"));
+    assertTrue(output.contains(" 0%"));
     assertTrue(output.contains("Ingesting source files"));
     assertTrue(output.contains("Ingested source files"));
-    assertTrue(output.contains("3/64"));
-    assertTrue(output.contains("6/64"));
-    assertTrue(output.contains("64/64"));
+    assertTrue(output.contains(" 5%"));
+    assertTrue(output.contains(" 9%"));
+    assertTrue(output.contains("100%"));
     assertTrue(output.contains("\r"));
     assertTrue(output.chars().filter(ch -> ch == '\n').count() <= 1);
   }
@@ -52,16 +53,17 @@ class IngestionProgressTest {
     }
 
     String output = bytes.toString(StandardCharsets.UTF_8);
-    assertFalse(output.contains("0/64"));
-    assertFalse(output.contains("1/64"));
+    assertFalse(output.contains(" 0%"));
+    assertFalse(output.contains(" 2%"));
     assertTrue(output.contains("Ingesting source files"));
     assertTrue(output.contains("Ingested source files"));
-    assertTrue(output.contains("3/64"));
-    assertTrue(output.contains("6/64"));
-    assertTrue(output.contains("12/64"));
-    assertTrue(output.contains("64/64"));
+    assertTrue(output.contains(" 5%"));
+    assertTrue(output.contains(" 9%"));
+    assertTrue(output.contains(" 19%"));
+    assertTrue(output.contains("100%"));
     assertFalse(output.contains("\r"));
     assertTrue(output.lines().allMatch(line -> line.contains("source files")));
+    assertEquals(4, output.lines().count());
   }
 
   @Test
@@ -77,8 +79,8 @@ class IngestionProgressTest {
     }
 
     String output = bytes.toString(StandardCharsets.UTF_8);
-    assertFalse(output.contains("6/64"));
-    assertTrue(output.contains("12/64"));
+    assertFalse(output.contains(" 9%"));
+    assertTrue(output.contains(" 19%"));
   }
 
   @Test
@@ -94,7 +96,7 @@ class IngestionProgressTest {
 
     String output = bytes.toString(StandardCharsets.UTF_8);
     assertTrue(output.contains("Ingested source files"));
-    assertTrue(output.contains("64/64"));
+    assertTrue(output.contains("100%"));
     assertFalse(ConsoleStatusLine.hasActiveStatus(out));
   }
 }
