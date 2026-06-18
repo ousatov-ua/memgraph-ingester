@@ -65,29 +65,34 @@ CALL {
   WITH sourceFile
   MATCH (sourceFile)-[defines:DEFINES]->(node)
   WHERE node.project = $project
-    AND (
-      (node:Class AND NOT node.fqn IN $classFqns)
-      OR (node:Interface AND NOT node.fqn IN $interfaceFqns)
-      OR (node:Annotation AND NOT node.fqn IN $annotationFqns)
-      OR (node:Method AND NOT node.signature IN $methodSignatures)
-      OR (node:Field AND NOT node.fqn IN $fieldFqns)
-    )
-  RETURN defines, node
-  UNION
-  WITH sourceFile
-  MATCH (sourceFile)-[:DEFINES]->(owner)-[:DECLARES]->(member)
-  MATCH (sourceFile)-[defines:DEFINES]->(member)
-  WHERE owner.project = $project
-    AND (
-      (owner:Class AND NOT owner.fqn IN $classFqns)
-      OR (owner:Interface AND NOT owner.fqn IN $interfaceFqns)
-      OR (owner:Annotation AND NOT owner.fqn IN $annotationFqns)
-    )
+    AND (node:Class OR node:Interface OR node:Annotation OR node:Method OR node:Field)
+  WITH sourceFile,
+      defines,
+      node,
+      (
+        (node:Class AND NOT node.fqn IN $classFqns)
+        OR (node:Interface AND NOT node.fqn IN $interfaceFqns)
+        OR (node:Annotation AND NOT node.fqn IN $annotationFqns)
+        OR (node:Method AND NOT node.signature IN $methodSignatures)
+        OR (node:Field AND NOT node.fqn IN $fieldFqns)
+      ) AS staleDefinition,
+      (
+        (node:Class AND NOT node.fqn IN $classFqns)
+        OR (node:Interface AND NOT node.fqn IN $interfaceFqns)
+        OR (node:Annotation AND NOT node.fqn IN $annotationFqns)
+      ) AS staleOwner
+  OPTIONAL MATCH (node)-[:DECLARES]->(member)<-[memberDefines:DEFINES]-(sourceFile)
+  WHERE staleOwner
     AND member.project = $project
     AND (member:Method OR member:Field)
-  RETURN defines, member AS node
+  WITH collect(DISTINCT CASE WHEN staleDefinition THEN defines ELSE null END) AS directDefines,
+      collect(DISTINCT CASE WHEN staleDefinition THEN node ELSE null END) AS directNodes,
+      collect(DISTINCT memberDefines) AS memberDefines,
+      collect(DISTINCT member) AS memberNodes
+  RETURN [rel IN directDefines + memberDefines WHERE rel IS NOT NULL] AS staleDefines,
+      [candidate IN directNodes + memberNodes WHERE candidate IS NOT NULL] AS candidates
 }
-WITH relationshipsDeleted, collect(DISTINCT defines) AS staleDefines, collect(DISTINCT node) AS candidates
+WITH relationshipsDeleted, staleDefines, candidates
 FOREACH (defines IN staleDefines | DELETE defines)
 WITH relationshipsDeleted, candidates
 UNWIND candidates AS node

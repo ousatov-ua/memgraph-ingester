@@ -34,6 +34,7 @@ import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import org.jspecify.annotations.NonNull;
 import org.neo4j.driver.Session;
+import org.neo4j.driver.async.AsyncSession;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -152,9 +153,15 @@ final class WatchSession {
 
   void ingestChangedFiles(Set<Path> files) {
     IngestionRunStats stats = new IngestionRunStats(orchestrator.threads());
+    AsyncSession asyncSession = orchestrator.driver().session(AsyncSession.class);
     try (Session session = orchestrator.driver().session()) {
       GraphWriter writer =
-          new GraphWriter(session, orchestrator.project(), stats, orchestrator.analysisCacheKey());
+          new GraphWriter(
+              session,
+              asyncSession,
+              orchestrator.project(),
+              stats,
+              orchestrator.analysisCacheKey());
       Set<Path> watchFiles = watchFilesForProcessing(files);
       Optional<WatchSourceSnapshot> sourceSnapshot = sourceSnapshotForWatch(writer);
       if (sourceSnapshot.isEmpty()) {
@@ -212,6 +219,8 @@ final class WatchSession {
         orchestrator.refreshDerivedGraphArtifacts(writer);
         orchestrator.refreshChunkEmbeddings(writer, true);
       }
+    } finally {
+      IngestionOrchestrator.closeAsyncSession(asyncSession);
     }
   }
 

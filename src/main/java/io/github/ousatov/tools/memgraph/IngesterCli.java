@@ -165,7 +165,14 @@ public final class IngesterCli implements Callable<Integer> {
 
   /** Entry point. */
   public static void main(String[] args) {
-    int exit = new CommandLine(new IngesterCli()).execute(args);
+    int exit = 1;
+    ConsoleOutput.installCursorRestoreHook();
+    ConsoleOutput.hideCursor();
+    try {
+      exit = new CommandLine(new IngesterCli()).execute(args);
+    } finally {
+      ConsoleOutput.showCursor();
+    }
     System.exit(exit);
   }
 

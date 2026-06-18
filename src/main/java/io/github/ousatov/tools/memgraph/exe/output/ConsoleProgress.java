@@ -23,6 +23,7 @@ public final class ConsoleProgress implements AutoCloseable {
   private static final int MARKER_WIDTH = 3;
   private static final String TRUNCATION = "...";
   private static final String[] SPINNER = {"-", "\\", "|", "/"};
+  private static final Duration DEFAULT_INTERVAL = Duration.ofMillis(120);
 
   private final PrintStream out;
   private final String label;
@@ -33,6 +34,8 @@ public final class ConsoleProgress implements AutoCloseable {
   private final ScheduledExecutorService executor;
   private final ScheduledFuture<?> animation;
 
+  private String currentLabel;
+  private int currentDone;
   private int frame;
   private boolean closed;
 
@@ -53,13 +56,14 @@ public final class ConsoleProgress implements AutoCloseable {
     if (total < 0) {
       throw new IllegalArgumentException("total must be >= 0");
     }
-    return new ConsoleProgress(label, total, out, interactive, Duration.ZERO, false, renderInitial);
+    return new ConsoleProgress(
+        label, total, out, interactive, DEFAULT_INTERVAL, true, renderInitial);
   }
 
   /** Opens an indeterminate progress indicator on the process error stream. */
   public static ConsoleProgress indeterminate(String label) {
     return indeterminate(
-        label, System.err, ConsoleStatusLine.isInteractive(), Duration.ofMillis(120), true);
+        label, System.err, ConsoleStatusLine.isInteractive(), DEFAULT_INTERVAL, true);
   }
 
   /** Opens an indeterminate progress indicator on the given stream. */
@@ -93,11 +97,12 @@ public final class ConsoleProgress implements AutoCloseable {
     this.interactive = interactive;
     this.colors = AnsiStyle.colorsEnabled(interactive);
     this.statusSession = interactive ? openStatusSessionFor(total == null, this.out) : null;
+    this.currentLabel = label;
     Objects.requireNonNull(interval, "interval");
     if (renderInitial) {
       render(0);
     }
-    if (total == null && interactive && animated) {
+    if (interactive && animated) {
       this.executor =
           Executors.newSingleThreadScheduledExecutor(
               task -> {
@@ -134,7 +139,9 @@ public final class ConsoleProgress implements AutoCloseable {
     if (total == null || closed) {
       return;
     }
-    render(label, Math.clamp(done, 0, total));
+    currentLabel = label;
+    currentDone = Math.clamp(done, 0, total);
+    render(currentLabel, currentDone);
   }
 
   /** Stops the animation and leaves {@code text} on the active status row. */
@@ -178,7 +185,10 @@ public final class ConsoleProgress implements AutoCloseable {
   private synchronized void renderNextFrame() {
     if (!closed) {
       frame++;
-      render(label, 0);
+      if (total != null && ConsoleStatusLine.hasExclusiveStatus(out)) {
+        return;
+      }
+      render(currentLabel, currentDone);
     }
   }
 

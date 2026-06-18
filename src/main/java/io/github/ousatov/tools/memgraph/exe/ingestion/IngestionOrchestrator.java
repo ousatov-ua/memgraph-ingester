@@ -58,6 +58,7 @@ import java.util.function.Function;
 import org.jspecify.annotations.NonNull;
 import org.neo4j.driver.Driver;
 import org.neo4j.driver.Session;
+import org.neo4j.driver.async.AsyncSession;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -82,6 +83,8 @@ public final class IngestionOrchestrator {
       AppConfig.durationValue("ingestion.file-transaction-retry.initial-backoff").toMillis();
   private static final long FILE_TX_MAX_BACKOFF_MS =
       AppConfig.durationValue("ingestion.file-transaction-retry.max-backoff").toMillis();
+  private static final int FILE_TX_BATCH_SIZE =
+      Math.max(1, AppConfig.intValue("ingestion.file-transaction-batch-size", 16));
   private final Path sourceRoot;
   private final String project;
   private final int threads;
@@ -215,23 +218,28 @@ public final class IngestionOrchestrator {
       }
     }
 
-    if (failures == 0) {
-      deleteMissingSourceFiles(files, retainedSourcePaths, stats);
-    } else {
-      log.warn(
-          "Skipping missing-file cleanup because {} file(s) failed to ingest; existing graph"
-              + " state will be kept for retry.",
-          failures);
-    }
-
+    ConsoleProgress postScanProgress = ConsoleProgress.indeterminate("Finalizing graph");
     try {
-      runPostProcessing(stats);
+      if (failures == 0) {
+        deleteMissingSourceFiles(files, retainedSourcePaths, stats);
+      } else {
+        log.warn(
+            "Skipping missing-file cleanup because {} file(s) failed to ingest; existing graph"
+                + " state will be kept for retry.",
+            failures);
+      }
+      runPostProcessing(stats, postScanProgress);
+      postScanProgress = null;
     } catch (RuntimeException e) {
       if (settings.watch() && WatchSession.isInterruptedFailure(e)) {
         Thread.currentThread().interrupt();
         return failures;
       }
       throw e;
+    } finally {
+      if (postScanProgress != null) {
+        postScanProgress.discard();
+      }
     }
 
     if (settings.watch()) {
@@ -333,10 +341,13 @@ public final class IngestionOrchestrator {
     }
   }
 
-  private void runPostProcessing(IngestionRunStats stats) {
+  private void runPostProcessing(IngestionRunStats stats, ConsoleProgress postScanProgress) {
     try (Session session = driver.session()) {
       GraphWriter postWriter = new GraphWriter(session, project, stats);
       refreshDerivedGraphArtifacts(postWriter);
+      if (postScanProgress != null) {
+        postScanProgress.discard();
+      }
       refreshChunkEmbeddings(postWriter, false);
       ConsoleOutput.finishStatus();
       printMetrics(session);
@@ -769,8 +780,9 @@ public final class IngestionOrchestrator {
           .computeIfAbsent(file.language(), ignored -> new ArrayList<>())
           .add(file.path());
     }
+    AsyncSession asyncSession = driver.session(AsyncSession.class);
     try (Session session = driver.session()) {
-      GraphWriter writer = new GraphWriter(session, project, stats, analysisCacheKey);
+      GraphWriter writer = new GraphWriter(session, asyncSession, project, stats, analysisCacheKey);
       writer.setRetainedSourcePaths(retainedPaths);
       Set<Path> retainedPathSet = new HashSet<>(retainedPaths);
       Set<Path> refreshAfterDelete = new LinkedHashSet<>();
@@ -792,6 +804,8 @@ public final class IngestionOrchestrator {
                     sourceRoot, currentPaths, retainedPaths, language));
       }
       refreshRetainedFilesAfterDelete(writer, refreshAfterDelete, currentFilesByPath, stats);
+    } finally {
+      closeAsyncSession(asyncSession);
     }
   }
 
@@ -932,18 +946,41 @@ public final class IngestionOrchestrator {
       IngestionProgress progress) {
     int failures = 0;
     int done = 0;
+    AsyncSession asyncSession = driver.session(AsyncSession.class);
     try (Session session = driver.session()) {
-      GraphWriter writer = new GraphWriter(session, project, stats, analysisCacheKey);
+      GraphWriter writer = new GraphWriter(session, asyncSession, project, stats, analysisCacheKey);
       writer.setRetainedSourcePaths(retainedSourcePaths);
+      List<PreparedWrite<?>> writeBatch = new ArrayList<>(FILE_TX_BATCH_SIZE);
       for (SourceFile file : files) {
         PreparedFile prepared =
             prepareFileForIngestion(file, storedFiles, failedAdapterPreparations, stats);
-        if (!writePreparedFile(writer, prepared)) {
-          failures++;
+        if (prepared instanceof PreparedWrite<?> write) {
+          writeBatch.add(write);
+          if (writeBatch.size() == FILE_TX_BATCH_SIZE) {
+            int processed = writeBatch.size();
+            failures += flushPreparedWriteBatch(writer, writeBatch);
+            done += processed;
+            progress.update(done);
+          }
+        } else {
+          int processed = writeBatch.size();
+          failures += flushPreparedWriteBatch(writer, writeBatch);
+          done += processed;
+          if (!writePreparedFile(writer, prepared)) {
+            failures++;
+          }
+          done++;
+          progress.update(done);
         }
-        done++;
+      }
+      if (!writeBatch.isEmpty()) {
+        int processed = writeBatch.size();
+        failures += flushPreparedWriteBatch(writer, writeBatch);
+        done += processed;
         progress.update(done);
       }
+    } finally {
+      closeAsyncSession(asyncSession);
     }
     return failures;
   }
@@ -1062,29 +1099,10 @@ public final class IngestionOrchestrator {
     for (int attempt = 1; attempt <= FILE_TX_RETRY_ATTEMPTS; attempt++) {
       writer.beginFileTransaction();
       try {
-        long cleanupStartedNanos = System.nanoTime();
-        try {
-          writer.deleteStaleDefinitionsForFile(prepared.path(), prepared.definitions());
-        } finally {
-          writer
-              .stats()
-              .recordPhaseNanos(
-                  IngestionRunStats.PHASE_CLEANUP, System.nanoTime() - cleanupStartedNanos);
-        }
-        long writeStartedNanos = System.nanoTime();
-        boolean success;
-        try {
-          success = prepared.adapter().write(writer, prepared.path(), prepared.parsed());
-        } finally {
-          writer
-              .stats()
-              .recordPhaseNanos(
-                  IngestionRunStats.PHASE_WRITE, System.nanoTime() - writeStartedNanos);
-        }
+        boolean success = writePreparedWriteInActiveTransaction(writer, prepared);
         if (success) {
           writer.commitFileTransaction();
-          writer.stats().recordIngestedFile();
-          writer.stats().recordChangedDefinitions(prepared.definitions());
+          recordCommittedWrite(writer, prepared);
         } else {
           writer.stats().recordFailedFile();
           writer.rollbackFileTransaction();
@@ -1101,6 +1119,89 @@ public final class IngestionOrchestrator {
       }
     }
     return false;
+  }
+
+  private int flushPreparedWriteBatch(GraphWriter writer, List<PreparedWrite<?>> writeBatch) {
+    if (writeBatch.isEmpty()) {
+      return 0;
+    }
+    try {
+      return writePreparedWriteBatch(writer, List.copyOf(writeBatch));
+    } finally {
+      writeBatch.clear();
+    }
+  }
+
+  int writePreparedWriteBatch(GraphWriter writer, List<PreparedWrite<?>> writes) {
+    if (writes.isEmpty()) {
+      return 0;
+    }
+    if (writes.size() == 1) {
+      return writePreparedWrite(writer, writes.get(0)) ? 0 : 1;
+    }
+    return writePreparedWriteBatchWithFallback(writer, writes);
+  }
+
+  private int writePreparedWriteBatchWithFallback(
+      GraphWriter writer, List<PreparedWrite<?>> writes) {
+    long backoffMs = FILE_TX_INITIAL_BACKOFF_MS;
+    for (int attempt = 1; attempt <= FILE_TX_RETRY_ATTEMPTS; attempt++) {
+      writer.beginFileTransaction();
+      try {
+        for (PreparedWrite<?> prepared : writes) {
+          if (!writePreparedWriteInActiveTransaction(writer, prepared)) {
+            throw new BatchWriteFailure(prepared.path());
+          }
+        }
+        writer.commitFileTransaction();
+        writes.forEach(prepared -> recordCommittedWrite(writer, prepared));
+        return 0;
+      } catch (RuntimeException e) {
+        writer.rollbackFileTransaction();
+        if (e instanceof BatchWriteFailure
+            || !GraphWriter.isRetryable(e)
+            || attempt == FILE_TX_RETRY_ATTEMPTS) {
+          return splitPreparedWriteBatch(writer, writes);
+        }
+        backoffMs = sleepBeforeFileRetry(writes.get(0).path(), attempt, e, backoffMs);
+      }
+    }
+    return splitPreparedWriteBatch(writer, writes);
+  }
+
+  private int splitPreparedWriteBatch(GraphWriter writer, List<PreparedWrite<?>> writes) {
+    if (writes.size() == 1) {
+      return writePreparedWrite(writer, writes.get(0)) ? 0 : 1;
+    }
+    int middle = writes.size() / 2;
+    return writePreparedWriteBatch(writer, writes.subList(0, middle))
+        + writePreparedWriteBatch(writer, writes.subList(middle, writes.size()));
+  }
+
+  private <T> boolean writePreparedWriteInActiveTransaction(
+      GraphWriter writer, PreparedWrite<T> prepared) {
+    long cleanupStartedNanos = System.nanoTime();
+    try {
+      writer.deleteStaleDefinitionsForFile(prepared.path(), prepared.definitions());
+    } finally {
+      writer
+          .stats()
+          .recordPhaseNanos(
+              IngestionRunStats.PHASE_CLEANUP, System.nanoTime() - cleanupStartedNanos);
+    }
+    long writeStartedNanos = System.nanoTime();
+    try {
+      return prepared.adapter().write(writer, prepared.path(), prepared.parsed());
+    } finally {
+      writer
+          .stats()
+          .recordPhaseNanos(IngestionRunStats.PHASE_WRITE, System.nanoTime() - writeStartedNanos);
+    }
+  }
+
+  private static void recordCommittedWrite(GraphWriter writer, PreparedWrite<?> prepared) {
+    writer.stats().recordIngestedFile();
+    writer.stats().recordChangedDefinitions(prepared.definitions());
   }
 
   private long sleepBeforeFileRetry(Path file, int attempt, RuntimeException e, long backoffMs) {
@@ -1175,9 +1276,11 @@ public final class IngestionOrchestrator {
 
     int failures = 0;
     int done = 0;
+    AsyncSession asyncSession = driver.session(AsyncSession.class);
     try (Session session = driver.session()) {
-      GraphWriter writer = new GraphWriter(session, project, stats, analysisCacheKey);
+      GraphWriter writer = new GraphWriter(session, asyncSession, project, stats, analysisCacheKey);
       writer.setRetainedSourcePaths(retainedSourcePaths);
+      List<PreparedWrite<?>> writeBatch = new ArrayList<>(FILE_TX_BATCH_SIZE);
       for (int i = 0; i < files.size(); i++) {
         long remainingNanos = waitDeadlineNanos - System.nanoTime();
         if (remainingNanos <= 0) {
@@ -1192,21 +1295,55 @@ public final class IngestionOrchestrator {
           throw new ProcessingException("Parallel ingestion preparation timed out");
         }
         PreparedFile prepared = takePrepared(future);
-        long writeStartNanos = System.nanoTime();
-        if (!writePreparedFile(writer, prepared)) {
-          log.info("Failure preparing file: {}", prepared.path());
-          failures++;
+        if (prepared instanceof PreparedWrite<?> write) {
+          writeBatch.add(write);
+          if (writeBatch.size() == FILE_TX_BATCH_SIZE) {
+            long writeStartNanos = System.nanoTime();
+            int processed = writeBatch.size();
+            failures += flushPreparedWriteBatch(writer, writeBatch);
+            waitDeadlineNanos += System.nanoTime() - writeStartNanos;
+            done += processed;
+            progress.update(done);
+          }
+        } else {
+          long writeStartNanos = System.nanoTime();
+          int processed = writeBatch.size();
+          failures += flushPreparedWriteBatch(writer, writeBatch);
+          waitDeadlineNanos += System.nanoTime() - writeStartNanos;
+          done += processed;
+          if (!writePreparedFile(writer, prepared)) {
+            log.info("Failure preparing file: {}", prepared.path());
+            failures++;
+          }
+          done++;
+          progress.update(done);
         }
-        waitDeadlineNanos += System.nanoTime() - writeStartNanos;
-        done++;
+      }
+      if (!writeBatch.isEmpty()) {
+        int processed = writeBatch.size();
+        failures += flushPreparedWriteBatch(writer, writeBatch);
+        done += processed;
         progress.update(done);
       }
     } finally {
       if (!pool.isTerminated()) {
         pool.shutdownNow();
       }
+      closeAsyncSession(asyncSession);
     }
     return failures;
+  }
+
+  static void closeAsyncSession(AsyncSession asyncSession) {
+    if (asyncSession != null) {
+      asyncSession.closeAsync().toCompletableFuture().join();
+    }
+  }
+
+  private static final class BatchWriteFailure extends RuntimeException {
+    BatchWriteFailure(Path path) {
+      super("Batch write failed for " + path);
+    }
   }
 
   private static PreparedFile takePrepared(Future<PreparedFile> future) {

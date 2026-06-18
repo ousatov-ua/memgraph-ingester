@@ -50,4 +50,28 @@ class ConsoleOutputTest {
     assertTrue(styled.contains("\u001B[32m"));
     assertTrue(styled.contains("Watch mode for src activated."));
   }
+
+  @Test
+  void cursorVisibilityUsesAnsiOnlyForInteractiveConsole() {
+    ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+    PrintStream out = new PrintStream(bytes, true, StandardCharsets.UTF_8);
+
+    ConsoleOutput.hideCursor(out, true);
+    ConsoleOutput.showCursor(out, true);
+    ConsoleOutput.hideCursor(out, false);
+    ConsoleOutput.showCursor(out, false);
+
+    assertEquals("\u001B[?25l\u001B[?25h", bytes.toString(StandardCharsets.UTF_8));
+  }
+
+  @Test
+  void cursorRestoreHookShowsCursorOnlyForInteractiveConsole() {
+    ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+    PrintStream out = new PrintStream(bytes, true, StandardCharsets.UTF_8);
+
+    ConsoleOutput.cursorRestoreHook(out, true).run();
+    ConsoleOutput.cursorRestoreHook(out, false).run();
+
+    assertEquals("\u001B[?25h", bytes.toString(StandardCharsets.UTF_8));
+  }
 }
