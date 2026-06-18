@@ -31,6 +31,7 @@ import java.util.Set;
 import java.util.UUID;
 import org.neo4j.driver.Session;
 import org.neo4j.driver.Value;
+import org.neo4j.driver.async.AsyncSession;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -91,7 +92,24 @@ public final class GraphWriter {
    */
   public GraphWriter(
       Session session, String project, IngestionRunStats stats, String analysisCacheKey) {
-    this.cypher = new CypherExecutor(session, project, stats);
+    this(session, null, project, stats, analysisCacheKey);
+  }
+
+  /**
+   * @param session Bolt session used for synchronous reads and autocommit writes
+   * @param asyncSession optional Bolt async session used to pipeline writes inside transactions;
+   *     when {@code null}, transactions fall back to synchronous execution
+   * @param project project name used to scope all Cypher operations
+   * @param stats optional run-level counters shared by the orchestrator
+   * @param analysisCacheKey analyzer input fingerprint stored on file nodes
+   */
+  public GraphWriter(
+      Session session,
+      AsyncSession asyncSession,
+      String project,
+      IngestionRunStats stats,
+      String analysisCacheKey) {
+    this.cypher = new CypherExecutor(session, asyncSession, project, stats);
     this.nodes = new GraphNodeWriter(cypher);
     CallEdgeWriter callEdges = new CallEdgeWriter(nodes);
     this.dependencies = new CommonGraphWriter.Dependencies(cypher, callEdges, nodes);
@@ -246,7 +264,7 @@ public final class GraphWriter {
    * relations forward.
    */
   public void deleteStaleDefinitionsForFile(Path file, SourceFileDefinitions definitions) {
-    cypher.run(
+    cypher.runAndFlush(
         Cypher.CYPHER_DELETE_STALE_DEFINITIONS_FOR_FILE, staleDefinitionParams(file, definitions));
   }
 
@@ -265,12 +283,12 @@ public final class GraphWriter {
   public void deleteSourceFile(Path file) {
     runInFileTransaction(
         () -> {
-          cypher.run(
+          cypher.runAndFlush(
               Cypher.CYPHER_DELETE_STALE_DEFINITIONS_FOR_FILE,
               staleDefinitionParams(file, SourceFileDefinitions.empty()));
           deleteCodeChunksForFile(file);
           List.of(Cypher.CYPHER_DELETE_FILE, Cypher.CYPHER_DELETE_EMPTY_PACKAGES)
-              .forEach(q -> cypher.run(q, Map.of(Params.PATH, file.toString())));
+              .forEach(q -> cypher.runAndFlush(q, Map.of(Params.PATH, file.toString())));
         });
   }
 
@@ -596,7 +614,8 @@ public final class GraphWriter {
 
   /** Deletes all derived {@code :CodeChunk} rows for one source file. */
   public void deleteCodeChunksForFile(Path file) {
-    cypher.run(Cypher.CYPHER_DELETE_CODE_CHUNKS_FOR_FILE, Map.of(Params.PATH, file.toString()));
+    cypher.runAndFlush(
+        Cypher.CYPHER_DELETE_CODE_CHUNKS_FOR_FILE, Map.of(Params.PATH, file.toString()));
   }
 
   /** Upserts derived {@code :MemoryChunk} rows for current Memory records. */

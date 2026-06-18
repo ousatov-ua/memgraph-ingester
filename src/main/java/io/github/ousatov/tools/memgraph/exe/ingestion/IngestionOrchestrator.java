@@ -58,6 +58,7 @@ import java.util.function.Function;
 import org.jspecify.annotations.NonNull;
 import org.neo4j.driver.Driver;
 import org.neo4j.driver.Session;
+import org.neo4j.driver.async.AsyncSession;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -769,8 +770,9 @@ public final class IngestionOrchestrator {
           .computeIfAbsent(file.language(), ignored -> new ArrayList<>())
           .add(file.path());
     }
+    AsyncSession asyncSession = driver.session(AsyncSession.class);
     try (Session session = driver.session()) {
-      GraphWriter writer = new GraphWriter(session, project, stats, analysisCacheKey);
+      GraphWriter writer = new GraphWriter(session, asyncSession, project, stats, analysisCacheKey);
       writer.setRetainedSourcePaths(retainedPaths);
       Set<Path> retainedPathSet = new HashSet<>(retainedPaths);
       Set<Path> refreshAfterDelete = new LinkedHashSet<>();
@@ -792,6 +794,8 @@ public final class IngestionOrchestrator {
                     sourceRoot, currentPaths, retainedPaths, language));
       }
       refreshRetainedFilesAfterDelete(writer, refreshAfterDelete, currentFilesByPath, stats);
+    } finally {
+      closeAsyncSession(asyncSession);
     }
   }
 
@@ -932,8 +936,9 @@ public final class IngestionOrchestrator {
       IngestionProgress progress) {
     int failures = 0;
     int done = 0;
+    AsyncSession asyncSession = driver.session(AsyncSession.class);
     try (Session session = driver.session()) {
-      GraphWriter writer = new GraphWriter(session, project, stats, analysisCacheKey);
+      GraphWriter writer = new GraphWriter(session, asyncSession, project, stats, analysisCacheKey);
       writer.setRetainedSourcePaths(retainedSourcePaths);
       for (SourceFile file : files) {
         PreparedFile prepared =
@@ -944,6 +949,8 @@ public final class IngestionOrchestrator {
         done++;
         progress.update(done);
       }
+    } finally {
+      closeAsyncSession(asyncSession);
     }
     return failures;
   }
@@ -1175,8 +1182,10 @@ public final class IngestionOrchestrator {
 
     int failures = 0;
     int done = 0;
+    AsyncSession asyncSession = driver.session(AsyncSession.class);
     try (Session session = driver.session()) {
-      GraphWriter writer = new GraphWriter(session, project, stats, analysisCacheKey);
+      GraphWriter writer =
+          new GraphWriter(session, asyncSession, project, stats, analysisCacheKey);
       writer.setRetainedSourcePaths(retainedSourcePaths);
       for (int i = 0; i < files.size(); i++) {
         long remainingNanos = waitDeadlineNanos - System.nanoTime();
@@ -1205,8 +1214,15 @@ public final class IngestionOrchestrator {
       if (!pool.isTerminated()) {
         pool.shutdownNow();
       }
+      closeAsyncSession(asyncSession);
     }
     return failures;
+  }
+
+  static void closeAsyncSession(AsyncSession asyncSession) {
+    if (asyncSession != null) {
+      asyncSession.closeAsync().toCompletableFuture().join();
+    }
   }
 
   private static PreparedFile takePrepared(Future<PreparedFile> future) {
