@@ -132,6 +132,52 @@ class ConsoleProgressTest {
     assertFalse(output.endsWith("\n"));
   }
 
+  @Test
+  void indeterminateProgressPrintsInitialLineInLogMode() {
+    ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+    PrintStream out = new PrintStream(bytes, true, StandardCharsets.UTF_8);
+
+    try (ConsoleProgress progress =
+        ConsoleProgress.indeterminate(
+            "Finalizing graph", out, false, Duration.ofSeconds(60), true)) {
+      progress.discard();
+    }
+
+    String output = bytes.toString(StandardCharsets.UTF_8);
+    assertTrue(output.contains("Finalizing graph"));
+    assertTrue(output.contains("[==>"));
+    assertTrue(output.endsWith("\n"));
+  }
+
+  @Test
+  void finiteProgressAnimatesWithoutUpdates() throws InterruptedException {
+    ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+    PrintStream out = new PrintStream(bytes, true, StandardCharsets.UTF_8);
+
+    try (var _ = ConsoleProgress.finite("Scanning source files", 10, out, true, false)) {
+      waitForOutput(bytes, "0/10");
+    }
+
+    String output = bytes.toString(StandardCharsets.UTF_8);
+    assertTrue(output.contains("Scanning source files"));
+    assertTrue(output.contains("0/10"));
+  }
+
+  @Test
+  @SuppressWarnings("java:S2925")
+  void finiteProgressWaitsDuringExclusiveStatus() throws InterruptedException {
+    ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+    PrintStream out = new PrintStream(bytes, true, StandardCharsets.UTF_8);
+
+    try (var _ = ConsoleStatusLine.openExclusiveStatusSession(out)) {
+      try (var _ = ConsoleProgress.finite("Scanning source files", 10, out, true, false)) {
+        Thread.sleep(250);
+      }
+    }
+
+    assertFalse(bytes.toString(StandardCharsets.UTF_8).contains("0/10"));
+  }
+
   private static void assertAlignedProgressBar(String expected, String actual) {
     int expectedStart = expected.indexOf('[');
     int actualStart = actual.indexOf('[');
@@ -145,5 +191,15 @@ class ConsoleProgressTest {
         expected.indexOf(']') - expectedStart,
         actual.indexOf(']') - actualStart,
         () -> expected + "\n" + actual);
+  }
+
+  @SuppressWarnings("java:S2925")
+  private static void waitForOutput(ByteArrayOutputStream bytes, String expected)
+      throws InterruptedException {
+    long deadline = System.nanoTime() + Duration.ofSeconds(2).toNanos();
+    while (System.nanoTime() < deadline
+        && !bytes.toString(StandardCharsets.UTF_8).contains(expected)) {
+      Thread.sleep(20);
+    }
   }
 }

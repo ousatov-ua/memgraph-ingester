@@ -20,6 +20,7 @@ class IngestionProgressTest {
     try (IngestionProgress progress = IngestionProgress.start(64, out, true)) {
       assertTrue(ConsoleStatusLine.hasActiveStatus(out));
       progress.update(1);
+      progress.update(3);
       progress.update(6);
       progress.update(12);
       progress.update(64);
@@ -27,9 +28,10 @@ class IngestionProgressTest {
     assertFalse(ConsoleStatusLine.hasActiveStatus(out));
 
     String output = bytes.toString(StandardCharsets.UTF_8);
-    assertFalse(output.contains("0/64"));
+    assertTrue(output.contains("0/64"));
     assertTrue(output.contains("Ingesting source files"));
     assertTrue(output.contains("Ingested source files"));
+    assertTrue(output.contains("3/64"));
     assertTrue(output.contains("6/64"));
     assertTrue(output.contains("64/64"));
     assertTrue(output.contains("\r"));
@@ -43,6 +45,7 @@ class IngestionProgressTest {
 
     try (IngestionProgress progress = IngestionProgress.start(64, out, false)) {
       progress.update(1);
+      progress.update(3);
       progress.update(6);
       progress.update(12);
       progress.update(64);
@@ -53,6 +56,7 @@ class IngestionProgressTest {
     assertFalse(output.contains("1/64"));
     assertTrue(output.contains("Ingesting source files"));
     assertTrue(output.contains("Ingested source files"));
+    assertTrue(output.contains("3/64"));
     assertTrue(output.contains("6/64"));
     assertTrue(output.contains("12/64"));
     assertTrue(output.contains("64/64"));

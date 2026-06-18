@@ -218,23 +218,28 @@ public final class IngestionOrchestrator {
       }
     }
 
-    if (failures == 0) {
-      deleteMissingSourceFiles(files, retainedSourcePaths, stats);
-    } else {
-      log.warn(
-          "Skipping missing-file cleanup because {} file(s) failed to ingest; existing graph"
-              + " state will be kept for retry.",
-          failures);
-    }
-
+    ConsoleProgress postScanProgress = ConsoleProgress.indeterminate("Finalizing graph");
     try {
-      runPostProcessing(stats);
+      if (failures == 0) {
+        deleteMissingSourceFiles(files, retainedSourcePaths, stats);
+      } else {
+        log.warn(
+            "Skipping missing-file cleanup because {} file(s) failed to ingest; existing graph"
+                + " state will be kept for retry.",
+            failures);
+      }
+      runPostProcessing(stats, postScanProgress);
+      postScanProgress = null;
     } catch (RuntimeException e) {
       if (settings.watch() && WatchSession.isInterruptedFailure(e)) {
         Thread.currentThread().interrupt();
         return failures;
       }
       throw e;
+    } finally {
+      if (postScanProgress != null) {
+        postScanProgress.discard();
+      }
     }
 
     if (settings.watch()) {
@@ -336,10 +341,13 @@ public final class IngestionOrchestrator {
     }
   }
 
-  private void runPostProcessing(IngestionRunStats stats) {
+  private void runPostProcessing(IngestionRunStats stats, ConsoleProgress postScanProgress) {
     try (Session session = driver.session()) {
       GraphWriter postWriter = new GraphWriter(session, project, stats);
       refreshDerivedGraphArtifacts(postWriter);
+      if (postScanProgress != null) {
+        postScanProgress.discard();
+      }
       refreshChunkEmbeddings(postWriter, false);
       ConsoleOutput.finishStatus();
       printMetrics(session);

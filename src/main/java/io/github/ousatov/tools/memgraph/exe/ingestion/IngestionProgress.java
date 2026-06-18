@@ -14,7 +14,7 @@ import java.util.Objects;
 @SuppressWarnings("java:S106")
 final class IngestionProgress implements AutoCloseable {
 
-  private static final int PROGRESS_DIVISOR = 10;
+  private static final int PROGRESS_DIVISOR = 20;
 
   private final int total;
   private final int step;
@@ -41,7 +41,7 @@ final class IngestionProgress implements AutoCloseable {
     this.out = Objects.requireNonNull(out, Const.Params.OUT);
     this.interactive = interactive;
     this.progress =
-        ConsoleProgress.finite("Ingesting source files", total, out, interactive, false);
+        ConsoleProgress.finite("Ingesting source files", total, out, interactive, interactive);
   }
 
   void update(int done) {

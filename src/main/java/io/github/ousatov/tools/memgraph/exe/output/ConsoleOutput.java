@@ -14,6 +14,8 @@ public final class ConsoleOutput {
 
   public static final String TITLE = "Memgraph ingester";
 
+  private static final String HIDE_CURSOR = "\u001B[?25l";
+  private static final String SHOW_CURSOR = "\u001B[?25h";
   private static final int TITLE_WIDTH = 56;
 
   private ConsoleOutput() {
@@ -68,6 +70,36 @@ public final class ConsoleOutput {
     ConsoleStatusLine.finish(System.err);
   }
 
+  /** Installs a shutdown hook that restores the terminal cursor if the JVM exits early. */
+  public static Thread installCursorRestoreHook() {
+    Thread hook = cursorRestoreHook(System.err, ConsoleStatusLine.isInteractive());
+    Runtime.getRuntime().addShutdownHook(hook);
+    return hook;
+  }
+
+  /** Hides the terminal cursor for interactive console output. */
+  public static void hideCursor() {
+    hideCursor(System.err, ConsoleStatusLine.isInteractive());
+  }
+
+  static void hideCursor(PrintStream out, boolean interactive) {
+    setCursorVisible(out, interactive, false);
+  }
+
+  /** Restores the terminal cursor for interactive console output. */
+  public static void showCursor() {
+    showCursor(System.err, ConsoleStatusLine.isInteractive());
+  }
+
+  static void showCursor(PrintStream out, boolean interactive) {
+    setCursorVisible(out, interactive, true);
+  }
+
+  static Thread cursorRestoreHook(PrintStream out, boolean interactive) {
+    PrintStream stream = Objects.requireNonNull(out, Const.Params.OUT);
+    return new Thread(() -> showCursor(stream, interactive), "memgraph-console-cursor-restore");
+  }
+
   /** Prints the application title banner to the given stream. */
   public static void printTitle(PrintStream out, boolean interactive) {
     PrintStream stream = Objects.requireNonNull(out, Const.Params.OUT);
@@ -102,5 +134,14 @@ public final class ConsoleOutput {
     int left = padding / 2;
     int right = padding - left;
     return Const.Symbols.SPACE.repeat(left) + text + Const.Symbols.SPACE.repeat(right);
+  }
+
+  private static void setCursorVisible(PrintStream out, boolean interactive, boolean visible) {
+    PrintStream stream = Objects.requireNonNull(out, Const.Params.OUT);
+    if (!interactive) {
+      return;
+    }
+    stream.print(visible ? SHOW_CURSOR : HIDE_CURSOR);
+    stream.flush();
   }
 }
