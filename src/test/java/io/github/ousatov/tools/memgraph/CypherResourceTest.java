@@ -375,8 +375,11 @@ class CypherResourceTest {
     assertEquals(
         1,
         occurrences(cypher, "OPTIONAL MATCH (other:File {project: $project})-[:DEFINES]->(node)"));
-    assertTrue(cypher.contains("collect(DISTINCT defines) AS staleDefines"));
-    assertTrue(cypher.contains("collect(DISTINCT node) AS candidates"));
+    assertEquals(1, occurrences(cypher, "MATCH (sourceFile)-[defines:DEFINES]->(node)"));
+    assertTrue(cypher.contains("OPTIONAL MATCH (node)-[:DECLARES]->(member)"));
+    assertTrue(cypher.contains("directDefines + memberDefines"));
+    assertTrue(cypher.contains("directNodes + memberNodes"));
+    assertFalse(cypher.contains("MATCH (sourceFile)-[:DEFINES]->(owner)-[:DECLARES]->(member)"));
     assertFalse(cypher.contains("staleCurrentOwnerMembersDeleted"));
     assertFalse(cypher.contains("staleOwnerMembersDeleted"));
     assertFalse(cypher.contains("staleOwnersDeleted"));
