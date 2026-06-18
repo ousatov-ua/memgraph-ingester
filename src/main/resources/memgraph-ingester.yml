@@ -48,6 +48,7 @@ writer:
     max-backoff: 500ms
 ingestion:
   shutdown-timeout: 10m
+  file-transaction-batch-size: 16
   file-transaction-retry:
     max-attempts: 64
     initial-backoff: 40ms
