@@ -169,10 +169,6 @@ public final class Const {
     public static final String CYPHER_GET_CTAGS_SOURCE_ROOT_HINT_FOR_FILE =
         action("Ctags/get-source-root-hint-for-file.cypher");
 
-    /** Fetches retained files that define declarations shared with one source file. */
-    public static final String CYPHER_GET_RETAINED_FILES_SHARING_DEFINITIONS_WITH_FILE =
-        action("get-retained-files-sharing-definitions-with-file.cypher");
-
     /** Batch variant — fetches retained files sharing declarations with any of the given files. */
     public static final String CYPHER_GET_RETAINED_FILES_SHARING_DEFINITIONS_WITH_FILES =
         action("get-retained-files-sharing-definitions-with-files.cypher");
@@ -361,7 +357,6 @@ public final class Const {
     public static final String DOUBLE_QUOTE = "\"";
     public static final String CRLF = "\r\n";
     public static final String DOLLAR = "$";
-    public static final String SPACE_LEFT_PAREN = " (";
     public static final String RIGHT_PAREN_COLON_SPACE = "): ";
     public static final String COMMA_GOT = ", got ";
     public static final String COMMA_PREVIEW = ", preview=";
@@ -385,7 +380,6 @@ public final class Const {
     public static final String UNUSED = "unused";
     public static final String TOO_MANY_PARAMETERS = "java:S107";
     public static final String STANDARD_OUTPUT = "java:S106";
-    public static final String IGNORED_RETURN_VALUE = "java:S899";
     public static final String BROAD_EXCEPTION = "java:S1181";
     public static final String LOOP_CONTROL = "java:S135";
     public static final String COGNITIVE_COMPLEXITY = "java:S3776";
@@ -441,7 +435,7 @@ public final class Const {
   /** Command line option names and aliases. */
   public static class Cli {
 
-    public static final String VERSION = "12.4.16";
+    public static final String VERSION = "12.4.17";
     public static final String USER_SHORT = "-u";
     public static final String USER = "--user";
     public static final String PASS_SHORT = "-p";
@@ -588,7 +582,6 @@ public final class Const {
     public static final String RET = "ret";
     public static final String ID = "id";
     public static final String ID_EQUALS = "id=";
-    public static final String ZERO = "0";
     public static final String ONE = "1";
     public static final String MODEL_NAME = "modelName";
     public static final String EMBEDDING_MODEL = "embeddingModel";

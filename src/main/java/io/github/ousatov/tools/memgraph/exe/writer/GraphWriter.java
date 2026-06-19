@@ -271,8 +271,8 @@ public final class GraphWriter {
   }
 
   private void deleteStaleDefinitionsForFile(Map<String, Object> params) {
-    cypher.runAndFlush(Cypher.CYPHER_DELETE_STALE_DEFINITION_RELATIONS_FOR_FILE, params);
-    cypher.runAndFlush(Cypher.CYPHER_DELETE_STALE_DEFINITIONS_FOR_FILE, params);
+    cypher.run(Cypher.CYPHER_DELETE_STALE_DEFINITION_RELATIONS_FOR_FILE, params);
+    cypher.run(Cypher.CYPHER_DELETE_STALE_DEFINITIONS_FOR_FILE, params);
   }
 
   private Map<String, Object> staleDefinitionParams(Path file, SourceFileDefinitions definitions) {
@@ -649,27 +649,12 @@ public final class GraphWriter {
   }
 
   /**
-   * Refreshes {@code :CodeChunk.embedding} values using Memgraph's embeddings module.
-   *
-   * @param dirtyOnly when true, refreshes only chunks already marked dirty by changed chunk writes
-   */
-  public EmbeddingRefreshResult refreshCodeChunkEmbeddings(
-      EmbeddingSettings settings, boolean dirtyOnly) {
-    return refreshCodeChunkEmbeddings(settings, dirtyOnly, EmbeddingProgressListener.NONE);
-  }
-
-  /**
    * Refreshes {@code :CodeChunk.embedding} values, reporting per-batch progress to {@code
    * listener}.
    */
   public EmbeddingRefreshResult refreshCodeChunkEmbeddings(
       EmbeddingSettings settings, boolean dirtyOnly, EmbeddingProgressListener listener) {
     return embeddingRefresher.refresh(settings, EmbeddingTarget.CODE, dirtyOnly, listener);
-  }
-
-  /** Refreshes stale {@code :MemoryChunk.embedding} values using Memgraph's embeddings module. */
-  public EmbeddingRefreshResult refreshMemoryChunkEmbeddings(EmbeddingSettings settings) {
-    return refreshMemoryChunkEmbeddings(settings, EmbeddingProgressListener.NONE);
   }
 
   /**
