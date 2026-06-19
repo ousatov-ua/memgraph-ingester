@@ -39,9 +39,9 @@ import org.slf4j.LoggerFactory;
 /**
  * Executes all Cypher upsert operations for a single Bolt session.
  *
- * <p>Each instance wraps exactly one {@link Session}. In sequential mode the orchestrator creates
- * one instance; in parallel mode each worker thread creates its own, ensuring no session is shared
- * across threads.
+ * <p>Each instance wraps exactly one {@link Session}. Parser workers may run in parallel, but graph
+ * mutations flow through one writer lane because Memgraph writes cannot be parallelized safely for
+ * this workload.
  *
  * <p>Callers may open an explicit per-file transaction via {@link #beginFileTransaction()} / {@link
  * #commitFileTransaction()} / {@link #rollbackFileTransaction()} so destructive cleanup and
@@ -232,6 +232,7 @@ public final class GraphWriter {
 
   /** Resolves deferred owner/name call records after all in-project methods are available. */
   public void resolvePendingCalls() {
+    cypher.run(Cypher.CYPHER_RESOLVE_PENDING_CALLS_DIRECT, Map.of());
     cypher.run(Cypher.CYPHER_RESOLVE_PENDING_CALLS, Map.of());
   }
 
@@ -242,9 +243,10 @@ public final class GraphWriter {
     if (callerSignatures.isEmpty() && ownerFqns.isEmpty()) {
       return;
     }
-    cypher.run(
-        Cypher.CYPHER_RESOLVE_PENDING_CALLS_SCOPED,
-        Map.of(Params.CALLER_SIGNATURES, callerSignatures, Params.OWNER_FQNS, ownerFqns));
+    Map<String, Object> params =
+        Map.of(Params.CALLER_SIGNATURES, callerSignatures, Params.OWNER_FQNS, ownerFqns);
+    cypher.run(Cypher.CYPHER_RESOLVE_PENDING_CALLS_SCOPED_DIRECT, params);
+    cypher.run(Cypher.CYPHER_RESOLVE_PENDING_CALLS_SCOPED, params);
   }
 
   /** Removes stale deferred owner/name call records for methods declared by one source file. */
@@ -265,8 +267,12 @@ public final class GraphWriter {
    * relations forward.
    */
   public void deleteStaleDefinitionsForFile(Path file, SourceFileDefinitions definitions) {
-    cypher.runAndFlush(
-        Cypher.CYPHER_DELETE_STALE_DEFINITIONS_FOR_FILE, staleDefinitionParams(file, definitions));
+    deleteStaleDefinitionsForFile(staleDefinitionParams(file, definitions));
+  }
+
+  private void deleteStaleDefinitionsForFile(Map<String, Object> params) {
+    cypher.runAndFlush(Cypher.CYPHER_DELETE_STALE_DEFINITION_RELATIONS_FOR_FILE, params);
+    cypher.runAndFlush(Cypher.CYPHER_DELETE_STALE_DEFINITIONS_FOR_FILE, params);
   }
 
   private Map<String, Object> staleDefinitionParams(Path file, SourceFileDefinitions definitions) {
@@ -284,9 +290,7 @@ public final class GraphWriter {
   public void deleteSourceFile(Path file) {
     runInFileTransaction(
         () -> {
-          cypher.runAndFlush(
-              Cypher.CYPHER_DELETE_STALE_DEFINITIONS_FOR_FILE,
-              staleDefinitionParams(file, SourceFileDefinitions.empty()));
+          deleteStaleDefinitionsForFile(staleDefinitionParams(file, SourceFileDefinitions.empty()));
           deleteCodeChunksForFile(file);
           List.of(Cypher.CYPHER_DELETE_FILE, Cypher.CYPHER_DELETE_EMPTY_PACKAGES)
               .forEach(q -> cypher.runAndFlush(q, Map.of(Params.PATH, file.toString())));
@@ -522,6 +526,11 @@ public final class GraphWriter {
   /** Backfills method owner metadata for graphs ingested before owner properties existed. */
   public void backfillMethodOwnerMetadata() {
     cypher.run(Cypher.CYPHER_BACKFILL_METHOD_OWNER_METADATA, Map.of());
+  }
+
+  /** Removes legacy {@code :Code}-to-{@code :File} links whose language no longer matches. */
+  public void deleteLegacyFileCodeLinks() {
+    cypher.run(Cypher.CYPHER_DELETE_LEGACY_FILE_CODE_LINKS, Map.of());
   }
 
   /** Upserts a {@code :File} node and links it under the language-specific code anchor. */

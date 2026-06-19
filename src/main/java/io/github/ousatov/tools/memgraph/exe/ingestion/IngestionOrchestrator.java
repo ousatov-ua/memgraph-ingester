@@ -47,13 +47,11 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionService;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -341,6 +339,8 @@ public final class IngestionOrchestrator {
       log.debug(
           "Upserted :Project -> :Language -> :Code and :Project -> :Memory anchors for '{}'",
           project);
+      bootstrapWriter.deleteLegacyFileCodeLinks();
+      log.debug("Deleted legacy mismatched :Code -> :File links for '{}'", project);
       bootstrapWriter.backfillMethodOwnerMetadata();
       log.debug("Backfilled :Method owner metadata for '{}'", project);
     }
@@ -1155,6 +1155,7 @@ public final class IngestionOrchestrator {
         boolean success = writePreparedWriteInActiveTransaction(writer, prepared);
         if (success) {
           writer.commitFileTransaction();
+          writer.stats().recordFileTransaction(1);
           recordCommittedWrite(writer, prepared);
         } else {
           writer.stats().recordFailedFile();
@@ -1207,6 +1208,7 @@ public final class IngestionOrchestrator {
           }
         }
         writer.commitFileTransaction();
+        writer.stats().recordFileTransaction(writes.size());
         writes.forEach(prepared -> recordCommittedWrite(writer, prepared));
         return 0;
       } catch (RuntimeException e) {
@@ -1303,34 +1305,42 @@ public final class IngestionOrchestrator {
     if (files.isEmpty()) {
       return 0;
     }
-    AtomicInteger threadCounter = new AtomicInteger();
-    ExecutorService pool =
-        Executors.newFixedThreadPool(
-            threads,
-            r -> {
-              Thread t = new Thread(r, "ingester-" + threadCounter.incrementAndGet());
-              t.setDaemon(true);
-              return t;
-            });
-    CompletionService<PreparedFile> cs = new ExecutorCompletionService<>(pool);
-    for (SourceFile file : files) {
-      cs.submit(
-          () -> {
-            try {
-              return prepareFileForIngestion(file, storedFiles, failedAdapterPreparations, stats);
-            } catch (RuntimeException e) {
-              log.warn("Thread failure on {}: {}", file.path(), e.getMessage());
-              return new PreparedFailure(file.path());
-            }
-          });
-    }
-    pool.shutdown();
-    long waitDeadlineNanos = System.nanoTime() + SHUTDOWN_TIMEOUT.toNanos();
-
     int failures = 0;
     int done = 0;
+    AtomicInteger threadCounter = new AtomicInteger();
     AsyncSession asyncSession = driver.session(AsyncSession.class);
-    try (Session session = driver.session()) {
+    try (ExecutorService pool =
+            Executors.newFixedThreadPool(
+                threads,
+                r -> {
+                  Thread t = new Thread(r, "ingester-" + threadCounter.incrementAndGet());
+                  t.setDaemon(true);
+                  return t;
+                });
+        Session session = driver.session()) {
+      int queueCapacity = Math.max(FILE_TX_BATCH_SIZE * 2, threads * 2);
+      BlockingQueue<PreparedFile> preparedQueue = new LinkedBlockingQueue<>(queueCapacity);
+      stats.recordWriterQueueDepth(queueCapacity, 0);
+      for (SourceFile file : files) {
+        pool.submit(
+            () -> {
+              PreparedFile prepared;
+              try {
+                prepared =
+                    prepareFileForIngestion(file, storedFiles, failedAdapterPreparations, stats);
+              } catch (RuntimeException e) {
+                log.warn("Thread failure on {}: {}", file.path(), e.getMessage());
+                prepared = new PreparedFailure(file.path());
+              }
+              try {
+                preparedQueue.put(prepared);
+                stats.recordWriterQueueDepth(queueCapacity, preparedQueue.size());
+              } catch (InterruptedException _) {
+                Thread.currentThread().interrupt();
+              }
+            });
+      }
+      long waitDeadlineNanos = System.nanoTime() + SHUTDOWN_TIMEOUT.toNanos();
       GraphWriter writer = new GraphWriter(session, asyncSession, project, stats, analysisCacheKey);
       writer.setRetainedSourcePaths(retainedSourcePaths);
       List<PreparedWrite<?>> writeBatch = new ArrayList<>(FILE_TX_BATCH_SIZE);
@@ -1341,13 +1351,14 @@ public final class IngestionOrchestrator {
           pool.shutdownNow();
           throw new ProcessingException("Parallel ingestion preparation timed out");
         }
-        Future<PreparedFile> future = cs.poll(remainingNanos, TimeUnit.NANOSECONDS);
-        if (future == null) {
+        long waitStartedNanos = System.nanoTime();
+        PreparedFile prepared = preparedQueue.poll(remainingNanos, TimeUnit.NANOSECONDS);
+        stats.recordWriterWaitNanos(System.nanoTime() - waitStartedNanos);
+        if (prepared == null) {
           log.warn("Ingestion did not complete within {}.", SHUTDOWN_TIMEOUT);
           pool.shutdownNow();
           throw new ProcessingException("Parallel ingestion preparation timed out");
         }
-        PreparedFile prepared = takePrepared(future);
         if (prepared instanceof PreparedWrite<?> write) {
           writeBatch.add(write);
           if (writeBatch.size() == FILE_TX_BATCH_SIZE) {
@@ -1379,9 +1390,6 @@ public final class IngestionOrchestrator {
         progress.update(done);
       }
     } finally {
-      if (!pool.isTerminated()) {
-        pool.shutdownNow();
-      }
       closeAsyncSession(asyncSession);
     }
     return failures;
@@ -1396,17 +1404,6 @@ public final class IngestionOrchestrator {
   private static final class BatchWriteFailure extends RuntimeException {
     BatchWriteFailure(Path path) {
       super("Batch write failed for " + path);
-    }
-  }
-
-  private static PreparedFile takePrepared(Future<PreparedFile> future) {
-    try {
-      return future.get();
-    } catch (InterruptedException e) {
-      Thread.currentThread().interrupt();
-      throw new ProcessingException("Interrupted during ingestion", e);
-    } catch (ExecutionException e) {
-      throw new ProcessingException("Unexpected execution failure during ingestion", e);
     }
   }
 }

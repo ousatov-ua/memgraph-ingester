@@ -140,7 +140,7 @@ public final class JavaGraphWriter extends CommonGraphWriter {
                 Params.ANNOTATION,
                 Const.Symbols.EMPTY,
                 Const.Symbols.EMPTY)));
-    upsertAnnotationReferencesByFqn(annotationWrites(fqn, decl));
+    upsertAnnotationReferencesByFqn(annotationWrites(fqn, decl, Labels.ANNOTATION));
   }
 
   /**
@@ -277,9 +277,10 @@ public final class JavaGraphWriter extends CommonGraphWriter {
   private void collectTypeMembers(
       String pkg, String outerFqn, ClassOrInterfaceDeclaration decl, JavaMemberWrites writes) {
     String fqn = typeFqn(pkg, outerFqn, decl.getNameAsString());
-    writes.fqnAnnotations().addAll(annotationWrites(fqn, decl));
-    decl.getFields().forEach(f -> collectField(fqn, f, writes));
-    collectDeclaredMethods(fqn, decl.getMethods(), decl.getConstructors(), writes);
+    String ownerKind = decl.isInterface() ? Labels.INTERFACE : Labels.CLASS;
+    writes.fqnAnnotations().addAll(annotationWrites(fqn, decl, ownerKind));
+    decl.getFields().forEach(f -> collectField(fqn, ownerKind, f, writes));
+    collectDeclaredMethods(fqn, ownerKind, decl.getMethods(), decl.getConstructors(), writes);
     if (!decl.isInterface() && decl.getConstructors().isEmpty()) {
       collectImplicitDefaultConstructor(fqn, decl, writes);
     }
@@ -356,10 +357,10 @@ public final class JavaGraphWriter extends CommonGraphWriter {
 
   private void collectRecordMembers(
       String pkg, String fqn, RecordDeclaration decl, JavaMemberWrites writes) {
-    writes.fqnAnnotations().addAll(annotationWrites(fqn, decl));
-    decl.getFields().forEach(f -> collectField(fqn, f, writes));
+    writes.fqnAnnotations().addAll(annotationWrites(fqn, decl, Labels.CLASS));
+    decl.getFields().forEach(f -> collectField(fqn, Labels.CLASS, f, writes));
     collectRecordComponents(fqn, decl, writes);
-    collectDeclaredMethods(fqn, decl.getMethods(), decl.getConstructors(), writes);
+    collectDeclaredMethods(fqn, Labels.CLASS, decl.getMethods(), decl.getConstructors(), writes);
     collectRecordCanonicalConstructor(fqn, decl, writes);
     collectRecordAccessors(fqn, decl, writes);
     collectNestedTypeMembers(pkg, fqn, decl.getMembers(), writes);
@@ -367,10 +368,10 @@ public final class JavaGraphWriter extends CommonGraphWriter {
 
   private void collectEnumMembers(
       String pkg, String fqn, EnumDeclaration decl, JavaMemberWrites writes) {
-    writes.fqnAnnotations().addAll(annotationWrites(fqn, decl));
+    writes.fqnAnnotations().addAll(annotationWrites(fqn, decl, Labels.CLASS));
     decl.getEntries().forEach(entry -> collectEnumConstant(fqn, entry, writes));
-    decl.getFields().forEach(f -> collectField(fqn, f, writes));
-    collectDeclaredMethods(fqn, decl.getMethods(), decl.getConstructors(), writes);
+    decl.getFields().forEach(f -> collectField(fqn, Labels.CLASS, f, writes));
+    collectDeclaredMethods(fqn, Labels.CLASS, decl.getMethods(), decl.getConstructors(), writes);
     collectNestedTypeMembers(pkg, fqn, decl.getMembers(), writes);
   }
 
@@ -388,13 +389,15 @@ public final class JavaGraphWriter extends CommonGraphWriter {
                   false,
                   "private",
                   JAVA_LANGUAGE,
-                  Const.Params.RECORD_COMPONENT));
+                  Const.Params.RECORD_COMPONENT,
+                  Labels.CLASS));
       String fqn = ownerFqn + Const.Symbols.HASH + param.getNameAsString();
-      writes.fqnAnnotations().addAll(annotationWrites(fqn, param));
+      writes.fqnAnnotations().addAll(annotationWrites(fqn, param, Labels.FIELD));
     }
   }
 
-  private void collectField(String ownerFqn, FieldDeclaration field, JavaMemberWrites writes) {
+  private void collectField(
+      String ownerFqn, String ownerKind, FieldDeclaration field, JavaMemberWrites writes) {
     List<FieldWrite> fields =
         field.getVariables().stream()
             .map(
@@ -407,10 +410,12 @@ public final class JavaGraphWriter extends CommonGraphWriter {
                         field.isStatic(),
                         field.getAccessSpecifier().asString(),
                         JAVA_LANGUAGE,
-                        Params.FIELD))
+                        Params.FIELD,
+                        ownerKind))
             .toList();
     writes.fields().addAll(fields);
-    fields.forEach(f -> writes.fqnAnnotations().addAll(annotationWrites(f.fqn(), field)));
+    fields.forEach(
+        f -> writes.fqnAnnotations().addAll(annotationWrites(f.fqn(), field, Labels.FIELD)));
   }
 
   private void collectEnumConstant(
@@ -426,31 +431,37 @@ public final class JavaGraphWriter extends CommonGraphWriter {
                 true,
                 Params.PUBLIC,
                 JAVA_LANGUAGE,
-                Params.ENUM_MEMBER));
+                Params.ENUM_MEMBER,
+                Labels.CLASS));
   }
 
   private void collectDeclaredMethods(
       String ownerFqn,
+      String ownerKind,
       List<MethodDeclaration> methods,
       List<ConstructorDeclaration> constructors,
       JavaMemberWrites writes) {
-    methods.forEach(method -> writes.methods().add(methodWrite(ownerFqn, method)));
-    constructors.forEach(ctor -> writes.methods().add(constructorWrite(ownerFqn, ctor)));
+    methods.forEach(method -> writes.methods().add(methodWrite(ownerFqn, ownerKind, method)));
+    constructors.forEach(ctor -> writes.methods().add(constructorWrite(ownerFqn, ownerKind, ctor)));
     methods.forEach(
         method ->
             writes
                 .sigAnnotations()
-                .addAll(annotationWrites(JavaTypeNames.buildSignature(ownerFqn, method), method)));
+                .addAll(
+                    annotationWrites(
+                        JavaTypeNames.buildSignature(ownerFqn, method), method, Labels.METHOD)));
     constructors.forEach(
         ctor ->
             writes
                 .sigAnnotations()
                 .addAll(
                     annotationWrites(
-                        JavaTypeNames.buildConstructorSignature(ownerFqn, ctor), ctor)));
+                        JavaTypeNames.buildConstructorSignature(ownerFqn, ctor),
+                        ctor,
+                        Labels.METHOD)));
   }
 
-  private static Method methodWrite(String ownerFqn, MethodDeclaration method) {
+  private static Method methodWrite(String ownerFqn, String ownerKind, MethodDeclaration method) {
     return new Method(
         ownerFqn,
         JavaTypeNames.buildSignature(ownerFqn, method),
@@ -460,10 +471,14 @@ public final class JavaGraphWriter extends CommonGraphWriter {
         method.getAccessSpecifier().asString(),
         method.getBegin().map(p -> p.line).orElse(0),
         method.getEnd().map(p -> p.line).orElse(0),
-        false);
+        false,
+        JAVA_LANGUAGE,
+        Params.METHOD,
+        ownerKind);
   }
 
-  private static Method constructorWrite(String ownerFqn, ConstructorDeclaration ctor) {
+  private static Method constructorWrite(
+      String ownerFqn, String ownerKind, ConstructorDeclaration ctor) {
     return new Method(
         ownerFqn,
         JavaTypeNames.buildConstructorSignature(ownerFqn, ctor),
@@ -473,7 +488,10 @@ public final class JavaGraphWriter extends CommonGraphWriter {
         ctor.getAccessSpecifier().asString(),
         ctor.getBegin().map(p -> p.line).orElse(0),
         ctor.getEnd().map(p -> p.line).orElse(0),
-        false);
+        false,
+        JAVA_LANGUAGE,
+        Params.METHOD,
+        ownerKind);
   }
 
   private void collectRecordCanonicalConstructor(
@@ -491,7 +509,10 @@ public final class JavaGraphWriter extends CommonGraphWriter {
                   decl.getAccessSpecifier().asString(),
                   0,
                   0,
-                  true));
+                  true,
+                  JAVA_LANGUAGE,
+                  Params.METHOD,
+                  Labels.CLASS));
     }
   }
 
@@ -509,7 +530,10 @@ public final class JavaGraphWriter extends CommonGraphWriter {
                 decl.getAccessSpecifier().asString(),
                 0,
                 0,
-                true));
+                true,
+                JAVA_LANGUAGE,
+                Params.METHOD,
+                Labels.CLASS));
   }
 
   private void collectRecordAccessors(String fqn, RecordDeclaration decl, JavaMemberWrites writes) {
@@ -535,7 +559,10 @@ public final class JavaGraphWriter extends CommonGraphWriter {
                     Params.PUBLIC,
                     0,
                     0,
-                    true));
+                    true,
+                    JAVA_LANGUAGE,
+                    Params.METHOD,
+                    Labels.CLASS));
       }
     }
   }
@@ -548,7 +575,7 @@ public final class JavaGraphWriter extends CommonGraphWriter {
   }
 
   private static List<AnnotationWrite> annotationWrites(
-      String paramValue, NodeWithAnnotations<?> node) {
+      String paramValue, NodeWithAnnotations<?> node, String ownerKind) {
     return node.getAnnotations().stream()
         .map(
             ann -> {
@@ -563,7 +590,8 @@ public final class JavaGraphWriter extends CommonGraphWriter {
                   annotFqn,
                   JavaTypeNames.nameFromFqn(annotFqn),
                   JAVA_LANGUAGE,
-                  Params.ANNOTATION);
+                  Params.ANNOTATION,
+                  ownerKind);
             })
         .toList();
   }

@@ -21,7 +21,35 @@ public record Method(
     int endLine,
     boolean isSynthetic,
     String language,
-    String kind) {
+    String kind,
+    String ownerKind) {
+
+  public Method(
+      String ownerFqn,
+      String signature,
+      String name,
+      String returnType,
+      boolean isStatic,
+      String visibility,
+      int startLine,
+      int endLine,
+      boolean isSynthetic,
+      String language,
+      String kind) {
+    this(
+        ownerFqn,
+        signature,
+        name,
+        returnType,
+        isStatic,
+        visibility,
+        startLine,
+        endLine,
+        isSynthetic,
+        language,
+        kind,
+        Const.Symbols.EMPTY);
+  }
 
   public Method(
       String ownerFqn,
@@ -44,6 +72,7 @@ public record Method(
         endLine,
         isSynthetic,
         Const.SystemParams.JAVA,
-        Params.METHOD);
+        Params.METHOD,
+        Const.Symbols.EMPTY);
   }
 }

@@ -25,6 +25,7 @@ public record MethodWrite(Path file, Method method) implements BatchWrite {
         Map.entry(Params.START, method.startLine()),
         Map.entry(Params.END, method.endLine()),
         Map.entry(Params.OWNER, method.ownerFqn()),
+        Map.entry(Params.OWNER_KIND, method.ownerKind()),
         Map.entry(Params.OWNER_DISPLAY_NAME, JavaTypeNames.nameFromFqn(method.ownerFqn())),
         Map.entry(Params.LANGUAGE, method.language()),
         Map.entry(Params.KIND, method.kind()),

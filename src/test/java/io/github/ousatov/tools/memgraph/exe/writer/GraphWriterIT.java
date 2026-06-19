@@ -2700,6 +2700,7 @@ class GraphWriterIT {
     javaWriter.upsertType(TEST_FILE, PKG, base);
     javaWriter.upsertType(TEST_FILE, PKG, service);
     javaWriter.upsertTypeCallEdges(PKG, service);
+    writer.resolvePendingCalls();
 
     long callCount =
         session
@@ -2744,6 +2745,7 @@ class GraphWriterIT {
     javaWriter.upsertType(TEST_FILE, PKG, middle);
     javaWriter.upsertType(TEST_FILE, PKG, service);
     javaWriter.upsertTypeCallEdges(PKG, service);
+    writer.resolvePendingCalls();
 
     var row =
         session

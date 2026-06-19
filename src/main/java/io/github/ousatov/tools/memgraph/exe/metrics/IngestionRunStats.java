@@ -13,6 +13,8 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.LongAdder;
 
 /**
@@ -40,6 +42,10 @@ public final class IngestionRunStats {
   private final LongAdder ingestedFiles = new LongAdder();
   private final LongAdder skippedFiles = new LongAdder();
   private final LongAdder failedFiles = new LongAdder();
+  private final LongAdder fileTransactions = new LongAdder();
+  private final LongAdder fileTransactionFiles = new LongAdder();
+  private final LongAdder writerWaitNanos = new LongAdder();
+  private final AtomicLong writerQueueMaxDepth = new AtomicLong();
   private final ConcurrentMap<String, LongAdder> phaseNanos = new ConcurrentHashMap<>();
   private final ConcurrentMap<String, CypherTiming> cypherTimings = new ConcurrentHashMap<>();
   private final Set<String> changedCallerSignatures = ConcurrentHashMap.newKeySet();
@@ -47,6 +53,7 @@ public final class IngestionRunStats {
   private final int threads;
   private final long startedNanos;
   private volatile int totalFiles;
+  private final AtomicInteger writerQueueCapacity = new AtomicInteger();
 
   /** Creates counters for an ingestion run that uses {@code threads} worker threads. */
   public IngestionRunStats(int threads) {
@@ -98,6 +105,28 @@ public final class IngestionRunStats {
     failedFiles.increment();
   }
 
+  /** Records one committed file transaction and the number of files it wrote. */
+  public void recordFileTransaction(int files) {
+    if (files <= 0) {
+      return;
+    }
+    fileTransactions.increment();
+    fileTransactionFiles.add(files);
+  }
+
+  /** Records time spent waiting for prepared files from parser workers. */
+  public void recordWriterWaitNanos(long elapsedNanos) {
+    if (elapsedNanos > 0) {
+      writerWaitNanos.add(elapsedNanos);
+    }
+  }
+
+  /** Records writer queue capacity and latest observed depth. */
+  public void recordWriterQueueDepth(int capacity, int depth) {
+    writerQueueCapacity.set(Math.max(writerQueueCapacity.get(), capacity));
+    writerQueueMaxDepth.accumulateAndGet(Math.max(0, depth), Math::max);
+  }
+
   /** Adds elapsed time to a named ingestion phase. */
   public void recordPhaseNanos(String phase, long elapsedNanos) {
     if (elapsedNanos <= 0) {
@@ -144,6 +173,16 @@ public final class IngestionRunStats {
     rows.add(row("duration.ms", durationMs));
     rows.add(row("cypher.statements", cypherStatements.sum()));
     rows.add(row("cypher.rows", cypherRows.sum()));
+    rows.add(
+        row("cypher.rows_per_statement.avg", average(cypherRows.sum(), cypherStatements.sum())));
+    rows.add(row("write.transactions", fileTransactions.sum()));
+    rows.add(
+        row(
+            "write.files_per_transaction.avg",
+            average(fileTransactionFiles.sum(), fileTransactions.sum())));
+    rows.add(row("write.queue.capacity", writerQueueCapacity.get()));
+    rows.add(row("write.queue.max_depth", writerQueueMaxDepth.get()));
+    rows.add(row("write.queue.wait.ms", TimeUnit.NANOSECONDS.toMillis(writerWaitNanos.sum())));
     addPhaseRows(rows);
     addTopCypherRows(rows);
     return new IngestionPerformanceMetrics(rows);
@@ -151,6 +190,10 @@ public final class IngestionRunStats {
 
   private static IngestionPerformanceRow row(String name, long value) {
     return new IngestionPerformanceRow(name, String.valueOf(value));
+  }
+
+  private static long average(long numerator, long denominator) {
+    return denominator == 0 ? 0 : numerator / denominator;
   }
 
   private void addPhaseRows(List<IngestionPerformanceRow> rows) {

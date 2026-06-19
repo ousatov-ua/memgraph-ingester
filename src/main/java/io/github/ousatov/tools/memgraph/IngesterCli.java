@@ -98,9 +98,8 @@ public final class IngesterCli implements Callable<Integer> {
       names = {Const.Cli.THREADS_SHORT, Const.Cli.THREADS},
       defaultValue = Const.Params.ONE,
       description =
-          "Number of parser threads. Each thread gets its own Bolt session. "
-              + "Defaults to 1 (sequential). Values above the number of CPU cores rarely help "
-              + "because Memgraph serializes writes internally.")
+          "Number of parser threads feeding one serialized Memgraph writer. "
+              + "Defaults to 1 (sequential). Values above the number of CPU cores rarely help.")
   @SuppressWarnings(Const.Warnings.UNUSED)
   private int threads;
 

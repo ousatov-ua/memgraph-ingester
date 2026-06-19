@@ -34,7 +34,7 @@ import org.slf4j.LoggerFactory;
  * {@link EmbeddingTarget} to parameterise the few differences between the two chunk types.
  *
  * <p>Not thread-safe. Each instance is owned by a single {@link GraphWriter}, which is itself
- * session-scoped (one per thread in parallel ingestion mode).
+ * session-scoped (one per serialized writer lane).
  *
  * @author Oleksii Usatov
  */

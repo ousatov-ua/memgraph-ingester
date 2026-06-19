@@ -240,11 +240,14 @@ class CypherResourceTest {
         callsByName,
         "UNWIND $rows AS row",
         "row.caller AS callerSignature",
-        "[:EXTENDS*1..]",
-        "WHERE size(directCandidates) = 0",
-        "WHERE size(directCandidates) = 0 AND size(classCandidates) = 0",
-        "MERGE (caller)-[call:CALLS]->(callee)",
-        "SET call.count = coalesce(call.count, 0) + callCount");
+        "OPTIONAL MATCH (owner {fqn: ownerFqn, project:"
+            + " $project})-[:DECLARES]->(directCallee:Method",
+        "CASE WHEN size(directCandidates) = 1 THEN directCandidates[0] ELSE null END AS"
+            + " directCallee",
+        "MERGE (caller)-[call:CALLS]->(directCallee)",
+        "MERGE (pending:PendingCall");
+    assertFalse(callsByName.contains("[:EXTENDS*1..]"));
+    assertFalse(callsByName.contains("[:EXTENDS*0..]"));
     assertFalse(callsByName.contains("[:EXTENDS*1..16]"));
     assertFalse(callsByName.contains("[:EXTENDS*0..16]"));
     assertFalse(Const.Cypher.CYPHER_RESOLVE_PENDING_CALLS.contains("[:EXTENDS*1..16]"));
@@ -260,6 +263,27 @@ class CypherResourceTest {
     assertContainsAll(
         Const.Cypher.CYPHER_RESOLVE_PENDING_CALLS_SCOPED,
         "coalesce(pending.allowNameOnly, false) = true");
+    assertContainsAll(
+        Const.Cypher.CYPHER_RESOLVE_PENDING_CALLS_DIRECT,
+        "OPTIONAL MATCH (owner {fqn: pending.calleeOwnerFqn",
+        "DETACH DELETE pending");
+    assertContainsAll(
+        Const.Cypher.CYPHER_RESOLVE_PENDING_CALLS_SCOPED_DIRECT,
+        "pending.callerSignature IN $callerSignatures",
+        "pending.calleeOwnerFqn IN $ownerFqns");
+
+    assertContainsAll(
+        Const.Cypher.CYPHER_UPSERT_CLASS_METHODS_BATCH,
+        "MATCH (owner:Class",
+        "MERGE (owner)-[:DECLARES]->(m)");
+    assertContainsAll(
+        Const.Cypher.CYPHER_UPSERT_INTERFACE_METHODS_BATCH,
+        "MATCH (owner:Interface",
+        "MERGE (owner)-[:DECLARES]->(m)");
+    assertContainsAll(
+        Const.Cypher.CYPHER_UPSERT_FIELD_ANNOTATED_WITH_BY_FQN_BATCH,
+        "MATCH (owner:Field",
+        "MERGE (owner)-[:ANNOTATED_WITH]->(a)");
 
     assertTrue(Const.Cypher.CYPHER_DELETE_CODE_CHUNKS_FOR_FILE.contains("chunk:CodeChunk"));
     assertContainsAll(
@@ -370,8 +394,16 @@ class CypherResourceTest {
 
   @Test
   void deleteStaleDefinitionsResourceConsolidatesDefinitionCleanup() {
+    String relationCypher = Const.Cypher.CYPHER_DELETE_STALE_DEFINITION_RELATIONS_FOR_FILE;
     String cypher = Const.Cypher.CYPHER_DELETE_STALE_DEFINITIONS_FOR_FILE;
 
+    assertContainsAll(
+        relationCypher,
+        "OPTIONAL MATCH (node)-[r]->(target)",
+        "type(r) = 'CALLS'",
+        "type(r) = 'ANNOTATED_WITH'",
+        "type(r) IN ['EXTENDS', 'IMPLEMENTS']",
+        "PENDING_CALL");
     assertEquals(
         1,
         occurrences(cypher, "OPTIONAL MATCH (other:File {project: $project})-[:DEFINES]->(node)"));

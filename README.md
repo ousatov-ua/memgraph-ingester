@@ -862,7 +862,7 @@ Options:
 | `--project` | `-P` | yes |  | Logical project name. Namespaces all graph nodes. |
 | `--user` | `-u` | no | empty | Memgraph username. |
 | `--pass` | `-p` | no | empty | Memgraph password. |
-| `--threads` | `-t` | no | `1` | Parser threads. Each thread gets its own Bolt session. |
+| `--threads` | `-t` | no | `1` | Parser threads feeding one serialized Memgraph writer lane. |
 | `--wipe-project-code` |  | no | `false` | Delete this project's code graph before ingesting. |
 | `--wipe-project-memories` |  | no | `false` | Delete this project's memory graph before ingesting. |
 | `--wipe-code-rag` |  | no | `false` | Delete this project's derived `:CodeChunk` rows before ingesting. |
@@ -910,9 +910,9 @@ Parallel ingestion:
 | Threads | Typical speedup | Bottleneck |
 |---:|---|---|
 | `1` | 1x | Sequential parse and write |
-| `4` | about 2.5x to 3x | Write serialization starts |
+| `4` | about 2.5x to 3x | Serialized writer starts to dominate |
 | `8` | about 3x to 4x | Diminishing returns |
-| `16+` | about 3x to 4x | Writes saturated |
+| `16+` | about 3x to 4x | Serialized writer saturated |
 
 Use 4 to 8 threads for large projects on most machines. Values higher than your CPU core count
 rarely help.

@@ -1,6 +1,8 @@
 package io.github.ousatov.tools.memgraph.exe.writer;
 
+import io.github.ousatov.tools.memgraph.def.Const;
 import io.github.ousatov.tools.memgraph.def.Const.Cypher;
+import io.github.ousatov.tools.memgraph.def.Const.Labels;
 import io.github.ousatov.tools.memgraph.def.Const.Params;
 import io.github.ousatov.tools.memgraph.vo.Method;
 import io.github.ousatov.tools.memgraph.vo.writer.AnnotationNodeWrite;
@@ -19,6 +21,7 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
@@ -68,7 +71,7 @@ final class GraphNodeWriter {
                   return params;
                 })
             .toList();
-    cypher.runBatch(Cypher.CYPHER_UPSERT_FIELDS_BATCH, rows);
+    runBatchByOwnerKind(rows, this::fieldBatchCypher);
   }
 
   void upsertMethodNode(Path file, Method method) {
@@ -76,13 +79,14 @@ final class GraphNodeWriter {
   }
 
   void upsertMethodNodes(Path file, Collection<Method> methods) {
-    List<MethodWrite> writes =
-        methods.stream().map(method -> new MethodWrite(file, method)).toList();
-    runBatch(Cypher.CYPHER_UPSERT_METHODS_BATCH, writes);
+    List<Map<String, Object>> rows =
+        methods.stream().map(method -> new MethodWrite(file, method).params()).toList();
+    runBatchByOwnerKind(rows, this::methodBatchCypher);
   }
 
   void upsertAnnotationReferencesByFqn(Collection<AnnotationWrite> annotations) {
-    runBatch(Cypher.CYPHER_UPSERT_ANNOTATED_WITH_BY_FQN_BATCH, annotations);
+    List<Map<String, Object>> rows = annotations.stream().map(BatchWrite::params).toList();
+    runBatchByOwnerKind(rows, this::annotationByFqnBatchCypher);
   }
 
   void upsertAnnotationReferencesBySig(Collection<AnnotationWrite> annotations) {
@@ -116,5 +120,46 @@ final class GraphNodeWriter {
   private void runBatch(String query, Collection<? extends BatchWrite> writes) {
     List<Map<String, Object>> rows = writes.stream().map(BatchWrite::params).toList();
     cypher.runBatch(query, rows);
+  }
+
+  private void runBatchByOwnerKind(
+      List<Map<String, Object>> rows, Function<String, String> queryForKind) {
+    Map<String, List<Map<String, Object>>> byKind =
+        rows.stream().collect(Collectors.groupingBy(GraphNodeWriter::ownerKindOf));
+    byKind.forEach(
+        (ownerKind, batchRows) -> cypher.runBatch(queryForKind.apply(ownerKind), batchRows));
+  }
+
+  private static String ownerKindOf(Map<String, Object> row) {
+    Object ownerKind = row.get(Params.OWNER_KIND);
+    return ownerKind instanceof String value && !value.isBlank() ? value : Const.Symbols.EMPTY;
+  }
+
+  private String methodBatchCypher(String ownerKind) {
+    return switch (ownerKind) {
+      case Labels.INTERFACE -> Cypher.CYPHER_UPSERT_INTERFACE_METHODS_BATCH;
+      case Labels.ANNOTATION -> Cypher.CYPHER_UPSERT_ANNOTATION_METHODS_BATCH;
+      case Labels.CLASS -> Cypher.CYPHER_UPSERT_CLASS_METHODS_BATCH;
+      default -> Cypher.CYPHER_UPSERT_METHODS_BATCH;
+    };
+  }
+
+  private String fieldBatchCypher(String ownerKind) {
+    return switch (ownerKind) {
+      case Labels.INTERFACE -> Cypher.CYPHER_UPSERT_INTERFACE_FIELDS_BATCH;
+      case Labels.ANNOTATION -> Cypher.CYPHER_UPSERT_ANNOTATION_FIELDS_BATCH;
+      case Labels.CLASS -> Cypher.CYPHER_UPSERT_CLASS_FIELDS_BATCH;
+      default -> Cypher.CYPHER_UPSERT_FIELDS_BATCH;
+    };
+  }
+
+  private String annotationByFqnBatchCypher(String ownerKind) {
+    return switch (ownerKind) {
+      case Labels.INTERFACE -> Cypher.CYPHER_UPSERT_INTERFACE_ANNOTATED_WITH_BY_FQN_BATCH;
+      case Labels.ANNOTATION -> Cypher.CYPHER_UPSERT_ANNOTATION_ANNOTATED_WITH_BY_FQN_BATCH;
+      case Labels.FIELD -> Cypher.CYPHER_UPSERT_FIELD_ANNOTATED_WITH_BY_FQN_BATCH;
+      case Labels.CLASS -> Cypher.CYPHER_UPSERT_CLASS_ANNOTATED_WITH_BY_FQN_BATCH;
+      default -> Cypher.CYPHER_UPSERT_ANNOTATED_WITH_BY_FQN_BATCH;
+    };
   }
 }

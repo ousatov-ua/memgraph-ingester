@@ -25,6 +25,14 @@ public final class Const {
 
     public static final String CYPHER_UPSERT_ANNOTATED_WITH_BY_FQN_BATCH =
         action("upsert-annotated-with-by-fqn-batch.cypher");
+    public static final String CYPHER_UPSERT_CLASS_ANNOTATED_WITH_BY_FQN_BATCH =
+        action("upsert-class-annotated-with-by-fqn-batch.cypher");
+    public static final String CYPHER_UPSERT_INTERFACE_ANNOTATED_WITH_BY_FQN_BATCH =
+        action("upsert-interface-annotated-with-by-fqn-batch.cypher");
+    public static final String CYPHER_UPSERT_ANNOTATION_ANNOTATED_WITH_BY_FQN_BATCH =
+        action("upsert-annotation-annotated-with-by-fqn-batch.cypher");
+    public static final String CYPHER_UPSERT_FIELD_ANNOTATED_WITH_BY_FQN_BATCH =
+        action("upsert-field-annotated-with-by-fqn-batch.cypher");
 
     public static final String CYPHER_UPSERT_ANNOTATED_WITH_BY_SIG_BATCH =
         action("upsert-annotated-with-by-sig-batch.cypher");
@@ -175,6 +183,8 @@ public final class Const {
     public static final String CYPHER_UPSERT_PROJECT_ROOT = action("upsert-project-root.cypher");
     public static final String CYPHER_UPSERT_PROJECT = action("upsert-project.cypher");
     public static final String CYPHER_UPSERT_FILE = action("upsert-file.cypher");
+    public static final String CYPHER_DELETE_LEGACY_FILE_CODE_LINKS =
+        action("delete-legacy-file-code-links.cypher");
     public static final String CYPHER_UPSERT_PACKAGE = action("upsert-package.cypher");
 
     public static final String CYPHER_UPSERT_CLASSES_BATCH = action("upsert-classes-batch.cypher");
@@ -194,7 +204,19 @@ public final class Const {
     public static final String CYPHER_UPSERT_IMPLEMENTS_BATCH =
         action("upsert-implements-batch.cypher");
     public static final String CYPHER_UPSERT_FIELDS_BATCH = action("upsert-fields-batch.cypher");
+    public static final String CYPHER_UPSERT_CLASS_FIELDS_BATCH =
+        action("upsert-class-fields-batch.cypher");
+    public static final String CYPHER_UPSERT_INTERFACE_FIELDS_BATCH =
+        action("upsert-interface-fields-batch.cypher");
+    public static final String CYPHER_UPSERT_ANNOTATION_FIELDS_BATCH =
+        action("upsert-annotation-fields-batch.cypher");
     public static final String CYPHER_UPSERT_METHODS_BATCH = action("upsert-methods-batch.cypher");
+    public static final String CYPHER_UPSERT_CLASS_METHODS_BATCH =
+        action("upsert-class-methods-batch.cypher");
+    public static final String CYPHER_UPSERT_INTERFACE_METHODS_BATCH =
+        action("upsert-interface-methods-batch.cypher");
+    public static final String CYPHER_UPSERT_ANNOTATION_METHODS_BATCH =
+        action("upsert-annotation-methods-batch.cypher");
     public static final String CYPHER_BACKFILL_METHOD_OWNER_METADATA =
         action("backfill-method-owner-metadata.cypher");
 
@@ -218,7 +240,11 @@ public final class Const {
     public static final String CYPHER_DELETE_PENDING_CALLS_FOR_FILE =
         action("delete-pending-calls-for-file.cypher");
 
-    /** Clears file-local stale definitions and relationships in one batched Cypher statement. */
+    /** Clears file-local stale relationships before definition replacement writes. */
+    public static final String CYPHER_DELETE_STALE_DEFINITION_RELATIONS_FOR_FILE =
+        action("delete-stale-definition-relations-for-file.cypher");
+
+    /** Clears file-local stale definitions after relationship cleanup. */
     public static final String CYPHER_DELETE_STALE_DEFINITIONS_FOR_FILE =
         action("delete-stale-definitions-for-file.cypher");
 
@@ -278,8 +304,14 @@ public final class Const {
     public static final String CYPHER_RESOLVE_PENDING_CALLS =
         action("resolve-pending-calls.cypher");
 
+    public static final String CYPHER_RESOLVE_PENDING_CALLS_DIRECT =
+        action("resolve-pending-calls-direct.cypher");
+
     public static final String CYPHER_RESOLVE_PENDING_CALLS_SCOPED =
         action("resolve-pending-calls-scoped.cypher");
+
+    public static final String CYPHER_RESOLVE_PENDING_CALLS_SCOPED_DIRECT =
+        action("resolve-pending-calls-scoped-direct.cypher");
 
     /**
      * Removes placeholder {@code :Method} nodes that were created by {@link
@@ -409,7 +441,7 @@ public final class Const {
   /** Command line option names and aliases. */
   public static class Cli {
 
-    public static final String VERSION = "12.4.12";
+    public static final String VERSION = "12.4.14";
     public static final String USER_SHORT = "-u";
     public static final String USER = "--user";
     public static final String PASS_SHORT = "-p";
