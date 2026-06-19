@@ -3,8 +3,26 @@ package io.github.ousatov.tools.memgraph.exe.writer;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import io.github.ousatov.tools.memgraph.def.Const;
+import io.github.ousatov.tools.memgraph.exe.metrics.IngestionRunStats;
 import io.github.ousatov.tools.memgraph.vo.EmbeddingSettings;
+import io.github.ousatov.tools.memgraph.vo.writer.EmbeddingProgressListener;
+import java.lang.reflect.InvocationHandler;
+import java.lang.reflect.Method;
+import java.lang.reflect.Proxy;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 import org.junit.jupiter.api.Test;
+import org.neo4j.driver.Record;
+import org.neo4j.driver.Result;
+import org.neo4j.driver.Values;
 
 /**
  * Unit tests for {@link ChunkEmbeddingRefresher}.
@@ -44,8 +62,206 @@ class ChunkEmbeddingRefresherTest {
     assertEquals("CodeChunkEmbedding_p_my_project_cfad424950cd", label);
   }
 
+  @Test
+  void batchesMetadataUpdatesAcrossMultipleEmbeddingBatches() {
+    int totalChunks = 1000;
+    int batchSize = 100;
+    int dimension = 128;
+    EmbeddingSettings settings =
+        new EmbeddingSettings(
+            true, "idx", "model", "cos", "f16", batchSize, 48, "", dimension, 0, 0, 0, 0, false);
+    RecordingCypherExecutor cypher = new RecordingCypherExecutor(totalChunks);
+    ChunkEmbeddingRefresher refresher = new ChunkEmbeddingRefresher(cypher, "project");
+    AtomicLong progressCalls = new AtomicLong();
+
+    long embedded =
+        refresher.refreshMarkedChunks(
+            settings,
+            EmbeddingTarget.CODE,
+            dimension,
+            totalChunks,
+            (_, _) -> progressCalls.incrementAndGet());
+
+    assertEquals(totalChunks, embedded);
+    assertEquals(totalChunks / batchSize, progressCalls.get());
+    // Threshold is clamp(batchSize * 4, 256, 2048) = 400. 1000 chunks in batches of 100:
+    // flush at 400, flush at 800, final flush at 1000 => 3 metadata updates instead of 10.
+    assertEquals(3, cypher.metadataUpdateCount());
+    assertEquals(0, cypher.dirtyCount());
+  }
+
+  @Test
+  void flushesPendingMetadataBeforeRetryingFailedBatch() {
+    int totalChunks = 500;
+    int batchSize = 100;
+    int dimension = 128;
+    EmbeddingSettings settings =
+        new EmbeddingSettings(
+            true, "idx", "model", "cos", "f16", batchSize, 48, "", dimension, 0, 0, 0, 0, false);
+    FailingThenRecoveringCypherExecutor cypher =
+        new FailingThenRecoveringCypherExecutor(totalChunks, 2, 1);
+    ChunkEmbeddingRefresher refresher = new ChunkEmbeddingRefresher(cypher, "project");
+
+    long embedded =
+        refresher.refreshMarkedChunks(
+            settings, EmbeddingTarget.CODE, dimension, totalChunks, EmbeddingProgressListener.NONE);
+
+    assertEquals(totalChunks, embedded);
+    assertEquals("batch:true:100", cypher.events().get(0));
+    assertEquals("batch:true:100", cypher.events().get(1));
+    assertEquals("batch:false:100", cypher.events().get(2));
+    assertEquals("metadata:200", cypher.events().get(3));
+    assertEquals(0, cypher.dirtyCount());
+  }
+
   private static EmbeddingSettings settingsWithProcedureMemory(int procedureMemoryMb) {
     return new EmbeddingSettings(
         true, "idx", "model", "cos", "f16", 128, 12, "", 0, 0, 0, procedureMemoryMb, 0, true);
+  }
+
+  /** Fake {@link CypherExecutor} that keeps rows dirty until metadata updates clear them. */
+  private abstract static class FakeCypherExecutor extends CypherExecutor {
+
+    protected final List<String> remainingIds;
+    protected final List<String> metadataUpdateCyphers = new ArrayList<>();
+    protected final List<String> events = new ArrayList<>();
+
+    FakeCypherExecutor(int totalChunks) {
+      super(null, null, "project", new IngestionRunStats(0));
+      this.remainingIds =
+          IntStream.range(0, totalChunks)
+              .mapToObj(index -> "chunk-" + index)
+              .collect(Collectors.toCollection(ArrayList::new));
+    }
+
+    @Override
+    public void run(String cypher, Map<String, Object> params) {
+      if (cypher.contains(Const.Params.EMBEDDING_MODEL)) {
+        metadataUpdateCyphers.add(cypher);
+        @SuppressWarnings("unchecked")
+        List<String> ids = (List<String>) params.get(Const.Params.IDS);
+        events.add("metadata:" + ids.size());
+        remainingIds.removeAll(new HashSet<>(ids));
+      }
+    }
+
+    @Override
+    public <T> T read(String cypher, Map<String, Object> params, Function<Result, T> mapper) {
+      if (cypher.equals(EmbeddingTarget.CODE.batchCypher())) {
+        int limit = ((Number) params.get(Const.Params.LIMIT)).intValue();
+        @SuppressWarnings("unchecked")
+        List<String> excludeIds = (List<String>) params.get(Const.Params.EXCLUDE_IDS);
+        return mapper.apply(nextResult(limit, excludeIds));
+      }
+      throw new AssertionError("Unexpected read query: " + cypher);
+    }
+
+    protected abstract Result nextResult(int limit, List<String> excludeIds);
+
+    int metadataUpdateCount() {
+      return metadataUpdateCyphers.size();
+    }
+
+    int dirtyCount() {
+      return remainingIds.size();
+    }
+
+    List<String> events() {
+      return events;
+    }
+
+    List<String> selectDirtyIds(int limit, List<String> excludeIds) {
+      Set<String> excluded = new HashSet<>(excludeIds);
+      return remainingIds.stream().filter(id -> !excluded.contains(id)).limit(limit).toList();
+    }
+  }
+
+  /** Returns successful batches until all IDs are consumed. */
+  private static final class RecordingCypherExecutor extends FakeCypherExecutor {
+
+    RecordingCypherExecutor(int totalChunks) {
+      super(totalChunks);
+    }
+
+    @Override
+    protected Result nextResult(int limit, List<String> excludeIds) {
+      List<String> batchIds = selectDirtyIds(limit, excludeIds);
+      events.add("batch:true:" + batchIds.size());
+      return fakeResult(batchIds, 128, true);
+    }
+  }
+
+  /** Fails the requested number of embedding batches, then returns successful batches. */
+  private static final class FailingThenRecoveringCypherExecutor extends FakeCypherExecutor {
+
+    private int failuresRemaining;
+    private int successesBeforeFailure;
+
+    FailingThenRecoveringCypherExecutor(
+        int totalChunks, int successesBeforeFailure, int failuresBeforeSuccess) {
+      super(totalChunks);
+      this.successesBeforeFailure = successesBeforeFailure;
+      this.failuresRemaining = failuresBeforeSuccess;
+    }
+
+    @Override
+    protected Result nextResult(int limit, List<String> excludeIds) {
+      List<String> batchIds = selectDirtyIds(limit, excludeIds);
+      if (successesBeforeFailure > 0) {
+        successesBeforeFailure--;
+        events.add("batch:true:" + batchIds.size());
+        return fakeResult(batchIds, 128, true);
+      }
+      if (failuresRemaining > 0) {
+        failuresRemaining--;
+        events.add("batch:false:" + batchIds.size());
+        return fakeResult(batchIds, 128, false);
+      }
+      events.add("batch:true:" + batchIds.size());
+      return fakeResult(batchIds, 128, true);
+    }
+  }
+
+  private static Result fakeResult(List<String> ids, int dimension, boolean success) {
+    Record recordProxy =
+        proxy(
+            Record.class,
+            (proxy, method, args) -> {
+              if ("get".equals(method.getName()) && args.length == 1 && args[0] instanceof String) {
+                return switch ((String) args[0]) {
+                  case "success" -> Values.value(success);
+                  case "dimension" -> Values.value(dimension);
+                  case "ids" -> Values.value(ids);
+                  default -> throw new AssertionError("Unexpected record key: " + args[0]);
+                };
+              }
+              return defaultValue(proxy, method);
+            });
+    boolean[] consumed = {false};
+    return proxy(
+        Result.class,
+        (proxy, method, _) ->
+            switch (method.getName()) {
+              case "hasNext" -> !consumed[0];
+              case "next", "single" -> {
+                consumed[0] = true;
+                yield recordProxy;
+              }
+              default -> defaultValue(proxy, method);
+            });
+  }
+
+  @SuppressWarnings("unchecked")
+  private static <T> T proxy(Class<T> type, InvocationHandler handler) {
+    return (T) Proxy.newProxyInstance(type.getClassLoader(), new Class<?>[] {type}, handler);
+  }
+
+  private static Object defaultValue(Object proxy, Method method) {
+    return switch (method.getName()) {
+      case "toString" -> proxy.getClass().getInterfaces()[0].getSimpleName() + " proxy";
+      case "hashCode" -> System.identityHashCode(proxy);
+      case "equals" -> false;
+      default -> null;
+    };
   }
 }

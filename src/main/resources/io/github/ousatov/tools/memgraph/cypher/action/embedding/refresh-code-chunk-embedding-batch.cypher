@@ -1,5 +1,6 @@
 MATCH (chunk:CodeChunk {project: $project, embeddingDirty: true})
 WHERE chunk.text IS NOT NULL
+  AND NOT (chunk.id IN $excludeIds)
 WITH chunk
 LIMIT $limit
 WITH collect(chunk) AS chunks
