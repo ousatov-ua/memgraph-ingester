@@ -21,7 +21,7 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.function.Function;
+import java.util.function.UnaryOperator;
 import java.util.stream.Collectors;
 
 /**
@@ -123,7 +123,7 @@ final class GraphNodeWriter {
   }
 
   private void runBatchByOwnerKind(
-      List<Map<String, Object>> rows, Function<String, String> queryForKind) {
+      List<Map<String, Object>> rows, UnaryOperator<String> queryForKind) {
     Map<String, List<Map<String, Object>>> byKind =
         rows.stream().collect(Collectors.groupingBy(GraphNodeWriter::ownerKindOf));
     byKind.forEach(

@@ -26,6 +26,7 @@ import org.neo4j.driver.Session;
 import org.neo4j.driver.Transaction;
 import org.neo4j.driver.async.AsyncSession;
 import org.neo4j.driver.async.AsyncTransaction;
+import org.neo4j.driver.async.ResultCursor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -267,7 +268,7 @@ final class CypherExecutor {
       stages.add(
           currentAsyncTx
               .runAsync(op.cypher, op.params)
-              .thenCompose(cursor -> cursor.consumeAsync())
+              .thenCompose(ResultCursor::consumeAsync)
               .thenApply(_ -> new PendingResult(op, System.nanoTime() - startedNanos))
               .toCompletableFuture());
     }
