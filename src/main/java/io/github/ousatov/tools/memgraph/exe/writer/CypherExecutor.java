@@ -44,7 +44,7 @@ import org.slf4j.LoggerFactory;
  *
  * @author Oleksii Usatov
  */
-final class CypherExecutor {
+class CypherExecutor {
 
   private static final Logger log = LoggerFactory.getLogger(CypherExecutor.class);
 
@@ -62,14 +62,6 @@ final class CypherExecutor {
   private Transaction currentTx;
   private AsyncTransaction currentAsyncTx;
   private List<PendingOp> pendingOps = new ArrayList<>();
-
-  CypherExecutor(Session session, String project) {
-    this(session, null, project, new IngestionRunStats(0));
-  }
-
-  CypherExecutor(Session session, String project, IngestionRunStats stats) {
-    this(session, null, project, stats);
-  }
 
   CypherExecutor(
       Session session, AsyncSession asyncSession, String project, IngestionRunStats stats) {

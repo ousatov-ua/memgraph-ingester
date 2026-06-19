@@ -435,7 +435,7 @@ public final class Const {
   /** Command line option names and aliases. */
   public static class Cli {
 
-    public static final String VERSION = "12.4.17";
+    public static final String VERSION = "12.4.18";
     public static final String USER_SHORT = "-u";
     public static final String USER = "--user";
     public static final String PASS_SHORT = "-p";
@@ -588,6 +588,7 @@ public final class Const {
     public static final String EMBEDDING_DIMENSIONS = "embeddingDimensions";
     public static final String COUNT = "count";
     public static final String CONFIG = "config";
+    public static final String EXCLUDE_IDS = "excludeIds";
     public static final String LABEL = "label";
     public static final String PROPERTY = "property";
     public static final String SIGNATURE = "signature";

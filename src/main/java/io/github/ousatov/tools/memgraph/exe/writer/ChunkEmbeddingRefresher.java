@@ -117,7 +117,11 @@ final class ChunkEmbeddingRefresher {
     return new EmbeddingRefreshResult(embedded, dimension);
   }
 
-  private long refreshMarkedChunks(
+  /**
+   * Refreshes stale embeddings in batches, accumulating metadata updates to reduce round-trips.
+   * Package-private for unit testing.
+   */
+  long refreshMarkedChunks(
       EmbeddingSettings settings,
       EmbeddingTarget target,
       int dimension,
@@ -126,9 +130,12 @@ final class ChunkEmbeddingRefresher {
     long total = stale;
     long embedded = 0L;
     int batchSize = settings.batchSize();
+    List<String> pendingMetadataIds = new ArrayList<>();
     while (stale > 0) {
-      EmbeddingBatchResult batch = refreshBatch(settings, target, dimension, batchSize);
+      EmbeddingBatchResult batch =
+          refreshBatch(settings, target, dimension, batchSize, pendingMetadataIds);
       if (!batch.success()) {
+        flushPendingMetadata(settings, target, dimension, pendingMetadataIds);
         if (batchSize == 1) {
           throw embeddingFailure(target, batch.ids());
         }
@@ -147,12 +154,37 @@ final class ChunkEmbeddingRefresher {
         throw new ProcessingException(
             "Memgraph embeddings refresh made no progress for " + target.chunkLabel());
       }
-      updateMetadata(settings, target, dimension, batch.ids());
+      pendingMetadataIds.addAll(batch.ids());
+      if (pendingMetadataIds.size() >= metadataFlushThreshold(batchSize)) {
+        flushPendingMetadata(settings, target, dimension, pendingMetadataIds);
+      }
       embedded += batchCount;
       stale -= batchCount;
       listener.onProgress(embedded, total);
     }
+    flushPendingMetadata(settings, target, dimension, pendingMetadataIds);
     return embedded;
+  }
+
+  /**
+   * Returns the number of successfully embedded chunk IDs to accumulate before flushing their
+   * metadata update. Scales with the current batch size so small fallback batches do not keep a
+   * large uncommitted metadata window, while larger batches amortize the metadata round-trip.
+   */
+  private static int metadataFlushThreshold(int batchSize) {
+    return Math.clamp(batchSize * 4L, 256, 2048);
+  }
+
+  private void flushPendingMetadata(
+      EmbeddingSettings settings,
+      EmbeddingTarget target,
+      int dimension,
+      List<String> pendingMetadataIds) {
+    if (pendingMetadataIds.isEmpty()) {
+      return;
+    }
+    updateMetadata(settings, target, dimension, List.copyOf(pendingMetadataIds));
+    pendingMetadataIds.clear();
   }
 
   /**
@@ -327,8 +359,8 @@ final class ChunkEmbeddingRefresher {
     return cleared;
   }
 
-  private long tagVectorIndexLabel(EmbeddingTarget target, String indexLabel) {
-    return cypher.read(
+  private void tagVectorIndexLabel(EmbeddingTarget target, String indexLabel) {
+    cypher.read(
         buildTagVectorIndexLabelCypher(target, indexLabel),
         Map.of(),
         result -> result.single().get(Params.COUNT).asLong());
@@ -437,7 +469,11 @@ final class ChunkEmbeddingRefresher {
   }
 
   private EmbeddingBatchResult refreshBatch(
-      EmbeddingSettings settings, EmbeddingTarget target, int dimension, int batchSize) {
+      EmbeddingSettings settings,
+      EmbeddingTarget target,
+      int dimension,
+      int batchSize,
+      List<String> excludeIds) {
     Map<String, Object> config = buildEmbeddingConfig(settings, target, batchSize);
     Map<String, Object> params =
         Map.of(
@@ -448,7 +484,9 @@ final class ChunkEmbeddingRefresher {
             Params.LIMIT,
             batchSize,
             Params.CONFIG,
-            config);
+            config,
+            Params.EXCLUDE_IDS,
+            List.copyOf(excludeIds));
     return cypher.read(
         batchCypher(settings, target),
         params,
