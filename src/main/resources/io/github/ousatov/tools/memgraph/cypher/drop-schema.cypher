@@ -90,6 +90,7 @@ DROP INDEX ON :MemoryChunk(textHash);
 DROP INDEX ON :MemoryChunk(embeddingModel);
 DROP INDEX ON :MemoryChunk(embeddingDimensions);
 DROP INDEX ON :MemoryChunk(embeddingDirty);
+DROP INDEX ON :MemoryChunk(project, embeddingDirty);
 
 
 // =====================================================
@@ -105,6 +106,7 @@ DROP INDEX ON :Language(name);
 DROP INDEX ON :File(project);
 DROP INDEX ON :File(path);
 DROP INDEX ON :File(language);
+DROP INDEX ON :File(project, language, path);
 
 DROP INDEX ON :Package(project);
 DROP INDEX ON :Package(name);
@@ -145,6 +147,7 @@ DROP INDEX ON :CodeChunk(textHash);
 DROP INDEX ON :CodeChunk(embeddingModel);
 DROP INDEX ON :CodeChunk(embeddingDimensions);
 DROP INDEX ON :CodeChunk(embeddingDirty);
+DROP INDEX ON :CodeChunk(project, embeddingDirty);
 DROP INDEX ON :CodeChunk(language);
 DROP INDEX ON :CodeChunk(path);
 DROP INDEX ON :CodeChunk(ownerFqn);

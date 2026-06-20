@@ -18,6 +18,7 @@ runtime:
     http-timeout: 5m
     loading-interval: 500ms
 analyzers:
+  module-batch-size: 32
   javascript:
     process-timeout: 2m
   python:
@@ -48,6 +49,7 @@ writer:
     max-backoff: 500ms
 ingestion:
   shutdown-timeout: 10m
+  stored-state-batch-size: 5000
   file-transaction-batch-size: 16
   file-transaction-retry:
     max-attempts: 64

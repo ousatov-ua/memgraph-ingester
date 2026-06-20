@@ -9,6 +9,9 @@ import io.github.ousatov.tools.memgraph.def.Const;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -95,6 +98,7 @@ class CypherResourceTest {
         "CREATE INDEX ON :Memory(project)",
         "CREATE INDEX ON :Language(project)",
         "CREATE INDEX ON :Code(language)",
+        "CREATE INDEX ON :File(project, language, path)",
         "CREATE INDEX ON :Decision(status)",
         "CREATE INDEX ON :Decision(topic)",
         "CREATE INDEX ON :Idea(status)",
@@ -115,12 +119,14 @@ class CypherResourceTest {
         "CREATE INDEX ON :MemoryChunk(textHash)",
         "CREATE INDEX ON :MemoryChunk(embeddingModel)",
         "CREATE INDEX ON :MemoryChunk(embeddingDimensions)",
+        "CREATE INDEX ON :MemoryChunk(project, embeddingDirty)",
         "CREATE INDEX ON :CodeChunk(project)",
         "CREATE INDEX ON :CodeChunk(sourceLabel)",
         "CREATE INDEX ON :CodeChunk(sourceId)",
         "CREATE INDEX ON :CodeChunk(textHash)",
         "CREATE INDEX ON :CodeChunk(embeddingModel)",
         "CREATE INDEX ON :CodeChunk(embeddingDimensions)",
+        "CREATE INDEX ON :CodeChunk(project, embeddingDirty)",
         "CREATE INDEX ON :CodeChunk(language)",
         "CREATE INDEX ON :CodeChunk(path)",
         "CREATE INDEX ON :CodeChunk(ownerFqn)",
@@ -135,7 +141,10 @@ class CypherResourceTest {
     assertTrue(schema.contains("DROP CONSTRAINT ON (cc:CodeChunk)"));
     assertTrue(schema.contains("DROP INDEX ON :MemoryChunk(project)"));
     assertTrue(schema.contains("DROP INDEX ON :MemoryChunk(sourceId)"));
+    assertTrue(schema.contains("DROP INDEX ON :MemoryChunk(project, embeddingDirty)"));
+    assertTrue(schema.contains("DROP INDEX ON :File(project, language, path)"));
     assertTrue(schema.contains("DROP INDEX ON :CodeChunk(project)"));
+    assertTrue(schema.contains("DROP INDEX ON :CodeChunk(project, embeddingDirty)"));
     assertTrue(schema.contains("DROP INDEX ON :CodeChunk(signature)"));
   }
 
@@ -183,9 +192,48 @@ class CypherResourceTest {
   }
 
   @Test
+  void codeRefResolutionUsesSplitResourcesAndRemovesOldUnionResource() {
+    assertFalse(
+        Files.exists(
+            Path.of(
+                "src/main/resources/io/github/ousatov/tools/memgraph/cypher/action/resolve-code-refs.cypher")));
+
+    String code = Const.Cypher.CYPHER_RESOLVE_CODE_REFS_CODE;
+    String pkg = Const.Cypher.CYPHER_RESOLVE_CODE_REFS_PACKAGE;
+    String file = Const.Cypher.CYPHER_RESOLVE_CODE_REFS_FILE;
+    String cls = Const.Cypher.CYPHER_RESOLVE_CODE_REFS_CLASS;
+    String iface = Const.Cypher.CYPHER_RESOLVE_CODE_REFS_INTERFACE;
+    String annotation = Const.Cypher.CYPHER_RESOLVE_CODE_REFS_ANNOTATION;
+    String method = Const.Cypher.CYPHER_RESOLVE_CODE_REFS_METHOD;
+    String field = Const.Cypher.CYPHER_RESOLVE_CODE_REFS_FIELD;
+    String unresolved = Const.Cypher.CYPHER_RESOLVE_CODE_REFS_UNRESOLVED;
+
+    assertContainsAll(code, "targetType: 'Code'", "target:Code");
+    assertContainsAll(
+        pkg, "targetType: 'Package'", "CASE WHEN ref.key CONTAINS ':'", "target:Package");
+    assertContainsAll(file, "targetType: 'File'", "target:File");
+    assertContainsAll(cls, "targetType: 'Class'", "target:Class");
+    assertContainsAll(iface, "targetType: 'Interface'", "target:Interface");
+    assertContainsAll(annotation, "targetType: 'Annotation'", "target:Annotation");
+    assertContainsAll(method, "targetType: 'Method'", "target:Method");
+    assertContainsAll(field, "targetType: 'Field'", "target:Field");
+    assertContainsAll(unresolved, "NOT ref.targetType IN", "DELETE old");
+    for (String cypher :
+        List.of(code, pkg, file, cls, iface, annotation, method, field, unresolved)) {
+      assertFalse(cypher.contains("UNION"));
+    }
+  }
+
+  @Test
   @SuppressWarnings("java:S5961")
   void codeChunkRefreshResourcesPreserveEmbeddingOnlyWhenTextHashMatches() {
     String upsert = Const.Cypher.CYPHER_UPSERT_CODE_CHUNKS_BATCH;
+    String linkFiles = Const.Cypher.CYPHER_LINK_CODE_CHUNKS_TO_FILES_BATCH;
+    String linkClasses = Const.Cypher.CYPHER_LINK_CODE_CHUNKS_TO_CLASSES_BATCH;
+    String linkInterfaces = Const.Cypher.CYPHER_LINK_CODE_CHUNKS_TO_INTERFACES_BATCH;
+    String linkAnnotations = Const.Cypher.CYPHER_LINK_CODE_CHUNKS_TO_ANNOTATIONS_BATCH;
+    String linkMethods = Const.Cypher.CYPHER_LINK_CODE_CHUNKS_TO_METHODS_BATCH;
+    String linkFields = Const.Cypher.CYPHER_LINK_CODE_CHUNKS_TO_FIELDS_BATCH;
     String callsByName = Const.Cypher.CYPHER_UPSERT_CALLS_BY_NAME_BATCH;
     String deleteMissing = Const.Cypher.CYPHER_DELETE_CODE_CHUNKS_FOR_FILES;
     String pathsMissingCodeChunks = Const.Cypher.CYPHER_GET_FILE_PATHS_MISSING_CODE_CHUNKS;
@@ -227,15 +275,20 @@ class CypherResourceTest {
         "REMOVE chunk.embedding",
         "SET chunk.embeddingDirty = true",
         "previousTextHash = row.textHash",
-        "SET chunk.embeddingDirty = false",
-        "MATCH (source:File",
-        "MATCH (source:Class",
-        "MATCH (source:Interface",
-        "MATCH (source:Annotation",
-        "MATCH (source:Method",
-        "MATCH (source:Field",
-        "MERGE (source)-[:HAS_RAG_CHUNK]->(chunk)");
+        "SET chunk.embeddingDirty = false");
     assertFalse(upsert.contains("DELETE rel"));
+    assertFalse(upsert.contains("UNION"));
+    assertContainsAll(linkFiles, "MATCH (source:File", "MERGE (source)-[:HAS_RAG_CHUNK]->(chunk)");
+    assertContainsAll(
+        linkClasses, "MATCH (source:Class", "MERGE (source)-[:HAS_RAG_CHUNK]->(chunk)");
+    assertContainsAll(
+        linkInterfaces, "MATCH (source:Interface", "MERGE (source)-[:HAS_RAG_CHUNK]->(chunk)");
+    assertContainsAll(
+        linkAnnotations, "MATCH (source:Annotation", "MERGE (source)-[:HAS_RAG_CHUNK]->(chunk)");
+    assertContainsAll(
+        linkMethods, "MATCH (source:Method", "MERGE (source)-[:HAS_RAG_CHUNK]->(chunk)");
+    assertContainsAll(
+        linkFields, "MATCH (source:Field", "MERGE (source)-[:HAS_RAG_CHUNK]->(chunk)");
     assertContainsAll(
         callsByName,
         "UNWIND $rows AS row",

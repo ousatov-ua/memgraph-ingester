@@ -25,13 +25,14 @@ SKIPPED_CALL_SCOPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.Cl
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--file", required=True)
+    parser.add_argument("--file", required=True, action="append")
     parser.add_argument("--root", required=True)
     args = parser.parse_args()
 
     require_ast_unparse()
-    analyzer = PythonSourceAnalyzer(Path(args.root), Path(args.file))
-    analyzer.analyze()
+    for file in args.file:
+        analyzer = PythonSourceAnalyzer(Path(args.root), Path(file))
+        analyzer.analyze()
     return 0
 
 

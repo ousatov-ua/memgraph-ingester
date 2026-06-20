@@ -51,6 +51,18 @@ public final class Const {
         action("get-file-paths-missing-code-chunks.cypher");
     public static final String CYPHER_UPSERT_CODE_CHUNKS_BATCH =
         action("upsert-code-chunks-batch.cypher");
+    public static final String CYPHER_LINK_CODE_CHUNKS_TO_FILES_BATCH =
+        action("link-code-chunks-to-files-batch.cypher");
+    public static final String CYPHER_LINK_CODE_CHUNKS_TO_CLASSES_BATCH =
+        action("link-code-chunks-to-classes-batch.cypher");
+    public static final String CYPHER_LINK_CODE_CHUNKS_TO_INTERFACES_BATCH =
+        action("link-code-chunks-to-interfaces-batch.cypher");
+    public static final String CYPHER_LINK_CODE_CHUNKS_TO_ANNOTATIONS_BATCH =
+        action("link-code-chunks-to-annotations-batch.cypher");
+    public static final String CYPHER_LINK_CODE_CHUNKS_TO_METHODS_BATCH =
+        action("link-code-chunks-to-methods-batch.cypher");
+    public static final String CYPHER_LINK_CODE_CHUNKS_TO_FIELDS_BATCH =
+        action("link-code-chunks-to-fields-batch.cypher");
     public static final String CYPHER_CODE_EMBEDDING_MODEL_INFO =
         action("embedding/code-embedding-model-info.cypher");
     public static final String CYPHER_CREATE_CODE_CHUNK_VECTOR_INDEX =
@@ -175,7 +187,24 @@ public final class Const {
 
     public static final String CYPHER_WIPE_PROJECT_MEMORIES =
         action("wipe-project-memories.cypher");
-    public static final String CYPHER_RESOLVE_CODE_REFS = action("resolve-code-refs.cypher");
+    public static final String CYPHER_RESOLVE_CODE_REFS_CODE =
+        action("resolve-code-refs-code.cypher");
+    public static final String CYPHER_RESOLVE_CODE_REFS_PACKAGE =
+        action("resolve-code-refs-package.cypher");
+    public static final String CYPHER_RESOLVE_CODE_REFS_FILE =
+        action("resolve-code-refs-file.cypher");
+    public static final String CYPHER_RESOLVE_CODE_REFS_CLASS =
+        action("resolve-code-refs-class.cypher");
+    public static final String CYPHER_RESOLVE_CODE_REFS_INTERFACE =
+        action("resolve-code-refs-interface.cypher");
+    public static final String CYPHER_RESOLVE_CODE_REFS_ANNOTATION =
+        action("resolve-code-refs-annotation.cypher");
+    public static final String CYPHER_RESOLVE_CODE_REFS_METHOD =
+        action("resolve-code-refs-method.cypher");
+    public static final String CYPHER_RESOLVE_CODE_REFS_FIELD =
+        action("resolve-code-refs-field.cypher");
+    public static final String CYPHER_RESOLVE_CODE_REFS_UNRESOLVED =
+        action("resolve-code-refs-unresolved.cypher");
     public static final String CYPHER_UPSERT_PROJECT_ROOT = action("upsert-project-root.cypher");
     public static final String CYPHER_UPSERT_PROJECT = action("upsert-project.cypher");
     public static final String CYPHER_UPSERT_FILE = action("upsert-file.cypher");

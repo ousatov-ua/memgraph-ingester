@@ -11,6 +11,7 @@ import io.github.ousatov.tools.memgraph.vo.analysis.RuntimeMode;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -698,6 +699,26 @@ class JsAnalyzerTest {
                     "js.barrel$2e$ts.Source.<init>(string)".equals(call.callerSignature())
                         && "js.source$2e$ts.Source".equals(call.calleeOwnerFqn())
                         && "<init>".equals(call.calleeName())));
+  }
+
+  @Test
+  void analyzesBatchInInputOrder() throws IOException {
+    Path first = tempDir.resolve("first.ts");
+    Path second = tempDir.resolve("second.ts");
+    Files.writeString(first, "export class First {}\n");
+    Files.writeString(second, "export class Second {}\n");
+
+    List<JsAnalysis> analyses = analyzer().analyzeBatch(List.of(first, second));
+
+    assertEquals(2, analyses.size());
+    assertEquals("js.first$2e$ts", analyses.get(0).moduleFqn());
+    assertEquals("js.second$2e$ts", analyses.get(1).moduleFqn());
+  }
+
+  @Test
+  void batchTimeoutScalesByFileCount() {
+    assertEquals(JsAnalyzer.batchTimeout(1), JsAnalyzer.batchTimeout(0));
+    assertEquals(JsAnalyzer.batchTimeout(1).multipliedBy(3), JsAnalyzer.batchTimeout(3));
   }
 
   @Test

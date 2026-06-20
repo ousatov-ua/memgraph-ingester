@@ -103,18 +103,23 @@ final class ChunkEmbeddingRefresher {
     long markedStale =
         useDirty && dirtyCount != null ? dirtyCount : countStale(settings, target, dimension);
     listener.onProgress(0L, markedStale);
-    long embedded = refreshMarkedChunks(settings, target, dimension, markedStale, listener);
+    RefreshMarkedChunksResult refreshed =
+        refreshMarkedChunksWithCount(settings, target, dimension, markedStale, listener);
+    long embedded = refreshed.embedded();
+    int batches = refreshed.batches();
     if (useDirty && settings.required()) {
       long remainingStale = countStale(settings, target, dimension);
-      embedded +=
-          refreshMarkedChunks(
+      RefreshMarkedChunksResult backfilled =
+          refreshMarkedChunksWithCount(
               settings, target, dimension, remainingStale, EmbeddingProgressListener.NONE);
+      embedded += backfilled.embedded();
+      batches += backfilled.batches();
     }
 
     if (settings.required()) {
       verifyAllEmbeddingsCalculated(settings, target, dimension);
     }
-    return new EmbeddingRefreshResult(embedded, dimension);
+    return new EmbeddingRefreshResult(embedded, dimension, batches);
   }
 
   /**
@@ -127,8 +132,18 @@ final class ChunkEmbeddingRefresher {
       int dimension,
       long stale,
       EmbeddingProgressListener listener) {
+    return refreshMarkedChunksWithCount(settings, target, dimension, stale, listener).embedded();
+  }
+
+  private RefreshMarkedChunksResult refreshMarkedChunksWithCount(
+      EmbeddingSettings settings,
+      EmbeddingTarget target,
+      int dimension,
+      long stale,
+      EmbeddingProgressListener listener) {
     long total = stale;
     long embedded = 0L;
+    int batches = 0;
     int batchSize = settings.batchSize();
     List<String> pendingMetadataIds = new ArrayList<>();
     while (stale > 0) {
@@ -155,6 +170,7 @@ final class ChunkEmbeddingRefresher {
             "Memgraph embeddings refresh made no progress for " + target.chunkLabel());
       }
       pendingMetadataIds.addAll(batch.ids());
+      batches++;
       if (pendingMetadataIds.size() >= metadataFlushThreshold(batchSize)) {
         flushPendingMetadata(settings, target, dimension, pendingMetadataIds);
       }
@@ -163,8 +179,10 @@ final class ChunkEmbeddingRefresher {
       listener.onProgress(embedded, total);
     }
     flushPendingMetadata(settings, target, dimension, pendingMetadataIds);
-    return embedded;
+    return new RefreshMarkedChunksResult(embedded, batches);
   }
+
+  private record RefreshMarkedChunksResult(long embedded, int batches) {}
 
   /**
    * Returns the number of successfully embedded chunk IDs to accumulate before flushing their

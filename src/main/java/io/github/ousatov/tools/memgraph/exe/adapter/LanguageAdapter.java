@@ -13,6 +13,7 @@ import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import org.jspecify.annotations.NonNull;
 
@@ -47,6 +48,28 @@ public interface LanguageAdapter<T> {
 
   /** Parses {@code file} into an adapter-specific source model. */
   Optional<T> parse(Path file);
+
+  /** Parses files as one adapter-level batch, preserving one result per input file. */
+  default List<ParseResult<T>> parseBatch(List<Path> files) {
+    List<ParseResult<T>> results = new ArrayList<>(files.size());
+    for (Path file : files) {
+      try {
+        Optional<T> parsed = parse(file);
+        results.add(
+            parsed
+                .map(value -> ParseResult.parsed(file, value))
+                .orElseGet(() -> ParseResult.empty(file)));
+      } catch (RuntimeException e) {
+        results.add(ParseResult.failed(file, e));
+      }
+    }
+    return List.copyOf(results);
+  }
+
+  /** Returns true when {@link #parseBatch(List)} does real adapter-level batching. */
+  default boolean supportsBatchParsing() {
+    return false;
+  }
 
   /** Prepares shared parser resources before parallel parsing starts. */
   default void prepare() {
@@ -127,5 +150,29 @@ public interface LanguageAdapter<T> {
   /** Returns the human-readable adapter name used in logs. */
   default String displayName() {
     return language().nodeName();
+  }
+
+  /** Per-file result emitted by {@link #parseBatch(List)}. */
+  record ParseResult<T>(Path file, Optional<T> parsed, RuntimeException failure) {
+
+    public ParseResult {
+      Objects.requireNonNull(file, "file");
+      parsed = parsed == null ? Optional.empty() : parsed;
+      if (parsed.isPresent() && failure != null) {
+        throw new IllegalArgumentException("A parse result cannot be both parsed and failed");
+      }
+    }
+
+    public static <T> ParseResult<T> parsed(Path file, T value) {
+      return new ParseResult<>(file, Optional.of(Objects.requireNonNull(value, "value")), null);
+    }
+
+    public static <T> ParseResult<T> empty(Path file) {
+      return new ParseResult<>(file, Optional.empty(), null);
+    }
+
+    public static <T> ParseResult<T> failed(Path file, RuntimeException failure) {
+      return new ParseResult<>(file, Optional.empty(), Objects.requireNonNull(failure, "failure"));
+    }
   }
 }
