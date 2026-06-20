@@ -20,6 +20,9 @@ query a real code graph instead of repeatedly scanning raw files. It is RAG-enab
 loose pile of text chunks: retrieval is derived from code structure and connected back to files,
 symbols, relationships, and durable project knowledge.
 
+**Make your agent smarter immediately!** Memgraph Ingester gives it graph-backed code context,
+semantic retrieval, and durable project memory before the first investigation begins.
+
 ## Why Agents Spend Less
 
 Memgraph Ingester gives an agent a map before it starts walking the repo. Instead of opening file

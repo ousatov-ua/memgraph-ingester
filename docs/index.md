@@ -17,6 +17,8 @@ hero:
       link: https://github.com/ousatov-ua/memgraph-ingester
 
 features:
+  - title: Make agents smarter immediately
+    details: Gives AI agents graph-backed code context, semantic retrieval, and durable project memory before the first investigation begins.
   - title: Graph-first code context
     details: Creates project-scoped File, Package, Class, Interface, Annotation, Method, and Field nodes with source locations and relationships.
   - title: RAG that verifies
