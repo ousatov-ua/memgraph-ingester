@@ -81,8 +81,14 @@ class IngestionMetricsTest {
   @Test
   void runStatsSnapshotIncludesPhaseScopeAndTopCypherRows() {
     IngestionRunStats stats = new IngestionRunStats(2);
+    stats.recordPhaseNanos(IngestionRunStats.PHASE_PRELOAD, TimeUnit.MILLISECONDS.toNanos(4));
     stats.recordPhaseNanos(IngestionRunStats.PHASE_PARSE, TimeUnit.MILLISECONDS.toNanos(12));
     stats.recordPhaseNanos(IngestionRunStats.PHASE_WRITE, TimeUnit.MILLISECONDS.toNanos(5));
+    stats.recordPhaseNanos(IngestionRunStats.PHASE_FINALIZE, TimeUnit.MILLISECONDS.toNanos(6));
+    stats.recordWriterServiceNanos(TimeUnit.MILLISECONDS.toNanos(7));
+    stats.recordAnalyzerPreparationNanos("JavaScript", TimeUnit.MILLISECONDS.toNanos(2));
+    stats.recordAnalyzerParseNanos("JavaScript", TimeUnit.MILLISECONDS.toNanos(11));
+    stats.recordEmbeddingRefresh("CodeChunk", 3, 700);
     stats.recordCypherStatement(
         "MATCH (n:File {project: $project}) RETURN count(n)", TimeUnit.MILLISECONDS.toNanos(3));
     stats.recordCypherBatch(
@@ -108,7 +114,49 @@ class IngestionMetricsTest {
             .rows()
             .contains(
                 new io.github.ousatov.tools.memgraph.vo.metrics.IngestionPerformanceRow(
+                    "phase.preload.ms", "4")));
+    assertTrue(
+        metrics
+            .rows()
+            .contains(
+                new io.github.ousatov.tools.memgraph.vo.metrics.IngestionPerformanceRow(
                     "phase.write.ms", "5")));
+    assertTrue(
+        metrics
+            .rows()
+            .contains(
+                new io.github.ousatov.tools.memgraph.vo.metrics.IngestionPerformanceRow(
+                    "phase.finalize.ms", "6")));
+    assertTrue(
+        metrics
+            .rows()
+            .contains(
+                new io.github.ousatov.tools.memgraph.vo.metrics.IngestionPerformanceRow(
+                    "write.service.ms", "7")));
+    assertTrue(
+        metrics
+            .rows()
+            .contains(
+                new io.github.ousatov.tools.memgraph.vo.metrics.IngestionPerformanceRow(
+                    "analyzer.javascript.prep.ms", "2")));
+    assertTrue(
+        metrics
+            .rows()
+            .contains(
+                new io.github.ousatov.tools.memgraph.vo.metrics.IngestionPerformanceRow(
+                    "analyzer.javascript.parse.ms", "11")));
+    assertTrue(
+        metrics
+            .rows()
+            .contains(
+                new io.github.ousatov.tools.memgraph.vo.metrics.IngestionPerformanceRow(
+                    "embedding.codechunk.batches", "3")));
+    assertTrue(
+        metrics
+            .rows()
+            .contains(
+                new io.github.ousatov.tools.memgraph.vo.metrics.IngestionPerformanceRow(
+                    "embedding.codechunk.rows", "700")));
     assertTrue(
         metrics.rows().stream()
             .anyMatch(

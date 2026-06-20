@@ -8,6 +8,7 @@ import io.github.ousatov.tools.memgraph.exe.writer.GraphWriter;
 import io.github.ousatov.tools.memgraph.exe.writer.js.JsGraphWriter;
 import io.github.ousatov.tools.memgraph.vo.analysis.JsAnalysis;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
@@ -73,6 +74,29 @@ public final class JsLanguageAdapter extends AbstractModuleLanguageAdapter<JsAna
       log.warn("Failed to parse {}: {}", file, e.getMessage());
       return Optional.empty();
     }
+  }
+
+  @Override
+  public List<ParseResult<JsAnalysis>> parseBatch(List<Path> files) {
+    try {
+      List<JsAnalysis> analyses = analyzer.analyzeBatch(files);
+      if (analyses.size() != files.size()) {
+        throw new IllegalStateException("JavaScript analyzer returned incomplete batch");
+      }
+      List<ParseResult<JsAnalysis>> results = new java.util.ArrayList<>(files.size());
+      for (int i = 0; i < files.size(); i++) {
+        results.add(ParseResult.parsed(files.get(i), analyses.get(i)));
+      }
+      return List.copyOf(results);
+    } catch (RuntimeException e) {
+      log.warn("Failed to batch parse {} JavaScript file(s): {}", files.size(), e.getMessage());
+      return parseBatchOneByOne(files);
+    }
+  }
+
+  @Override
+  public boolean supportsBatchParsing() {
+    return true;
   }
 
   @Override

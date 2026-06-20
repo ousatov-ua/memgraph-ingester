@@ -11,6 +11,8 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -84,16 +86,6 @@ public final class PythonAnalyzer {
     }
   }
 
-  private static PythonAnalysis parse(String stdout, Path file) {
-    return ModuleAnalysisParser.parse(
-        stdout,
-        file,
-        "Python",
-        FlatJsonObjectParser::parsePythonAnalyzerOutput,
-        PythonAnalysis::new,
-        line -> log.debug("Ignoring unknown Python analyzer record: {}", line));
-  }
-
   @SuppressWarnings("java:S5443")
   private static Path extractHelperScript() {
     String resourcePath = HELPER_RESOURCE_DIR + HELPER_SCRIPT_NAME;
@@ -117,34 +109,52 @@ public final class PythonAnalyzer {
   }
 
   public PythonAnalysis analyze(Path file) {
+    return analyzeBatch(List.of(file)).getFirst();
+  }
+
+  /** Analyzes multiple Python files with one helper subprocess. */
+  public List<PythonAnalysis> analyzeBatch(List<Path> files) {
+    if (files.isEmpty()) {
+      return List.of();
+    }
     Path python = pythonRuntime.pythonExecutable();
-    ProcessBuilder processBuilder =
-        new ProcessBuilder(
-            python.toString(),
-            helperScript.toString(),
-            Const.Cli.FILE,
-            file.toString(),
-            Const.Cli.ROOT,
-            sourceRoot.toString());
+    List<String> command = new ArrayList<>();
+    command.add(python.toString());
+    command.add(helperScript.toString());
+    for (Path file : files) {
+      command.add(Const.Cli.FILE);
+      command.add(file.toString());
+    }
+    command.add(Const.Cli.ROOT);
+    command.add(sourceRoot.toString());
+    ProcessBuilder processBuilder = new ProcessBuilder(command);
+    Path firstFile = files.getFirst();
     try {
       Process process = processBuilder.start();
       CompletableFuture<String> stdout = readAsync(process.getInputStream(), Const.Params.STDOUT);
       CompletableFuture<String> stderr = readAsync(process.getErrorStream(), Const.Params.STDERR);
       if (!process.waitFor(PROCESS_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS)) {
         process.destroyForcibly();
-        throw new ProcessingException("Python analyzer timed out for " + file);
+        throw new ProcessingException(
+            "Python analyzer timed out for batch starting at " + firstFile);
       }
-      String stderrText = outputOf(stderr, file, Const.Params.STDERR);
+      String stderrText = outputOf(stderr, firstFile, Const.Params.STDERR);
       if (process.exitValue() != 0) {
         throw new ProcessingException(
-            "Python analyzer failed for " + file + Const.Symbols.COLON_SPACE + stderrText);
+            "Python analyzer failed for " + firstFile + Const.Symbols.COLON_SPACE + stderrText);
       }
-      return parse(outputOf(stdout, file, Const.Params.STDOUT), file);
+      return ModuleAnalysisParser.parseBatch(
+          outputOf(stdout, firstFile, Const.Params.STDOUT),
+          files,
+          "Python",
+          FlatJsonObjectParser::parsePythonAnalyzerOutput,
+          PythonAnalysis::new,
+          line -> log.debug("Ignoring unknown Python analyzer record: {}", line));
     } catch (IOException e) {
-      throw new ProcessingException("Could not run Python analyzer for " + file, e);
+      throw new ProcessingException("Could not run Python analyzer for " + firstFile, e);
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
-      throw new ProcessingException("Interrupted while analyzing " + file, e);
+      throw new ProcessingException("Interrupted while analyzing Python batch", e);
     }
   }
 

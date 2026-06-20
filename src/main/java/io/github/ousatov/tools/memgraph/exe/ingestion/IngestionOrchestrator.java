@@ -88,6 +88,10 @@ public final class IngestionOrchestrator {
       AppConfig.durationValue("ingestion.file-transaction-retry.max-backoff").toMillis();
   private static final int FILE_TX_BATCH_SIZE =
       Math.max(1, AppConfig.intValue("ingestion.file-transaction-batch-size", 16));
+  private static final int STORED_STATE_BATCH_SIZE =
+      Math.max(1, AppConfig.intValue("ingestion.stored-state-batch-size", 5000));
+  private static final int MODULE_BATCH_SIZE =
+      Math.max(1, AppConfig.intValue("analyzers.module-batch-size", 32));
   private final Path sourceRoot;
   private final String project;
   private final int threads;
@@ -189,14 +193,14 @@ public final class IngestionOrchestrator {
     log.info(discoveryMessage);
     ConsoleOutput.status(discoveryMessage);
 
-    StoredFileState storedFiles = preloadStoredFileState(files);
+    StoredFileState storedFiles = preloadStoredFileState(files, stats);
     if (incremental) {
       log.info(
           "Pre-loaded {} stored file timestamps for incremental mode.",
           storedFiles.lastModifiedByPath().size());
     }
     Map<LanguageAdapter<?>, RuntimeException> failedAdapterPreparations =
-        prepareAdapters(files, storedFiles);
+        prepareAdapters(files, storedFiles, stats);
 
     int failures;
     try (IngestionProgress progress = IngestionProgress.start(files.size())) {
@@ -222,6 +226,7 @@ public final class IngestionOrchestrator {
     }
 
     ConsoleProgress postScanProgress = ConsoleProgress.indeterminate("Finalizing graph");
+    long finalizeStartedNanos = System.nanoTime();
     try {
       if (failures == 0) {
         deleteMissingSourceFiles(files, retainedSourcePaths, stats);
@@ -240,6 +245,8 @@ public final class IngestionOrchestrator {
       }
       throw e;
     } finally {
+      stats.recordPhaseNanos(
+          IngestionRunStats.PHASE_FINALIZE, System.nanoTime() - finalizeStartedNanos);
       if (postScanProgress != null) {
         postScanProgress.discard();
       }
@@ -252,7 +259,7 @@ public final class IngestionOrchestrator {
   }
 
   private Map<LanguageAdapter<?>, RuntimeException> prepareAdapters(
-      List<SourceFile> files, StoredFileState storedFiles) {
+      List<SourceFile> files, StoredFileState storedFiles, IngestionRunStats stats) {
     Set<LanguageAdapter<?>> prepared = new LinkedHashSet<>();
     Map<LanguageAdapter<?>, RuntimeException> failed = new LinkedHashMap<>();
     for (SourceFile file : files) {
@@ -261,11 +268,15 @@ public final class IngestionOrchestrator {
       }
       LanguageAdapter<?> adapter = file.adapter();
       if (prepared.add(adapter) && !failed.containsKey(adapter)) {
+        long startedNanos = System.nanoTime();
         try {
           adapter.prepare();
         } catch (RuntimeException e) {
           failed.put(adapter, e);
           log.warn("Failed to prepare {} adapter: {}", adapter.displayName(), e.getMessage());
+        } finally {
+          stats.recordAnalyzerPreparationNanos(
+              adapterMetricName(adapter), System.nanoTime() - startedNanos);
         }
       }
     }
@@ -578,6 +589,7 @@ public final class IngestionOrchestrator {
         progress == null ? EmbeddingProgressListener.NONE : progress::update;
     try {
       EmbeddingRefreshResult result = refreshFn.apply(writer, listener);
+      writer.stats().recordEmbeddingRefresh(chunkLabel, result.batches(), result.embedded());
       String refreshedMessage =
           "Refreshed "
               + result.embedded()
@@ -766,10 +778,11 @@ public final class IngestionOrchestrator {
     }
   }
 
-  private StoredFileState preloadStoredFileState(List<SourceFile> files) {
+  private StoredFileState preloadStoredFileState(List<SourceFile> files, IngestionRunStats stats) {
     if (!incremental) {
       return StoredFileState.empty();
     }
+    long startedNanos = System.nanoTime();
     try (Session session = driver.session()) {
       GraphWriter writer =
           new GraphWriter(session, project, new IngestionRunStats(0), analysisCacheKey);
@@ -782,10 +795,12 @@ public final class IngestionOrchestrator {
             .add(file.path());
       }
       for (var entry : pathsByLanguage.entrySet()) {
-        preloaded.putAll(writer.getAllFileLastModified(entry.getValue(), entry.getKey()));
-        writer.getFilePathsMissingCodeChunks(entry.getValue()).stream()
-            .map(Path::toString)
-            .forEach(pathsMissingCodeChunks::add);
+        for (List<Path> chunk : chunks(entry.getValue(), STORED_STATE_BATCH_SIZE)) {
+          preloaded.putAll(writer.getAllFileLastModified(chunk, entry.getKey()));
+          writer.getFilePathsMissingCodeChunks(chunk).stream()
+              .map(Path::toString)
+              .forEach(pathsMissingCodeChunks::add);
+        }
       }
       return new StoredFileState(Map.copyOf(preloaded), Set.copyOf(pathsMissingCodeChunks), true);
     } catch (RuntimeException e) {
@@ -794,6 +809,11 @@ public final class IngestionOrchestrator {
               + " transactionally: {}",
           e.getMessage());
       return StoredFileState.unreliable();
+    } finally {
+      long elapsedNanos = System.nanoTime() - startedNanos;
+      stats.recordPhaseNanos(IngestionRunStats.PHASE_PRELOAD, elapsedNanos);
+      log.debug(
+          "Preloaded stored file state in {} ms.", TimeUnit.NANOSECONDS.toMillis(elapsedNanos));
     }
   }
 
@@ -801,6 +821,21 @@ public final class IngestionOrchestrator {
     try (Session session = driver.session()) {
       return retainedSourcePaths(files, new GraphWriter(session, project, stats));
     }
+  }
+
+  private static <T> List<List<T>> chunks(List<T> values, int size) {
+    if (values.isEmpty()) {
+      return List.of();
+    }
+    List<List<T>> chunks = new ArrayList<>((values.size() + size - 1) / size);
+    for (int start = 0; start < values.size(); start += size) {
+      chunks.add(List.copyOf(values.subList(start, Math.min(values.size(), start + size))));
+    }
+    return List.copyOf(chunks);
+  }
+
+  private static String adapterMetricName(LanguageAdapter<?> adapter) {
+    return adapter.staticLanguage().map(SourceLanguage::graphName).orElse(adapter.displayName());
   }
 
   List<Path> retainedSourcePaths(List<SourceFile> files, GraphWriter writer) {
@@ -1004,26 +1039,27 @@ public final class IngestionOrchestrator {
       GraphWriter writer = new GraphWriter(session, asyncSession, project, stats, analysisCacheKey);
       writer.setRetainedSourcePaths(retainedSourcePaths);
       List<PreparedWrite<?>> writeBatch = new ArrayList<>(FILE_TX_BATCH_SIZE);
-      for (SourceFile file : files) {
-        PreparedFile prepared =
-            prepareFileForIngestion(file, storedFiles, failedAdapterPreparations, stats);
-        if (prepared instanceof PreparedWrite<?> write) {
-          writeBatch.add(write);
-          if (writeBatch.size() == FILE_TX_BATCH_SIZE) {
+      for (List<SourceFile> sourceBatch : preparationBatches(files)) {
+        for (PreparedFile prepared :
+            prepareFilesForIngestion(sourceBatch, storedFiles, failedAdapterPreparations, stats)) {
+          if (prepared instanceof PreparedWrite<?> write) {
+            writeBatch.add(write);
+            if (writeBatch.size() == FILE_TX_BATCH_SIZE) {
+              int processed = writeBatch.size();
+              failures += flushPreparedWriteBatch(writer, writeBatch);
+              done += processed;
+              progress.update(done);
+            }
+          } else {
             int processed = writeBatch.size();
             failures += flushPreparedWriteBatch(writer, writeBatch);
             done += processed;
+            if (!writePreparedFileWithServiceTiming(writer, prepared)) {
+              failures++;
+            }
+            done++;
             progress.update(done);
           }
-        } else {
-          int processed = writeBatch.size();
-          failures += flushPreparedWriteBatch(writer, writeBatch);
-          done += processed;
-          if (!writePreparedFile(writer, prepared)) {
-            failures++;
-          }
-          done++;
-          progress.update(done);
         }
       }
       if (!writeBatch.isEmpty()) {
@@ -1092,6 +1128,144 @@ public final class IngestionOrchestrator {
         stats);
   }
 
+  private List<List<SourceFile>> preparationBatches(List<SourceFile> files) {
+    Map<LanguageAdapter<?>, List<SourceFile>> byAdapter = new LinkedHashMap<>();
+    for (SourceFile file : files) {
+      byAdapter.computeIfAbsent(file.adapter(), _ -> new ArrayList<>()).add(file);
+    }
+    List<List<SourceFile>> batches = new ArrayList<>();
+    byAdapter.forEach(
+        (adapter, group) -> {
+          if (adapter.supportsBatchParsing()) {
+            batches.addAll(chunks(group, MODULE_BATCH_SIZE));
+          } else {
+            group.forEach(file -> batches.add(List.of(file)));
+          }
+        });
+    return List.copyOf(batches);
+  }
+
+  @SuppressWarnings("unchecked")
+  private List<PreparedFile> prepareFilesForIngestion(
+      List<SourceFile> batch,
+      StoredFileState storedFiles,
+      Map<LanguageAdapter<?>, RuntimeException> failedAdapterPreparations,
+      IngestionRunStats stats) {
+    if (batch.isEmpty()) {
+      return List.of();
+    }
+    LanguageAdapter<?> adapter = batch.get(0).adapter();
+    return prepareFilesForIngestion(
+        (LanguageAdapter<Object>) adapter,
+        batch,
+        storedFiles,
+        failedAdapterPreparations.get(adapter),
+        stats);
+  }
+
+  private <T> List<PreparedFile> prepareFilesForIngestion(
+      LanguageAdapter<T> adapter,
+      List<SourceFile> batch,
+      StoredFileState storedFiles,
+      RuntimeException adapterPreparationFailure,
+      IngestionRunStats stats) {
+    Map<Path, PreparedFile> preparedByPath = new LinkedHashMap<>();
+    List<Path> parsePaths = new ArrayList<>();
+    for (SourceFile sourceFile : batch) {
+      Path path = sourceFile.path();
+      if (isFileUnchanged(path, storedFiles)) {
+        log.debug("Skipping unchanged file: {}", path);
+        preparedByPath.put(path, new PreparedSkip(path));
+      } else if (adapterPreparationFailure != null) {
+        log.warn("Failed to prepare {}: {}", path, adapterPreparationFailure.getMessage());
+        preparedByPath.put(path, new PreparedFailure(path));
+      } else {
+        parsePaths.add(path);
+      }
+    }
+    if (!parsePaths.isEmpty()) {
+      prepareParsedBatch(adapter, parsePaths, storedFiles, adapterPreparationFailure, stats)
+          .forEach(prepared -> preparedByPath.put(prepared.path(), prepared));
+    }
+    List<PreparedFile> prepared = new ArrayList<>(batch.size());
+    for (SourceFile sourceFile : batch) {
+      prepared.add(preparedByPath.get(sourceFile.path()));
+    }
+    return List.copyOf(prepared);
+  }
+
+  private <T> List<PreparedFile> prepareParsedBatch(
+      LanguageAdapter<T> adapter,
+      List<Path> parsePaths,
+      StoredFileState storedFiles,
+      RuntimeException adapterPreparationFailure,
+      IngestionRunStats stats) {
+    log.atDebug()
+        .setMessage("Batch ingesting {} file(s) (project={}, adapter={})")
+        .addArgument(parsePaths::size)
+        .addArgument(project)
+        .addArgument(adapter::displayName)
+        .log();
+    long startedNanos = System.nanoTime();
+    try {
+      List<LanguageAdapter.ParseResult<T>> results = adapter.parseBatch(parsePaths);
+      if (results.size() != parsePaths.size()) {
+        throw new ProcessingException(
+            "Batch parser returned "
+                + results.size()
+                + " result(s) for "
+                + parsePaths.size()
+                + " file(s)");
+      }
+      Map<Path, LanguageAdapter.ParseResult<T>> resultsByPath = new LinkedHashMap<>();
+      results.forEach(result -> resultsByPath.put(result.file(), result));
+      List<PreparedFile> prepared = new ArrayList<>(parsePaths.size());
+      for (Path path : parsePaths) {
+        prepared.add(preparedFromParseResult(adapter, path, resultsByPath.get(path)));
+      }
+      return List.copyOf(prepared);
+    } catch (RuntimeException e) {
+      log.warn(
+          "Batch parse failed for {} {} file(s): {}; falling back to per-file parsing.",
+          parsePaths.size(),
+          adapter.displayName(),
+          e.getMessage());
+      return parsePaths.stream()
+          .map(
+              path ->
+                  prepareFileForIngestion(
+                      adapter, path, storedFiles, adapterPreparationFailure, stats))
+          .toList();
+    } finally {
+      long elapsedNanos = System.nanoTime() - startedNanos;
+      stats.recordPhaseNanos(IngestionRunStats.PHASE_PARSE, elapsedNanos);
+      stats.recordAnalyzerParseNanos(adapterMetricName(adapter), elapsedNanos);
+    }
+  }
+
+  private <T> PreparedFile preparedFromParseResult(
+      LanguageAdapter<T> adapter, Path path, LanguageAdapter.ParseResult<T> result) {
+    if (result == null) {
+      log.warn("Batch parser returned no result for {}", path);
+      return new PreparedFailure(path);
+    }
+    if (result.failure() != null) {
+      log.warn("Failed to prepare {}: {}", path, result.failure().getMessage());
+      return new PreparedFailure(path);
+    }
+    if (result.parsed().isEmpty()) {
+      return new PreparedFailure(path);
+    }
+    try {
+      T parsed = result.parsed().orElseThrow();
+      SourceFileDefinitions definitions = adapter.collectDefinitions(parsed);
+      return new PreparedWrite<>(path, adapter, parsed, definitions);
+    } catch (RuntimeException e) {
+      log.warn("Failed to prepare {}: {}", path, e.getMessage());
+      return new PreparedFailure(path);
+    }
+  }
+
   private <T> PreparedFile prepareFileForIngestion(
       LanguageAdapter<T> adapter,
       Path path,
@@ -1128,7 +1302,9 @@ public final class IngestionOrchestrator {
       log.warn("Failed to prepare {}: {}", path, e.getMessage());
       return new PreparedFailure(path);
     } finally {
-      stats.recordPhaseNanos(IngestionRunStats.PHASE_PARSE, System.nanoTime() - startedNanos);
+      long elapsedNanos = System.nanoTime() - startedNanos;
+      stats.recordPhaseNanos(IngestionRunStats.PHASE_PARSE, elapsedNanos);
+      stats.recordAnalyzerParseNanos(adapterMetricName(adapter), elapsedNanos);
     }
     return new PreparedWrite<>(path, adapter, parsed, definitions);
   }
@@ -1145,6 +1321,15 @@ public final class IngestionOrchestrator {
       }
       case PreparedWrite<?> write -> writePreparedWrite(writer, write);
     };
+  }
+
+  private boolean writePreparedFileWithServiceTiming(GraphWriter writer, PreparedFile prepared) {
+    long startedNanos = System.nanoTime();
+    try {
+      return writePreparedFile(writer, prepared);
+    } finally {
+      writer.stats().recordWriterServiceNanos(System.nanoTime() - startedNanos);
+    }
   }
 
   private <T> boolean writePreparedWrite(GraphWriter writer, PreparedWrite<T> prepared) {
@@ -1179,9 +1364,11 @@ public final class IngestionOrchestrator {
     if (writeBatch.isEmpty()) {
       return 0;
     }
+    long startedNanos = System.nanoTime();
     try {
       return writePreparedWriteBatch(writer, List.copyOf(writeBatch));
     } finally {
+      writer.stats().recordWriterServiceNanos(System.nanoTime() - startedNanos);
       writeBatch.clear();
     }
   }
@@ -1321,20 +1508,26 @@ public final class IngestionOrchestrator {
       int queueCapacity = Math.max(FILE_TX_BATCH_SIZE * 2, threads * 2);
       BlockingQueue<PreparedFile> preparedQueue = new LinkedBlockingQueue<>(queueCapacity);
       stats.recordWriterQueueDepth(queueCapacity, 0);
-      for (SourceFile file : files) {
+      for (List<SourceFile> sourceBatch : preparationBatches(files)) {
         pool.submit(
             () -> {
-              PreparedFile prepared;
+              List<PreparedFile> preparedFiles;
               try {
-                prepared =
-                    prepareFileForIngestion(file, storedFiles, failedAdapterPreparations, stats);
+                preparedFiles =
+                    prepareFilesForIngestion(
+                        sourceBatch, storedFiles, failedAdapterPreparations, stats);
               } catch (RuntimeException e) {
-                log.warn("Thread failure on {}: {}", file.path(), e.getMessage());
-                prepared = new PreparedFailure(file.path());
+                log.warn("Thread failure while preparing batch: {}", e.getMessage());
+                preparedFiles =
+                    sourceBatch.stream()
+                        .map(sourceFile -> (PreparedFile) new PreparedFailure(sourceFile.path()))
+                        .toList();
               }
               try {
-                preparedQueue.put(prepared);
-                stats.recordWriterQueueDepth(queueCapacity, preparedQueue.size());
+                for (PreparedFile prepared : preparedFiles) {
+                  preparedQueue.put(prepared);
+                  stats.recordWriterQueueDepth(queueCapacity, preparedQueue.size());
+                }
               } catch (InterruptedException _) {
                 Thread.currentThread().interrupt();
               }
@@ -1375,7 +1568,7 @@ public final class IngestionOrchestrator {
           failures += flushPreparedWriteBatch(writer, writeBatch);
           waitDeadlineNanos += System.nanoTime() - writeStartNanos;
           done += processed;
-          if (!writePreparedFile(writer, prepared)) {
+          if (!writePreparedFileWithServiceTiming(writer, prepared)) {
             log.info("Failure preparing file: {}", prepared.path());
             failures++;
           }

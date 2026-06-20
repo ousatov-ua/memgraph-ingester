@@ -361,7 +361,15 @@ public final class GraphWriter {
 
   /** Refreshes {@code :CodeRef} resolution edges to the current project-scoped code graph. */
   public void resolveCodeRefs() {
-    cypher.run(Cypher.CYPHER_RESOLVE_CODE_REFS, Map.of());
+    cypher.run(Cypher.CYPHER_RESOLVE_CODE_REFS_CODE, Map.of());
+    cypher.run(Cypher.CYPHER_RESOLVE_CODE_REFS_PACKAGE, Map.of());
+    cypher.run(Cypher.CYPHER_RESOLVE_CODE_REFS_FILE, Map.of());
+    cypher.run(Cypher.CYPHER_RESOLVE_CODE_REFS_CLASS, Map.of());
+    cypher.run(Cypher.CYPHER_RESOLVE_CODE_REFS_INTERFACE, Map.of());
+    cypher.run(Cypher.CYPHER_RESOLVE_CODE_REFS_ANNOTATION, Map.of());
+    cypher.run(Cypher.CYPHER_RESOLVE_CODE_REFS_METHOD, Map.of());
+    cypher.run(Cypher.CYPHER_RESOLVE_CODE_REFS_FIELD, Map.of());
+    cypher.run(Cypher.CYPHER_RESOLVE_CODE_REFS_UNRESOLVED, Map.of());
   }
 
   /**
@@ -373,6 +381,9 @@ public final class GraphWriter {
    * @return map of {@code path.toString()} → stored epoch-millis
    */
   public Map<String, Long> getAllFileLastModified(List<Path> files, SourceLanguage language) {
+    if (files.isEmpty()) {
+      return Map.of();
+    }
     List<String> paths = files.stream().map(Path::toString).toList();
     try {
       return cypher.read(
@@ -407,6 +418,9 @@ public final class GraphWriter {
 
   /** Returns source paths whose graph has no derived {@code :CodeChunk} rows yet. */
   public Set<Path> getFilePathsMissingCodeChunks(List<Path> files) {
+    if (files.isEmpty()) {
+      return Set.of();
+    }
     List<String> paths = files.stream().map(Path::toString).toList();
     return cypher.readPathSet(
         Cypher.CYPHER_GET_FILE_PATHS_MISSING_CODE_CHUNKS, Map.of(Params.PATHS, paths));

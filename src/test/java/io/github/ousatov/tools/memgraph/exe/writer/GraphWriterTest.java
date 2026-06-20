@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.ousatov.tools.memgraph.def.Const.Cypher;
+import io.github.ousatov.tools.memgraph.exe.adapter.SourceLanguage;
 import io.github.ousatov.tools.memgraph.exe.metrics.IngestionRunStats;
 import io.github.ousatov.tools.memgraph.vo.adapter.SourceFileDefinitions;
 import java.lang.reflect.InvocationHandler;
@@ -13,6 +14,8 @@ import java.lang.reflect.Proxy;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import org.junit.jupiter.api.Test;
 import org.neo4j.driver.Session;
@@ -53,6 +56,15 @@ class GraphWriterTest {
     assertEquals(8192, GraphWriter.defaultVectorIndexCapacity(100));
     assertEquals(20_000, GraphWriter.defaultVectorIndexCapacity(10_000));
     assertEquals(Integer.MAX_VALUE, GraphWriter.defaultVectorIndexCapacity(Long.MAX_VALUE));
+  }
+
+  @Test
+  void emptyStoredStateReadsReturnEmptyWithoutTouchingSession() {
+    RecordingBolt bolt = new RecordingBolt();
+    GraphWriter writer = new GraphWriter(bolt.session(), "project");
+
+    assertEquals(Map.of(), writer.getAllFileLastModified(List.of(), SourceLanguage.JAVA));
+    assertEquals(Set.of(), writer.getFilePathsMissingCodeChunks(List.of()));
   }
 
   @Test

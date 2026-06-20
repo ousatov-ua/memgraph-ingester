@@ -8,14 +8,19 @@ const { createAstHelpers } = require('./js-analyzer-ast.cjs');
 const { createPathContext, scriptKind } = require('./js-analyzer-paths.cjs');
 
 const args = process.argv.slice(2);
-const file = argValue('--file');
+const files = argValues('--file');
 const root = argValue('--root') || process.cwd();
 
-if (!file) {
+if (files.length === 0) {
   console.error('Missing --file');
   process.exit(1);
 }
 
+for (const file of files) {
+  analyzeFile(file);
+}
+
+function analyzeFile(file) {
 const text = fs.readFileSync(file, 'utf8');
 const sourceFile = ts.createSourceFile(
   file,
@@ -1601,10 +1606,21 @@ function localTypeFqn(name, contextNode = null) {
   }
   return localTypeFqnsByName.get(name) || '';
 }
+}
 
 function argValue(name) {
   const index = args.indexOf(name);
   return index >= 0 && index + 1 < args.length ? args[index + 1] : '';
+}
+
+function argValues(name) {
+  const values = [];
+  for (let index = 0; index < args.length - 1; index++) {
+    if (args[index] === name) {
+      values.push(args[index + 1]);
+    }
+  }
+  return values;
 }
 
 function write(record) {

@@ -21,6 +21,7 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.function.UnaryOperator;
 import java.util.stream.Collectors;
 
@@ -114,7 +115,13 @@ final class GraphNodeWriter {
   }
 
   void upsertCodeChunks(Collection<CodeChunkWrite> chunks) {
-    runBatch(Cypher.CYPHER_UPSERT_CODE_CHUNKS_BATCH, chunks);
+    List<Map<String, Object>> rows = chunks.stream().map(BatchWrite::params).toList();
+    cypher.runBatch(Cypher.CYPHER_UPSERT_CODE_CHUNKS_BATCH, rows);
+    Map<String, List<Map<String, Object>>> bySourceLabel =
+        rows.stream().collect(Collectors.groupingBy(GraphNodeWriter::sourceLabelOf));
+    bySourceLabel.forEach(
+        (sourceLabel, batchRows) ->
+            codeChunkLinkCypher(sourceLabel).ifPresent(query -> cypher.runBatch(query, batchRows)));
   }
 
   private void runBatch(String query, Collection<? extends BatchWrite> writes) {
@@ -133,6 +140,11 @@ final class GraphNodeWriter {
   private static String ownerKindOf(Map<String, Object> row) {
     Object ownerKind = row.get(Params.OWNER_KIND);
     return ownerKind instanceof String value && !value.isBlank() ? value : Const.Symbols.EMPTY;
+  }
+
+  private static String sourceLabelOf(Map<String, Object> row) {
+    Object sourceLabel = row.get(Params.SOURCE_LABEL);
+    return sourceLabel instanceof String value && !value.isBlank() ? value : Const.Symbols.EMPTY;
   }
 
   private String methodBatchCypher(String ownerKind) {
@@ -160,6 +172,18 @@ final class GraphNodeWriter {
       case Labels.FIELD -> Cypher.CYPHER_UPSERT_FIELD_ANNOTATED_WITH_BY_FQN_BATCH;
       case Labels.CLASS -> Cypher.CYPHER_UPSERT_CLASS_ANNOTATED_WITH_BY_FQN_BATCH;
       default -> Cypher.CYPHER_UPSERT_ANNOTATED_WITH_BY_FQN_BATCH;
+    };
+  }
+
+  private Optional<String> codeChunkLinkCypher(String sourceLabel) {
+    return switch (sourceLabel) {
+      case Labels.FILE -> Optional.of(Cypher.CYPHER_LINK_CODE_CHUNKS_TO_FILES_BATCH);
+      case Labels.CLASS -> Optional.of(Cypher.CYPHER_LINK_CODE_CHUNKS_TO_CLASSES_BATCH);
+      case Labels.INTERFACE -> Optional.of(Cypher.CYPHER_LINK_CODE_CHUNKS_TO_INTERFACES_BATCH);
+      case Labels.ANNOTATION -> Optional.of(Cypher.CYPHER_LINK_CODE_CHUNKS_TO_ANNOTATIONS_BATCH);
+      case Labels.METHOD -> Optional.of(Cypher.CYPHER_LINK_CODE_CHUNKS_TO_METHODS_BATCH);
+      case Labels.FIELD -> Optional.of(Cypher.CYPHER_LINK_CODE_CHUNKS_TO_FIELDS_BATCH);
+      default -> Optional.empty();
     };
   }
 }

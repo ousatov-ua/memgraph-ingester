@@ -13,6 +13,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -586,6 +587,20 @@ class PythonAnalyzerTest {
     assertFalse(
         hasMember(analysis, "python.members$2e$py.Service#local_value"),
         () -> "Members: " + analysis.members());
+  }
+
+  @Test
+  void analyzesBatchInInputOrder() throws IOException {
+    Path first = tempDir.resolve("first.py");
+    Path second = tempDir.resolve("second.py");
+    Files.writeString(first, "class First:\n    pass\n");
+    Files.writeString(second, "class Second:\n    pass\n");
+
+    List<PythonAnalysis> analyses = analyzer().analyzeBatch(List.of(first, second));
+
+    assertEquals(2, analyses.size());
+    assertEquals("python.first$2e$py", analyses.get(0).moduleFqn());
+    assertEquals("python.second$2e$py", analyses.get(1).moduleFqn());
   }
 
   @Test

@@ -114,6 +114,53 @@ final class ModuleAnalysisParser {
         List.copyOf(calls));
   }
 
+  static <A extends ModuleAnalysis> List<A> parseBatch(
+      String stdout,
+      List<Path> files,
+      String languageName,
+      Function<String, Map<String, String>> objectParser,
+      Factory<A> factory,
+      Consumer<String> unknownRecord) {
+    List<StringBuilder> groupedOutput = new ArrayList<>();
+    int groupIndex = -1;
+    for (String line : stdout.lines().filter(l -> !l.isBlank()).toList()) {
+      Map<String, String> obj = objectParser.apply(line);
+      if (Params.MODULE.equals(value(obj, Params.RECORD))) {
+        groupIndex++;
+        if (groupIndex >= files.size()) {
+          throw new ProcessingException(languageName + " analyzer produced too many modules");
+        }
+        groupedOutput.add(new StringBuilder());
+      }
+      if (groupIndex < 0) {
+        unknownRecord.accept(line);
+        continue;
+      }
+      groupedOutput.get(groupIndex).append(line).append('\n');
+    }
+    if (groupedOutput.size() != files.size()) {
+      throw new ProcessingException(
+          languageName
+              + " analyzer produced "
+              + groupedOutput.size()
+              + " module(s) for "
+              + files.size()
+              + " file(s)");
+    }
+    List<A> analyses = new ArrayList<>(files.size());
+    for (int i = 0; i < files.size(); i++) {
+      analyses.add(
+          parse(
+              groupedOutput.get(i).toString(),
+              files.get(i),
+              languageName,
+              objectParser,
+              factory,
+              unknownRecord));
+    }
+    return List.copyOf(analyses);
+  }
+
   private static String value(Map<String, String> obj, String key) {
     return obj.getOrDefault(key, Const.Symbols.EMPTY);
   }

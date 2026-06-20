@@ -27,6 +27,10 @@ import java.util.Set;
 public abstract class AbstractModuleLanguageAdapter<T extends ModuleAnalysis>
     implements LanguageAdapter<T> {
 
+  protected final List<ParseResult<T>> parseBatchOneByOne(List<Path> files) {
+    return LanguageAdapter.super.parseBatch(files);
+  }
+
   @Override
   public final SourceFileDefinitions collectDefinitions(T analysis) {
     Set<String> classFqns = new LinkedHashSet<>();
