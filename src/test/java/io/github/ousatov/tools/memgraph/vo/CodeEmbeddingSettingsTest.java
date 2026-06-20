@@ -78,6 +78,20 @@ class CodeEmbeddingSettingsTest {
   }
 
   @Test
+  void cliOptionsUseSelectedModelAndDiscoverDimensions() {
+    CodeEmbeddingCliOptions codeOptions = new CodeEmbeddingCliOptions();
+    MemoryEmbeddingCliOptions memoryOptions = new MemoryEmbeddingCliOptions();
+
+    EmbeddingSettings code = codeOptions.toSettings("all-mpnet-base-v2", true);
+    EmbeddingSettings memory = memoryOptions.toSettings("all-mpnet-base-v2", true, true);
+
+    assertEquals("all-mpnet-base-v2", code.modelName());
+    assertEquals("all-mpnet-base-v2", memory.modelName());
+    assertEquals(0, code.dimensions());
+    assertEquals(0, memory.dimensions());
+  }
+
+  @Test
   void nodeSentenceConfigurationEmbedsOnlyChunkText() {
     EmbeddingSettings settings =
         new EmbeddingSettings(

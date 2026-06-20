@@ -873,6 +873,7 @@ Options:
 | `--apply-schema` |  | no | `false` | Apply Memgraph constraints and indexes before ingesting. |
 | `--wipe-all` |  | no | `false` | Delete all data from Memgraph. |
 | `--watch` | `-w` | no | `false` | Watch the source directory and re-ingest changes. |
+| `--embedding-model` |  | no | `default` | Embedding model preset for CodeChunk and MemoryChunk vectors: `default` (`all-MiniLM-L6-v2`) or `strong` (`all-mpnet-base-v2`). Memgraph discovers vector dimensions with `embeddings.model_info()`. |
 | `--[no-]code-embeddings` |  | no | `true` | Ask Memgraph to compute stale `:CodeChunk.embedding` values after ingestion/watch updates. |
 | `--code-embedding-device` |  | no | auto | Memgraph embeddings device, for example `cpu`, `cuda`, `cuda:0`, or `all`. |
 | `--code-embedding-batch-size` |  | no | `512` | CodeChunk nodes per embedding call and local embedding batch size. Larger values are retried with smaller batches if Memgraph reports a failed embedding batch. |
@@ -1022,13 +1023,16 @@ For `:CodeRef`, use `key: 'java'`, `key: 'js'`, or `key: 'python'` for `targetTy
 and `key: 'java:<package>'`, `key: 'js:<package>'`, or `key: 'python:<package>'` for
 `targetType: 'Package'`.
 
-RAG vector indexes are created automatically for the ingester-managed defaults. The default
-`sentence-transformers/all-MiniLM-L6-v2` model uses 384-dimensional embeddings and cosine similarity. Code chunk
-embeddings are computed by Memgraph during ingestion unless `--no-code-embeddings` is passed; the
-ingester discovers the selected model dimension, drops obsolete vector indexes and stale embedding
-values across all projects, creates `code_chunk_embedding_v2` if needed, and refreshes only stale
-`:CodeChunk` vectors for the active project. Default index capacity includes growth headroom because
-Memgraph vector indexes are label-wide and may be reused by later projects or watch updates.
+RAG vector indexes are created automatically for the ingester-managed defaults. `--embedding-model default`
+uses `all-MiniLM-L6-v2`; `--embedding-model strong` uses `all-mpnet-base-v2`. Code chunk
+embeddings are computed by Memgraph during ingestion unless `--no-code-embeddings` is passed; an
+explicit `--embedding-model` also requests MemoryChunk embedding refresh unless
+`--no-memory-embeddings` is passed. The ingester discovers the selected model dimension with
+`embeddings.model_info()`, drops obsolete vector indexes, clears stale embedding values when the
+model or dimension changes, creates vector indexes if needed, and refreshes only stale
+`:CodeChunk` and `:MemoryChunk` vectors for the active project. Default index capacity includes
+growth headroom because Memgraph vector indexes are label-wide and may be reused by later projects
+or watch updates.
 
 ```cypher
 CREATE VECTOR INDEX memory_chunk_embedding_v2

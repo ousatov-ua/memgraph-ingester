@@ -3,6 +3,7 @@ package io.github.ousatov.tools.memgraph;
 import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -10,6 +11,7 @@ import io.github.ousatov.tools.memgraph.exe.analyze.ManagedPythonRuntime;
 import io.github.ousatov.tools.memgraph.extension.MemgraphExtension;
 import io.github.ousatov.tools.memgraph.extension.MemgraphInstance;
 import io.github.ousatov.tools.memgraph.schema.MemgraphDriver;
+import io.github.ousatov.tools.memgraph.vo.EmbeddingSettings;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
@@ -79,10 +81,11 @@ class IngesterCliTest {
   }
 
   @Test
-  void embeddingCliOptionsUseFixedCodeModelAndMemoryGate() {
+  void embeddingCliOptionsUsePresetModelAndMemoryGate() {
     CommandLine commandLine = new CommandLine(new IngesterCli());
     var options = commandLine.getCommandSpec().optionsMap();
 
+    assertEquals("default", options.get("--embedding-model").defaultValue());
     assertEquals("true", options.get("--code-embeddings").defaultValue());
     assertEquals("true", options.get("--memory-embeddings").defaultValue());
     assertTrue(options.containsKey("--with-memories"));
@@ -90,10 +93,48 @@ class IngesterCliTest {
     assertTrue(options.containsKey("--wipe-memory-rag"));
     assertTrue(options.containsKey("--code-embedding-procedure-memory-mb"));
     assertTrue(options.containsKey("--memory-embedding-procedure-memory-mb"));
+    assertNotNull(options.get("--embedding-model"));
     assertNull(options.get("--code-embedding-index"));
     assertNull(options.get("--code-embedding-model"));
     assertNull(options.get("--code-embedding-dimensions"));
     assertNull(options.get("--incremental"));
+  }
+
+  @Test
+  void embeddingModelPresetMapsToMemgraphModelName() {
+    assertEquals(
+        EmbeddingSettings.DEFAULT_MODEL_NAME, IngesterCli.selectedEmbeddingModelName(null));
+    assertEquals(
+        EmbeddingSettings.DEFAULT_MODEL_NAME, IngesterCli.selectedEmbeddingModelName("default"));
+    assertEquals("all-mpnet-base-v2", IngesterCli.selectedEmbeddingModelName("strong"));
+  }
+
+  @Test
+  void embeddingModelOptionRequestsMemoryEmbeddingRefresh() {
+    assertTrue(IngesterCli.memoryEmbeddingsRequested(false, false, false, true));
+    assertFalse(IngesterCli.memoryEmbeddingsRequested(false, false, false, false));
+  }
+
+  @Test
+  void rejectsUnknownEmbeddingModelPresetBeforeOpeningDriver() throws IOException {
+    Path sourceDir = Files.createTempDirectory("cli-invalid-embedding-model-");
+    try {
+      int exitCode =
+          new CommandLine(new IngesterCli())
+              .execute(
+                  "-s",
+                  sourceDir.toString(),
+                  "-b",
+                  "bolt://127.0.0.1:1",
+                  "-P",
+                  "cli-invalid-embedding-model",
+                  "--embedding-model",
+                  "large");
+
+      assertEquals(1, exitCode);
+    } finally {
+      deleteDir(sourceDir);
+    }
   }
 
   @Test

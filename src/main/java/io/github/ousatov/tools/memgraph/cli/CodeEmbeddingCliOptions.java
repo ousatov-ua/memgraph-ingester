@@ -75,21 +75,25 @@ public final class CodeEmbeddingCliOptions {
   @SuppressWarnings(Const.Warnings.UNUSED)
   public int capacity = EmbeddingSettings.DEFAULT_CAPACITY;
 
-  public EmbeddingSettings toSettings(boolean required) {
+  public EmbeddingSettings toSettings(String modelName, boolean required) {
     return new EmbeddingSettings(
         enabled,
         EmbeddingSettings.DEFAULT_CODE_INDEX_NAME,
-        EmbeddingSettings.DEFAULT_MODEL_NAME,
+        modelName,
         EmbeddingSettings.DEFAULT_METRIC,
         EmbeddingSettings.DEFAULT_SCALAR_KIND,
         batchSize,
         chunkSize,
         device,
-        EmbeddingSettings.DEFAULT_DIMENSIONS,
+        0,
         remoteBatchSize,
         concurrency,
         procedureMemoryMb,
         capacity,
         required && enabled);
+  }
+
+  public EmbeddingSettings toSettings(boolean required) {
+    return toSettings(EmbeddingSettings.DEFAULT_MODEL_NAME, required);
   }
 }

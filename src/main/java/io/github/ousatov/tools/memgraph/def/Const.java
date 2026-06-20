@@ -464,7 +464,7 @@ public final class Const {
   /** Command line option names and aliases. */
   public static class Cli {
 
-    public static final String VERSION = "12.4.19";
+    public static final String VERSION = "12.5.0";
     public static final String USER_SHORT = "-u";
     public static final String USER = "--user";
     public static final String PASS_SHORT = "-p";
@@ -473,6 +473,7 @@ public final class Const {
     public static final String THREADS = "--threads";
     public static final String CODE_EMBEDDINGS = "--code-embeddings";
     public static final String MEMORY_EMBEDDINGS = "--memory-embeddings";
+    public static final String EMBEDDING_MODEL = "--embedding-model";
     public static final String CLASSPATH = "--classpath";
     public static final String INSTRUCTIONS_AGENT = "--instructions-agent";
     public static final String JS_RUNTIME_MODE = "--js-runtime-mode";

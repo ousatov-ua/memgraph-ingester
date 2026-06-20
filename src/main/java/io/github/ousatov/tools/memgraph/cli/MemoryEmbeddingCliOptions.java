@@ -79,21 +79,25 @@ public final class MemoryEmbeddingCliOptions {
   @SuppressWarnings(Const.Warnings.UNUSED)
   public int capacity = EmbeddingSettings.DEFAULT_CAPACITY;
 
-  public EmbeddingSettings toSettings(boolean memoryRequired, boolean required) {
+  public EmbeddingSettings toSettings(String modelName, boolean memoryRequired, boolean required) {
     return new EmbeddingSettings(
         (memoryRequired || required) && enabled,
         EmbeddingSettings.DEFAULT_MEMORY_INDEX_NAME,
-        EmbeddingSettings.DEFAULT_MODEL_NAME,
+        modelName,
         EmbeddingSettings.DEFAULT_METRIC,
         EmbeddingSettings.DEFAULT_SCALAR_KIND,
         batchSize,
         chunkSize,
         device,
-        EmbeddingSettings.DEFAULT_DIMENSIONS,
+        0,
         remoteBatchSize,
         concurrency,
         procedureMemoryMb,
         capacity,
         required && enabled);
+  }
+
+  public EmbeddingSettings toSettings(boolean memoryRequired, boolean required) {
+    return toSettings(EmbeddingSettings.DEFAULT_MODEL_NAME, memoryRequired, required);
   }
 }

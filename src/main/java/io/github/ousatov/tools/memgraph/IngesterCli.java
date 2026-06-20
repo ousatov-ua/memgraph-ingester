@@ -53,6 +53,9 @@ import picocli.CommandLine.Spec;
 public final class IngesterCli implements Callable<Integer> {
   private static final SimpleLoggerFile SIMPLE_LOGGER_FILE = SimpleLoggerFile.configure();
   private static final Logger log = LoggerFactory.getLogger(IngesterCli.class);
+  private static final String DEFAULT_EMBEDDING_MODEL_PRESET = "default";
+  private static final String STRONG_EMBEDDING_MODEL_PRESET = "strong";
+  private static final String STRONG_EMBEDDING_MODEL_NAME = "all-mpnet-base-v2";
 
   static {
     SIMPLE_LOGGER_FILE.restoreConsole();
@@ -129,6 +132,15 @@ public final class IngesterCli implements Callable<Integer> {
       description = "Watch for changes in the source directory and automatically re-ingest")
   @SuppressWarnings(Const.Warnings.UNUSED)
   private boolean watch;
+
+  @Option(
+      names = {"--embedding-model"},
+      defaultValue = DEFAULT_EMBEDDING_MODEL_PRESET,
+      description =
+          "Embedding model preset for CodeChunk and MemoryChunk vectors: default"
+              + " (all-MiniLM-L6-v2) or strong (all-mpnet-base-v2).")
+  @SuppressWarnings(Const.Warnings.UNUSED)
+  private String embeddingModel;
 
   // ---- Grouped options ----
 
@@ -278,16 +290,43 @@ public final class IngesterCli implements Callable<Integer> {
   private SelectedEmbeddingSettings selectedEmbeddingSettings() {
     try {
       boolean memoryEmbeddingsRequested =
-          instructions.withMemories
-              || wipe.memoryRag
-              || hasMatchedOption(Const.Cli.MEMORY_EMBEDDINGS);
+          memoryEmbeddingsRequested(
+              instructions.withMemories,
+              wipe.memoryRag,
+              hasMatchedOption(Const.Cli.MEMORY_EMBEDDINGS),
+              hasMatchedOption(Const.Cli.EMBEDDING_MODEL));
+      String modelName = selectedEmbeddingModelName();
       return new SelectedEmbeddingSettings(
-          codeEmbed.toSettings(hasMatchedOption(Const.Cli.CODE_EMBEDDINGS)),
-          memoryEmbed.toSettings(memoryEmbeddingsRequested, memoryEmbeddingsRequested));
+          codeEmbed.toSettings(modelName, hasMatchedOption(Const.Cli.CODE_EMBEDDINGS)),
+          memoryEmbed.toSettings(modelName, memoryEmbeddingsRequested, memoryEmbeddingsRequested));
     } catch (IllegalArgumentException e) {
       log.error(e.getMessage());
       return null;
     }
+  }
+
+  private String selectedEmbeddingModelName() {
+    return selectedEmbeddingModelName(embeddingModel);
+  }
+
+  static String selectedEmbeddingModelName(String embeddingModel) {
+    String preset =
+        embeddingModel == null ? DEFAULT_EMBEDDING_MODEL_PRESET : embeddingModel.strip();
+    return switch (preset.toLowerCase()) {
+      case DEFAULT_EMBEDDING_MODEL_PRESET -> EmbeddingSettings.DEFAULT_MODEL_NAME;
+      case STRONG_EMBEDDING_MODEL_PRESET -> STRONG_EMBEDDING_MODEL_NAME;
+      default ->
+          throw new IllegalArgumentException(
+              "--embedding-model must be 'default' or 'strong' (got '" + preset + "')");
+    };
+  }
+
+  static boolean memoryEmbeddingsRequested(
+      boolean withMemories,
+      boolean wipeMemoryRag,
+      boolean memoryEmbeddingsMatched,
+      boolean embeddingModelMatched) {
+    return withMemories || wipeMemoryRag || memoryEmbeddingsMatched || embeddingModelMatched;
   }
 
   private Integer ingest(

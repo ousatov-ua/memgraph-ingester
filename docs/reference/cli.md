@@ -17,6 +17,7 @@
 | `--wipe-project-memories` | `false` | Delete this project's memory graph before ingesting |
 | `--watch` | `false` | Watch the source tree and re-ingest changed files |
 | `--threads` | `1` | Parser threads feeding one serialized Memgraph writer; 4 to 8 is usually useful for large projects |
+| `--embedding-model` | `default` | Embedding model preset for CodeChunk and MemoryChunk vectors: `default` (`all-MiniLM-L6-v2`) or `strong` (`all-mpnet-base-v2`); dimensions are discovered by Memgraph |
 | `--with-memories` | `false` | Include Memory workflow instructions and refresh MemoryChunk rows |
 | `--init-instructions` | `false` | Write or replace managed agent instructions and exit |
 | `--instructions-agent` | `codex` | Agent preset: `codex`, `claude`, `gemini`, `github`, or `copilot` |
