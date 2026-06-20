@@ -113,6 +113,10 @@ public final class JsAnalyzer {
     return analyzeBatch(List.of(file)).getFirst();
   }
 
+  static Duration batchTimeout(int fileCount) {
+    return PROCESS_TIMEOUT.multipliedBy(Math.max(1, fileCount));
+  }
+
   /** Analyzes multiple JavaScript/TypeScript files with one helper subprocess. */
   public List<JsAnalysis> analyzeBatch(List<Path> files) {
     if (files.isEmpty()) {
@@ -136,7 +140,7 @@ public final class JsAnalyzer {
       Process process = processBuilder.start();
       CompletableFuture<String> stdout = readAsync(process.getInputStream(), Const.Params.STDOUT);
       CompletableFuture<String> stderr = readAsync(process.getErrorStream(), Const.Params.STDERR);
-      if (!process.waitFor(PROCESS_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS)) {
+      if (!process.waitFor(batchTimeout(files.size()).toMillis(), TimeUnit.MILLISECONDS)) {
         process.destroyForcibly();
         throw new ProcessingException(
             "JavaScript analyzer timed out for batch starting at " + firstFile);

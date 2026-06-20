@@ -716,6 +716,12 @@ class JsAnalyzerTest {
   }
 
   @Test
+  void batchTimeoutScalesByFileCount() {
+    assertEquals(JsAnalyzer.batchTimeout(1), JsAnalyzer.batchTimeout(0));
+    assertEquals(JsAnalyzer.batchTimeout(1).multipliedBy(3), JsAnalyzer.batchTimeout(3));
+  }
+
+  @Test
   void localFunctionExpressionsEmitNestedTypesWithoutOuterStaticInitializerCalls()
       throws IOException {
     JsAnalysis analysis =

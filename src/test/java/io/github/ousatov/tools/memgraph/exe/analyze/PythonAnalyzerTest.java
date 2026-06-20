@@ -604,6 +604,12 @@ class PythonAnalyzerTest {
   }
 
   @Test
+  void batchTimeoutScalesByFileCount() {
+    assertEquals(PythonAnalyzer.batchTimeout(1), PythonAnalyzer.batchTimeout(0));
+    assertEquals(PythonAnalyzer.batchTimeout(1).multipliedBy(3), PythonAnalyzer.batchTimeout(3));
+  }
+
+  @Test
   void helperFailsFastWhenAstUnparseIsUnavailable() throws IOException, InterruptedException {
     assumeTrue(systemPythonAvailable(), "Python analyzer helper test requires python3");
     Path sourceFile = tempDir.resolve("app.py");
