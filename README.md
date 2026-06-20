@@ -15,13 +15,13 @@
 
 For a concise overview, read the [short web version](https://ousatov-ua.github.io/memgraph-ingester/).
 
+**Make your agent smarter immediately!** Memgraph Ingester gives it graph-backed code context,
+semantic retrieval, and durable project memory before the first investigation begins.
+
 `Memgraph-ingester` indexes source files into [Memgraph](https://memgraph.com/) so AI agents can
 query a real code graph instead of repeatedly scanning raw files. It is RAG-enabled, but not as a
 loose pile of text chunks: retrieval is derived from code structure and connected back to files,
 symbols, relationships, and durable project knowledge.
-
-**Make your agent smarter immediately!** Memgraph Ingester gives it graph-backed code context,
-semantic retrieval, and durable project memory before the first investigation begins.
 
 ## Why Agents Spend Less
 

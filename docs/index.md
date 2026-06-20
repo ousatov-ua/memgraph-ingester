@@ -4,7 +4,7 @@ layout: home
 hero:
   name: Memgraph Ingester
   text: Structure-aware RAG for code and project knowledge
-  tagline: Index local source files into Memgraph so AI agents can discover symbols, follow relationships, search semantic code chunks, and keep durable project memory.
+  tagline: Make agents smarter, index local source files into Memgraph so AI agents can discover symbols, follow relationships, search semantic code chunks, and keep durable project memory.
   image:
     src: https://raw.githubusercontent.com/ousatov-ua/memgraph-ingester/main/image/memgraph-ingester-readme-banner-800x400.png
     alt: Memgraph Ingester banner
