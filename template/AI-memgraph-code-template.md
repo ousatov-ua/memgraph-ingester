@@ -18,6 +18,14 @@ Do not use graph calls as ritual prefixes.
 
 If the graph returns no relevant rows, fall back to text search and say why.
 
+### RAG Confidence Gate
+
+For orientation, ranking, and “where to look” tasks, stop after RAG when 2+ focused prompts 
+converge on the same files/symbols and snippets directly explain relevance. Label the result 
+as RAG-ranked candidates, not verified proof. Still verify with exact/source/test/profiling 
+for edits, bugs, CI, contracts, security/data-loss, measured performance, stale graph suspicion, 
+or user-requested proof.
+
 ### Code Triggers
 
 - **Use graph selectively:** start with `server_status` for pending-work/status, `code_orientation`
