@@ -9,7 +9,7 @@
 [![Supports Java codebases](https://img.shields.io/badge/spec_support-Java-f89820?logo=openjdk&logoColor=white)](#3-ingest-java)
 [![Supports JavaScript/TypeScript codebases](https://img.shields.io/badge/spec_support-JavaScript%20%2F%20TypeScript-3178c6?logo=typescript&logoColor=white)](#4-ingest-javascript-or-typescript)
 [![Supports Python codebases](https://img.shields.io/badge/spec_support-Python-3776ab?logo=python&logoColor=white)](#5-ingest-python)
-[![Supports any language](https://img.shields.io/badge/supports-any_language_by_ctags-blue)](#6-ingest-any-language)
+[![Supports](https://img.shields.io/badge/supports-150_+_languages-blue)](#6-ingest-any-language)
 
 ![memgraph-ingester-readme-banner-640x320.svg](image/memgraph-ingester-readme-banner-640x320.svg)
 
