@@ -216,6 +216,38 @@ class CypherExecutor {
     return value;
   }
 
+  /** Runs a read query and maps one string column, including inside async write transactions. */
+  List<String> readStringColumn(String cypher, Map<String, Object> params, String column) {
+    Map<String, Object> allParams = paramsWithProject(params);
+    if (currentAsyncTx != null) {
+      flushPendingOps();
+      long startedNanos = System.nanoTime();
+      List<String> values =
+          await(
+              currentAsyncTx
+                  .runAsync(cypher, allParams)
+                  .thenCompose(
+                      cursor ->
+                          cursor.listAsync(
+                              theRecord -> theRecord.get(column).asString(Const.Symbols.EMPTY))));
+      stats.recordCypherStatement(cypher, System.nanoTime() - startedNanos);
+      return values;
+    }
+    List<String> values = new ArrayList<>();
+    executeWithRetry(
+        cypher,
+        () -> {
+          values.clear();
+          long startedNanos = System.nanoTime();
+          Result result = queryRunner().run(cypher, allParams);
+          while (result.hasNext()) {
+            values.add(result.next().get(column).asString(Const.Symbols.EMPTY));
+          }
+          stats.recordCypherStatement(cypher, System.nanoTime() - startedNanos);
+        });
+    return values;
+  }
+
   static boolean isRetryable(RuntimeException e) {
     String msg =
         e.getMessage() == null ? Const.Symbols.EMPTY : e.getMessage().toLowerCase(Locale.ROOT);

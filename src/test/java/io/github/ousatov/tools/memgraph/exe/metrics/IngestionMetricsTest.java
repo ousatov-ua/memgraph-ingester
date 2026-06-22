@@ -102,6 +102,7 @@ class IngestionMetricsTest {
     IngestionPerformanceMetrics metrics = stats.snapshot();
 
     assertEquals(List.of("com.example.Caller.run()"), stats.changedCallerSignatures());
+    assertEquals(List.of("run"), stats.changedMethodNames());
     assertEquals(List.of("com.example.Helper"), stats.changedOwnerFqns());
     assertTrue(
         metrics

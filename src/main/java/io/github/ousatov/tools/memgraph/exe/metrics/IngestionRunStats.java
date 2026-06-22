@@ -60,6 +60,7 @@ public final class IngestionRunStats {
   private final ConcurrentMap<String, LongAdder> embeddingRows = new ConcurrentHashMap<>();
   private final ConcurrentMap<String, CypherTiming> cypherTimings = new ConcurrentHashMap<>();
   private final Set<String> changedCallerSignatures = ConcurrentHashMap.newKeySet();
+  private final Set<String> changedMethodNames = ConcurrentHashMap.newKeySet();
   private final Set<String> changedOwnerFqns = ConcurrentHashMap.newKeySet();
   private final int threads;
   private final long startedNanos;
@@ -179,6 +180,10 @@ public final class IngestionRunStats {
       Collection<String> ownerFqns, Collection<String> callerSignatures) {
     addNonBlank(changedOwnerFqns, ownerFqns);
     addNonBlank(changedCallerSignatures, callerSignatures);
+    callerSignatures.stream()
+        .map(IngestionRunStats::methodNameFromSignature)
+        .filter(name -> !name.isBlank())
+        .forEach(changedMethodNames::add);
   }
 
   /** Records definitions from a {@link SourceFileDefinitions} after a successful file write. */
@@ -190,14 +195,34 @@ public final class IngestionRunStats {
     recordChangedDefinitions(ownerFqns, definitions.methodSignatures());
   }
 
+  /** Records method names removed by cleanup for scoped pending-call retries. */
+  public void recordDeletedMethodNames(Collection<String> methodNames) {
+    addNonBlank(changedMethodNames, methodNames);
+  }
+
   /** Returns changed caller signatures in stable order. */
   public List<String> changedCallerSignatures() {
     return changedCallerSignatures.stream().sorted().toList();
   }
 
+  /** Returns changed method names in stable order. */
+  public List<String> changedMethodNames() {
+    return changedMethodNames.stream().sorted().toList();
+  }
+
   /** Returns changed owner FQNs in stable order. */
   public List<String> changedOwnerFqns() {
     return changedOwnerFqns.stream().sorted().toList();
+  }
+
+  private static String methodNameFromSignature(String signature) {
+    if (signature == null || signature.isBlank()) {
+      return Const.Symbols.EMPTY;
+    }
+    int end = signature.indexOf('(');
+    String prefix = end >= 0 ? signature.substring(0, end) : signature;
+    int separator = prefix.lastIndexOf('.');
+    return separator >= 0 ? prefix.substring(separator + 1) : prefix;
   }
 
   /** Builds an immutable metrics snapshot for the current counter values. */

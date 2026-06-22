@@ -127,6 +127,7 @@ class CypherResourceTest {
         "CREATE INDEX ON :CodeChunk(embeddingModel)",
         "CREATE INDEX ON :CodeChunk(embeddingDimensions)",
         "CREATE INDEX ON :CodeChunk(project, embeddingDirty)",
+        "CREATE INDEX ON :CodeChunk(project, path)",
         "CREATE INDEX ON :CodeChunk(language)",
         "CREATE INDEX ON :CodeChunk(path)",
         "CREATE INDEX ON :CodeChunk(ownerFqn)",
@@ -145,6 +146,7 @@ class CypherResourceTest {
     assertTrue(schema.contains("DROP INDEX ON :File(project, language, path)"));
     assertTrue(schema.contains("DROP INDEX ON :CodeChunk(project)"));
     assertTrue(schema.contains("DROP INDEX ON :CodeChunk(project, embeddingDirty)"));
+    assertTrue(schema.contains("DROP INDEX ON :CodeChunk(project, path)"));
     assertTrue(schema.contains("DROP INDEX ON :CodeChunk(signature)"));
   }
 

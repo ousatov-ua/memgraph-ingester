@@ -15,6 +15,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import org.jspecify.annotations.NonNull;
 
 /**
@@ -24,6 +25,24 @@ import org.jspecify.annotations.NonNull;
  * @author Oleksii Usatov
  */
 public interface LanguageAdapter<T> {
+
+  Set<String> COMMON_SKIPPED_DIRECTORIES =
+      Set.of(
+          ".git",
+          ".hg",
+          ".svn",
+          Const.Files.NODE_MODULES,
+          Const.Files.PYCACHE,
+          Const.Files.VIRTUAL_ENV,
+          Const.Files.UV_CACHE,
+          Const.Files.VENV,
+          Const.Files.TOX,
+          Const.Files.NOX,
+          Const.Files.SITE_PACKAGES,
+          Const.Files.BUILD,
+          Const.Files.DIST,
+          Const.Files.TARGET,
+          Const.Files.OUT);
 
   /** Returns the source language represented by this adapter. */
   SourceLanguage language();
@@ -95,11 +114,17 @@ public interface LanguageAdapter<T> {
   /** Returns true when language discovery should visit a source-root-local directory. */
   static boolean shouldVisitSourceDirectory(Path directory) {
     Path fileName = directory.getFileName();
-    return fileName == null || !isCommonSkippedDirectory(fileName.toString());
+    return fileName == null || !COMMON_SKIPPED_DIRECTORIES.contains(fileName.toString());
   }
 
-  private static boolean isCommonSkippedDirectory(String fileName) {
-    return Const.Files.NODE_MODULES.equals(fileName) || Const.Files.TARGET.equals(fileName);
+  /** Returns true when a source-root-local path sits under a common generated/dependency dir. */
+  static boolean isInSkippedSourceDirectory(Path path) {
+    for (Path part : path) {
+      if (COMMON_SKIPPED_DIRECTORIES.contains(part.toString())) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /** Returns {@code path} as a source-root-local path when both paths are compatible. */

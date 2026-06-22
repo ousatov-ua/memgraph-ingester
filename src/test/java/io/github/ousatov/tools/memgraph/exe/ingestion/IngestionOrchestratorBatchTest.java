@@ -241,6 +241,9 @@ class IngestionOrchestratorBatchTest {
             if ("consumeAsync".equals(method.getName())) {
               return CompletableFuture.completedFuture(null);
             }
+            if ("listAsync".equals(method.getName())) {
+              return CompletableFuture.completedFuture(List.of());
+            }
             return defaultValue(proxy, method);
           });
     }

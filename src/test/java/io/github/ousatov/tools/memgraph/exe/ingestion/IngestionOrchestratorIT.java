@@ -1144,6 +1144,18 @@ class IngestionOrchestratorIT {
     Path venvJavaFile = sourceDir.resolve(".venv/Leak.java");
     Files.createDirectories(venvJavaFile.getParent());
     Files.writeString(venvJavaFile, "public class Leak { int bad() { return 1; } }");
+    try (Session s = driver.session()) {
+      s.run(
+              """
+              MERGE (file:File {project: $p, path: $path})
+              SET file.language = 'java'
+              MERGE (clazz:Class {project: $p, fqn: $fqn})
+              SET clazz.name = 'BuildSource', clazz.language = 'java', clazz.isExternal = false
+              MERGE (file)-[:DEFINES]->(clazz)
+              """,
+              Map.of("p", currentProject, "path", buildJavaFile.toString(), "fqn", "BuildSource"))
+          .consume();
+    }
 
     int failures =
         new IngestionOrchestrator(
@@ -1158,11 +1170,12 @@ class IngestionOrchestratorIT {
 
     assertEquals(0, failures);
     assertTrue(fileExistsInGraph(currentProject, appFile));
-    assertTrue(fileExistsInGraph(currentProject, buildJavaFile));
+    assertFalse(fileExistsInGraph(currentProject, buildJavaFile));
     assertFalse(fileExistsInGraph(currentProject, buildPythonFile));
     assertFalse(fileExistsInGraph(currentProject, targetJavaFile));
     assertFalse(fileExistsInGraph(currentProject, targetPythonFile));
-    assertTrue(fileExistsInGraph(currentProject, venvJavaFile));
+    assertFalse(fileExistsInGraph(currentProject, venvJavaFile));
+    assertFalse(classExists(currentProject, "BuildSource"));
   }
 
   @Test

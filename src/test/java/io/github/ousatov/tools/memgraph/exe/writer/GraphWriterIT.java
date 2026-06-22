@@ -2885,6 +2885,200 @@ class GraphWriterIT {
   }
 
   @Test
+  void scopedNameOnlyPendingCallResolutionOnlyTouchesChangedMethodNames() {
+    writer.upsertFile(TEST_FILE, SourceLanguage.JAVA);
+    writer.upsertPackage(PKG, SourceLanguage.JAVA);
+    ClassOrInterfaceDeclaration firstCaller =
+        parseDecl("package com.example; public class FirstCaller { public void run() {} }");
+    ClassOrInterfaceDeclaration firstTarget =
+        parseDecl("package com.example; public class FirstTarget { public void process() {} }");
+    ClassOrInterfaceDeclaration secondCaller =
+        parseDecl("package com.example; public class SecondCaller { public void run() {} }");
+    ClassOrInterfaceDeclaration secondTarget =
+        parseDecl("package com.example; public class SecondTarget { public void refresh() {} }");
+    String firstCallerSig = "com.example.FirstCaller.run()";
+    String firstTargetSig = "com.example.FirstTarget.process()";
+    String secondCallerSig = "com.example.SecondCaller.run()";
+    String secondTargetSig = "com.example.SecondTarget.refresh()";
+
+    javaWriter.upsertType(TEST_FILE, PKG, firstCaller);
+    javaWriter.upsertType(TEST_FILE, PKG, firstTarget);
+    javaWriter.upsertType(TEST_FILE, PKG, secondCaller);
+    javaWriter.upsertType(TEST_FILE, PKG, secondTarget);
+    writer.upsertPendingCallsByName(
+        List.of(
+            PendingCallWrite.allowNameOnly(firstCallerSig, "process"),
+            PendingCallWrite.allowNameOnly(secondCallerSig, "refresh")));
+    writer
+        .stats()
+        .recordChangedDefinitions(
+            SourceFileDefinitions.of(
+                List.of(), List.of(), List.of(), List.of(firstTargetSig), List.of()));
+
+    writer.resolvePendingCallsForChangedDefinitions();
+
+    var row =
+        session
+            .run(
+                """
+                MATCH (pending:PendingCall {project: $p})
+                WITH pending ORDER BY pending.callerSignature
+                WITH collect(pending.callerSignature) AS pendingCallers
+                OPTIONAL MATCH (:Method {signature: $firstCallerSig, project: $p})
+                    -[firstCall:CALLS]->
+                    (:Method {signature: $firstTargetSig, project: $p})
+                WITH pendingCallers, count(DISTINCT firstCall) AS firstCalls
+                OPTIONAL MATCH (:Method {signature: $secondCallerSig, project: $p})
+                    -[secondCall:CALLS]->
+                    (:Method {signature: $secondTargetSig, project: $p})
+                RETURN firstCalls, count(DISTINCT secondCall) AS secondCalls, pendingCallers
+                """,
+                Map.of(
+                    "p",
+                    PROJECT,
+                    "firstCallerSig",
+                    firstCallerSig,
+                    "firstTargetSig",
+                    firstTargetSig,
+                    "secondCallerSig",
+                    secondCallerSig,
+                    "secondTargetSig",
+                    secondTargetSig))
+            .single();
+
+    assertEquals(1, row.get("firstCalls").asLong());
+    assertEquals(0, row.get("secondCalls").asLong());
+    assertEquals(List.of(secondCallerSig), row.get("pendingCallers").asList());
+  }
+
+  @Test
+  void scopedNameOnlyPendingCallResolutionUsesMethodNamesDeletedWithMissingFiles() {
+    Path callerFile = Path.of("/tmp/test-gw/src/com/example/Caller.java");
+    Path removedFile = Path.of("/tmp/test-gw/src/com/example/OldProcessor.java");
+    Path retainedFile = Path.of("/tmp/test-gw/src/com/example/NewProcessor.java");
+    String callerSig = "com.example.Caller.run()";
+    String removedTargetSig = "com.example.OldProcessor.process()";
+    String retainedTargetSig = "com.example.NewProcessor.process()";
+    ClassOrInterfaceDeclaration caller =
+        parseDecl("package com.example; public class Caller { public void run() {} }");
+    ClassOrInterfaceDeclaration removedTarget =
+        parseDecl("package com.example; public class OldProcessor { public void process() {} }");
+    ClassOrInterfaceDeclaration retainedTarget =
+        parseDecl("package com.example; public class NewProcessor { public void process() {} }");
+
+    writer.upsertFile(callerFile, SourceLanguage.JAVA);
+    writer.upsertFile(removedFile, SourceLanguage.JAVA);
+    writer.upsertFile(retainedFile, SourceLanguage.JAVA);
+    writer.upsertPackage(PKG, SourceLanguage.JAVA);
+    javaWriter.upsertType(callerFile, PKG, caller);
+    javaWriter.upsertType(removedFile, PKG, removedTarget);
+    javaWriter.upsertType(retainedFile, PKG, retainedTarget);
+    writer.upsertPendingCallsByName(List.of(PendingCallWrite.allowNameOnly(callerSig, "process")));
+
+    writer.deleteFilesMissingFromSource(
+        SRC_ROOT, List.of(callerFile, retainedFile), SourceLanguage.JAVA);
+    writer.resolvePendingCallsForChangedDefinitions();
+
+    var row =
+        session
+            .run(
+                """
+                MATCH (:Method {signature: $callerSig, project: $p})-[call:CALLS]->
+                    (:Method {signature: $retainedTargetSig, project: $p})
+                OPTIONAL MATCH (pending:PendingCall {project: $p})
+                OPTIONAL MATCH (removed:Method {signature: $removedTargetSig, project: $p})
+                RETURN count(DISTINCT call) AS calls,
+                       count(DISTINCT pending) AS pending,
+                       count(DISTINCT removed) AS removedMethods
+                """,
+                Map.of(
+                    "p",
+                    PROJECT,
+                    "callerSig",
+                    callerSig,
+                    "retainedTargetSig",
+                    retainedTargetSig,
+                    "removedTargetSig",
+                    removedTargetSig))
+            .single();
+
+    assertEquals(List.of("process"), writer.stats().changedMethodNames());
+    assertEquals(1, row.get("calls").asLong());
+    assertEquals(0, row.get("pending").asLong());
+    assertEquals(0, row.get("removedMethods").asLong());
+  }
+
+  @Test
+  void scopedNameOnlyPendingCallResolutionUsesMethodNamesDeletedByFileRewrite() {
+    Path callerFile = Path.of("/tmp/test-gw/src/com/example/Caller.java");
+    Path rewrittenFile = Path.of("/tmp/test-gw/src/com/example/OldProcessor.java");
+    Path retainedFile = Path.of("/tmp/test-gw/src/com/example/NewProcessor.java");
+    String callerSig = "com.example.Caller.run()";
+    String removedTargetSig = "com.example.OldProcessor.process()";
+    String retainedTargetSig = "com.example.NewProcessor.process()";
+    SourceFileDefinitions rewrittenDefinitions =
+        SourceFileDefinitions.of(
+            List.of("com.example.OldProcessor"),
+            List.of(),
+            List.of(),
+            List.of("com.example.OldProcessor.noop()"),
+            List.of());
+    ClassOrInterfaceDeclaration caller =
+        parseDecl("package com.example; public class Caller { public void run() {} }");
+    ClassOrInterfaceDeclaration removedTarget =
+        parseDecl("package com.example; public class OldProcessor { public void process() {} }");
+    ClassOrInterfaceDeclaration rewrittenTarget =
+        parseDecl("package com.example; public class OldProcessor { public void noop() {} }");
+    ClassOrInterfaceDeclaration retainedTarget =
+        parseDecl("package com.example; public class NewProcessor { public void process() {} }");
+
+    writer.upsertFile(callerFile, SourceLanguage.JAVA);
+    writer.upsertFile(rewrittenFile, SourceLanguage.JAVA);
+    writer.upsertFile(retainedFile, SourceLanguage.JAVA);
+    writer.upsertPackage(PKG, SourceLanguage.JAVA);
+    javaWriter.upsertType(callerFile, PKG, caller);
+    javaWriter.upsertType(rewrittenFile, PKG, removedTarget);
+    javaWriter.upsertType(retainedFile, PKG, retainedTarget);
+    writer.upsertPendingCallsByName(List.of(PendingCallWrite.allowNameOnly(callerSig, "process")));
+
+    List<String> deletedMethodNames =
+        writer.deleteStaleDefinitionsForFile(rewrittenFile, rewrittenDefinitions);
+    javaWriter.upsertType(rewrittenFile, PKG, rewrittenTarget);
+    writer.stats().recordDeletedMethodNames(deletedMethodNames);
+    writer.stats().recordChangedDefinitions(rewrittenDefinitions);
+    writer.resolvePendingCallsForChangedDefinitions();
+
+    var row =
+        session
+            .run(
+                """
+                MATCH (:Method {signature: $callerSig, project: $p})-[call:CALLS]->
+                    (:Method {signature: $retainedTargetSig, project: $p})
+                OPTIONAL MATCH (pending:PendingCall {project: $p})
+                OPTIONAL MATCH (removed:Method {signature: $removedTargetSig, project: $p})
+                RETURN count(DISTINCT call) AS calls,
+                       count(DISTINCT pending) AS pending,
+                       count(DISTINCT removed) AS removedMethods
+                """,
+                Map.of(
+                    "p",
+                    PROJECT,
+                    "callerSig",
+                    callerSig,
+                    "retainedTargetSig",
+                    retainedTargetSig,
+                    "removedTargetSig",
+                    removedTargetSig))
+            .single();
+
+    assertEquals(List.of("process"), deletedMethodNames);
+    assertEquals(List.of("noop", "process"), writer.stats().changedMethodNames());
+    assertEquals(1, row.get("calls").asLong());
+    assertEquals(0, row.get("pending").asLong());
+    assertEquals(0, row.get("removedMethods").asLong());
+  }
+
+  @Test
   void scopedPendingCallResolutionIncludesChangedClassDescendants() {
     writer.upsertFile(TEST_FILE, SourceLanguage.JAVA);
     writer.upsertPackage(PKG, SourceLanguage.JAVA);

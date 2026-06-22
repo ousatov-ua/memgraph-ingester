@@ -103,6 +103,11 @@ public final class CtagsAnalyzer {
         detectLanguage(file)
             .orElseThrow(
                 () -> new ProcessingException("Ctags could not detect a language for " + file));
+    return analyze(file, language);
+  }
+
+  /** Analyzes one source file using a language already detected by ctags. */
+  public CtagsAnalysis analyze(Path file, SourceLanguage language) {
     ProcessResult result =
         runCtags(
             arguments(

@@ -78,12 +78,13 @@ class GraphWriterTest {
     writer.deleteStaleDefinitionsForFile(Path.of("A.java"), SourceFileDefinitions.empty());
 
     assertEquals(1, bolt.asyncBeginCalls);
-    assertEquals(List.of(), bolt.asyncRunCyphers);
+    assertEquals(List.of(Cypher.CYPHER_DELETED_SOURCE_FILE_METHOD_NAMES), bolt.asyncRunCyphers);
 
     writer.commitFileTransaction();
 
     assertEquals(
         List.of(
+            Cypher.CYPHER_DELETED_SOURCE_FILE_METHOD_NAMES,
             Cypher.CYPHER_DELETE_STALE_DEFINITION_RELATIONS_FOR_FILE,
             Cypher.CYPHER_DELETE_STALE_DEFINITIONS_FOR_FILE),
         bolt.asyncRunCyphers);
@@ -147,6 +148,9 @@ class GraphWriterTest {
           (proxy, method, args) -> {
             if ("consumeAsync".equals(method.getName())) {
               return CompletableFuture.completedFuture(null);
+            }
+            if ("listAsync".equals(method.getName())) {
+              return CompletableFuture.completedFuture(List.of());
             }
             return defaultValue(proxy, method, args);
           });

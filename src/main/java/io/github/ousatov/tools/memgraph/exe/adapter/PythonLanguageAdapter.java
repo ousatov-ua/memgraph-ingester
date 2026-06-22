@@ -12,7 +12,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
-import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -24,20 +23,6 @@ import org.slf4j.LoggerFactory;
 public final class PythonLanguageAdapter extends AbstractModuleLanguageAdapter<PythonAnalysis> {
 
   private static final Logger log = LoggerFactory.getLogger(PythonLanguageAdapter.class);
-  private static final Set<String> SKIPPED_DIRECTORIES =
-      Set.of(
-          Const.Files.NODE_MODULES,
-          Const.Files.PYCACHE,
-          Const.Files.VIRTUAL_ENV,
-          Const.Files.UV_CACHE,
-          Const.Files.VENV,
-          Const.Files.TOX,
-          Const.Files.NOX,
-          Const.Files.SITE_PACKAGES,
-          Const.Files.BUILD,
-          Const.Files.TARGET,
-          Const.Files.DIST);
-
   private final PythonAnalyzer analyzer;
   private final PythonCodeChunkBuilder codeChunks = new PythonCodeChunkBuilder();
 
@@ -53,15 +38,14 @@ public final class PythonLanguageAdapter extends AbstractModuleLanguageAdapter<P
   @Override
   public boolean accepts(Path file) {
     String lower = file.toString().replace('\\', '/').toLowerCase(Locale.ROOT);
-    return !isInSkippedDirectory(file)
+    return !LanguageAdapter.isInSkippedSourceDirectory(file)
         && (lower.endsWith(Const.Files.PYTHON_EXTENSION)
             || lower.endsWith(Const.Files.PYTHON_STUB_EXTENSION));
   }
 
   @Override
   public boolean shouldVisitDirectory(Path directory) {
-    return LanguageAdapter.shouldVisitSourceDirectory(directory)
-        && !isInSkippedDirectory(directory);
+    return LanguageAdapter.shouldVisitSourceDirectory(directory);
   }
 
   @Override
@@ -157,14 +141,5 @@ public final class PythonLanguageAdapter extends AbstractModuleLanguageAdapter<P
       log.warn("Failed to ingest {}: {}", file, e.getMessage());
       return false;
     }
-  }
-
-  private static boolean isInSkippedDirectory(Path path) {
-    for (Path part : path) {
-      if (SKIPPED_DIRECTORIES.contains(part.toString())) {
-        return true;
-      }
-    }
-    return false;
   }
 }

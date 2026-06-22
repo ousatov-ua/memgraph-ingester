@@ -265,7 +265,7 @@ public final class IngestionOrchestrator {
                 + " state will be kept for retry.",
             failures);
       }
-      runPostProcessing(stats, postScanProgress);
+      runPostProcessing(settings, stats, postScanProgress);
       postScanProgress = null;
     } catch (RuntimeException e) {
       if (settings.watch() && WatchSession.isInterruptedFailure(e)) {
@@ -386,7 +386,8 @@ public final class IngestionOrchestrator {
     }
   }
 
-  private void runPostProcessing(IngestionRunStats stats, ConsoleProgress postScanProgress) {
+  private void runPostProcessing(
+      Settings settings, IngestionRunStats stats, ConsoleProgress postScanProgress) {
     try (Session session = driver.session()) {
       GraphWriter postWriter = new GraphWriter(session, project, stats);
       refreshDerivedGraphArtifacts(postWriter);
@@ -569,6 +570,10 @@ public final class IngestionOrchestrator {
   }
 
   void refreshChunkEmbeddings(GraphWriter writer, boolean watchMode) {
+    refreshChunkEmbeddings(writer, watchMode, true);
+  }
+
+  void refreshChunkEmbeddings(GraphWriter writer, boolean watchMode, boolean codeDirtyOnly) {
     seedWarmedEmbeddingDimensions(writer, watchMode);
     if (codeEmbeddings.enabled()) {
       refreshEmbeddingType(
@@ -576,7 +581,7 @@ public final class IngestionOrchestrator {
           watchMode,
           codeEmbeddings,
           "CodeChunk",
-          (w, listener) -> w.refreshCodeChunkEmbeddings(codeEmbeddings, watchMode, listener),
+          (w, listener) -> w.refreshCodeChunkEmbeddings(codeEmbeddings, codeDirtyOnly, listener),
           "Ingestion completed; use --no-code-embeddings to suppress this warning or run a"
               + " Memgraph image with embeddings and vector-index support.");
     }
@@ -884,6 +889,9 @@ public final class IngestionOrchestrator {
   }
 
   private boolean shouldRetainExistingSourcePath(Path path) {
+    if (LanguageAdapter.isInSkippedSourceDirectory(LanguageAdapter.localPath(sourceRoot, path))) {
+      return false;
+    }
     return adapterFor(path).isPresent() || adapterForDeletedPath(path).isEmpty();
   }
 
@@ -1366,16 +1374,16 @@ public final class IngestionOrchestrator {
     for (int attempt = 1; attempt <= FILE_TX_RETRY_ATTEMPTS; attempt++) {
       writer.beginFileTransaction();
       try {
-        boolean success = writePreparedWriteInActiveTransaction(writer, prepared);
-        if (success) {
+        PreparedWriteResult result = writePreparedWriteInActiveTransaction(writer, prepared);
+        if (result.success()) {
           writer.commitFileTransaction();
           writer.stats().recordFileTransaction(1);
-          recordCommittedWrite(writer, prepared);
+          recordCommittedWrite(writer, prepared, result.deletedMethodNames());
         } else {
           writer.stats().recordFailedFile();
           writer.rollbackFileTransaction();
         }
-        return success;
+        return result.success();
       } catch (RuntimeException e) {
         writer.rollbackFileTransaction();
         if (!GraphWriter.isRetryable(e) || attempt == FILE_TX_RETRY_ATTEMPTS) {
@@ -1418,14 +1426,19 @@ public final class IngestionOrchestrator {
     for (int attempt = 1; attempt <= FILE_TX_RETRY_ATTEMPTS; attempt++) {
       writer.beginFileTransaction();
       try {
+        List<PreparedWriteResult> results = new ArrayList<>(writes.size());
         for (PreparedWrite<?> prepared : writes) {
-          if (!writePreparedWriteInActiveTransaction(writer, prepared)) {
+          PreparedWriteResult result = writePreparedWriteInActiveTransaction(writer, prepared);
+          if (!result.success()) {
             throw new BatchWriteFailure(prepared.path());
           }
+          results.add(result);
         }
         writer.commitFileTransaction();
         writer.stats().recordFileTransaction(writes.size());
-        writes.forEach(prepared -> recordCommittedWrite(writer, prepared));
+        for (int i = 0; i < writes.size(); i++) {
+          recordCommittedWrite(writer, writes.get(i), results.get(i).deletedMethodNames());
+        }
         return 0;
       } catch (RuntimeException e) {
         writer.rollbackFileTransaction();
@@ -1449,11 +1462,13 @@ public final class IngestionOrchestrator {
         + writePreparedWriteBatch(writer, writes.subList(middle, writes.size()));
   }
 
-  private <T> boolean writePreparedWriteInActiveTransaction(
+  private <T> PreparedWriteResult writePreparedWriteInActiveTransaction(
       GraphWriter writer, PreparedWrite<T> prepared) {
+    List<String> deletedMethodNames;
     long cleanupStartedNanos = System.nanoTime();
     try {
-      writer.deleteStaleDefinitionsForFile(prepared.path(), prepared.definitions());
+      deletedMethodNames =
+          writer.deleteStaleDefinitionsForFile(prepared.path(), prepared.definitions());
     } finally {
       writer
           .stats()
@@ -1462,7 +1477,8 @@ public final class IngestionOrchestrator {
     }
     long writeStartedNanos = System.nanoTime();
     try {
-      return prepared.adapter().write(writer, prepared.path(), prepared.parsed());
+      boolean success = prepared.adapter().write(writer, prepared.path(), prepared.parsed());
+      return new PreparedWriteResult(success, deletedMethodNames);
     } finally {
       writer
           .stats()
@@ -1470,10 +1486,14 @@ public final class IngestionOrchestrator {
     }
   }
 
-  private static void recordCommittedWrite(GraphWriter writer, PreparedWrite<?> prepared) {
+  private static void recordCommittedWrite(
+      GraphWriter writer, PreparedWrite<?> prepared, Collection<String> deletedMethodNames) {
     writer.stats().recordIngestedFile();
+    writer.stats().recordDeletedMethodNames(deletedMethodNames);
     writer.stats().recordChangedDefinitions(prepared.definitions());
   }
+
+  private record PreparedWriteResult(boolean success, List<String> deletedMethodNames) {}
 
   private long sleepBeforeFileRetry(Path file, int attempt, RuntimeException e, long backoffMs) {
     long jitterMs = Math.floorMod(file.hashCode() + attempt * 31L, backoffMs);

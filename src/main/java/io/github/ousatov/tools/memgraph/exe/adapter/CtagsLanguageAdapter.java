@@ -112,23 +112,7 @@ public final class CtagsLanguageAdapter implements LanguageAdapter<CtagsAnalysis
           "toml",
           "xml",
           "yaml");
-  private static final Set<String> SKIPPED_DIRECTORIES =
-      Set.of(
-          ".git",
-          ".hg",
-          ".svn",
-          Const.Files.NODE_MODULES,
-          Const.Files.PYCACHE,
-          Const.Files.VIRTUAL_ENV,
-          Const.Files.VENV,
-          Const.Files.TOX,
-          Const.Files.NOX,
-          Const.Files.SITE_PACKAGES,
-          Const.Files.BUILD,
-          Const.Files.DIST,
-          Const.Files.TARGET,
-          Const.Files.OUT,
-          "vendor");
+  private static final Set<String> SKIPPED_DIRECTORIES = Set.of("vendor");
 
   private final Path sourceRoot;
   private final CtagsAnalyzer analyzer;
@@ -164,9 +148,7 @@ public final class CtagsLanguageAdapter implements LanguageAdapter<CtagsAnalysis
         || isInSkippedDirectory(localFile)) {
       return false;
     }
-    return detectedLanguage(file)
-        .filter(CtagsLanguageAdapter::isFallbackProgrammingLanguage)
-        .isPresent();
+    return detectedFallbackLanguage(file).isPresent();
   }
 
   @Override
@@ -179,11 +161,18 @@ public final class CtagsLanguageAdapter implements LanguageAdapter<CtagsAnalysis
 
   @Override
   public Optional<CtagsAnalysis> parse(Path file) {
-    if (!accepts(file)) {
+    Path localFile = sourceRootLocal(file);
+    if (isFirstClassSource(localFile)
+        || isNonCodeSource(localFile)
+        || isInSkippedDirectory(localFile)) {
+      return Optional.empty();
+    }
+    Optional<SourceLanguage> language = detectedFallbackLanguage(file);
+    if (language.isEmpty()) {
       return Optional.empty();
     }
     try {
-      return Optional.of(analyzer.analyze(absolute(file)));
+      return Optional.of(analyzer.analyze(absolute(file), language.get()));
     } catch (RuntimeException e) {
       log.warn("Failed to parse {} with ctags: {}", file, e.getMessage());
       return Optional.empty();
@@ -385,6 +374,10 @@ public final class CtagsLanguageAdapter implements LanguageAdapter<CtagsAnalysis
     }
   }
 
+  private Optional<SourceLanguage> detectedFallbackLanguage(Path file) {
+    return detectedLanguage(file).filter(CtagsLanguageAdapter::isFallbackProgrammingLanguage);
+  }
+
   private Path absolute(Path file) {
     Path normalizedFile = file.normalize();
     if (normalizedFile.isAbsolute()) {
@@ -439,6 +432,9 @@ public final class CtagsLanguageAdapter implements LanguageAdapter<CtagsAnalysis
   }
 
   private static boolean isInSkippedDirectory(Path path) {
+    if (LanguageAdapter.isInSkippedSourceDirectory(path)) {
+      return true;
+    }
     for (Path part : path) {
       if (SKIPPED_DIRECTORIES.contains(part.toString())) {
         return true;
