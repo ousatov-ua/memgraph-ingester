@@ -322,8 +322,15 @@ class CypherResourceTest {
         "DETACH DELETE pending");
     assertContainsAll(
         Const.Cypher.CYPHER_RESOLVE_PENDING_CALLS_SCOPED_DIRECT,
-        "pending.callerSignature IN $callerSignatures",
-        "pending.calleeOwnerFqn IN $ownerFqns");
+        "UNWIND callerSignatures AS callerSignature",
+        "MATCH (pending:PendingCall {callerSignature: callerSignature",
+        "UNWIND ownerFqns AS ownerFqn",
+        "MATCH (pending:PendingCall {calleeOwnerFqn: ownerFqn");
+    assertContainsAll(
+        Const.Cypher.CYPHER_RESOLVE_PENDING_CALLS_SCOPED,
+        "affectedOwnerFqns",
+        "UNWIND callerSignatures AS callerSignature",
+        "UNWIND affectedOwnerFqns AS ownerFqn");
 
     assertContainsAll(
         Const.Cypher.CYPHER_UPSERT_CLASS_METHODS_BATCH,

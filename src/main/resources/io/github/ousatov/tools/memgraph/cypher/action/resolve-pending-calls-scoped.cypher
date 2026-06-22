@@ -1,30 +1,42 @@
-MATCH (pending:PendingCall {project: $project})
+CALL {
+  WITH $ownerFqns AS ownerFqns
+  MATCH (changedClass:Class {project: $project})
+  WHERE changedClass.fqn IN ownerFqns
+  MATCH (affectedClass:Class {project: $project})-[:EXTENDS*0..]->(changedClass)
+  RETURN collect(DISTINCT affectedClass.fqn) AS classOwnerFqns
+}
+CALL {
+  WITH $ownerFqns AS ownerFqns
+  MATCH (changedInterface:Interface {project: $project})
+  WHERE changedInterface.fqn IN ownerFqns
+  MATCH (affectedInterface:Interface {project: $project})-[:EXTENDS*0..]->(changedInterface)
+  RETURN collect(DISTINCT affectedInterface.fqn) AS interfaceOwnerFqns
+}
+CALL {
+  WITH $ownerFqns AS ownerFqns
+  MATCH (changedInterface:Interface {project: $project})
+  WHERE changedInterface.fqn IN ownerFqns
+  MATCH (affectedClass:Class {project: $project})-[:EXTENDS*0..]->(:Class {project: $project})-[:IMPLEMENTS]->(:Interface {project: $project})-[:EXTENDS*0..]->(changedInterface)
+  RETURN collect(DISTINCT affectedClass.fqn) AS implementorOwnerFqns
+}
+WITH classOwnerFqns + interfaceOwnerFqns + implementorOwnerFqns AS affectedOwnerFqns
+CALL {
+  WITH $callerSignatures AS callerSignatures
+  UNWIND callerSignatures AS callerSignature
+  MATCH (pending:PendingCall {callerSignature: callerSignature, project: $project})
+  RETURN pending
+  UNION
+  WITH affectedOwnerFqns
+  UNWIND affectedOwnerFqns AS ownerFqn
+  MATCH (pending:PendingCall {calleeOwnerFqn: ownerFqn, project: $project})
+  RETURN pending
+  UNION
+  MATCH (pending:PendingCall {calleeOwnerFqn: '', project: $project})
+  WHERE coalesce(pending.allowNameOnly, false) = true
+  RETURN pending
+}
+WITH DISTINCT pending
 MATCH (caller:Method {signature: pending.callerSignature, project: $project})
-WITH pending, caller,
-     pending.callerSignature IN $callerSignatures AS callerChanged,
-     pending.calleeOwnerFqn IN $ownerFqns AS ownerChanged
-OPTIONAL MATCH (pendingClass:Class {fqn: pending.calleeOwnerFqn, project: $project})-[:EXTENDS*1..]->(changedClass:Class {project: $project})
-WHERE changedClass.fqn IN $ownerFqns
-  AND NOT callerChanged
-  AND NOT ownerChanged
-OPTIONAL MATCH (pendingInterface:Interface {fqn: pending.calleeOwnerFqn, project: $project})-[:EXTENDS*1..]->(changedInterface:Interface {project: $project})
-WHERE changedInterface.fqn IN $ownerFqns
-  AND NOT callerChanged
-  AND NOT ownerChanged
-OPTIONAL MATCH (pendingImplementor:Class {fqn: pending.calleeOwnerFqn, project: $project})-[:EXTENDS*0..]->(:Class {project: $project})-[:IMPLEMENTS]->(:Interface {project: $project})-[:EXTENDS*0..]->(changedImplementedInterface:Interface {project: $project})
-WHERE changedImplementedInterface.fqn IN $ownerFqns
-  AND NOT callerChanged
-  AND NOT ownerChanged
-WITH pending, caller, callerChanged, ownerChanged,
-     count(DISTINCT changedClass) AS changedClassAncestors,
-     count(DISTINCT changedInterface) AS changedInterfaceAncestors,
-     count(DISTINCT changedImplementedInterface) AS changedImplementedInterfaces
-WHERE callerChanged
-  OR ownerChanged
-  OR changedClassAncestors > 0
-  OR changedInterfaceAncestors > 0
-  OR changedImplementedInterfaces > 0
-  OR (pending.calleeOwnerFqn = '' AND coalesce(pending.allowNameOnly, false) = true)
 OPTIONAL MATCH (owner {fqn: pending.calleeOwnerFqn, project: $project})-[:DECLARES]->(directCallee:Method {name: pending.calleeName, project: $project})
 WITH pending, caller, coalesce(pending.count, 1) AS callCount, collect(DISTINCT directCallee) AS directCandidates
 OPTIONAL MATCH classPath = (classOwner:Class {fqn: pending.calleeOwnerFqn, project: $project})-[:EXTENDS*1..]->(declClass:Class {project: $project})-[:DECLARES]->(classCallee:Method {name: pending.calleeName, project: $project})
