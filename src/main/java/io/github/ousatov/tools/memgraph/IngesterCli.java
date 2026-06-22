@@ -107,6 +107,14 @@ public final class IngesterCli implements Callable<Integer> {
   private int threads;
 
   @Option(
+      names = {"--module-batch-size"},
+      description =
+          "Maximum JS/TS or Python files passed to one analyzer subprocess. Larger values reduce "
+              + "subprocess startup overhead for large module projects.")
+  @SuppressWarnings(Const.Warnings.UNUSED)
+  private Integer moduleBatchSize;
+
+  @Option(
       names = {Const.Cli.CLASSPATH},
       defaultValue = Const.Symbols.EMPTY,
       description =
@@ -284,6 +292,10 @@ public final class IngesterCli implements Callable<Integer> {
       log.error("--project is required");
       return false;
     }
+    if (moduleBatchSize != null && moduleBatchSize < 1) {
+      log.error("--module-batch-size must be >= 1 (got {})", moduleBatchSize);
+      return false;
+    }
     return true;
   }
 
@@ -355,7 +367,8 @@ public final class IngesterCli implements Callable<Integer> {
           "Enabled source language adapters: {}",
           languageAdapters.stream().map(LanguageAdapter::displayName).toList());
       IngestionOrchestrator orchestrator =
-          new IngestionOrchestrator(sourceRoot, project, threads, driver, languageAdapters);
+          new IngestionOrchestrator(
+              sourceRoot, project, threads, resolvedModuleBatchSize(), driver, languageAdapters);
       var settings =
           new Settings(
               wipeAllData,
@@ -376,6 +389,12 @@ public final class IngesterCli implements Callable<Integer> {
     }
     log.info("Ingestion complete for project '{}'.", project);
     return 0;
+  }
+
+  private int resolvedModuleBatchSize() {
+    return moduleBatchSize == null
+        ? IngestionOrchestrator.DEFAULT_MODULE_BATCH_SIZE
+        : moduleBatchSize;
   }
 
   private record SelectedRuntimeModes(RuntimeMode js, RuntimeMode python, RuntimeMode ctags) {}
@@ -405,6 +424,7 @@ public final class IngesterCli implements Callable<Integer> {
         || wipe.memoryRag
         || hasMatchedOption(Const.Cli.THREADS)
         || hasMatchedOption(Const.Cli.THREADS_SHORT)
+        || hasMatchedOption("--module-batch-size")
         || hasMatchedOption(Const.Cli.USER)
         || hasMatchedOption(Const.Cli.USER_SHORT)
         || hasMatchedOption(Const.Cli.PASS)

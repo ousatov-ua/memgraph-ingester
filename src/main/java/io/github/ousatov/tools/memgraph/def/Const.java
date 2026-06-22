@@ -306,10 +306,6 @@ public final class Const {
     public static final String CYPHER_DELETE_STALE_JAVASCRIPT_OWNERS_FOR_FILE =
         action("Js/delete-stale-owners-for-file.cypher");
 
-    /** Deletes empty JavaScript/TypeScript package nodes left after stale owner cleanup. */
-    public static final String CYPHER_DELETE_EMPTY_JAVASCRIPT_PACKAGES =
-        action("Js/delete-empty-packages.cypher");
-
     /** Deletes stale Python method and field declarations written under obsolete module FQNs. */
     public static final String CYPHER_DELETE_STALE_PYTHON_MEMBERS_FOR_FILE =
         action("Python/delete-stale-members-for-file.cypher");
@@ -317,10 +313,6 @@ public final class Const {
     /** Deletes stale Python owners left behind by older module FQN schemes. */
     public static final String CYPHER_DELETE_STALE_PYTHON_OWNERS_FOR_FILE =
         action("Python/delete-stale-owners-for-file.cypher");
-
-    /** Deletes empty Python package nodes left after stale owner cleanup. */
-    public static final String CYPHER_DELETE_EMPTY_PYTHON_PACKAGES =
-        action("Python/delete-empty-packages.cypher");
 
     /**
      * Resolves pending owner/name calls once all candidate owners and methods have been ingested.
@@ -464,7 +456,7 @@ public final class Const {
   /** Command line option names and aliases. */
   public static class Cli {
 
-    public static final String VERSION = "12.5.1";
+    public static final String VERSION = "12.5.2";
     public static final String USER_SHORT = "-u";
     public static final String USER = "--user";
     public static final String PASS_SHORT = "-p";

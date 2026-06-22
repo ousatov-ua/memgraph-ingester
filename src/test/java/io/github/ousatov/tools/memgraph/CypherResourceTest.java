@@ -322,8 +322,15 @@ class CypherResourceTest {
         "DETACH DELETE pending");
     assertContainsAll(
         Const.Cypher.CYPHER_RESOLVE_PENDING_CALLS_SCOPED_DIRECT,
-        "pending.callerSignature IN $callerSignatures",
-        "pending.calleeOwnerFqn IN $ownerFqns");
+        "UNWIND callerSignatures AS callerSignature",
+        "MATCH (pending:PendingCall {callerSignature: callerSignature",
+        "UNWIND ownerFqns AS ownerFqn",
+        "MATCH (pending:PendingCall {calleeOwnerFqn: ownerFqn");
+    assertContainsAll(
+        Const.Cypher.CYPHER_RESOLVE_PENDING_CALLS_SCOPED,
+        "affectedOwnerFqns",
+        "UNWIND callerSignatures AS callerSignature",
+        "UNWIND affectedOwnerFqns AS ownerFqn");
 
     assertContainsAll(
         Const.Cypher.CYPHER_UPSERT_CLASS_METHODS_BATCH,
@@ -355,6 +362,7 @@ class CypherResourceTest {
     assertContainsAll(
         tagCodeVectorLabel,
         "MATCH (chunk:CodeChunk {project: $project})",
+        "WHERE NOT chunk:__VECTOR_INDEX_LABEL__",
         "SET chunk:__VECTOR_INDEX_LABEL__",
         "RETURN count(chunk) AS count");
     assertTrue(showIndex.contains("SHOW VECTOR INDEX INFO"));
@@ -396,6 +404,7 @@ class CypherResourceTest {
     assertContainsAll(
         tagMemoryVectorLabel,
         "MATCH (chunk:MemoryChunk {project: $project})",
+        "WHERE NOT chunk:__VECTOR_INDEX_LABEL__",
         "SET chunk:__VECTOR_INDEX_LABEL__",
         "RETURN count(chunk) AS count");
     assertTrue(countMemoryChunks.contains("MATCH (chunk:MemoryChunk"));

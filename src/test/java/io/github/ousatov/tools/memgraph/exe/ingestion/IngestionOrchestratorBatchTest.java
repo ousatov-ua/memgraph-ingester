@@ -8,6 +8,7 @@ import io.github.ousatov.tools.memgraph.exe.metrics.IngestionRunStats;
 import io.github.ousatov.tools.memgraph.exe.writer.GraphWriter;
 import io.github.ousatov.tools.memgraph.vo.adapter.SourceFileDefinitions;
 import io.github.ousatov.tools.memgraph.vo.ingestion.PreparedWrite;
+import io.github.ousatov.tools.memgraph.vo.ingestion.SourceFile;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
@@ -77,6 +78,29 @@ class IngestionOrchestratorBatchTest {
     assertEquals("1", metricValue(stats, "files.failed"));
   }
 
+  @Test
+  @SuppressWarnings("unchecked")
+  void customModuleBatchSizeControlsBatchParsingGroups() throws Exception {
+    BatchAdapter adapter = new BatchAdapter();
+    IngestionOrchestrator orchestrator =
+        new IngestionOrchestrator(tempDir, "project", 1, 2, null, List.of(adapter));
+    List<SourceFile> files =
+        List.of(
+            new SourceFile(tempDir.resolve("A.js"), adapter),
+            new SourceFile(tempDir.resolve("B.js"), adapter),
+            new SourceFile(tempDir.resolve("C.js"), adapter),
+            new SourceFile(tempDir.resolve("D.js"), adapter),
+            new SourceFile(tempDir.resolve("E.js"), adapter));
+    Method preparationBatches =
+        IngestionOrchestrator.class.getDeclaredMethod("preparationBatches", List.class);
+    preparationBatches.setAccessible(true);
+
+    List<List<SourceFile>> batches =
+        (List<List<SourceFile>>) preparationBatches.invoke(orchestrator, files);
+
+    assertEquals(List.of(2, 2, 1), batches.stream().map(List::size).toList());
+  }
+
   private IngestionOrchestrator orchestrator() {
     return new IngestionOrchestrator(tempDir, "project", 1, null, new TestAdapter(true));
   }
@@ -121,6 +145,38 @@ class IngestionOrchestratorBatchTest {
         return false;
       }
       writer.upsertFile(file, SourceLanguage.JAVA);
+      return true;
+    }
+  }
+
+  private record BatchAdapter() implements LanguageAdapter<String> {
+    @Override
+    public SourceLanguage language() {
+      return SourceLanguage.JAVASCRIPT;
+    }
+
+    @Override
+    public boolean accepts(Path file) {
+      return true;
+    }
+
+    @Override
+    public Optional<String> parse(Path file) {
+      return Optional.of(file.toString());
+    }
+
+    @Override
+    public boolean supportsBatchParsing() {
+      return true;
+    }
+
+    @Override
+    public SourceFileDefinitions collectDefinitions(String parsed) {
+      return SourceFileDefinitions.empty();
+    }
+
+    @Override
+    public boolean write(GraphWriter writer, Path file, String parsed) {
       return true;
     }
   }

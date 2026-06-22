@@ -1295,8 +1295,21 @@ class GraphWriterIT {
             .asLong();
 
     assertEquals(1, row.get("currentModules").asLong());
-    assertEquals(0, row.get("legacyPackages").asLong());
+    assertEquals(1, row.get("legacyPackages").asLong());
     assertEquals(0, legacyNodes);
+
+    writer.deleteEmptyPackages();
+
+    long legacyPackages =
+        session
+            .run(
+                "MATCH (legacyPkg:Package {name: $legacyPkg, project: $p}) "
+                    + "RETURN count(legacyPkg) AS legacyPackages",
+                Map.of("legacyPkg", legacyPkg, "p", PROJECT))
+            .single()
+            .get("legacyPackages")
+            .asLong();
+    assertEquals(0, legacyPackages);
   }
 
   @Test

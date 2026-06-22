@@ -132,21 +132,19 @@ public final class SourceLanguage {
       return Optional.of(
           new StaleModuleDefinitionCypher(
               Cypher.CYPHER_DELETE_STALE_JAVASCRIPT_MEMBERS_FOR_FILE,
-              Cypher.CYPHER_DELETE_STALE_JAVASCRIPT_OWNERS_FOR_FILE,
-              Cypher.CYPHER_DELETE_EMPTY_JAVASCRIPT_PACKAGES));
+              Cypher.CYPHER_DELETE_STALE_JAVASCRIPT_OWNERS_FOR_FILE));
     }
     if (PYTHON.equals(this)) {
       return Optional.of(
           new StaleModuleDefinitionCypher(
               Cypher.CYPHER_DELETE_STALE_PYTHON_MEMBERS_FOR_FILE,
-              Cypher.CYPHER_DELETE_STALE_PYTHON_OWNERS_FOR_FILE,
-              Cypher.CYPHER_DELETE_EMPTY_PYTHON_PACKAGES));
+              Cypher.CYPHER_DELETE_STALE_PYTHON_OWNERS_FOR_FILE));
     }
     return Optional.empty();
   }
 
-  /** Triplet of Cypher queries that purge legacy module-FQN-keyed declarations for one file. */
-  public record StaleModuleDefinitionCypher(String members, String owners, String emptyPackages) {}
+  /** Cypher queries that purge legacy module-FQN-keyed declarations for one file. */
+  public record StaleModuleDefinitionCypher(String members, String owners) {}
 
   @Override
   public boolean equals(Object other) {

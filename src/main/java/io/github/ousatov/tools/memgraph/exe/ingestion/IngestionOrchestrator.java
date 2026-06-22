@@ -90,11 +90,12 @@ public final class IngestionOrchestrator {
       Math.max(1, AppConfig.intValue("ingestion.file-transaction-batch-size", 16));
   private static final int STORED_STATE_BATCH_SIZE =
       Math.max(1, AppConfig.intValue("ingestion.stored-state-batch-size", 5000));
-  private static final int MODULE_BATCH_SIZE =
+  public static final int DEFAULT_MODULE_BATCH_SIZE =
       Math.max(1, AppConfig.intValue("analyzers.module-batch-size", 32));
   private final Path sourceRoot;
   private final String project;
   private final int threads;
+  private final int moduleBatchSize;
   private final Driver driver;
   private final List<LanguageAdapter<?>> languageAdapters;
   private final WatchSession watchSession = new WatchSession(this);
@@ -114,7 +115,13 @@ public final class IngestionOrchestrator {
    */
   public IngestionOrchestrator(
       Path sourceRoot, String project, int threads, Driver driver, ParseService parseService) {
-    this(sourceRoot, project, threads, driver, List.of(new JavaLanguageAdapter(parseService)));
+    this(
+        sourceRoot,
+        project,
+        threads,
+        DEFAULT_MODULE_BATCH_SIZE,
+        driver,
+        List.of(new JavaLanguageAdapter(parseService)));
   }
 
   /**
@@ -130,7 +137,7 @@ public final class IngestionOrchestrator {
       int threads,
       Driver driver,
       LanguageAdapter<?> languageAdapter) {
-    this(sourceRoot, project, threads, driver, List.of(languageAdapter));
+    this(sourceRoot, project, threads, DEFAULT_MODULE_BATCH_SIZE, driver, List.of(languageAdapter));
   }
 
   /**
@@ -146,12 +153,34 @@ public final class IngestionOrchestrator {
       int threads,
       Driver driver,
       List<LanguageAdapter<?>> languageAdapters) {
+    this(sourceRoot, project, threads, DEFAULT_MODULE_BATCH_SIZE, driver, languageAdapters);
+  }
+
+  /**
+   * @param sourceRoot root directory to walk
+   * @param project project name used to scope all graph writes
+   * @param threads number of parallel worker threads (1 = sequential)
+   * @param moduleBatchSize maximum files passed to one module analyzer subprocess
+   * @param driver shared Bolt driver — not closed by this orchestrator
+   * @param languageAdapters parser and graph writer adapters to select from by file extension
+   */
+  public IngestionOrchestrator(
+      Path sourceRoot,
+      String project,
+      int threads,
+      int moduleBatchSize,
+      Driver driver,
+      List<LanguageAdapter<?>> languageAdapters) {
     if (languageAdapters.isEmpty()) {
       throw new IllegalArgumentException("At least one language adapter is required");
+    }
+    if (moduleBatchSize < 1) {
+      throw new IllegalArgumentException("moduleBatchSize must be at least 1");
     }
     this.sourceRoot = sourceRoot;
     this.project = project;
     this.threads = threads;
+    this.moduleBatchSize = moduleBatchSize;
     this.driver = driver;
     this.languageAdapters = List.copyOf(languageAdapters);
   }
@@ -1137,7 +1166,7 @@ public final class IngestionOrchestrator {
     byAdapter.forEach(
         (adapter, group) -> {
           if (adapter.supportsBatchParsing()) {
-            batches.addAll(chunks(group, MODULE_BATCH_SIZE));
+            batches.addAll(chunks(group, moduleBatchSize));
           } else {
             group.forEach(file -> batches.add(List.of(file)));
           }
