@@ -31,7 +31,9 @@ CALL {
   MATCH (pending:PendingCall {calleeOwnerFqn: ownerFqn, project: $project})
   RETURN pending
   UNION
-  MATCH (pending:PendingCall {calleeOwnerFqn: '', project: $project})
+  WITH $methodNames AS methodNames
+  UNWIND methodNames AS methodName
+  MATCH (pending:PendingCall {calleeOwnerFqn: '', calleeName: methodName, project: $project})
   WHERE coalesce(pending.allowNameOnly, false) = true
   RETURN pending
 }

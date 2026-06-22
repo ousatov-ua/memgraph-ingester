@@ -2885,6 +2885,73 @@ class GraphWriterIT {
   }
 
   @Test
+  void scopedNameOnlyPendingCallResolutionOnlyTouchesChangedMethodNames() {
+    writer.upsertFile(TEST_FILE, SourceLanguage.JAVA);
+    writer.upsertPackage(PKG, SourceLanguage.JAVA);
+    ClassOrInterfaceDeclaration firstCaller =
+        parseDecl("package com.example; public class FirstCaller { public void run() {} }");
+    ClassOrInterfaceDeclaration firstTarget =
+        parseDecl("package com.example; public class FirstTarget { public void process() {} }");
+    ClassOrInterfaceDeclaration secondCaller =
+        parseDecl("package com.example; public class SecondCaller { public void run() {} }");
+    ClassOrInterfaceDeclaration secondTarget =
+        parseDecl("package com.example; public class SecondTarget { public void refresh() {} }");
+    String firstCallerSig = "com.example.FirstCaller.run()";
+    String firstTargetSig = "com.example.FirstTarget.process()";
+    String secondCallerSig = "com.example.SecondCaller.run()";
+    String secondTargetSig = "com.example.SecondTarget.refresh()";
+
+    javaWriter.upsertType(TEST_FILE, PKG, firstCaller);
+    javaWriter.upsertType(TEST_FILE, PKG, firstTarget);
+    javaWriter.upsertType(TEST_FILE, PKG, secondCaller);
+    javaWriter.upsertType(TEST_FILE, PKG, secondTarget);
+    writer.upsertPendingCallsByName(
+        List.of(
+            PendingCallWrite.allowNameOnly(firstCallerSig, "process"),
+            PendingCallWrite.allowNameOnly(secondCallerSig, "refresh")));
+    writer
+        .stats()
+        .recordChangedDefinitions(
+            SourceFileDefinitions.of(
+                List.of(), List.of(), List.of(), List.of(firstTargetSig), List.of()));
+
+    writer.resolvePendingCallsForChangedDefinitions();
+
+    var row =
+        session
+            .run(
+                """
+                MATCH (pending:PendingCall {project: $p})
+                WITH pending ORDER BY pending.callerSignature
+                WITH collect(pending.callerSignature) AS pendingCallers
+                OPTIONAL MATCH (:Method {signature: $firstCallerSig, project: $p})
+                    -[firstCall:CALLS]->
+                    (:Method {signature: $firstTargetSig, project: $p})
+                WITH pendingCallers, count(DISTINCT firstCall) AS firstCalls
+                OPTIONAL MATCH (:Method {signature: $secondCallerSig, project: $p})
+                    -[secondCall:CALLS]->
+                    (:Method {signature: $secondTargetSig, project: $p})
+                RETURN firstCalls, count(DISTINCT secondCall) AS secondCalls, pendingCallers
+                """,
+                Map.of(
+                    "p",
+                    PROJECT,
+                    "firstCallerSig",
+                    firstCallerSig,
+                    "firstTargetSig",
+                    firstTargetSig,
+                    "secondCallerSig",
+                    secondCallerSig,
+                    "secondTargetSig",
+                    secondTargetSig))
+            .single();
+
+    assertEquals(1, row.get("firstCalls").asLong());
+    assertEquals(0, row.get("secondCalls").asLong());
+    assertEquals(List.of(secondCallerSig), row.get("pendingCallers").asList());
+  }
+
+  @Test
   void scopedPendingCallResolutionIncludesChangedClassDescendants() {
     writer.upsertFile(TEST_FILE, SourceLanguage.JAVA);
     writer.upsertPackage(PKG, SourceLanguage.JAVA);

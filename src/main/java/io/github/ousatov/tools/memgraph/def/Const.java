@@ -682,6 +682,7 @@ public final class Const {
     public static final String INTERFACE_FQNS = "interfaceFqns";
     public static final String ANNOTATION_FQNS = "annotationFqns";
     public static final String METHOD_SIGNATURES = "methodSignatures";
+    public static final String METHOD_NAMES = "methodNames";
     public static final String FIELD_FQNS = "fieldFqns";
     public static final String FRAMEWORK = "framework";
     public static final String END_LINE = "endLine";

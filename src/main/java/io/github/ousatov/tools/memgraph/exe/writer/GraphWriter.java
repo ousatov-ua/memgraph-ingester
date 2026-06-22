@@ -239,12 +239,19 @@ public final class GraphWriter {
   /** Resolves deferred owner/name call records touched by successful file writes. */
   public void resolvePendingCallsForChangedDefinitions() {
     List<String> callerSignatures = stats.changedCallerSignatures();
+    List<String> methodNames = stats.changedMethodNames();
     List<String> ownerFqns = stats.changedOwnerFqns();
     if (callerSignatures.isEmpty() && ownerFqns.isEmpty()) {
       return;
     }
     Map<String, Object> params =
-        Map.of(Params.CALLER_SIGNATURES, callerSignatures, Params.OWNER_FQNS, ownerFqns);
+        Map.of(
+            Params.CALLER_SIGNATURES,
+            callerSignatures,
+            Params.METHOD_NAMES,
+            methodNames,
+            Params.OWNER_FQNS,
+            ownerFqns);
     cypher.run(Cypher.CYPHER_RESOLVE_PENDING_CALLS_SCOPED_DIRECT, params);
     cypher.run(Cypher.CYPHER_RESOLVE_PENDING_CALLS_SCOPED, params);
   }

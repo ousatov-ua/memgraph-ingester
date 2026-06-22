@@ -570,7 +570,7 @@ public final class IngestionOrchestrator {
   }
 
   void refreshChunkEmbeddings(GraphWriter writer, boolean watchMode) {
-    refreshChunkEmbeddings(writer, watchMode, watchMode);
+    refreshChunkEmbeddings(writer, watchMode, true);
   }
 
   void refreshChunkEmbeddings(GraphWriter writer, boolean watchMode, boolean codeDirtyOnly) {
@@ -889,6 +889,9 @@ public final class IngestionOrchestrator {
   }
 
   private boolean shouldRetainExistingSourcePath(Path path) {
+    if (LanguageAdapter.isInSkippedSourceDirectory(LanguageAdapter.localPath(sourceRoot, path))) {
+      return false;
+    }
     return adapterFor(path).isPresent() || adapterForDeletedPath(path).isEmpty();
   }
 
