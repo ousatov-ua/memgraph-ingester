@@ -164,9 +164,7 @@ public final class CtagsLanguageAdapter implements LanguageAdapter<CtagsAnalysis
         || isInSkippedDirectory(localFile)) {
       return false;
     }
-    return detectedLanguage(file)
-        .filter(CtagsLanguageAdapter::isFallbackProgrammingLanguage)
-        .isPresent();
+    return detectedFallbackLanguage(file).isPresent();
   }
 
   @Override
@@ -179,11 +177,18 @@ public final class CtagsLanguageAdapter implements LanguageAdapter<CtagsAnalysis
 
   @Override
   public Optional<CtagsAnalysis> parse(Path file) {
-    if (!accepts(file)) {
+    Path localFile = sourceRootLocal(file);
+    if (isFirstClassSource(localFile)
+        || isNonCodeSource(localFile)
+        || isInSkippedDirectory(localFile)) {
+      return Optional.empty();
+    }
+    Optional<SourceLanguage> language = detectedFallbackLanguage(file);
+    if (language.isEmpty()) {
       return Optional.empty();
     }
     try {
-      return Optional.of(analyzer.analyze(absolute(file)));
+      return Optional.of(analyzer.analyze(absolute(file), language.get()));
     } catch (RuntimeException e) {
       log.warn("Failed to parse {} with ctags: {}", file, e.getMessage());
       return Optional.empty();
@@ -383,6 +388,10 @@ public final class CtagsLanguageAdapter implements LanguageAdapter<CtagsAnalysis
       detectedLanguages.remove(absoluteFile);
       throw e;
     }
+  }
+
+  private Optional<SourceLanguage> detectedFallbackLanguage(Path file) {
+    return detectedLanguage(file).filter(CtagsLanguageAdapter::isFallbackProgrammingLanguage);
   }
 
   private Path absolute(Path file) {

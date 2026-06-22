@@ -161,6 +161,22 @@ class CtagsLanguageAdapterTest {
   }
 
   @Test
+  void reusesDetectedLanguageWhenParsingDiscoveredFile() throws IOException {
+    assumeFalse(isWindows(), "fake executable script is POSIX-only");
+    Path sourceRoot = tempDir.resolve("repo");
+    Path counter = tempDir.resolve("print-language-count");
+    CtagsLanguageAdapter adapter = adapterWithCountingFakeCtags(sourceRoot, "Ruby", counter);
+    Path rubyFile = sourceRoot.resolve("service.rb");
+    Files.createDirectories(sourceRoot);
+    Files.writeString(rubyFile, "class Service\nend\n");
+
+    assertIterableEquals(List.of(rubyFile), adapter.discoverFiles(sourceRoot));
+    assertTrue(adapter.parse(rubyFile).isPresent());
+
+    assertEquals("1", Files.readString(counter).strip());
+  }
+
+  @Test
   void discoversFilesWhenSourceRootParentHasSkippedDirectoryName() throws IOException {
     assumeFalse(isWindows(), "fake executable script is POSIX-only");
     Path sourceRoot = tempDir.resolve("build").resolve("repo");
@@ -478,6 +494,51 @@ class CtagsLanguageAdapterTest {
     return new CtagsLanguageAdapter(sourceRoot, new CtagsAnalyzer(sourceRoot, runtime));
   }
 
+  private CtagsLanguageAdapter adapterWithCountingFakeCtags(
+      Path sourceRoot, String language, Path counter) throws IOException {
+    Path cacheRoot = tempDir.resolve("runtime");
+    Path executable = cachedExecutable(cacheRoot, "counting");
+    Files.createDirectories(executable.getParent());
+    Files.writeString(
+        executable,
+        """
+        #!/bin/sh
+        counter=%s
+        last=""
+        for arg in "$@"; do
+          last="$arg"
+          if [ "$arg" = "--print-language" ]; then
+            print_language=1
+          fi
+          if [ "$arg" = "--fields=+nKlsSe" ]; then
+            fields_seen=1
+          fi
+        done
+        if [ "$print_language" = "1" ]; then
+            count=0
+            if [ -f "$counter" ]; then
+              count=$(cat "$counter")
+            fi
+            count=$((count + 1))
+            printf '%%s' "$count" > "$counter"
+            echo "$last: %s"
+            exit 0
+        fi
+        if [ "$fields_seen" != "1" ]; then
+            echo "missing end-line field" >&2
+            exit 2
+        fi
+        cat <<'JSON'
+        {"_type":"tag","name":"Service","path":"service.rb","line":1,"end":2,"kind":"class"}
+        JSON
+        """
+            .formatted(shellSingleQuoted(counter), language));
+    executable.toFile().setExecutable(true, true);
+    ManagedCtagsRuntime runtime =
+        new ManagedCtagsRuntime(cacheRoot, "counting", RuntimeMode.OFFLINE);
+    return new CtagsLanguageAdapter(sourceRoot, new CtagsAnalyzer(sourceRoot, runtime));
+  }
+
   private static Path cachedExecutable(Path cacheRoot, String version) {
     return cacheRoot
         .resolve("ctags")
@@ -501,6 +562,10 @@ class CtagsLanguageAdapterTest {
 
   private static boolean isWindows() {
     return System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win");
+  }
+
+  private static String shellSingleQuoted(Path path) {
+    return "'" + path.toString().replace("'", "'\\''") + "'";
   }
 
   private static void deleteRecursively(Path root) throws IOException {
