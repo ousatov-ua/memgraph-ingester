@@ -50,7 +50,7 @@ public final class JsLanguageAdapter extends AbstractModuleLanguageAdapter<JsAna
   public boolean accepts(Path file) {
     String path = file.toString().replace('\\', '/');
     String lower = path.toLowerCase(Locale.ROOT);
-    if (isInNodeModules(file)) {
+    if (LanguageAdapter.isInSkippedSourceDirectory(file)) {
       return false;
     }
     return EXTENSIONS.stream().anyMatch(lower::endsWith);
@@ -58,7 +58,7 @@ public final class JsLanguageAdapter extends AbstractModuleLanguageAdapter<JsAna
 
   @Override
   public boolean shouldVisitDirectory(Path directory) {
-    return LanguageAdapter.shouldVisitSourceDirectory(directory) && !isInNodeModules(directory);
+    return LanguageAdapter.shouldVisitSourceDirectory(directory);
   }
 
   @Override
@@ -183,14 +183,5 @@ public final class JsLanguageAdapter extends AbstractModuleLanguageAdapter<JsAna
   protected boolean isClassDefinition(
       io.github.ousatov.tools.memgraph.vo.analysis.module.TypeDecl type) {
     return Params.CLASS.equals(type.kind()) || Params.ENUM.equals(type.kind());
-  }
-
-  private static boolean isInNodeModules(Path path) {
-    for (Path part : path) {
-      if (Const.Files.NODE_MODULES.equals(part.toString())) {
-        return true;
-      }
-    }
-    return false;
   }
 }

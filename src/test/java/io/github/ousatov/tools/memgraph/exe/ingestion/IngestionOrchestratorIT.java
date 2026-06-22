@@ -1158,11 +1158,11 @@ class IngestionOrchestratorIT {
 
     assertEquals(0, failures);
     assertTrue(fileExistsInGraph(currentProject, appFile));
-    assertTrue(fileExistsInGraph(currentProject, buildJavaFile));
+    assertFalse(fileExistsInGraph(currentProject, buildJavaFile));
     assertFalse(fileExistsInGraph(currentProject, buildPythonFile));
     assertFalse(fileExistsInGraph(currentProject, targetJavaFile));
     assertFalse(fileExistsInGraph(currentProject, targetPythonFile));
-    assertTrue(fileExistsInGraph(currentProject, venvJavaFile));
+    assertFalse(fileExistsInGraph(currentProject, venvJavaFile));
   }
 
   @Test

@@ -112,23 +112,7 @@ public final class CtagsLanguageAdapter implements LanguageAdapter<CtagsAnalysis
           "toml",
           "xml",
           "yaml");
-  private static final Set<String> SKIPPED_DIRECTORIES =
-      Set.of(
-          ".git",
-          ".hg",
-          ".svn",
-          Const.Files.NODE_MODULES,
-          Const.Files.PYCACHE,
-          Const.Files.VIRTUAL_ENV,
-          Const.Files.VENV,
-          Const.Files.TOX,
-          Const.Files.NOX,
-          Const.Files.SITE_PACKAGES,
-          Const.Files.BUILD,
-          Const.Files.DIST,
-          Const.Files.TARGET,
-          Const.Files.OUT,
-          "vendor");
+  private static final Set<String> SKIPPED_DIRECTORIES = Set.of("vendor");
 
   private final Path sourceRoot;
   private final CtagsAnalyzer analyzer;
@@ -448,6 +432,9 @@ public final class CtagsLanguageAdapter implements LanguageAdapter<CtagsAnalysis
   }
 
   private static boolean isInSkippedDirectory(Path path) {
+    if (LanguageAdapter.isInSkippedSourceDirectory(path)) {
+      return true;
+    }
     for (Path part : path) {
       if (SKIPPED_DIRECTORIES.contains(part.toString())) {
         return true;

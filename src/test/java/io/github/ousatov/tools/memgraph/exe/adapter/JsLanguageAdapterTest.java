@@ -43,6 +43,14 @@ class JsLanguageAdapterTest {
   }
 
   @Test
+  void rejectsCommonGeneratedAndRepositoryDirectories() {
+    assertFalse(adapter.accepts(Path.of(".git/hooks/index.js")));
+    assertFalse(adapter.accepts(Path.of("build/app.js")));
+    assertFalse(adapter.accepts(Path.of("dist/app.js")));
+    assertFalse(adapter.accepts(Path.of("out/app.js")));
+  }
+
+  @Test
   void discoverFilesSkipsNodeModulesSubtree() throws IOException {
     Path appFile = tempDir.resolve("src/app.ts");
     Path dependencyFile = tempDir.resolve("node_modules/pkg/index.ts");
@@ -62,6 +70,21 @@ class JsLanguageAdapterTest {
     Files.createDirectories(targetFile.getParent());
     Files.writeString(appFile, "export const app = 1;");
     Files.writeString(targetFile, "export const generated = 1;");
+
+    assertIterableEquals(List.of(appFile), adapter.discoverFiles(tempDir));
+  }
+
+  @Test
+  void discoverFilesSkipsCommonGeneratedSubtrees() throws IOException {
+    Path appFile = tempDir.resolve("src/app.ts");
+    Path buildFile = tempDir.resolve("build/app.js");
+    Path gitFile = tempDir.resolve(".git/hooks/index.js");
+    Files.createDirectories(appFile.getParent());
+    Files.createDirectories(buildFile.getParent());
+    Files.createDirectories(gitFile.getParent());
+    Files.writeString(appFile, "export const app = 1;");
+    Files.writeString(buildFile, "export const generated = 1;");
+    Files.writeString(gitFile, "export const hook = 1;");
 
     assertIterableEquals(List.of(appFile), adapter.discoverFiles(tempDir));
   }
