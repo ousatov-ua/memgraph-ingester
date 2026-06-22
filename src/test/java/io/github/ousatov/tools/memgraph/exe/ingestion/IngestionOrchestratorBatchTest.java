@@ -1,15 +1,11 @@
 package io.github.ousatov.tools.memgraph.exe.ingestion;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.ousatov.tools.memgraph.exe.adapter.LanguageAdapter;
 import io.github.ousatov.tools.memgraph.exe.adapter.SourceLanguage;
 import io.github.ousatov.tools.memgraph.exe.metrics.IngestionRunStats;
 import io.github.ousatov.tools.memgraph.exe.writer.GraphWriter;
-import io.github.ousatov.tools.memgraph.vo.EmbeddingSettings;
-import io.github.ousatov.tools.memgraph.vo.Settings;
 import io.github.ousatov.tools.memgraph.vo.adapter.SourceFileDefinitions;
 import io.github.ousatov.tools.memgraph.vo.ingestion.PreparedWrite;
 import io.github.ousatov.tools.memgraph.vo.ingestion.SourceFile;
@@ -105,43 +101,8 @@ class IngestionOrchestratorBatchTest {
     assertEquals(List.of(2, 2, 1), batches.stream().map(List::size).toList());
   }
 
-  @Test
-  void codeEmbeddingDirtyOnlyIsDisabledOnlyForCodeWipes() {
-    assertTrue(IngestionOrchestrator.codeEmbeddingDirtyOnly(Settings.def()));
-    assertTrue(IngestionOrchestrator.codeEmbeddingDirtyOnly(memoryWipeSettings()));
-    assertFalse(IngestionOrchestrator.codeEmbeddingDirtyOnly(Settings.wipeAllAndApplySchema()));
-    assertFalse(IngestionOrchestrator.codeEmbeddingDirtyOnly(Settings.wipeProjCodeOnly()));
-    assertFalse(IngestionOrchestrator.codeEmbeddingDirtyOnly(codeRagWipeSettings()));
-  }
-
   private IngestionOrchestrator orchestrator() {
     return new IngestionOrchestrator(tempDir, "project", 1, null, new TestAdapter(true));
-  }
-
-  private static Settings codeRagWipeSettings() {
-    return new Settings(
-        false,
-        false,
-        false,
-        false,
-        true,
-        false,
-        false,
-        EmbeddingSettings.disabled(),
-        EmbeddingSettings.disabled());
-  }
-
-  private static Settings memoryWipeSettings() {
-    return new Settings(
-        false,
-        false,
-        false,
-        false,
-        false,
-        true,
-        false,
-        EmbeddingSettings.disabled(),
-        EmbeddingSettings.disabled());
   }
 
   private PreparedWrite<String> preparedWrite(String name, TestAdapter adapter) throws Exception {

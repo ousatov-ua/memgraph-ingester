@@ -91,6 +91,7 @@ final class ChunkEmbeddingRefresher {
     if (useDirty) {
       dirtyCount = countDirty(target);
       if (dirtyCount == 0
+          && !settings.required()
           && refreshStateCurrent(settings, target, indexName, indexLabel, dimension)
           && vectorIndexMatchesFastPath(settings, target, indexName, indexLabel, dimension)) {
         return new EmbeddingRefreshResult(0L, dimension);
@@ -106,12 +107,10 @@ final class ChunkEmbeddingRefresher {
       verifyEmbeddingReadiness(settings, target, indexName, indexLabel, dimension);
     }
 
-    boolean fullStaleBackfill = !useDirty || clearedObsoleteEmbeddings > 0;
-    if (useDirty) {
-      if (dirtyCount == 0 && !fullStaleBackfill) {
-        updateRefreshState(settings, target, indexName, indexLabel, dimension);
-        return new EmbeddingRefreshResult(0L, dimension);
-      }
+    boolean fullStaleBackfill = !useDirty || clearedObsoleteEmbeddings > 0 || settings.required();
+    if (useDirty && dirtyCount == 0 && !fullStaleBackfill) {
+      updateRefreshState(settings, target, indexName, indexLabel, dimension);
+      return new EmbeddingRefreshResult(0L, dimension);
     }
 
     long markedStale =

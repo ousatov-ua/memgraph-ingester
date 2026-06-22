@@ -116,7 +116,7 @@ class ChunkEmbeddingRefresherTest {
   }
 
   @Test
-  void requiredDirtyOnlyRefreshDoesNotRunStaleBackfillWhenModelIsUnchanged() {
+  void requiredDirtyOnlyRefreshRunsStaleBackfillWhenModelIsUnchanged() {
     int dimension = 128;
     EmbeddingSettings settings =
         new EmbeddingSettings(
@@ -130,7 +130,7 @@ class ChunkEmbeddingRefresherTest {
 
     assertEquals(1, result.embedded());
     assertEquals(1, cypher.countDirtyReads());
-    assertEquals(0, cypher.markStaleReads());
+    assertEquals(2, cypher.markStaleReads());
   }
 
   @Test
@@ -138,7 +138,7 @@ class ChunkEmbeddingRefresherTest {
     int dimension = 128;
     EmbeddingSettings settings =
         new EmbeddingSettings(
-            true, "idx", "model", "cos", "f16", 100, 48, "", dimension, 0, 0, 0, 1000, true);
+            true, "idx", "model", "cos", "f16", 100, 48, "", dimension, 0, 0, 0, 1000, false);
     NoDirtyCurrentStateCypherExecutor cypher = new NoDirtyCurrentStateCypherExecutor(dimension);
     ChunkEmbeddingRefresher refresher = new ChunkEmbeddingRefresher(cypher, "project");
     refresher.seedDimension(settings, dimension);
@@ -298,7 +298,7 @@ class ChunkEmbeddingRefresherTest {
       }
       if (cypher.equals(EmbeddingTarget.CODE.countStaleCypher())) {
         markStaleReads++;
-        throw new AssertionError("dirty-only refresh should not run stale backfill");
+        return mapper.apply(countResult(markStaleReads == 1 ? 1 : 0));
       }
       if (cypher.equals(EmbeddingTarget.CODE.batchCypher())) {
         return mapper.apply(fakeResult(List.of("chunk-1"), dimension, true));

@@ -394,7 +394,7 @@ public final class IngestionOrchestrator {
       if (postScanProgress != null) {
         postScanProgress.discard();
       }
-      refreshChunkEmbeddings(postWriter, false, codeEmbeddingDirtyOnly(settings));
+      refreshChunkEmbeddings(postWriter, false);
       ConsoleOutput.finishStatus();
       printMetrics(session);
       printPerformance(stats);
@@ -598,10 +598,6 @@ public final class IngestionOrchestrator {
         (w, listener) -> w.refreshMemoryChunkEmbeddings(memoryEmbeddings, listener),
         "MemoryChunk rows were synced; use --no-memory-embeddings to suppress this warning or run"
             + " a Memgraph image with embeddings and vector-index support.");
-  }
-
-  static boolean codeEmbeddingDirtyOnly(Settings settings) {
-    return !(settings.wipeAllData() || settings.wipeProjectCode() || settings.wipeCodeRag());
   }
 
   private void refreshEmbeddingType(
