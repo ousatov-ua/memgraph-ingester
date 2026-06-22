@@ -98,14 +98,12 @@ class SourceLanguageTest {
     assertTrue(jsCypher.isPresent());
     assertEquals(Cypher.CYPHER_DELETE_STALE_JAVASCRIPT_MEMBERS_FOR_FILE, jsCypher.get().members());
     assertEquals(Cypher.CYPHER_DELETE_STALE_JAVASCRIPT_OWNERS_FOR_FILE, jsCypher.get().owners());
-    assertEquals(Cypher.CYPHER_DELETE_EMPTY_JAVASCRIPT_PACKAGES, jsCypher.get().emptyPackages());
 
     Optional<StaleModuleDefinitionCypher> pyCypher =
         SourceLanguage.PYTHON.staleModuleDefinitionsCypher();
     assertTrue(pyCypher.isPresent());
     assertEquals(Cypher.CYPHER_DELETE_STALE_PYTHON_MEMBERS_FOR_FILE, pyCypher.get().members());
     assertEquals(Cypher.CYPHER_DELETE_STALE_PYTHON_OWNERS_FOR_FILE, pyCypher.get().owners());
-    assertEquals(Cypher.CYPHER_DELETE_EMPTY_PYTHON_PACKAGES, pyCypher.get().emptyPackages());
 
     assertFalse(SourceLanguage.JAVA.staleModuleDefinitionsCypher().isPresent());
     assertFalse(SourceLanguage.fromCtagsName("Ruby").staleModuleDefinitionsCypher().isPresent());

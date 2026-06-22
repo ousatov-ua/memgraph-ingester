@@ -355,7 +355,6 @@ public final class GraphWriter {
                       currentModuleFqn + Const.Symbols.DOT);
               cypher.run(queries.members(), params);
               cypher.run(queries.owners(), params);
-              cypher.run(queries.emptyPackages(), Map.of());
             });
   }
 
