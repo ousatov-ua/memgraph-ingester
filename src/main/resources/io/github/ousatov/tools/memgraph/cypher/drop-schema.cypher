@@ -148,6 +148,7 @@ DROP INDEX ON :CodeChunk(embeddingModel);
 DROP INDEX ON :CodeChunk(embeddingDimensions);
 DROP INDEX ON :CodeChunk(embeddingDirty);
 DROP INDEX ON :CodeChunk(project, embeddingDirty);
+DROP INDEX ON :CodeChunk(project, path);
 DROP INDEX ON :CodeChunk(language);
 DROP INDEX ON :CodeChunk(path);
 DROP INDEX ON :CodeChunk(ownerFqn);

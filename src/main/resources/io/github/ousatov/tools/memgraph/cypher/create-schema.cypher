@@ -119,6 +119,7 @@ CREATE INDEX ON :CodeChunk(embeddingModel);
 CREATE INDEX ON :CodeChunk(embeddingDimensions);
 CREATE INDEX ON :CodeChunk(embeddingDirty);
 CREATE INDEX ON :CodeChunk(project, embeddingDirty);
+CREATE INDEX ON :CodeChunk(project, path);
 CREATE INDEX ON :CodeChunk(language);
 CREATE INDEX ON :CodeChunk(path);
 CREATE INDEX ON :CodeChunk(ownerFqn);
