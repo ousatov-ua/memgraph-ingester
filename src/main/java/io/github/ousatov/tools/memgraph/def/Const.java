@@ -273,6 +273,10 @@ public final class Const {
     public static final String CYPHER_DELETE_STALE_DEFINITIONS_FOR_FILE =
         action("delete-stale-definitions-for-file.cypher");
 
+    /** Lists method names that would be removed with a deleted source file. */
+    public static final String CYPHER_DELETED_SOURCE_FILE_METHOD_NAMES =
+        action("deleted-source-file-method-names.cypher");
+
     /** Deletes a removed source file node. */
     public static final String CYPHER_DELETE_FILE = action("delete-file.cypher");
 
@@ -287,6 +291,10 @@ public final class Const {
     /** Deletes member declarations for files no longer present in the source tree. */
     public static final String CYPHER_DELETE_MISSING_FILE_MEMBERS =
         action("delete-missing-file-members.cypher");
+
+    /** Lists method names that would be removed by missing-file cleanup. */
+    public static final String CYPHER_DELETED_MISSING_FILE_METHOD_NAMES =
+        action("deleted-missing-file-method-names.cypher");
 
     /** Deletes type declarations for files no longer present in the source tree. */
     public static final String CYPHER_DELETE_MISSING_FILE_OWNERS =

@@ -109,7 +109,6 @@ final class ChunkEmbeddingRefresher {
 
     boolean fullStaleBackfill = !useDirty || clearedObsoleteEmbeddings > 0 || settings.required();
     if (useDirty && dirtyCount == 0 && !fullStaleBackfill) {
-      updateRefreshState(settings, target, indexName, indexLabel, dimension);
       return new EmbeddingRefreshResult(0L, dimension);
     }
 
@@ -125,7 +124,9 @@ final class ChunkEmbeddingRefresher {
     if (settings.required() && fullStaleBackfill) {
       verifyAllEmbeddingsCalculated(settings, target, dimension);
     }
-    updateRefreshState(settings, target, indexName, indexLabel, dimension);
+    if (fullStaleBackfill) {
+      updateRefreshState(settings, target, indexName, indexLabel, dimension);
+    }
     return new EmbeddingRefreshResult(embedded, dimension, batches);
   }
 
@@ -337,6 +338,7 @@ final class ChunkEmbeddingRefresher {
       String indexName,
       String indexLabel,
       int dimension) {
+    int capacity = vectorIndexCapacity(settings, countChunks(target));
     Optional<VectorIndexInfo> existing = vectorIndexInfo(indexName);
     if (existing.isEmpty()) {
       return false;
@@ -344,7 +346,8 @@ final class ChunkEmbeddingRefresher {
     VectorIndexInfo index = existing.get();
     return indexLabel.equals(index.label())
         && EmbeddingSettings.DEFAULT_EMBEDDING_PROPERTY.equals(index.property())
-        && vectorIndexConfigurationMatches(settings, dimension, index);
+        && vectorIndexConfigurationMatches(settings, dimension, index)
+        && index.capacity() >= capacity;
   }
 
   private void dropObsoleteVectorIndexes(

@@ -195,6 +195,11 @@ public final class IngestionRunStats {
     recordChangedDefinitions(ownerFqns, definitions.methodSignatures());
   }
 
+  /** Records method names removed by cleanup for scoped pending-call retries. */
+  public void recordDeletedMethodNames(Collection<String> methodNames) {
+    addNonBlank(changedMethodNames, methodNames);
+  }
+
   /** Returns changed caller signatures in stable order. */
   public List<String> changedCallerSignatures() {
     return changedCallerSignatures.stream().sorted().toList();
