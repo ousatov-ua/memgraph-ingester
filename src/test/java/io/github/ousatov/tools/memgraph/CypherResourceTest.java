@@ -362,6 +362,7 @@ class CypherResourceTest {
     assertContainsAll(
         tagCodeVectorLabel,
         "MATCH (chunk:CodeChunk {project: $project})",
+        "WHERE NOT chunk:__VECTOR_INDEX_LABEL__",
         "SET chunk:__VECTOR_INDEX_LABEL__",
         "RETURN count(chunk) AS count");
     assertTrue(showIndex.contains("SHOW VECTOR INDEX INFO"));
@@ -403,6 +404,7 @@ class CypherResourceTest {
     assertContainsAll(
         tagMemoryVectorLabel,
         "MATCH (chunk:MemoryChunk {project: $project})",
+        "WHERE NOT chunk:__VECTOR_INDEX_LABEL__",
         "SET chunk:__VECTOR_INDEX_LABEL__",
         "RETURN count(chunk) AS count");
     assertTrue(countMemoryChunks.contains("MATCH (chunk:MemoryChunk"));
