@@ -1374,16 +1374,16 @@ public final class IngestionOrchestrator {
     for (int attempt = 1; attempt <= FILE_TX_RETRY_ATTEMPTS; attempt++) {
       writer.beginFileTransaction();
       try {
-        boolean success = writePreparedWriteInActiveTransaction(writer, prepared);
-        if (success) {
+        PreparedWriteResult result = writePreparedWriteInActiveTransaction(writer, prepared);
+        if (result.success()) {
           writer.commitFileTransaction();
           writer.stats().recordFileTransaction(1);
-          recordCommittedWrite(writer, prepared);
+          recordCommittedWrite(writer, prepared, result.deletedMethodNames());
         } else {
           writer.stats().recordFailedFile();
           writer.rollbackFileTransaction();
         }
-        return success;
+        return result.success();
       } catch (RuntimeException e) {
         writer.rollbackFileTransaction();
         if (!GraphWriter.isRetryable(e) || attempt == FILE_TX_RETRY_ATTEMPTS) {
@@ -1426,14 +1426,19 @@ public final class IngestionOrchestrator {
     for (int attempt = 1; attempt <= FILE_TX_RETRY_ATTEMPTS; attempt++) {
       writer.beginFileTransaction();
       try {
+        List<PreparedWriteResult> results = new ArrayList<>(writes.size());
         for (PreparedWrite<?> prepared : writes) {
-          if (!writePreparedWriteInActiveTransaction(writer, prepared)) {
+          PreparedWriteResult result = writePreparedWriteInActiveTransaction(writer, prepared);
+          if (!result.success()) {
             throw new BatchWriteFailure(prepared.path());
           }
+          results.add(result);
         }
         writer.commitFileTransaction();
         writer.stats().recordFileTransaction(writes.size());
-        writes.forEach(prepared -> recordCommittedWrite(writer, prepared));
+        for (int i = 0; i < writes.size(); i++) {
+          recordCommittedWrite(writer, writes.get(i), results.get(i).deletedMethodNames());
+        }
         return 0;
       } catch (RuntimeException e) {
         writer.rollbackFileTransaction();
@@ -1457,11 +1462,13 @@ public final class IngestionOrchestrator {
         + writePreparedWriteBatch(writer, writes.subList(middle, writes.size()));
   }
 
-  private <T> boolean writePreparedWriteInActiveTransaction(
+  private <T> PreparedWriteResult writePreparedWriteInActiveTransaction(
       GraphWriter writer, PreparedWrite<T> prepared) {
+    List<String> deletedMethodNames;
     long cleanupStartedNanos = System.nanoTime();
     try {
-      writer.deleteStaleDefinitionsForFile(prepared.path(), prepared.definitions());
+      deletedMethodNames =
+          writer.deleteStaleDefinitionsForFile(prepared.path(), prepared.definitions());
     } finally {
       writer
           .stats()
@@ -1470,7 +1477,8 @@ public final class IngestionOrchestrator {
     }
     long writeStartedNanos = System.nanoTime();
     try {
-      return prepared.adapter().write(writer, prepared.path(), prepared.parsed());
+      boolean success = prepared.adapter().write(writer, prepared.path(), prepared.parsed());
+      return new PreparedWriteResult(success, deletedMethodNames);
     } finally {
       writer
           .stats()
@@ -1478,10 +1486,14 @@ public final class IngestionOrchestrator {
     }
   }
 
-  private static void recordCommittedWrite(GraphWriter writer, PreparedWrite<?> prepared) {
+  private static void recordCommittedWrite(
+      GraphWriter writer, PreparedWrite<?> prepared, Collection<String> deletedMethodNames) {
     writer.stats().recordIngestedFile();
+    writer.stats().recordDeletedMethodNames(deletedMethodNames);
     writer.stats().recordChangedDefinitions(prepared.definitions());
   }
+
+  private record PreparedWriteResult(boolean success, List<String> deletedMethodNames) {}
 
   private long sleepBeforeFileRetry(Path file, int attempt, RuntimeException e, long backoffMs) {
     long jitterMs = Math.floorMod(file.hashCode() + attempt * 31L, backoffMs);

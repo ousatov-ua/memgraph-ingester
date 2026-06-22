@@ -273,8 +273,11 @@ public final class GraphWriter {
    * declaration moved from another file does not carry stale members, annotations, or type
    * relations forward.
    */
-  public void deleteStaleDefinitionsForFile(Path file, SourceFileDefinitions definitions) {
-    deleteStaleDefinitionsForFile(staleDefinitionParams(file, definitions));
+  public List<String> deleteStaleDefinitionsForFile(Path file, SourceFileDefinitions definitions) {
+    Map<String, Object> params = staleDefinitionParams(file, definitions);
+    List<String> deletedMethodNames = deletedSourceFileMethodNames(params);
+    deleteStaleDefinitionsForFile(params);
+    return deletedMethodNames;
   }
 
   private void deleteStaleDefinitionsForFile(Map<String, Object> params) {
@@ -295,10 +298,11 @@ public final class GraphWriter {
 
   /** Deletes all graph state owned by a source file that no longer exists. */
   public void deleteSourceFile(Path file) {
-    List<String> deletedMethodNames = deletedSourceFileMethodNames(file);
+    Map<String, Object> params = staleDefinitionParams(file, SourceFileDefinitions.empty());
+    List<String> deletedMethodNames = deletedSourceFileMethodNames(params);
     runInFileTransaction(
         () -> {
-          deleteStaleDefinitionsForFile(staleDefinitionParams(file, SourceFileDefinitions.empty()));
+          deleteStaleDefinitionsForFile(params);
           deleteCodeChunksForFile(file);
           List.of(Cypher.CYPHER_DELETE_FILE, Cypher.CYPHER_DELETE_EMPTY_PACKAGES)
               .forEach(q -> cypher.runAndFlush(q, Map.of(Params.PATH, file.toString())));
@@ -506,9 +510,8 @@ public final class GraphWriter {
         Map.of(Params.MISSING_PATHS, missing, Params.RETAINED_SOURCE_TOKEN, retainedSourceToken));
   }
 
-  private List<String> deletedSourceFileMethodNames(Path file) {
-    return readMethodNames(
-        Cypher.CYPHER_DELETED_SOURCE_FILE_METHOD_NAMES, Map.of(Params.PATH, file.toString()));
+  private List<String> deletedSourceFileMethodNames(Map<String, Object> params) {
+    return readMethodNames(Cypher.CYPHER_DELETED_SOURCE_FILE_METHOD_NAMES, params);
   }
 
   private List<String> deletedMissingFileMethodNames(Map<String, Object> params) {
@@ -516,17 +519,11 @@ public final class GraphWriter {
   }
 
   private List<String> readMethodNames(String cypherText, Map<String, Object> params) {
-    return cypher.read(
-        cypherText,
-        params,
-        result ->
-            result
-                .list(theRecord -> theRecord.get(Params.NAME).asString(Const.Symbols.EMPTY))
-                .stream()
-                .filter(name -> !name.isBlank())
-                .filter(name -> !Const.Labels.INIT.equals(name))
-                .distinct()
-                .toList());
+    return cypher.readStringColumn(cypherText, params, Params.NAME).stream()
+        .filter(name -> !name.isBlank())
+        .filter(name -> !Const.Labels.INIT.equals(name))
+        .distinct()
+        .toList();
   }
 
   /** Returns standard source-root parameters (path + path-with-trailing-separator). */
