@@ -265,7 +265,7 @@ public final class IngestionOrchestrator {
                 + " state will be kept for retry.",
             failures);
       }
-      runPostProcessing(stats, postScanProgress);
+      runPostProcessing(settings, stats, postScanProgress);
       postScanProgress = null;
     } catch (RuntimeException e) {
       if (settings.watch() && WatchSession.isInterruptedFailure(e)) {
@@ -386,14 +386,15 @@ public final class IngestionOrchestrator {
     }
   }
 
-  private void runPostProcessing(IngestionRunStats stats, ConsoleProgress postScanProgress) {
+  private void runPostProcessing(
+      Settings settings, IngestionRunStats stats, ConsoleProgress postScanProgress) {
     try (Session session = driver.session()) {
       GraphWriter postWriter = new GraphWriter(session, project, stats);
       refreshDerivedGraphArtifacts(postWriter);
       if (postScanProgress != null) {
         postScanProgress.discard();
       }
-      refreshChunkEmbeddings(postWriter, false);
+      refreshChunkEmbeddings(postWriter, false, codeEmbeddingDirtyOnly(settings));
       ConsoleOutput.finishStatus();
       printMetrics(session);
       printPerformance(stats);
@@ -569,6 +570,10 @@ public final class IngestionOrchestrator {
   }
 
   void refreshChunkEmbeddings(GraphWriter writer, boolean watchMode) {
+    refreshChunkEmbeddings(writer, watchMode, watchMode);
+  }
+
+  void refreshChunkEmbeddings(GraphWriter writer, boolean watchMode, boolean codeDirtyOnly) {
     seedWarmedEmbeddingDimensions(writer, watchMode);
     if (codeEmbeddings.enabled()) {
       refreshEmbeddingType(
@@ -576,7 +581,7 @@ public final class IngestionOrchestrator {
           watchMode,
           codeEmbeddings,
           "CodeChunk",
-          (w, listener) -> w.refreshCodeChunkEmbeddings(codeEmbeddings, watchMode, listener),
+          (w, listener) -> w.refreshCodeChunkEmbeddings(codeEmbeddings, codeDirtyOnly, listener),
           "Ingestion completed; use --no-code-embeddings to suppress this warning or run a"
               + " Memgraph image with embeddings and vector-index support.");
     }
@@ -593,6 +598,10 @@ public final class IngestionOrchestrator {
         (w, listener) -> w.refreshMemoryChunkEmbeddings(memoryEmbeddings, listener),
         "MemoryChunk rows were synced; use --no-memory-embeddings to suppress this warning or run"
             + " a Memgraph image with embeddings and vector-index support.");
+  }
+
+  static boolean codeEmbeddingDirtyOnly(Settings settings) {
+    return !(settings.wipeAllData() || settings.wipeProjectCode() || settings.wipeCodeRag());
   }
 
   private void refreshEmbeddingType(

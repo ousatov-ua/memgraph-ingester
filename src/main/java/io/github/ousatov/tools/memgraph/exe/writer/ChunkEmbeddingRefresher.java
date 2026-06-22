@@ -92,31 +92,25 @@ final class ChunkEmbeddingRefresher {
       verifyEmbeddingReadiness(settings, target, indexName, indexLabel, dimension);
     }
 
+    boolean fullStaleBackfill = !useDirty || clearedObsoleteEmbeddings > 0;
     Long dirtyCount = null;
     if (useDirty) {
       dirtyCount = countDirty(target);
-      if (dirtyCount == 0 && !settings.required()) {
+      if (dirtyCount == 0 && !fullStaleBackfill) {
         return new EmbeddingRefreshResult(0L, dimension);
       }
     }
 
     long markedStale =
-        useDirty && dirtyCount != null ? dirtyCount : countStale(settings, target, dimension);
+        useDirty && !fullStaleBackfill && dirtyCount != null
+            ? dirtyCount
+            : countStale(settings, target, dimension);
     listener.onProgress(0L, markedStale);
     RefreshMarkedChunksResult refreshed =
         refreshMarkedChunksWithCount(settings, target, dimension, markedStale, listener);
     long embedded = refreshed.embedded();
     int batches = refreshed.batches();
-    if (useDirty && settings.required()) {
-      long remainingStale = countStale(settings, target, dimension);
-      RefreshMarkedChunksResult backfilled =
-          refreshMarkedChunksWithCount(
-              settings, target, dimension, remainingStale, EmbeddingProgressListener.NONE);
-      embedded += backfilled.embedded();
-      batches += backfilled.batches();
-    }
-
-    if (settings.required()) {
+    if (settings.required() && fullStaleBackfill) {
       verifyAllEmbeddingsCalculated(settings, target, dimension);
     }
     return new EmbeddingRefreshResult(embedded, dimension, batches);

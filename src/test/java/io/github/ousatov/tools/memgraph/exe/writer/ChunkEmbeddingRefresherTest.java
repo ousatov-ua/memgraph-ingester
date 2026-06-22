@@ -7,6 +7,7 @@ import io.github.ousatov.tools.memgraph.def.Const;
 import io.github.ousatov.tools.memgraph.exe.metrics.IngestionRunStats;
 import io.github.ousatov.tools.memgraph.vo.EmbeddingSettings;
 import io.github.ousatov.tools.memgraph.vo.writer.EmbeddingProgressListener;
+import io.github.ousatov.tools.memgraph.vo.writer.EmbeddingRefreshResult;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
@@ -112,6 +113,24 @@ class ChunkEmbeddingRefresherTest {
     assertEquals("batch:false:100", cypher.events().get(2));
     assertEquals("metadata:200", cypher.events().get(3));
     assertEquals(0, cypher.dirtyCount());
+  }
+
+  @Test
+  void requiredDirtyOnlyRefreshDoesNotRunStaleBackfillWhenModelIsUnchanged() {
+    int dimension = 128;
+    EmbeddingSettings settings =
+        new EmbeddingSettings(
+            true, "idx", "model", "cos", "f16", 100, 48, "", dimension, 0, 0, 0, 1000, true);
+    RequiredDirtyOnlyCypherExecutor cypher = new RequiredDirtyOnlyCypherExecutor(dimension);
+    ChunkEmbeddingRefresher refresher = new ChunkEmbeddingRefresher(cypher, "project");
+    refresher.seedDimension(settings, dimension);
+
+    EmbeddingRefreshResult result =
+        refresher.refresh(settings, EmbeddingTarget.CODE, true, EmbeddingProgressListener.NONE);
+
+    assertEquals(1, result.embedded());
+    assertEquals(1, cypher.countDirtyReads());
+    assertEquals(0, cypher.markStaleReads());
   }
 
   private static EmbeddingSettings settingsWithProcedureMemory(int procedureMemoryMb) {
@@ -220,6 +239,118 @@ class ChunkEmbeddingRefresherTest {
       events.add("batch:true:" + batchIds.size());
       return fakeResult(batchIds, 128, true);
     }
+  }
+
+  private static final class RequiredDirtyOnlyCypherExecutor extends CypherExecutor {
+
+    private final int dimension;
+    private int countDirtyReads;
+    private int markStaleReads;
+
+    RequiredDirtyOnlyCypherExecutor(int dimension) {
+      super(null, null, "project", new IngestionRunStats(0));
+      this.dimension = dimension;
+    }
+
+    @Override
+    public void run(String cypher, Map<String, Object> params) {
+      if (!cypher.equals(EmbeddingTarget.CODE.updateMetadataCypher())) {
+        throw new AssertionError("Unexpected run query: " + cypher);
+      }
+    }
+
+    @Override
+    public <T> T read(String cypher, Map<String, Object> params, Function<Result, T> mapper) {
+      if (cypher.equals(Const.Cypher.CYPHER_SHOW_VECTOR_INDEX_INFO)) {
+        return mapper.apply(vectorIndexResult());
+      }
+      if (cypher.equals(EmbeddingTarget.CODE.countChunksCypher())
+          || cypher.equals(EmbeddingTarget.CODE.clearObsoleteCypher())
+          || cypher.equals(EmbeddingTarget.CODE.countObsoleteCypher())
+          || isTagVectorIndexLabelQuery(cypher)) {
+        return mapper.apply(
+            countResult(cypher.equals(EmbeddingTarget.CODE.countChunksCypher()) ? 1 : 0));
+      }
+      if (cypher.equals(EmbeddingTarget.CODE.countDirtyCypher())) {
+        countDirtyReads++;
+        return mapper.apply(countResult(1));
+      }
+      if (cypher.equals(EmbeddingTarget.CODE.countStaleCypher())) {
+        markStaleReads++;
+        throw new AssertionError("dirty-only refresh should not run stale backfill");
+      }
+      if (cypher.equals(EmbeddingTarget.CODE.batchCypher())) {
+        return mapper.apply(fakeResult(List.of("chunk-1"), dimension, true));
+      }
+      throw new AssertionError("Unexpected read query: " + cypher);
+    }
+
+    int countDirtyReads() {
+      return countDirtyReads;
+    }
+
+    int markStaleReads() {
+      return markStaleReads;
+    }
+
+    private Result vectorIndexResult() {
+      String indexName = ChunkEmbeddingRefresher.projectVectorIndexName("idx", "project");
+      String indexLabel =
+          ChunkEmbeddingRefresher.projectVectorIndexLabel(EmbeddingTarget.CODE, "project");
+      return fakeRecordResult(
+          Map.of(
+              "index_name",
+              Values.value(indexName),
+              Const.Params.LABEL,
+              Values.value(indexLabel),
+              Const.Params.PROPERTY,
+              Values.value(EmbeddingSettings.DEFAULT_EMBEDDING_PROPERTY),
+              Const.Rag.DIMENSION,
+              Values.value(dimension),
+              Const.Rag.CAPACITY,
+              Values.value(1000),
+              Const.Rag.METRIC,
+              Values.value("cos"),
+              Const.Rag.SCALAR_KIND,
+              Values.value("f16")));
+    }
+
+    private static boolean isTagVectorIndexLabelQuery(String cypher) {
+      return cypher.contains("SET chunk:CodeChunkEmbedding_p_project_")
+          && cypher.contains("RETURN count(chunk) AS count");
+    }
+  }
+
+  private static Result countResult(long count) {
+    return fakeRecordResult(Map.of(Const.Params.COUNT, Values.value(count)));
+  }
+
+  private static Result fakeRecordResult(Map<String, org.neo4j.driver.Value> values) {
+    Record recordProxy =
+        proxy(
+            Record.class,
+            (proxy, method, args) -> {
+              if ("get".equals(method.getName()) && args.length == 1 && args[0] instanceof String) {
+                org.neo4j.driver.Value value = values.get((String) args[0]);
+                if (value != null) {
+                  return value;
+                }
+                throw new AssertionError("Unexpected record key: " + args[0]);
+              }
+              return defaultValue(proxy, method);
+            });
+    boolean[] consumed = {false};
+    return proxy(
+        Result.class,
+        (proxy, method, _) ->
+            switch (method.getName()) {
+              case "hasNext" -> !consumed[0];
+              case "next", "single" -> {
+                consumed[0] = true;
+                yield recordProxy;
+              }
+              default -> defaultValue(proxy, method);
+            });
   }
 
   private static Result fakeResult(List<String> ids, int dimension, boolean success) {
