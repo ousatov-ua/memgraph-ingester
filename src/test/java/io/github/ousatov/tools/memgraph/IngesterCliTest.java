@@ -59,6 +59,28 @@ class IngesterCliTest {
   }
 
   @Test
+  void rejectsInvalidModuleBatchSizeBeforeOpeningDriver() throws IOException {
+    Path sourceDir = Files.createTempDirectory("cli-invalid-module-batch-");
+    try {
+      int exitCode =
+          new CommandLine(new IngesterCli())
+              .execute(
+                  "-s",
+                  sourceDir.toString(),
+                  "-b",
+                  "bolt://127.0.0.1:1",
+                  "-P",
+                  "cli-invalid-module-batch",
+                  "--module-batch-size",
+                  "0");
+
+      assertEquals(1, exitCode);
+    } finally {
+      deleteDir(sourceDir);
+    }
+  }
+
+  @Test
   void rejectsInvalidCodeEmbeddingBatchSizeBeforeOpeningDriver() throws IOException {
     Path sourceDir = Files.createTempDirectory("cli-invalid-code-embedding-batch-");
     try {
@@ -88,6 +110,7 @@ class IngesterCliTest {
     assertEquals("default", options.get("--embedding-model").defaultValue());
     assertEquals("true", options.get("--code-embeddings").defaultValue());
     assertEquals("true", options.get("--memory-embeddings").defaultValue());
+    assertTrue(options.containsKey("--module-batch-size"));
     assertTrue(options.containsKey("--with-memories"));
     assertTrue(options.containsKey("--wipe-code-rag"));
     assertTrue(options.containsKey("--wipe-memory-rag"));

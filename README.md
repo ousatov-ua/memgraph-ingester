@@ -866,6 +866,7 @@ Options:
 | `--user` | `-u` | no | empty | Memgraph username. |
 | `--pass` | `-p` | no | empty | Memgraph password. |
 | `--threads` | `-t` | no | `1` | Parser threads feeding one serialized Memgraph writer lane. |
+| `--module-batch-size` |  | no | `32` | Maximum JS/TS or Python files passed to one analyzer subprocess. Larger values reduce subprocess startup overhead for large module projects. |
 | `--wipe-project-code` |  | no | `false` | Delete this project's code graph before ingesting. |
 | `--wipe-project-memories` |  | no | `false` | Delete this project's memory graph before ingesting. |
 | `--wipe-code-rag` |  | no | `false` | Delete this project's derived `:CodeChunk` rows before ingesting. |
