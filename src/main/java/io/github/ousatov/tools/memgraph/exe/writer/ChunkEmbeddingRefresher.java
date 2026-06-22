@@ -48,6 +48,10 @@ final class ChunkEmbeddingRefresher {
   private static final long MODEL_INFO_RETRY_DELAY_MS = 10_000;
   private static final int PROJECT_TOKEN_SLUG_LIMIT = 48;
   private static final int PROJECT_TOKEN_HASH_LENGTH = 12;
+  private static final String PARAM_INDEX_NAME = "indexName";
+  private static final String PARAM_INDEX_LABEL = "indexLabel";
+  private static final String PARAM_METRIC = "metric";
+  private static final String PARAM_SCALAR_KIND = "scalarKind";
 
   private final CypherExecutor cypher;
   private final String project;
@@ -82,8 +86,18 @@ final class ChunkEmbeddingRefresher {
     validateCypherIdentifier(indexLabel, "project-scoped " + target.chunkLabel() + " label");
 
     boolean useDirty = dirtyOnly && target.countDirtyCypher() != null;
-    dropObsoleteVectorIndexes(indexName, indexLabel, target);
     int dimension = embeddingDimension(settings);
+    Long dirtyCount = null;
+    if (useDirty) {
+      dirtyCount = countDirty(target);
+      if (dirtyCount == 0
+          && refreshStateCurrent(settings, target, indexName, indexLabel, dimension)
+          && vectorIndexMatchesFastPath(settings, target, indexName, indexLabel, dimension)) {
+        return new EmbeddingRefreshResult(0L, dimension);
+      }
+    }
+
+    dropObsoleteVectorIndexes(indexName, indexLabel, target);
     long clearedObsoleteEmbeddings = clearObsoleteChunkEmbeddings(settings, target, dimension);
     tagVectorIndexLabel(target, indexLabel);
     ensureVectorIndex(
@@ -93,10 +107,9 @@ final class ChunkEmbeddingRefresher {
     }
 
     boolean fullStaleBackfill = !useDirty || clearedObsoleteEmbeddings > 0;
-    Long dirtyCount = null;
     if (useDirty) {
-      dirtyCount = countDirty(target);
       if (dirtyCount == 0 && !fullStaleBackfill) {
+        updateRefreshState(settings, target, indexName, indexLabel, dimension);
         return new EmbeddingRefreshResult(0L, dimension);
       }
     }
@@ -113,6 +126,7 @@ final class ChunkEmbeddingRefresher {
     if (settings.required() && fullStaleBackfill) {
       verifyAllEmbeddingsCalculated(settings, target, dimension);
     }
+    updateRefreshState(settings, target, indexName, indexLabel, dimension);
     return new EmbeddingRefreshResult(embedded, dimension, batches);
   }
 
@@ -302,10 +316,7 @@ final class ChunkEmbeddingRefresher {
       verifyVectorIndexIdentity(index, indexName, indexLabel, target);
       boolean needsRecreate =
           forceRecreate
-              || index.dimension() != dim
-              || !settings.metric().equals(index.metric())
-              || (!index.scalarKind().isBlank()
-                  && !settings.scalarKind().equals(index.scalarKind()))
+              || !vectorIndexConfigurationMatches(settings, dim, index)
               || index.capacity() < capacity;
       if (needsRecreate) {
         recreateVectorIndex(
@@ -319,6 +330,22 @@ final class ChunkEmbeddingRefresher {
       createVectorIndex(
           buildCreateIndexCypher(target, indexName, indexLabel), settings, dim, capacity);
     }
+  }
+
+  private boolean vectorIndexMatchesFastPath(
+      EmbeddingSettings settings,
+      EmbeddingTarget target,
+      String indexName,
+      String indexLabel,
+      int dimension) {
+    Optional<VectorIndexInfo> existing = vectorIndexInfo(indexName);
+    if (existing.isEmpty()) {
+      return false;
+    }
+    VectorIndexInfo index = existing.get();
+    return indexLabel.equals(index.label())
+        && EmbeddingSettings.DEFAULT_EMBEDDING_PROPERTY.equals(index.property())
+        && vectorIndexConfigurationMatches(settings, dimension, index);
   }
 
   private void dropObsoleteVectorIndexes(
@@ -478,6 +505,29 @@ final class ChunkEmbeddingRefresher {
   private long countDirty(EmbeddingTarget target) {
     return cypher.read(
         target.countDirtyCypher(), Map.of(), result -> result.single().get(Params.COUNT).asLong());
+  }
+
+  private boolean refreshStateCurrent(
+      EmbeddingSettings settings,
+      EmbeddingTarget target,
+      String indexName,
+      String indexLabel,
+      int dimension) {
+    return cypher.read(
+        buildRefreshStateCurrentCypher(target),
+        refreshStateParams(settings, indexName, indexLabel, dimension),
+        result -> result.single().get("current").asBoolean(false));
+  }
+
+  private void updateRefreshState(
+      EmbeddingSettings settings,
+      EmbeddingTarget target,
+      String indexName,
+      String indexLabel,
+      int dimension) {
+    cypher.run(
+        buildUpdateRefreshStateCypher(target),
+        refreshStateParams(settings, indexName, indexLabel, dimension));
   }
 
   private EmbeddingBatchResult refreshBatch(
@@ -666,10 +716,90 @@ final class ChunkEmbeddingRefresher {
     }
   }
 
+  private static boolean vectorIndexConfigurationMatches(
+      EmbeddingSettings settings, int dimension, VectorIndexInfo index) {
+    return dimension == index.dimension()
+        && settings.metric().equals(index.metric())
+        && (index.scalarKind().isBlank() || settings.scalarKind().equals(index.scalarKind()));
+  }
+
   private static int vectorIndexCapacity(EmbeddingSettings settings, long chunkCount) {
     return settings.capacity() > 0
         ? settings.capacity()
         : GraphWriter.defaultVectorIndexCapacity(chunkCount);
+  }
+
+  private static Map<String, Object> refreshStateParams(
+      EmbeddingSettings settings, String indexName, String indexLabel, int dimension) {
+    return Map.of(
+        Params.MODEL_NAME,
+        settings.modelName(),
+        Rag.DIMENSION,
+        dimension,
+        PARAM_INDEX_NAME,
+        indexName,
+        PARAM_INDEX_LABEL,
+        indexLabel,
+        PARAM_METRIC,
+        settings.metric(),
+        PARAM_SCALAR_KIND,
+        settings.scalarKind());
+  }
+
+  private static String buildRefreshStateCurrentCypher(EmbeddingTarget target) {
+    String prefix = refreshStatePropertyPrefix(target);
+    return "OPTIONAL MATCH (project:Project {name: $project})\n"
+        + "RETURN project."
+        + prefix
+        + "ModelName = $modelName\n"
+        + "  AND project."
+        + prefix
+        + "Dimensions = $dimension\n"
+        + "  AND project."
+        + prefix
+        + "IndexName = $indexName\n"
+        + "  AND project."
+        + prefix
+        + "IndexLabel = $indexLabel\n"
+        + "  AND project."
+        + prefix
+        + "Metric = $metric\n"
+        + "  AND project."
+        + prefix
+        + "ScalarKind = $scalarKind AS current";
+  }
+
+  private static String buildUpdateRefreshStateCypher(EmbeddingTarget target) {
+    String prefix = refreshStatePropertyPrefix(target);
+    return "MERGE (project:Project {name: $project})\n"
+        + "SET project."
+        + prefix
+        + "ModelName = $modelName,\n"
+        + "    project."
+        + prefix
+        + "Dimensions = $dimension,\n"
+        + "    project."
+        + prefix
+        + "IndexName = $indexName,\n"
+        + "    project."
+        + prefix
+        + "IndexLabel = $indexLabel,\n"
+        + "    project."
+        + prefix
+        + "Metric = $metric,\n"
+        + "    project."
+        + prefix
+        + "ScalarKind = $scalarKind";
+  }
+
+  private static String refreshStatePropertyPrefix(EmbeddingTarget target) {
+    if (target == EmbeddingTarget.CODE) {
+      return "codeEmbedding";
+    }
+    if (target == EmbeddingTarget.MEMORY) {
+      return "memoryEmbedding";
+    }
+    throw new IllegalArgumentException("Unsupported embedding target: " + target.chunkLabel());
   }
 
   private static Map<String, Object> buildEmbeddingConfig(
