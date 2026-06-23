@@ -924,13 +924,16 @@ public final class IngestionOrchestrator {
                 .filter(path -> !retainedPathSet.contains(path))
                 .sorted()
                 .toList();
+        if (missingFiles.isEmpty()) {
+          continue;
+        }
         refreshAfterDelete.addAll(writer.getRetainedFilePathsSharingDefinitionsWith(missingFiles));
         runMissingFileCleanupWithRetry(
             sourceRoot,
             language,
             () ->
                 writer.deleteFilesMissingFromSource(
-                    sourceRoot, currentPaths, retainedPaths, language));
+                    sourceRoot, missingFiles, retainedPaths, language));
       }
       refreshRetainedFilesAfterDelete(writer, refreshAfterDelete, currentFilesByPath, stats);
     } finally {

@@ -312,8 +312,8 @@ public final class GraphWriter {
 
   /** Deletes file graph state for language-specific files absent from the current source tree. */
   public void deleteFilesMissingFromSource(
-      Path sourceRoot, Collection<Path> files, SourceLanguage language) {
-    deleteFilesMissingFromSource(sourceRoot, files, files, language);
+      Path sourceRoot, Collection<Path> missingFiles, SourceLanguage language) {
+    deleteFilesMissingFromSource(sourceRoot, missingFiles, List.of(), language);
   }
 
   /**
@@ -322,12 +322,15 @@ public final class GraphWriter {
    */
   public void deleteFilesMissingFromSource(
       Path sourceRoot,
-      Collection<Path> files,
+      Collection<Path> missingFiles,
       Collection<Path> retainedFiles,
       SourceLanguage language) {
+    if (missingFiles.isEmpty()) {
+      return;
+    }
     setRetainedSourcePathsIfNeeded(retainedFiles);
-    Map<String, Object> params = new HashMap<>(sourceRootParams(sourceRoot));
-    params.put(Params.PATHS, files.stream().map(Path::toString).toList());
+    Map<String, Object> params = new HashMap<>();
+    params.put(Params.PATHS, missingFiles.stream().map(Path::toString).toList());
     params.put(Params.RETAINED_SOURCE_TOKEN, retainedSourceToken);
     params.put(Params.LANGUAGE, language.graphName());
     List<String> deletedMethodNames = deletedMissingFileMethodNames(params);

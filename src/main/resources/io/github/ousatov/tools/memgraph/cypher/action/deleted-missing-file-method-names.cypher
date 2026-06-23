@@ -1,6 +1,5 @@
 MATCH (file:File {project: $project, language: $language})-[:DEFINES]->(method:Method)
-WHERE (file.path = $sourceRoot OR file.path STARTS WITH $sourceRootPrefix)
-  AND NOT file.path IN $paths
+WHERE file.path IN $paths
   AND method.project = $project
 OPTIONAL MATCH (retained:File {project: $project})-[:DEFINES]->(method)
 WHERE retained.retainedSourceToken = $retainedSourceToken

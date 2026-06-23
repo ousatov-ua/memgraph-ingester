@@ -1892,6 +1892,25 @@ class GraphWriterIT {
   }
 
   @Test
+  void deleteFilesMissingFromSourceWithNoMissingFilesLeavesFilesUntouched() {
+    Path retainedFile = SRC_ROOT.resolve("app/retained.ts");
+    writer.upsertFile(retainedFile, SourceLanguage.JAVASCRIPT);
+
+    writer.deleteFilesMissingFromSource(SRC_ROOT, List.of(), SourceLanguage.JAVASCRIPT);
+
+    long fileCount =
+        session
+            .run(
+                "MATCH (file:File {path: $path, project: $p}) RETURN count(file) AS files",
+                Map.of("p", PROJECT, "path", retainedFile.toString()))
+            .single()
+            .get("files")
+            .asLong();
+
+    assertEquals(1, fileCount);
+  }
+
+  @Test
   void deleteFilesMissingFromSourceDeletesOnlyMembersOwnedByMissingFiles() {
     Path missingFile = Path.of("/tmp/test-gw/src/app/missing.ts");
     Path retainedFile = Path.of("/tmp/test-gw/src/app/retained.ts");
@@ -1934,7 +1953,8 @@ class GraphWriterIT {
                 sharedSig))
         .consume();
 
-    writer.deleteFilesMissingFromSource(SRC_ROOT, List.of(retainedFile), SourceLanguage.JAVASCRIPT);
+    writer.deleteFilesMissingFromSource(
+        SRC_ROOT, List.of(missingFile), List.of(retainedFile), SourceLanguage.JAVASCRIPT);
 
     var row =
         session
@@ -2013,7 +2033,8 @@ class GraphWriterIT {
     writer.upsertPendingCallByName(missingCallerSig, "js.app.shared.Helper", "assist");
     writer.upsertPendingCallByName(retainedCallerSig, "js.app.shared.Helper", "assist");
 
-    writer.deleteFilesMissingFromSource(SRC_ROOT, List.of(retainedFile), SourceLanguage.JAVASCRIPT);
+    writer.deleteFilesMissingFromSource(
+        SRC_ROOT, List.of(missingFile), List.of(retainedFile), SourceLanguage.JAVASCRIPT);
 
     var row =
         session
@@ -2073,7 +2094,8 @@ class GraphWriterIT {
         .consume();
     writer.upsertPendingCallByName(sharedCallerSig, "js.app.shared.Helper", "assist");
 
-    writer.deleteFilesMissingFromSource(SRC_ROOT, List.of(retainedFile), SourceLanguage.JAVASCRIPT);
+    writer.deleteFilesMissingFromSource(
+        SRC_ROOT, List.of(missingFile), List.of(retainedFile), SourceLanguage.JAVASCRIPT);
 
     var row =
         session
@@ -2134,7 +2156,7 @@ class GraphWriterIT {
         .consume();
 
     writer.deleteFilesMissingFromSource(
-        SRC_ROOT, List.of(currentRetainedFile), SourceLanguage.JAVASCRIPT);
+        SRC_ROOT, List.of(currentMissingFile), SourceLanguage.JAVASCRIPT);
 
     var row =
         session
@@ -2189,7 +2211,7 @@ class GraphWriterIT {
         .consume();
 
     writer.deleteFilesMissingFromSource(
-        SRC_ROOT, List.of(), List.of(retainedFile), SourceLanguage.JAVASCRIPT);
+        SRC_ROOT, List.of(missingFile), List.of(retainedFile), SourceLanguage.JAVASCRIPT);
 
     var row =
         session
@@ -2976,7 +2998,7 @@ class GraphWriterIT {
     writer.upsertPendingCallsByName(List.of(PendingCallWrite.allowNameOnly(callerSig, "process")));
 
     writer.deleteFilesMissingFromSource(
-        SRC_ROOT, List.of(callerFile, retainedFile), SourceLanguage.JAVA);
+        SRC_ROOT, List.of(removedFile), List.of(callerFile, retainedFile), SourceLanguage.JAVA);
     writer.resolvePendingCallsForChangedDefinitions();
 
     var row =

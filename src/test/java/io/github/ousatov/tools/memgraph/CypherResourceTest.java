@@ -348,8 +348,7 @@ class CypherResourceTest {
         "MERGE (owner)-[:ANNOTATED_WITH]->(a)");
 
     assertTrue(Const.Cypher.CYPHER_DELETE_CODE_CHUNKS_FOR_FILE.contains("chunk:CodeChunk"));
-    assertContainsAll(
-        deleteMissing, "chunk.path STARTS WITH $sourceRootPrefix", "NOT chunk.path IN $paths");
+    assertContainsAll(deleteMissing, "WHERE chunk.path IN $paths");
     assertContainsAll(
         pathsMissingCodeChunks, "OPTIONAL MATCH (chunk:CodeChunk", "WHERE chunkCount = 0");
     assertTrue(Const.Cypher.CYPHER_DELETE_CODE_CHUNKS_FOR_FILE_EXCEPT.contains("chunk.id IN $ids"));
