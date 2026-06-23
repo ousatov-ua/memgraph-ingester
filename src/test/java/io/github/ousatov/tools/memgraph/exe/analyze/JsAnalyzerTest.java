@@ -612,6 +612,27 @@ class JsAnalyzerTest {
   }
 
   @Test
+  void interfaceMembersCarryInterfaceOwnerKind() throws IOException {
+    JsAnalysis analysis =
+        analyzeSource(
+            "contract.ts",
+            """
+            export interface Contract {
+              value: string;
+              run(): void;
+            }
+            """);
+
+    assertTrue(
+        analysis.members().stream()
+            .anyMatch(
+                member ->
+                    "js.contract$2e$ts.Contract".equals(member.ownerFqn())
+                        && "Interface".equals(member.ownerKind())
+                        && "run".equals(member.name())));
+  }
+
+  @Test
   void topLevelRouteConstUsesSyntheticModuleOwner() throws IOException {
     JsAnalysis analysis =
         analyzeSource(
@@ -634,6 +655,7 @@ class JsAnalyzerTest {
             .anyMatch(
                 member ->
                     "js.app$2e$module$2e$ts".equals(member.ownerFqn())
+                        && "Class".equals(member.ownerKind())
                         && "field".equals(member.memberType())
                         && "appRoutes".equals(member.name())));
     assertTrue(

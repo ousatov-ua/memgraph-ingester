@@ -61,7 +61,8 @@ public final class CtagsGraphWriter extends CommonGraphWriter {
             endLine,
             true,
             language.graphName(),
-            Params.MODULE));
+            Params.MODULE,
+            Labels.CLASS));
   }
 
   /** Upserts a type as either a {@code :Class} or {@code :Interface} graph node. */
@@ -120,7 +121,8 @@ public final class CtagsGraphWriter extends CommonGraphWriter {
               endLine,
               true,
               language.graphName(),
-              Params.CONSTRUCTOR));
+              Params.CONSTRUCTOR,
+              Labels.CLASS));
     }
   }
 
@@ -142,6 +144,7 @@ public final class CtagsGraphWriter extends CommonGraphWriter {
   public static FieldWrite field(
       SourceLanguage language,
       String ownerFqn,
+      String ownerKind,
       String fqn,
       String name,
       String type,
@@ -149,7 +152,7 @@ public final class CtagsGraphWriter extends CommonGraphWriter {
       String visibility,
       String kind) {
     return new FieldWrite(
-        ownerFqn, fqn, name, type, isStatic, visibility, language.graphName(), kind);
+        ownerFqn, fqn, name, type, isStatic, visibility, language.graphName(), kind, ownerKind);
   }
 
   /** Creates a method payload for the dynamic language. */
@@ -157,6 +160,7 @@ public final class CtagsGraphWriter extends CommonGraphWriter {
   public static Method method(
       SourceLanguage language,
       String ownerFqn,
+      String ownerKind,
       String signature,
       String name,
       String returnType,
@@ -176,7 +180,8 @@ public final class CtagsGraphWriter extends CommonGraphWriter {
         endLine,
         false,
         language.graphName(),
-        kind);
+        kind,
+        ownerKind);
   }
 
   /** Returns an empty immutable field collection with a precise generic type. */

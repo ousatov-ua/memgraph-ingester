@@ -6,6 +6,7 @@ import io.github.ousatov.tools.memgraph.vo.adapter.SourceFileDefinitions;
 import io.github.ousatov.tools.memgraph.vo.metrics.CypherTiming;
 import io.github.ousatov.tools.memgraph.vo.metrics.CypherTimingSnapshot;
 import io.github.ousatov.tools.memgraph.vo.metrics.IngestionPerformanceRow;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
@@ -62,6 +63,14 @@ public final class IngestionRunStats {
   private final Set<String> changedCallerSignatures = ConcurrentHashMap.newKeySet();
   private final Set<String> changedMethodNames = ConcurrentHashMap.newKeySet();
   private final Set<String> changedOwnerFqns = ConcurrentHashMap.newKeySet();
+  private final Set<String> changedCodeRefCodeKeys = ConcurrentHashMap.newKeySet();
+  private final Set<String> changedCodeRefPackageKeys = ConcurrentHashMap.newKeySet();
+  private final Set<String> changedCodeRefFilePaths = ConcurrentHashMap.newKeySet();
+  private final Set<String> changedCodeRefClassFqns = ConcurrentHashMap.newKeySet();
+  private final Set<String> changedCodeRefInterfaceFqns = ConcurrentHashMap.newKeySet();
+  private final Set<String> changedCodeRefAnnotationFqns = ConcurrentHashMap.newKeySet();
+  private final Set<String> changedCodeRefMethodSignatures = ConcurrentHashMap.newKeySet();
+  private final Set<String> changedCodeRefFieldFqns = ConcurrentHashMap.newKeySet();
   private final int threads;
   private final long startedNanos;
   private volatile int totalFiles;
@@ -188,11 +197,38 @@ public final class IngestionRunStats {
 
   /** Records definitions from a {@link SourceFileDefinitions} after a successful file write. */
   public void recordChangedDefinitions(SourceFileDefinitions definitions) {
+    addCodeRefDefinitionKeys(definitions);
     List<String> ownerFqns = new ArrayList<>();
     ownerFqns.addAll(definitions.classFqns());
     ownerFqns.addAll(definitions.interfaceFqns());
     ownerFqns.addAll(definitions.annotationFqns());
     recordChangedDefinitions(ownerFqns, definitions.methodSignatures());
+  }
+
+  /** Records a successfully written source file and its emitted code identities. */
+  public void recordChangedDefinitions(Path file, SourceFileDefinitions definitions) {
+    recordChangedFile(file);
+    recordChangedDefinitions(definitions);
+  }
+
+  /** Records an upserted code-language root for scoped {@code CodeRef} resolution. */
+  public void recordChangedCodeLanguage(String language) {
+    addNonBlank(changedCodeRefCodeKeys, List.of(language));
+  }
+
+  /** Records an upserted package key as {@code <language>:<package>}. */
+  public void recordChangedPackage(String language, String packageName) {
+    if (language == null || language.isBlank() || packageName == null || packageName.isBlank()) {
+      return;
+    }
+    changedCodeRefPackageKeys.add(language + ":" + packageName);
+  }
+
+  /** Records an upserted source file path for scoped {@code CodeRef} resolution. */
+  public void recordChangedFile(Path file) {
+    if (file != null) {
+      changedCodeRefFilePaths.add(file.toString());
+    }
   }
 
   /** Records method names removed by cleanup for scoped pending-call retries. */
@@ -213,6 +249,46 @@ public final class IngestionRunStats {
   /** Returns changed owner FQNs in stable order. */
   public List<String> changedOwnerFqns() {
     return changedOwnerFqns.stream().sorted().toList();
+  }
+
+  public List<String> changedCodeRefCodeKeys() {
+    return sorted(changedCodeRefCodeKeys);
+  }
+
+  public List<String> changedCodeRefPackageKeys() {
+    return sorted(changedCodeRefPackageKeys);
+  }
+
+  public List<String> changedCodeRefFilePaths() {
+    return sorted(changedCodeRefFilePaths);
+  }
+
+  public List<String> changedCodeRefClassFqns() {
+    return sorted(changedCodeRefClassFqns);
+  }
+
+  public List<String> changedCodeRefInterfaceFqns() {
+    return sorted(changedCodeRefInterfaceFqns);
+  }
+
+  public List<String> changedCodeRefAnnotationFqns() {
+    return sorted(changedCodeRefAnnotationFqns);
+  }
+
+  public List<String> changedCodeRefMethodSignatures() {
+    return sorted(changedCodeRefMethodSignatures);
+  }
+
+  public List<String> changedCodeRefFieldFqns() {
+    return sorted(changedCodeRefFieldFqns);
+  }
+
+  private void addCodeRefDefinitionKeys(SourceFileDefinitions definitions) {
+    addNonBlank(changedCodeRefClassFqns, definitions.classFqns());
+    addNonBlank(changedCodeRefInterfaceFqns, definitions.interfaceFqns());
+    addNonBlank(changedCodeRefAnnotationFqns, definitions.annotationFqns());
+    addNonBlank(changedCodeRefMethodSignatures, definitions.methodSignatures());
+    addNonBlank(changedCodeRefFieldFqns, definitions.fieldFqns());
   }
 
   private static String methodNameFromSignature(String signature) {
@@ -314,6 +390,10 @@ public final class IngestionRunStats {
 
   private static void addNonBlank(Set<String> target, Collection<String> values) {
     values.stream().filter(value -> value != null && !value.isBlank()).forEach(target::add);
+  }
+
+  private static List<String> sorted(Set<String> values) {
+    return values.stream().sorted().toList();
   }
 
   private static long sum(LongAdder adder) {

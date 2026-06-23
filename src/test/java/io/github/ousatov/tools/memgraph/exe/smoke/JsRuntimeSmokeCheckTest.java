@@ -203,7 +203,8 @@ class JsRuntimeSmokeCheckTest {
   }
 
   private static MemberDecl member(String memberType, String kind, String name) {
-    return new MemberDecl("js.module." + name, memberType, kind, name, name, "", false, 1, 1);
+    return new MemberDecl(
+        "js.module." + name, "Class", memberType, kind, name, name, "", false, 1, 1);
   }
 
   private static RelationDecl relationDecl(String kind, String childFqn, String targetFqn) {

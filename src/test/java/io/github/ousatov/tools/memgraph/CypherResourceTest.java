@@ -209,6 +209,15 @@ class CypherResourceTest {
     String method = Const.Cypher.CYPHER_RESOLVE_CODE_REFS_METHOD;
     String field = Const.Cypher.CYPHER_RESOLVE_CODE_REFS_FIELD;
     String unresolved = Const.Cypher.CYPHER_RESOLVE_CODE_REFS_UNRESOLVED;
+    String unresolvedKeys = Const.Cypher.CYPHER_LIST_UNRESOLVED_CODE_REF_KEYS;
+    String scopedCode = Const.Cypher.CYPHER_RESOLVE_CODE_REFS_CODE_SCOPED;
+    String scopedPackage = Const.Cypher.CYPHER_RESOLVE_CODE_REFS_PACKAGE_SCOPED;
+    String scopedFile = Const.Cypher.CYPHER_RESOLVE_CODE_REFS_FILE_SCOPED;
+    String scopedClass = Const.Cypher.CYPHER_RESOLVE_CODE_REFS_CLASS_SCOPED;
+    String scopedInterface = Const.Cypher.CYPHER_RESOLVE_CODE_REFS_INTERFACE_SCOPED;
+    String scopedAnnotation = Const.Cypher.CYPHER_RESOLVE_CODE_REFS_ANNOTATION_SCOPED;
+    String scopedMethod = Const.Cypher.CYPHER_RESOLVE_CODE_REFS_METHOD_SCOPED;
+    String scopedField = Const.Cypher.CYPHER_RESOLVE_CODE_REFS_FIELD_SCOPED;
 
     assertContainsAll(code, "targetType: 'Code'", "target:Code");
     assertContainsAll(
@@ -220,8 +229,35 @@ class CypherResourceTest {
     assertContainsAll(method, "targetType: 'Method'", "target:Method");
     assertContainsAll(field, "targetType: 'Field'", "target:Field");
     assertContainsAll(unresolved, "NOT ref.targetType IN", "DELETE old");
+    assertContainsAll(unresolvedKeys, "NOT (ref)-[:RESOLVES_TO]->()", "targetType", "key");
+    assertContainsAll(scopedCode, "ref.key IN $codeKeys", "target:Code");
+    assertContainsAll(scopedPackage, "ref.key IN $packageKeys", "target:Package");
+    assertContainsAll(scopedFile, "ref.key IN $paths", "target:File");
+    assertContainsAll(scopedClass, "ref.key IN $classFqns", "target:Class");
+    assertContainsAll(scopedInterface, "ref.key IN $interfaceFqns", "target:Interface");
+    assertContainsAll(scopedAnnotation, "ref.key IN $annotationFqns", "target:Annotation");
+    assertContainsAll(scopedMethod, "ref.key IN $methodSignatures", "target:Method");
+    assertContainsAll(scopedField, "ref.key IN $fieldFqns", "target:Field");
     for (String cypher :
-        List.of(code, pkg, file, cls, iface, annotation, method, field, unresolved)) {
+        List.of(
+            code,
+            pkg,
+            file,
+            cls,
+            iface,
+            annotation,
+            method,
+            field,
+            unresolved,
+            unresolvedKeys,
+            scopedCode,
+            scopedPackage,
+            scopedFile,
+            scopedClass,
+            scopedInterface,
+            scopedAnnotation,
+            scopedMethod,
+            scopedField)) {
       assertFalse(cypher.contains("UNION"));
     }
   }
@@ -348,8 +384,7 @@ class CypherResourceTest {
         "MERGE (owner)-[:ANNOTATED_WITH]->(a)");
 
     assertTrue(Const.Cypher.CYPHER_DELETE_CODE_CHUNKS_FOR_FILE.contains("chunk:CodeChunk"));
-    assertContainsAll(
-        deleteMissing, "chunk.path STARTS WITH $sourceRootPrefix", "NOT chunk.path IN $paths");
+    assertContainsAll(deleteMissing, "WHERE chunk.path IN $paths");
     assertContainsAll(
         pathsMissingCodeChunks, "OPTIONAL MATCH (chunk:CodeChunk", "WHERE chunkCount = 0");
     assertTrue(Const.Cypher.CYPHER_DELETE_CODE_CHUNKS_FOR_FILE_EXCEPT.contains("chunk.id IN $ids"));

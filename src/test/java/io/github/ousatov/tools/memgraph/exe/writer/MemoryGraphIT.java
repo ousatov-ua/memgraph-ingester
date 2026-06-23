@@ -8,7 +8,9 @@ import io.github.ousatov.tools.memgraph.extension.MemgraphExtension;
 import io.github.ousatov.tools.memgraph.extension.MemgraphInstance;
 import io.github.ousatov.tools.memgraph.schema.Memgraph;
 import io.github.ousatov.tools.memgraph.schema.MemgraphDriver;
+import io.github.ousatov.tools.memgraph.vo.adapter.SourceFileDefinitions;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterAll;
@@ -189,6 +191,104 @@ class MemoryGraphIT {
             .get("n")
             .asLong();
     assertEquals(0, staleChunks);
+  }
+
+  @Test
+  void scopedCodeRefResolutionTouchesChangedAndUnresolvedKeysOnly() {
+    String changedFqn = "com.example.Changed";
+    String unresolvedFqn = "com.example.Unresolved";
+    String staleFqn = "com.example.Stale";
+    String oldFqn = "com.example.Old";
+    session
+        .run(
+            "CREATE (:Class {project: $p, fqn: $changedFqn})"
+                + " CREATE (:Class {project: $p, fqn: $unresolvedFqn})"
+                + " CREATE (:Class {project: $p, fqn: $staleFqn})"
+                + " CREATE (old:Class {project: $p, fqn: $oldFqn})"
+                + " CREATE (:CodeRef {project: $p, targetType: 'Class', key: $changedFqn})"
+                + " CREATE (:CodeRef {project: $p, targetType: 'Class', key: $unresolvedFqn})"
+                + " CREATE (:CodeRef {project: $p, targetType: 'Class', key: $staleFqn})"
+                + "-[:RESOLVES_TO]->(old)",
+            Map.of(
+                "p",
+                PROJECT,
+                "changedFqn",
+                changedFqn,
+                "unresolvedFqn",
+                unresolvedFqn,
+                "staleFqn",
+                staleFqn,
+                "oldFqn",
+                oldFqn))
+        .consume();
+    writer
+        .stats()
+        .recordChangedDefinitions(
+            SourceFileDefinitions.of(
+                List.of(changedFqn), List.of(), List.of(), List.of(), List.of()));
+
+    writer.resolveCodeRefsForChangedDefinitions();
+
+    var row =
+        session
+            .run(
+                "OPTIONAL MATCH (changedRef:CodeRef {project: $p, targetType: 'Class',"
+                    + " key: $changedFqn})"
+                    + "-[:RESOLVES_TO]->(:Class {project: $p, fqn: $changedFqn})"
+                    + " OPTIONAL MATCH (unresolvedRef:CodeRef {project: $p, targetType: 'Class',"
+                    + " key: $unresolvedFqn})-[:RESOLVES_TO]->(:Class {project: $p,"
+                    + " fqn: $unresolvedFqn})"
+                    + " OPTIONAL MATCH (staleTargetRef:CodeRef {project: $p, targetType: 'Class',"
+                    + " key: $staleFqn})-[:RESOLVES_TO]->(:Class {project: $p, fqn: $staleFqn})"
+                    + " OPTIONAL MATCH (staleOldRef:CodeRef {project: $p, targetType: 'Class',"
+                    + " key: $staleFqn})-[:RESOLVES_TO]->(:Class {project: $p, fqn: $oldFqn})"
+                    + " RETURN count(DISTINCT changedRef) AS changedRefs,"
+                    + " count(DISTINCT unresolvedRef) AS unresolvedRefs,"
+                    + " count(DISTINCT staleTargetRef) AS staleTargetRefs,"
+                    + " count(DISTINCT staleOldRef) AS staleOldRefs",
+                Map.of(
+                    "p",
+                    PROJECT,
+                    "changedFqn",
+                    changedFqn,
+                    "unresolvedFqn",
+                    unresolvedFqn,
+                    "staleFqn",
+                    staleFqn,
+                    "oldFqn",
+                    oldFqn))
+            .single();
+
+    assertEquals(1, row.get("changedRefs").asLong());
+    assertEquals(1, row.get("unresolvedRefs").asLong());
+    assertEquals(0, row.get("staleTargetRefs").asLong());
+    assertEquals(1, row.get("staleOldRefs").asLong());
+  }
+
+  @Test
+  void scopedCodeRefResolutionRemovesUnsupportedTargetTypeEdges() {
+    session
+        .run(
+            "CREATE (target:Class {project: $p, fqn: 'com.example.Widget'})"
+                + " CREATE (:CodeRef {project: $p, targetType: 'Clas', key: 'com.example.Widget'})"
+                + "-[:RESOLVES_TO]->(target)",
+            Map.of("p", PROJECT))
+        .consume();
+
+    writer.resolveCodeRefsForChangedDefinitions();
+
+    long count =
+        session
+            .run(
+                "MATCH (:CodeRef {project: $p, targetType: 'Clas', key: 'com.example.Widget'})"
+                    + "-[:RESOLVES_TO]->()"
+                    + " RETURN count(*) AS n",
+                Map.of("p", PROJECT))
+            .single()
+            .get("n")
+            .asLong();
+
+    assertEquals(0, count);
   }
 
   @Test

@@ -205,6 +205,24 @@ public final class Const {
         action("resolve-code-refs-field.cypher");
     public static final String CYPHER_RESOLVE_CODE_REFS_UNRESOLVED =
         action("resolve-code-refs-unresolved.cypher");
+    public static final String CYPHER_LIST_UNRESOLVED_CODE_REF_KEYS =
+        action("list-unresolved-code-ref-keys.cypher");
+    public static final String CYPHER_RESOLVE_CODE_REFS_CODE_SCOPED =
+        action("resolve-code-refs-code-scoped.cypher");
+    public static final String CYPHER_RESOLVE_CODE_REFS_PACKAGE_SCOPED =
+        action("resolve-code-refs-package-scoped.cypher");
+    public static final String CYPHER_RESOLVE_CODE_REFS_FILE_SCOPED =
+        action("resolve-code-refs-file-scoped.cypher");
+    public static final String CYPHER_RESOLVE_CODE_REFS_CLASS_SCOPED =
+        action("resolve-code-refs-class-scoped.cypher");
+    public static final String CYPHER_RESOLVE_CODE_REFS_INTERFACE_SCOPED =
+        action("resolve-code-refs-interface-scoped.cypher");
+    public static final String CYPHER_RESOLVE_CODE_REFS_ANNOTATION_SCOPED =
+        action("resolve-code-refs-annotation-scoped.cypher");
+    public static final String CYPHER_RESOLVE_CODE_REFS_METHOD_SCOPED =
+        action("resolve-code-refs-method-scoped.cypher");
+    public static final String CYPHER_RESOLVE_CODE_REFS_FIELD_SCOPED =
+        action("resolve-code-refs-field-scoped.cypher");
     public static final String CYPHER_UPSERT_PROJECT_ROOT = action("upsert-project-root.cypher");
     public static final String CYPHER_UPSERT_PROJECT = action("upsert-project.cypher");
     public static final String CYPHER_UPSERT_FILE = action("upsert-file.cypher");
@@ -678,6 +696,8 @@ public final class Const {
     public static final String MODULE_NAME = "moduleName";
     public static final String MODULE_PREFIX = "modulePrefix";
     public static final String PATHS = "paths";
+    public static final String CODE_KEYS = "codeKeys";
+    public static final String PACKAGE_KEYS = "packageKeys";
     public static final String MISSING_PATHS = "missingPaths";
     public static final String CALLER_SIGNATURES = "callerSignatures";
     public static final String OWNER_FQNS = "ownerFqns";

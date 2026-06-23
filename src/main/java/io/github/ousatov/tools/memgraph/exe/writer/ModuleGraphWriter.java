@@ -60,7 +60,8 @@ public abstract class ModuleGraphWriter extends CommonGraphWriter {
             endLine,
             true,
             languageGraphName,
-            Params.MODULE));
+            Params.MODULE,
+            Labels.CLASS));
   }
 
   /** Upserts a class declaration using the existing {@code :Class} label. */
@@ -102,7 +103,8 @@ public abstract class ModuleGraphWriter extends CommonGraphWriter {
               endLine,
               true,
               languageGraphName,
-              Params.CONSTRUCTOR));
+              Params.CONSTRUCTOR,
+              Labels.CLASS));
     }
   }
 
@@ -126,6 +128,20 @@ public abstract class ModuleGraphWriter extends CommonGraphWriter {
       String type,
       boolean isStatic,
       String kind) {
+    upsertField(file, ownerFqn, fqn, name, type, isStatic, kind, Labels.CLASS);
+  }
+
+  /** Upserts a field declared by a specific owner label. */
+  @SuppressWarnings(Const.Warnings.TOO_MANY_PARAMETERS)
+  public void upsertField(
+      Path file,
+      String ownerFqn,
+      String fqn,
+      String name,
+      String type,
+      boolean isStatic,
+      String kind,
+      String ownerKind) {
     upsertFieldNodes(
         file,
         List.of(
@@ -137,7 +153,8 @@ public abstract class ModuleGraphWriter extends CommonGraphWriter {
                 isStatic,
                 Const.Symbols.EMPTY,
                 languageGraphName,
-                kind)));
+                kind,
+                ownerKind)));
   }
 
   /** Upserts a function or method. */
@@ -152,6 +169,32 @@ public abstract class ModuleGraphWriter extends CommonGraphWriter {
       int startLine,
       int endLine,
       String kind) {
+    upsertMethod(
+        file,
+        ownerFqn,
+        signature,
+        name,
+        returnType,
+        isStatic,
+        startLine,
+        endLine,
+        kind,
+        Labels.CLASS);
+  }
+
+  /** Upserts a function or method declared by a specific owner label. */
+  @SuppressWarnings(Const.Warnings.TOO_MANY_PARAMETERS)
+  public void upsertMethod(
+      Path file,
+      String ownerFqn,
+      String signature,
+      String name,
+      String returnType,
+      boolean isStatic,
+      int startLine,
+      int endLine,
+      String kind,
+      String ownerKind) {
     upsertMethodNode(
         file,
         new Method(
@@ -165,7 +208,8 @@ public abstract class ModuleGraphWriter extends CommonGraphWriter {
             endLine,
             false,
             languageGraphName,
-            kind));
+            kind,
+            ownerKind));
   }
 
   @SuppressWarnings(Const.Warnings.TOO_MANY_PARAMETERS)

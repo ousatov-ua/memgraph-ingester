@@ -312,8 +312,8 @@ public final class GraphWriter {
 
   /** Deletes file graph state for language-specific files absent from the current source tree. */
   public void deleteFilesMissingFromSource(
-      Path sourceRoot, Collection<Path> files, SourceLanguage language) {
-    deleteFilesMissingFromSource(sourceRoot, files, files, language);
+      Path sourceRoot, Collection<Path> missingFiles, SourceLanguage language) {
+    deleteFilesMissingFromSource(sourceRoot, missingFiles, List.of(), language);
   }
 
   /**
@@ -322,12 +322,15 @@ public final class GraphWriter {
    */
   public void deleteFilesMissingFromSource(
       Path sourceRoot,
-      Collection<Path> files,
+      Collection<Path> missingFiles,
       Collection<Path> retainedFiles,
       SourceLanguage language) {
+    if (missingFiles.isEmpty()) {
+      return;
+    }
     setRetainedSourcePathsIfNeeded(retainedFiles);
-    Map<String, Object> params = new HashMap<>(sourceRootParams(sourceRoot));
-    params.put(Params.PATHS, files.stream().map(Path::toString).toList());
+    Map<String, Object> params = new HashMap<>();
+    params.put(Params.PATHS, missingFiles.stream().map(Path::toString).toList());
     params.put(Params.RETAINED_SOURCE_TOKEN, retainedSourceToken);
     params.put(Params.LANGUAGE, language.graphName());
     List<String> deletedMethodNames = deletedMissingFileMethodNames(params);
@@ -384,6 +387,104 @@ public final class GraphWriter {
     cypher.run(Cypher.CYPHER_RESOLVE_CODE_REFS_METHOD, Map.of());
     cypher.run(Cypher.CYPHER_RESOLVE_CODE_REFS_FIELD, Map.of());
     cypher.run(Cypher.CYPHER_RESOLVE_CODE_REFS_UNRESOLVED, Map.of());
+  }
+
+  /** Refreshes {@code :CodeRef} edges for touched definitions and newly added unresolved refs. */
+  public void resolveCodeRefsForChangedDefinitions() {
+    resolveScopedCodeRefs(
+        Cypher.CYPHER_RESOLVE_CODE_REFS_CODE_SCOPED,
+        Params.CODE_KEYS,
+        stats.changedCodeRefCodeKeys());
+    resolveScopedCodeRefs(
+        Cypher.CYPHER_RESOLVE_CODE_REFS_PACKAGE_SCOPED,
+        Params.PACKAGE_KEYS,
+        stats.changedCodeRefPackageKeys());
+    resolveScopedCodeRefs(
+        Cypher.CYPHER_RESOLVE_CODE_REFS_FILE_SCOPED, Params.PATHS, stats.changedCodeRefFilePaths());
+    resolveScopedCodeRefs(
+        Cypher.CYPHER_RESOLVE_CODE_REFS_CLASS_SCOPED,
+        Params.CLASS_FQNS,
+        stats.changedCodeRefClassFqns());
+    resolveScopedCodeRefs(
+        Cypher.CYPHER_RESOLVE_CODE_REFS_INTERFACE_SCOPED,
+        Params.INTERFACE_FQNS,
+        stats.changedCodeRefInterfaceFqns());
+    resolveScopedCodeRefs(
+        Cypher.CYPHER_RESOLVE_CODE_REFS_ANNOTATION_SCOPED,
+        Params.ANNOTATION_FQNS,
+        stats.changedCodeRefAnnotationFqns());
+    resolveScopedCodeRefs(
+        Cypher.CYPHER_RESOLVE_CODE_REFS_METHOD_SCOPED,
+        Params.METHOD_SIGNATURES,
+        stats.changedCodeRefMethodSignatures());
+    resolveScopedCodeRefs(
+        Cypher.CYPHER_RESOLVE_CODE_REFS_FIELD_SCOPED,
+        Params.FIELD_FQNS,
+        stats.changedCodeRefFieldFqns());
+    resolveUnresolvedCodeRefs();
+    cypher.run(Cypher.CYPHER_RESOLVE_CODE_REFS_UNRESOLVED, Map.of());
+  }
+
+  private void resolveUnresolvedCodeRefs() {
+    Map<String, List<String>> keysByType = unresolvedCodeRefKeysByType();
+    resolveScopedCodeRefs(
+        Cypher.CYPHER_RESOLVE_CODE_REFS_CODE_SCOPED,
+        Params.CODE_KEYS,
+        keysByType.getOrDefault("Code", List.of()));
+    resolveScopedCodeRefs(
+        Cypher.CYPHER_RESOLVE_CODE_REFS_PACKAGE_SCOPED,
+        Params.PACKAGE_KEYS,
+        keysByType.getOrDefault("Package", List.of()));
+    resolveScopedCodeRefs(
+        Cypher.CYPHER_RESOLVE_CODE_REFS_FILE_SCOPED,
+        Params.PATHS,
+        keysByType.getOrDefault("File", List.of()));
+    resolveScopedCodeRefs(
+        Cypher.CYPHER_RESOLVE_CODE_REFS_CLASS_SCOPED,
+        Params.CLASS_FQNS,
+        keysByType.getOrDefault("Class", List.of()));
+    resolveScopedCodeRefs(
+        Cypher.CYPHER_RESOLVE_CODE_REFS_INTERFACE_SCOPED,
+        Params.INTERFACE_FQNS,
+        keysByType.getOrDefault("Interface", List.of()));
+    resolveScopedCodeRefs(
+        Cypher.CYPHER_RESOLVE_CODE_REFS_ANNOTATION_SCOPED,
+        Params.ANNOTATION_FQNS,
+        keysByType.getOrDefault("Annotation", List.of()));
+    resolveScopedCodeRefs(
+        Cypher.CYPHER_RESOLVE_CODE_REFS_METHOD_SCOPED,
+        Params.METHOD_SIGNATURES,
+        keysByType.getOrDefault("Method", List.of()));
+    resolveScopedCodeRefs(
+        Cypher.CYPHER_RESOLVE_CODE_REFS_FIELD_SCOPED,
+        Params.FIELD_FQNS,
+        keysByType.getOrDefault("Field", List.of()));
+  }
+
+  private Map<String, List<String>> unresolvedCodeRefKeysByType() {
+    return cypher.read(
+        Cypher.CYPHER_LIST_UNRESOLVED_CODE_REF_KEYS,
+        Map.of(),
+        result -> {
+          Map<String, List<String>> keysByType = new HashMap<>();
+          while (result.hasNext()) {
+            var row = result.next();
+            String targetType = stringValue(row.get("targetType"));
+            String key = stringValue(row.get(Params.KEY));
+            if (!targetType.isBlank() && !key.isBlank()) {
+              keysByType.computeIfAbsent(targetType, _ -> new ArrayList<>()).add(key);
+            }
+          }
+          keysByType.replaceAll((_, keys) -> keys.stream().distinct().sorted().toList());
+          return keysByType;
+        });
+  }
+
+  private void resolveScopedCodeRefs(String query, String paramName, List<String> keys) {
+    if (keys.isEmpty()) {
+      return;
+    }
+    cypher.run(query, Map.of(paramName, keys));
   }
 
   /**
@@ -550,6 +651,7 @@ public final class GraphWriter {
   public void upsertProject(Path sourceRoot, List<SourceLanguage> languages) {
     cypher.run(Cypher.CYPHER_UPSERT_PROJECT_ROOT, Map.of());
     for (SourceLanguage language : languages) {
+      stats.recordChangedCodeLanguage(language.graphName());
       cypher.run(
           Cypher.CYPHER_UPSERT_PROJECT,
           Map.of(
@@ -579,6 +681,7 @@ public final class GraphWriter {
 
   /** Upserts a {@code :File} node and links it under the language-specific code anchor. */
   public void upsertFile(Path file, SourceLanguage language) {
+    stats.recordChangedFile(file);
     long lastModified;
     try {
       lastModified = Files.getLastModifiedTime(file).toMillis();
@@ -624,6 +727,7 @@ public final class GraphWriter {
 
   /** Upserts a {@code :Package} node under the language-specific code anchor. */
   public void upsertPackage(String pkg, SourceLanguage language) {
+    stats.recordChangedPackage(language.graphName(), pkg);
     cypher.run(
         Cypher.CYPHER_UPSERT_PACKAGE,
         Map.of(

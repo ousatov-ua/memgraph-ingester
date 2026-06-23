@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import io.github.ousatov.tools.memgraph.vo.adapter.SourceFileDefinitions;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -98,12 +99,34 @@ class IngestionMetricsTest {
     stats.recordChangedDefinitions(
         List.of("com.example.Helper", "", "com.example.Helper"),
         List.of("com.example.Caller.run()"));
+    stats.recordChangedCodeLanguage("java");
+    stats.recordChangedPackage("java", "com.example");
+    stats.recordChangedDefinitions(
+        Path.of("/tmp/src/com/example/Helper.java"),
+        SourceFileDefinitions.of(
+            List.of("com.example.Helper"),
+            List.of("com.example.Worker"),
+            List.of("com.example.Marker"),
+            List.of("com.example.Helper.help()"),
+            List.of("com.example.Helper.value")));
 
     IngestionPerformanceMetrics metrics = stats.snapshot();
 
-    assertEquals(List.of("com.example.Caller.run()"), stats.changedCallerSignatures());
-    assertEquals(List.of("run"), stats.changedMethodNames());
-    assertEquals(List.of("com.example.Helper"), stats.changedOwnerFqns());
+    assertEquals(
+        List.of("com.example.Caller.run()", "com.example.Helper.help()"),
+        stats.changedCallerSignatures());
+    assertEquals(List.of("help", "run"), stats.changedMethodNames());
+    assertEquals(
+        List.of("com.example.Helper", "com.example.Marker", "com.example.Worker"),
+        stats.changedOwnerFqns());
+    assertEquals(List.of("java"), stats.changedCodeRefCodeKeys());
+    assertEquals(List.of("java:com.example"), stats.changedCodeRefPackageKeys());
+    assertEquals(List.of("/tmp/src/com/example/Helper.java"), stats.changedCodeRefFilePaths());
+    assertEquals(List.of("com.example.Helper"), stats.changedCodeRefClassFqns());
+    assertEquals(List.of("com.example.Worker"), stats.changedCodeRefInterfaceFqns());
+    assertEquals(List.of("com.example.Marker"), stats.changedCodeRefAnnotationFqns());
+    assertEquals(List.of("com.example.Helper.help()"), stats.changedCodeRefMethodSignatures());
+    assertEquals(List.of("com.example.Helper.value"), stats.changedCodeRefFieldFqns());
     assertTrue(
         metrics
             .rows()

@@ -325,6 +325,7 @@ public final class CtagsLanguageAdapter implements LanguageAdapter<CtagsAnalysis
             CtagsGraphWriter.method(
                 language,
                 member.ownerFqn(),
+                ownerKind(member),
                 member.fqnOrSignature(),
                 member.name(),
                 member.dataType(),
@@ -338,6 +339,7 @@ public final class CtagsLanguageAdapter implements LanguageAdapter<CtagsAnalysis
             CtagsGraphWriter.field(
                 language,
                 member.ownerFqn(),
+                ownerKind(member),
                 member.fqnOrSignature(),
                 member.name(),
                 member.dataType(),
@@ -429,6 +431,11 @@ public final class CtagsLanguageAdapter implements LanguageAdapter<CtagsAnalysis
     String rawKind =
         type.rawKind() == null ? Const.Symbols.EMPTY : type.rawKind().toLowerCase(Locale.ROOT);
     return Params.CLASS.equals(type.graphKind()) && Params.CLASS.equals(rawKind);
+  }
+
+  private static String ownerKind(
+      io.github.ousatov.tools.memgraph.vo.analysis.ctags.MemberDecl member) {
+    return member.ownerKind().isBlank() ? Labels.CLASS : member.ownerKind();
   }
 
   private static boolean isInSkippedDirectory(Path path) {
