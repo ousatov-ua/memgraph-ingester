@@ -194,16 +194,32 @@ class MemoryGraphIT {
   }
 
   @Test
-  void scopedCodeRefResolutionOnlyTouchesChangedKeys() {
+  void scopedCodeRefResolutionTouchesChangedAndUnresolvedKeysOnly() {
     String changedFqn = "com.example.Changed";
-    String untouchedFqn = "com.example.Untouched";
+    String unresolvedFqn = "com.example.Unresolved";
+    String staleFqn = "com.example.Stale";
+    String oldFqn = "com.example.Old";
     session
         .run(
             "CREATE (:Class {project: $p, fqn: $changedFqn})"
-                + " CREATE (:Class {project: $p, fqn: $untouchedFqn})"
+                + " CREATE (:Class {project: $p, fqn: $unresolvedFqn})"
+                + " CREATE (:Class {project: $p, fqn: $staleFqn})"
+                + " CREATE (old:Class {project: $p, fqn: $oldFqn})"
                 + " CREATE (:CodeRef {project: $p, targetType: 'Class', key: $changedFqn})"
-                + " CREATE (:CodeRef {project: $p, targetType: 'Class', key: $untouchedFqn})",
-            Map.of("p", PROJECT, "changedFqn", changedFqn, "untouchedFqn", untouchedFqn))
+                + " CREATE (:CodeRef {project: $p, targetType: 'Class', key: $unresolvedFqn})"
+                + " CREATE (:CodeRef {project: $p, targetType: 'Class', key: $staleFqn})"
+                + "-[:RESOLVES_TO]->(old)",
+            Map.of(
+                "p",
+                PROJECT,
+                "changedFqn",
+                changedFqn,
+                "unresolvedFqn",
+                unresolvedFqn,
+                "staleFqn",
+                staleFqn,
+                "oldFqn",
+                oldFqn))
         .consume();
     writer
         .stats()
@@ -219,16 +235,34 @@ class MemoryGraphIT {
                 "OPTIONAL MATCH (changedRef:CodeRef {project: $p, targetType: 'Class',"
                     + " key: $changedFqn})"
                     + "-[:RESOLVES_TO]->(:Class {project: $p, fqn: $changedFqn})"
-                    + " OPTIONAL MATCH (untouchedRef:CodeRef {project: $p, targetType: 'Class',"
-                    + " key: $untouchedFqn})-[:RESOLVES_TO]->(:Class {project: $p,"
-                    + " fqn: $untouchedFqn})"
+                    + " OPTIONAL MATCH (unresolvedRef:CodeRef {project: $p, targetType: 'Class',"
+                    + " key: $unresolvedFqn})-[:RESOLVES_TO]->(:Class {project: $p,"
+                    + " fqn: $unresolvedFqn})"
+                    + " OPTIONAL MATCH (staleTargetRef:CodeRef {project: $p, targetType: 'Class',"
+                    + " key: $staleFqn})-[:RESOLVES_TO]->(:Class {project: $p, fqn: $staleFqn})"
+                    + " OPTIONAL MATCH (staleOldRef:CodeRef {project: $p, targetType: 'Class',"
+                    + " key: $staleFqn})-[:RESOLVES_TO]->(:Class {project: $p, fqn: $oldFqn})"
                     + " RETURN count(DISTINCT changedRef) AS changedRefs,"
-                    + " count(DISTINCT untouchedRef) AS untouchedRefs",
-                Map.of("p", PROJECT, "changedFqn", changedFqn, "untouchedFqn", untouchedFqn))
+                    + " count(DISTINCT unresolvedRef) AS unresolvedRefs,"
+                    + " count(DISTINCT staleTargetRef) AS staleTargetRefs,"
+                    + " count(DISTINCT staleOldRef) AS staleOldRefs",
+                Map.of(
+                    "p",
+                    PROJECT,
+                    "changedFqn",
+                    changedFqn,
+                    "unresolvedFqn",
+                    unresolvedFqn,
+                    "staleFqn",
+                    staleFqn,
+                    "oldFqn",
+                    oldFqn))
             .single();
 
     assertEquals(1, row.get("changedRefs").asLong());
-    assertEquals(0, row.get("untouchedRefs").asLong());
+    assertEquals(1, row.get("unresolvedRefs").asLong());
+    assertEquals(0, row.get("staleTargetRefs").asLong());
+    assertEquals(1, row.get("staleOldRefs").asLong());
   }
 
   @Test

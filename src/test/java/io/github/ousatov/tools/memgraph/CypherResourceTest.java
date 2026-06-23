@@ -209,6 +209,7 @@ class CypherResourceTest {
     String method = Const.Cypher.CYPHER_RESOLVE_CODE_REFS_METHOD;
     String field = Const.Cypher.CYPHER_RESOLVE_CODE_REFS_FIELD;
     String unresolved = Const.Cypher.CYPHER_RESOLVE_CODE_REFS_UNRESOLVED;
+    String unresolvedKeys = Const.Cypher.CYPHER_LIST_UNRESOLVED_CODE_REF_KEYS;
     String scopedCode = Const.Cypher.CYPHER_RESOLVE_CODE_REFS_CODE_SCOPED;
     String scopedPackage = Const.Cypher.CYPHER_RESOLVE_CODE_REFS_PACKAGE_SCOPED;
     String scopedFile = Const.Cypher.CYPHER_RESOLVE_CODE_REFS_FILE_SCOPED;
@@ -228,6 +229,7 @@ class CypherResourceTest {
     assertContainsAll(method, "targetType: 'Method'", "target:Method");
     assertContainsAll(field, "targetType: 'Field'", "target:Field");
     assertContainsAll(unresolved, "NOT ref.targetType IN", "DELETE old");
+    assertContainsAll(unresolvedKeys, "NOT (ref)-[:RESOLVES_TO]->()", "targetType", "key");
     assertContainsAll(scopedCode, "ref.key IN $codeKeys", "target:Code");
     assertContainsAll(scopedPackage, "ref.key IN $packageKeys", "target:Package");
     assertContainsAll(scopedFile, "ref.key IN $paths", "target:File");
@@ -247,6 +249,7 @@ class CypherResourceTest {
             method,
             field,
             unresolved,
+            unresolvedKeys,
             scopedCode,
             scopedPackage,
             scopedFile,

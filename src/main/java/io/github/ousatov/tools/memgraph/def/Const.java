@@ -205,6 +205,8 @@ public final class Const {
         action("resolve-code-refs-field.cypher");
     public static final String CYPHER_RESOLVE_CODE_REFS_UNRESOLVED =
         action("resolve-code-refs-unresolved.cypher");
+    public static final String CYPHER_LIST_UNRESOLVED_CODE_REF_KEYS =
+        action("list-unresolved-code-ref-keys.cypher");
     public static final String CYPHER_RESOLVE_CODE_REFS_CODE_SCOPED =
         action("resolve-code-refs-code-scoped.cypher");
     public static final String CYPHER_RESOLVE_CODE_REFS_PACKAGE_SCOPED =

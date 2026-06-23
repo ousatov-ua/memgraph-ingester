@@ -3374,6 +3374,24 @@ class IngestionOrchestratorIT {
   }
 
   @Test
+  void incrementalRunResolvesNewCodeRefsForUnchangedFiles() throws Exception {
+    currentProject = PROJECT_BASE + "-incremental-code-ref";
+    sourceDir = buildSampleSourceTree();
+
+    var orchestrator =
+        new IngestionOrchestrator(
+            sourceDir, currentProject, 1, driver, new ParseService(sourceDir));
+    assertEquals(0, orchestrator.run(Settings.def()));
+
+    createClassCodeRef(currentProject, "com.example.Widget");
+    assertFalse(classCodeRefResolved(currentProject, "com.example.Widget"));
+
+    assertEquals(0, orchestrator.run(Settings.def()));
+
+    assertTrue(classCodeRefResolved(currentProject, "com.example.Widget"));
+  }
+
+  @Test
   void incrementalRunSkipsPrepareForUnchangedFiles() throws Exception {
     currentProject = PROJECT_BASE + "-incremental-prepare-skip";
     sourceDir = Files.createTempDirectory("orch-incremental-prepare-skip-src-");

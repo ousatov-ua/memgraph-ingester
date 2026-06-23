@@ -389,7 +389,7 @@ public final class GraphWriter {
     cypher.run(Cypher.CYPHER_RESOLVE_CODE_REFS_UNRESOLVED, Map.of());
   }
 
-  /** Refreshes {@code :CodeRef} edges only for code identities touched by this ingestion run. */
+  /** Refreshes {@code :CodeRef} edges for touched definitions and newly added unresolved refs. */
   public void resolveCodeRefsForChangedDefinitions() {
     resolveScopedCodeRefs(
         Cypher.CYPHER_RESOLVE_CODE_REFS_CODE_SCOPED,
@@ -421,6 +421,62 @@ public final class GraphWriter {
         Cypher.CYPHER_RESOLVE_CODE_REFS_FIELD_SCOPED,
         Params.FIELD_FQNS,
         stats.changedCodeRefFieldFqns());
+    resolveUnresolvedCodeRefs();
+  }
+
+  private void resolveUnresolvedCodeRefs() {
+    Map<String, List<String>> keysByType = unresolvedCodeRefKeysByType();
+    resolveScopedCodeRefs(
+        Cypher.CYPHER_RESOLVE_CODE_REFS_CODE_SCOPED,
+        Params.CODE_KEYS,
+        keysByType.getOrDefault("Code", List.of()));
+    resolveScopedCodeRefs(
+        Cypher.CYPHER_RESOLVE_CODE_REFS_PACKAGE_SCOPED,
+        Params.PACKAGE_KEYS,
+        keysByType.getOrDefault("Package", List.of()));
+    resolveScopedCodeRefs(
+        Cypher.CYPHER_RESOLVE_CODE_REFS_FILE_SCOPED,
+        Params.PATHS,
+        keysByType.getOrDefault("File", List.of()));
+    resolveScopedCodeRefs(
+        Cypher.CYPHER_RESOLVE_CODE_REFS_CLASS_SCOPED,
+        Params.CLASS_FQNS,
+        keysByType.getOrDefault("Class", List.of()));
+    resolveScopedCodeRefs(
+        Cypher.CYPHER_RESOLVE_CODE_REFS_INTERFACE_SCOPED,
+        Params.INTERFACE_FQNS,
+        keysByType.getOrDefault("Interface", List.of()));
+    resolveScopedCodeRefs(
+        Cypher.CYPHER_RESOLVE_CODE_REFS_ANNOTATION_SCOPED,
+        Params.ANNOTATION_FQNS,
+        keysByType.getOrDefault("Annotation", List.of()));
+    resolveScopedCodeRefs(
+        Cypher.CYPHER_RESOLVE_CODE_REFS_METHOD_SCOPED,
+        Params.METHOD_SIGNATURES,
+        keysByType.getOrDefault("Method", List.of()));
+    resolveScopedCodeRefs(
+        Cypher.CYPHER_RESOLVE_CODE_REFS_FIELD_SCOPED,
+        Params.FIELD_FQNS,
+        keysByType.getOrDefault("Field", List.of()));
+  }
+
+  private Map<String, List<String>> unresolvedCodeRefKeysByType() {
+    return cypher.read(
+        Cypher.CYPHER_LIST_UNRESOLVED_CODE_REF_KEYS,
+        Map.of(),
+        result -> {
+          Map<String, List<String>> keysByType = new HashMap<>();
+          while (result.hasNext()) {
+            var row = result.next();
+            String targetType = stringValue(row.get("targetType"));
+            String key = stringValue(row.get(Params.KEY));
+            if (!targetType.isBlank() && !key.isBlank()) {
+              keysByType.computeIfAbsent(targetType, _ -> new ArrayList<>()).add(key);
+            }
+          }
+          keysByType.replaceAll((_, keys) -> keys.stream().distinct().sorted().toList());
+          return keysByType;
+        });
   }
 
   private void resolveScopedCodeRefs(String query, String paramName, List<String> keys) {
