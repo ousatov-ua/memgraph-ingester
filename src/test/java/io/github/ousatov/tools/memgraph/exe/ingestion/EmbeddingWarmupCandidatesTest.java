@@ -75,6 +75,26 @@ class EmbeddingWarmupCandidatesTest {
     assertFalse(IngestionOrchestrator.postProcessingCodeDirtyOnly(settings));
   }
 
+  @Test
+  void codeRefResolutionUsesFullRefreshOnlyWhenRunScopeIsUnsafe() {
+    assertFalse(IngestionOrchestrator.fullCodeRefRefresh(Settings.def(), false));
+    assertTrue(IngestionOrchestrator.fullCodeRefRefresh(Settings.def(), true));
+    assertTrue(IngestionOrchestrator.fullCodeRefRefresh(Settings.wipeProjCodeOnly(), false));
+    assertTrue(
+        IngestionOrchestrator.fullCodeRefRefresh(
+            new Settings(
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                EmbeddingSettings.disabled(),
+                EmbeddingSettings.memoryDefaults().withRequired(true)),
+            false));
+  }
+
   private static EmbeddingSettings enabledSettings(String modelName, int dimensions) {
     return new EmbeddingSettings(
         true, "idx", modelName, "cos", "f16", 8, 4, "", dimensions, 0, 0, 0, 0, false);

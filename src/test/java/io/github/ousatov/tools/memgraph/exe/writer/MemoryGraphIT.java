@@ -8,7 +8,9 @@ import io.github.ousatov.tools.memgraph.extension.MemgraphExtension;
 import io.github.ousatov.tools.memgraph.extension.MemgraphInstance;
 import io.github.ousatov.tools.memgraph.schema.Memgraph;
 import io.github.ousatov.tools.memgraph.schema.MemgraphDriver;
+import io.github.ousatov.tools.memgraph.vo.adapter.SourceFileDefinitions;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterAll;
@@ -189,6 +191,44 @@ class MemoryGraphIT {
             .get("n")
             .asLong();
     assertEquals(0, staleChunks);
+  }
+
+  @Test
+  void scopedCodeRefResolutionOnlyTouchesChangedKeys() {
+    String changedFqn = "com.example.Changed";
+    String untouchedFqn = "com.example.Untouched";
+    session
+        .run(
+            "CREATE (:Class {project: $p, fqn: $changedFqn})"
+                + " CREATE (:Class {project: $p, fqn: $untouchedFqn})"
+                + " CREATE (:CodeRef {project: $p, targetType: 'Class', key: $changedFqn})"
+                + " CREATE (:CodeRef {project: $p, targetType: 'Class', key: $untouchedFqn})",
+            Map.of("p", PROJECT, "changedFqn", changedFqn, "untouchedFqn", untouchedFqn))
+        .consume();
+    writer
+        .stats()
+        .recordChangedDefinitions(
+            SourceFileDefinitions.of(
+                List.of(changedFqn), List.of(), List.of(), List.of(), List.of()));
+
+    writer.resolveCodeRefsForChangedDefinitions();
+
+    var row =
+        session
+            .run(
+                "OPTIONAL MATCH (changedRef:CodeRef {project: $p, targetType: 'Class',"
+                    + " key: $changedFqn})"
+                    + "-[:RESOLVES_TO]->(:Class {project: $p, fqn: $changedFqn})"
+                    + " OPTIONAL MATCH (untouchedRef:CodeRef {project: $p, targetType: 'Class',"
+                    + " key: $untouchedFqn})-[:RESOLVES_TO]->(:Class {project: $p,"
+                    + " fqn: $untouchedFqn})"
+                    + " RETURN count(DISTINCT changedRef) AS changedRefs,"
+                    + " count(DISTINCT untouchedRef) AS untouchedRefs",
+                Map.of("p", PROJECT, "changedFqn", changedFqn, "untouchedFqn", untouchedFqn))
+            .single();
+
+    assertEquals(1, row.get("changedRefs").asLong());
+    assertEquals(0, row.get("untouchedRefs").asLong());
   }
 
   @Test

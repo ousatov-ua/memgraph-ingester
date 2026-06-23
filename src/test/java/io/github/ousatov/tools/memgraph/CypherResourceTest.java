@@ -209,6 +209,14 @@ class CypherResourceTest {
     String method = Const.Cypher.CYPHER_RESOLVE_CODE_REFS_METHOD;
     String field = Const.Cypher.CYPHER_RESOLVE_CODE_REFS_FIELD;
     String unresolved = Const.Cypher.CYPHER_RESOLVE_CODE_REFS_UNRESOLVED;
+    String scopedCode = Const.Cypher.CYPHER_RESOLVE_CODE_REFS_CODE_SCOPED;
+    String scopedPackage = Const.Cypher.CYPHER_RESOLVE_CODE_REFS_PACKAGE_SCOPED;
+    String scopedFile = Const.Cypher.CYPHER_RESOLVE_CODE_REFS_FILE_SCOPED;
+    String scopedClass = Const.Cypher.CYPHER_RESOLVE_CODE_REFS_CLASS_SCOPED;
+    String scopedInterface = Const.Cypher.CYPHER_RESOLVE_CODE_REFS_INTERFACE_SCOPED;
+    String scopedAnnotation = Const.Cypher.CYPHER_RESOLVE_CODE_REFS_ANNOTATION_SCOPED;
+    String scopedMethod = Const.Cypher.CYPHER_RESOLVE_CODE_REFS_METHOD_SCOPED;
+    String scopedField = Const.Cypher.CYPHER_RESOLVE_CODE_REFS_FIELD_SCOPED;
 
     assertContainsAll(code, "targetType: 'Code'", "target:Code");
     assertContainsAll(
@@ -220,8 +228,33 @@ class CypherResourceTest {
     assertContainsAll(method, "targetType: 'Method'", "target:Method");
     assertContainsAll(field, "targetType: 'Field'", "target:Field");
     assertContainsAll(unresolved, "NOT ref.targetType IN", "DELETE old");
+    assertContainsAll(scopedCode, "ref.key IN $codeKeys", "target:Code");
+    assertContainsAll(scopedPackage, "ref.key IN $packageKeys", "target:Package");
+    assertContainsAll(scopedFile, "ref.key IN $paths", "target:File");
+    assertContainsAll(scopedClass, "ref.key IN $classFqns", "target:Class");
+    assertContainsAll(scopedInterface, "ref.key IN $interfaceFqns", "target:Interface");
+    assertContainsAll(scopedAnnotation, "ref.key IN $annotationFqns", "target:Annotation");
+    assertContainsAll(scopedMethod, "ref.key IN $methodSignatures", "target:Method");
+    assertContainsAll(scopedField, "ref.key IN $fieldFqns", "target:Field");
     for (String cypher :
-        List.of(code, pkg, file, cls, iface, annotation, method, field, unresolved)) {
+        List.of(
+            code,
+            pkg,
+            file,
+            cls,
+            iface,
+            annotation,
+            method,
+            field,
+            unresolved,
+            scopedCode,
+            scopedPackage,
+            scopedFile,
+            scopedClass,
+            scopedInterface,
+            scopedAnnotation,
+            scopedMethod,
+            scopedField)) {
       assertFalse(cypher.contains("UNION"));
     }
   }

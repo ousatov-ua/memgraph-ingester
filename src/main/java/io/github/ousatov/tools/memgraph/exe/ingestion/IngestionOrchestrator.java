@@ -200,17 +200,18 @@ public final class IngestionOrchestrator {
     this.incremental = settings.incremental();
 
     List<SourceFile> files = discoverSourceFiles();
-    runBootstrap(settings, stats, bootstrapLanguages(settings, files));
+    boolean schemaChanged = runBootstrap(settings, stats, bootstrapLanguages(settings, files));
     startEmbeddingModelWarmup();
     try {
-      return runIngestion(settings, stats, files);
+      return runIngestion(settings, stats, files, schemaChanged);
     } finally {
       joinEmbeddingModelWarmup();
     }
   }
 
   /** Runs discovery-to-post-processing ingestion after bootstrap and warm-up start. */
-  private int runIngestion(Settings settings, IngestionRunStats stats, List<SourceFile> files) {
+  private int runIngestion(
+      Settings settings, IngestionRunStats stats, List<SourceFile> files, boolean schemaChanged) {
     stats.setTotalFiles(files.size());
     List<Path> retainedSourcePaths = retainedSourcePaths(files, stats);
     String discoveryMessage =
@@ -265,7 +266,7 @@ public final class IngestionOrchestrator {
                 + " state will be kept for retry.",
             failures);
       }
-      runPostProcessing(settings, stats, postScanProgress);
+      runPostProcessing(settings, stats, postScanProgress, schemaChanged);
       postScanProgress = null;
     } catch (RuntimeException e) {
       if (settings.watch() && WatchSession.isInterruptedFailure(e)) {
@@ -337,8 +338,9 @@ public final class IngestionOrchestrator {
     return driver;
   }
 
-  private void runBootstrap(
+  private boolean runBootstrap(
       Settings settings, IngestionRunStats stats, List<SourceLanguage> sourceLanguages) {
+    boolean schemaChanged = false;
     try (Session bootstrap = driver.session()) {
       GraphWriter bootstrapWriter = new GraphWriter(bootstrap, project, stats);
       if (settings.wipeAllData()) {
@@ -350,11 +352,13 @@ public final class IngestionOrchestrator {
         log.info(applyingSchema);
         ConsoleOutput.status(applyingSchema);
         Memgraph.applySchema(bootstrap);
+        schemaChanged = true;
         String appliedSchema = "Applied schema to Memgraph";
         log.info(appliedSchema);
         ConsoleOutput.status(appliedSchema);
       } else if (Memgraph.needsSchemaUpdate(bootstrap)) {
         Memgraph.applySchema(bootstrap);
+        schemaChanged = true;
         log.info("Applied schema migrations to Memgraph");
       }
       if (settings.wipeProjectCode()) {
@@ -384,13 +388,17 @@ public final class IngestionOrchestrator {
       bootstrapWriter.backfillMethodOwnerMetadata();
       log.debug("Backfilled :Method owner metadata for '{}'", project);
     }
+    return schemaChanged;
   }
 
   private void runPostProcessing(
-      Settings settings, IngestionRunStats stats, ConsoleProgress postScanProgress) {
+      Settings settings,
+      IngestionRunStats stats,
+      ConsoleProgress postScanProgress,
+      boolean schemaChanged) {
     try (Session session = driver.session()) {
       GraphWriter postWriter = new GraphWriter(session, project, stats);
-      refreshDerivedGraphArtifacts(postWriter);
+      refreshDerivedGraphArtifacts(postWriter, fullCodeRefRefresh(settings, schemaChanged));
       if (postScanProgress != null) {
         postScanProgress.discard();
       }
@@ -462,14 +470,23 @@ public final class IngestionOrchestrator {
 
   /** Refreshes graph artifacts that depend on all available code nodes being present. */
   void refreshDerivedGraphArtifacts(GraphWriter writer) {
+    refreshDerivedGraphArtifacts(writer, false);
+  }
+
+  void refreshDerivedGraphArtifacts(GraphWriter writer, boolean fullCodeRefRefresh) {
     writer.resolvePendingCallsForChangedDefinitions();
     log.debug("Resolved changed pending owner/name CALLS edges for '{}'", project);
     writer.deletePhantomMethods();
     log.debug("Removed phantom external Method nodes for '{}'", project);
     writer.deleteEmptyPackages();
     log.debug("Removed empty Package nodes for '{}'", project);
-    writer.resolveCodeRefs();
-    log.debug("Refreshed :CodeRef resolution edges for '{}'", project);
+    if (fullCodeRefRefresh) {
+      writer.resolveCodeRefs();
+      log.debug("Fully refreshed :CodeRef resolution edges for '{}'", project);
+    } else {
+      writer.resolveCodeRefsForChangedDefinitions();
+      log.debug("Refreshed changed :CodeRef resolution edges for '{}'", project);
+    }
   }
 
   /**
@@ -525,6 +542,10 @@ public final class IngestionOrchestrator {
 
   static boolean postProcessingCodeDirtyOnly(Settings settings) {
     return settings.incremental() && !settings.wipeCodeRag();
+  }
+
+  static boolean fullCodeRefRefresh(Settings settings, boolean schemaChanged) {
+    return schemaChanged || !settings.incremental() || settings.memoryEmbeddings().required();
   }
 
   /**
@@ -1497,7 +1518,7 @@ public final class IngestionOrchestrator {
       GraphWriter writer, PreparedWrite<?> prepared, Collection<String> deletedMethodNames) {
     writer.stats().recordIngestedFile();
     writer.stats().recordDeletedMethodNames(deletedMethodNames);
-    writer.stats().recordChangedDefinitions(prepared.definitions());
+    writer.stats().recordChangedDefinitions(prepared.path(), prepared.definitions());
   }
 
   private record PreparedWriteResult(boolean success, List<String> deletedMethodNames) {}
