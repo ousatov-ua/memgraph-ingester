@@ -422,6 +422,7 @@ public final class GraphWriter {
         Params.FIELD_FQNS,
         stats.changedCodeRefFieldFqns());
     resolveUnresolvedCodeRefs();
+    cypher.run(Cypher.CYPHER_RESOLVE_CODE_REFS_UNRESOLVED, Map.of());
   }
 
   private void resolveUnresolvedCodeRefs() {

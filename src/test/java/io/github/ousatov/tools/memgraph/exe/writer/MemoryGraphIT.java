@@ -266,6 +266,32 @@ class MemoryGraphIT {
   }
 
   @Test
+  void scopedCodeRefResolutionRemovesUnsupportedTargetTypeEdges() {
+    session
+        .run(
+            "CREATE (target:Class {project: $p, fqn: 'com.example.Widget'})"
+                + " CREATE (:CodeRef {project: $p, targetType: 'Clas', key: 'com.example.Widget'})"
+                + "-[:RESOLVES_TO]->(target)",
+            Map.of("p", PROJECT))
+        .consume();
+
+    writer.resolveCodeRefsForChangedDefinitions();
+
+    long count =
+        session
+            .run(
+                "MATCH (:CodeRef {project: $p, targetType: 'Clas', key: 'com.example.Widget'})"
+                    + "-[:RESOLVES_TO]->()"
+                    + " RETURN count(*) AS n",
+                Map.of("p", PROJECT))
+            .single()
+            .get("n")
+            .asLong();
+
+    assertEquals(0, count);
+  }
+
+  @Test
   void memoryItemsCanReferToCodeRefsResolvedToCodeNodes() {
     writer.upsertFile(TEST_FILE, SourceLanguage.JAVA);
 
