@@ -1,9 +1,11 @@
 package io.github.ousatov.tools.memgraph.exe.ingestion;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.ousatov.tools.memgraph.vo.EmbeddingSettings;
+import io.github.ousatov.tools.memgraph.vo.Settings;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
@@ -49,6 +51,28 @@ class EmbeddingWarmupCandidatesTest {
             enabledSettings("all-MiniLM-L6-v2", 0), enabledSettings("other-model", 384));
 
     assertEquals(2, candidates.size());
+  }
+
+  @Test
+  void normalIncrementalPostProcessingUsesDirtyOnlyCodeEmbeddings() {
+    assertTrue(IngestionOrchestrator.postProcessingCodeDirtyOnly(Settings.def()));
+  }
+
+  @Test
+  void codeRagWipeForcesFullPostProcessingCodeEmbeddingRefresh() {
+    Settings settings =
+        new Settings(
+            false,
+            false,
+            false,
+            false,
+            true,
+            false,
+            false,
+            EmbeddingSettings.codeDefaults(),
+            EmbeddingSettings.disabled());
+
+    assertFalse(IngestionOrchestrator.postProcessingCodeDirtyOnly(settings));
   }
 
   private static EmbeddingSettings enabledSettings(String modelName, int dimensions) {

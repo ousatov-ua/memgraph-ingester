@@ -394,7 +394,7 @@ public final class IngestionOrchestrator {
       if (postScanProgress != null) {
         postScanProgress.discard();
       }
-      refreshChunkEmbeddings(postWriter, false);
+      refreshChunkEmbeddings(postWriter, false, postProcessingCodeDirtyOnly(settings));
       ConsoleOutput.finishStatus();
       printMetrics(session);
       printPerformance(stats);
@@ -521,6 +521,10 @@ public final class IngestionOrchestrator {
       }
     }
     return List.copyOf(byModel.values());
+  }
+
+  static boolean postProcessingCodeDirtyOnly(Settings settings) {
+    return settings.incremental() && !settings.wipeCodeRag();
   }
 
   /**
