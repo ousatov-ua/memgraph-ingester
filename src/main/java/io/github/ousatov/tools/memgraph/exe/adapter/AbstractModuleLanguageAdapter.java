@@ -100,7 +100,8 @@ public abstract class AbstractModuleLanguageAdapter<T extends ModuleAnalysis>
                 member.endLine(),
                 false,
                 language().graphName(),
-                member.kind()));
+                member.kind(),
+                ownerKind(member)));
       } else {
         fields.add(
             new FieldWrite(
@@ -111,7 +112,8 @@ public abstract class AbstractModuleLanguageAdapter<T extends ModuleAnalysis>
                 member.isStatic(),
                 Const.Symbols.EMPTY,
                 language().graphName(),
-                member.kind()));
+                member.kind(),
+                ownerKind(member)));
       }
     }
     writer.upsertMembers(file, fields, methods);
@@ -163,5 +165,10 @@ public abstract class AbstractModuleLanguageAdapter<T extends ModuleAnalysis>
   private static boolean isCompletePendingCall(
       io.github.ousatov.tools.memgraph.vo.analysis.module.CallDecl call) {
     return !call.calleeOwnerFqn().isBlank() && !call.calleeName().isBlank();
+  }
+
+  private static String ownerKind(
+      io.github.ousatov.tools.memgraph.vo.analysis.module.MemberDecl member) {
+    return member.ownerKind().isBlank() ? Labels.CLASS : member.ownerKind();
   }
 }

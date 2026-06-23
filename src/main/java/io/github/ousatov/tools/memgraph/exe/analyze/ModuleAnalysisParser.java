@@ -71,6 +71,7 @@ final class ModuleAnalysisParser {
             members.add(
                 new io.github.ousatov.tools.memgraph.vo.analysis.module.MemberDecl(
                     value(obj, Params.OWNER_FQN),
+                    value(obj, Params.OWNER_KIND),
                     value(obj, Params.MEMBER_TYPE),
                     value(obj, Params.KIND),
                     value(obj, Params.KEY),

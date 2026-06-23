@@ -11,6 +11,7 @@ import com.github.javaparser.ast.body.EnumDeclaration;
 import com.github.javaparser.ast.body.RecordDeclaration;
 import com.github.javaparser.symbolsolver.JavaSymbolSolver;
 import com.github.javaparser.symbolsolver.resolution.typesolvers.ReflectionTypeSolver;
+import io.github.ousatov.tools.memgraph.def.Const.Labels;
 import io.github.ousatov.tools.memgraph.exe.adapter.SourceLanguage;
 import io.github.ousatov.tools.memgraph.exe.analyze.ParseService;
 import io.github.ousatov.tools.memgraph.exe.metrics.IngestionRunStats;
@@ -1178,9 +1179,19 @@ class GraphWriterIT {
         "pendingItemsCount",
         "number",
         false,
-        "interface-property");
+        "interface-property",
+        Labels.INTERFACE);
     jsWriter.upsertMethod(
-        tsFile, fqn, fqn + ".save(Repository)", "save", "void", false, 3, 3, "interface-method");
+        tsFile,
+        fqn,
+        fqn + ".save(Repository)",
+        "save",
+        "void",
+        false,
+        3,
+        3,
+        "interface-method",
+        Labels.INTERFACE);
 
     var row =
         session
@@ -3163,7 +3174,16 @@ class GraphWriterIT {
 
     jsWriter.upsertInterface(tsFile, pkg, baseIface, "Capability", "interface", "app/base.ts", "");
     jsWriter.upsertMethod(
-        tsFile, baseIface, calleeSig, "doIt", "void", false, 1, 1, "interface-method");
+        tsFile,
+        baseIface,
+        calleeSig,
+        "doIt",
+        "void",
+        false,
+        1,
+        1,
+        "interface-method",
+        Labels.INTERFACE);
     jsWriter.upsertInterface(
         tsFile, pkg, childIface, "AdvancedCapability", "interface", "app/advanced.ts", "");
     jsWriter.upsertInterfaceExtends(childIface, baseIface);

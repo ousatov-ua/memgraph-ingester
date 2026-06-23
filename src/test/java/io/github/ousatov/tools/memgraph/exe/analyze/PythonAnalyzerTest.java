@@ -79,7 +79,10 @@ class PythonAnalyzerTest {
             .anyMatch(annotation -> "component".equals(annotation.fqn())));
     assertTrue(
         analysis.members().stream()
-            .anyMatch(member -> "python.pkg.service$2e$py.Service#name".equals(member.key())));
+            .anyMatch(
+                member ->
+                    "python.pkg.service$2e$py.Service#name".equals(member.key())
+                        && "Class".equals(member.ownerKind())));
     assertTrue(
         analysis.members().stream()
             .anyMatch(member -> "python.pkg.service$2e$py.Service.run()".equals(member.key())),

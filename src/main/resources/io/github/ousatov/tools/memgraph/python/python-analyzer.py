@@ -226,6 +226,7 @@ class PythonSourceAnalyzer:
         write(
             record="member",
             ownerFqn=owner_fqn,
+            ownerKind="Class",
             memberType="method",
             kind=kind,
             key=signature,
@@ -250,6 +251,7 @@ class PythonSourceAnalyzer:
         write(
             record="member",
             ownerFqn=owner_fqn,
+            ownerKind="Class",
             memberType="method",
             kind=kind,
             key=signature,
@@ -520,6 +522,7 @@ class PythonSourceAnalyzer:
         write(
             record="member",
             ownerFqn=owner_fqn,
+            ownerKind="Class",
             memberType="field",
             kind=kind,
             key=f"{owner_fqn}#{name}",

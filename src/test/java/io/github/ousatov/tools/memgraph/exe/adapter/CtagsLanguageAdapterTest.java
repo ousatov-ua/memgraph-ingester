@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeFalse;
 
+import io.github.ousatov.tools.memgraph.def.Const.Labels;
 import io.github.ousatov.tools.memgraph.def.Const.Params;
 import io.github.ousatov.tools.memgraph.exception.ProcessingException;
 import io.github.ousatov.tools.memgraph.exe.analyze.CtagsAnalyzer;
@@ -247,7 +248,10 @@ class CtagsLanguageAdapterTest {
     assertTrue(
         analysis.members().stream()
             .anyMatch(
-                member -> "Red".equals(member.name()) && member.ownerFqn().endsWith(".Color")));
+                member ->
+                    "Red".equals(member.name())
+                        && member.ownerFqn().endsWith(".Color")
+                        && Labels.CLASS.equals(member.ownerKind())));
   }
 
   @Test
@@ -330,7 +334,8 @@ class CtagsLanguageAdapterTest {
             .anyMatch(
                 member ->
                     "NewService".equals(member.name())
-                        && packageType.fqn().equals(member.ownerFqn())));
+                        && packageType.fqn().equals(member.ownerFqn())
+                        && Labels.CLASS.equals(member.ownerKind())));
   }
 
   @Test

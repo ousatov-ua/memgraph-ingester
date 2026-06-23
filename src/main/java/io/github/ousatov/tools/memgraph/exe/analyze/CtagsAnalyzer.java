@@ -2,6 +2,7 @@ package io.github.ousatov.tools.memgraph.exe.analyze;
 
 import io.github.ousatov.tools.memgraph.config.AppConfig;
 import io.github.ousatov.tools.memgraph.def.Const;
+import io.github.ousatov.tools.memgraph.def.Const.Labels;
 import io.github.ousatov.tools.memgraph.def.Const.Params;
 import io.github.ousatov.tools.memgraph.exception.ProcessingException;
 import io.github.ousatov.tools.memgraph.exe.adapter.SourceLanguage;
@@ -150,6 +151,8 @@ public final class CtagsAnalyzer {
     int endLine = fileEndLine(file, tags);
     List<io.github.ousatov.tools.memgraph.vo.analysis.ctags.TypeDecl> types = new ArrayList<>();
     Map<String, String> typeFqnsByScope = new LinkedHashMap<>();
+    Map<String, String> ownerKindsByFqn = new LinkedHashMap<>();
+    ownerKindsByFqn.put(moduleFqn, Labels.CLASS);
     List<CtagsTag> pendingTypeTags = new ArrayList<>();
     for (CtagsTag tag : tags) {
       String graphKind = graphKind(tag.kind());
@@ -165,13 +168,15 @@ public final class CtagsAnalyzer {
         if (ownerFqn.isEmpty()) {
           continue;
         }
-        addTypeDecl(types, typeFqnsByScope, tag, graphKind(tag.kind()), ownerFqn.get());
+        addTypeDecl(
+            types, typeFqnsByScope, ownerKindsByFqn, tag, graphKind(tag.kind()), ownerFqn.get());
         iterator.remove();
         resolvedAny = true;
       }
       if (!resolvedAny) {
         for (CtagsTag tag : pendingTypeTags) {
-          addTypeDecl(types, typeFqnsByScope, tag, graphKind(tag.kind()), moduleFqn);
+          addTypeDecl(
+              types, typeFqnsByScope, ownerKindsByFqn, tag, graphKind(tag.kind()), moduleFqn);
         }
         pendingTypeTags.clear();
       }
@@ -190,6 +195,7 @@ public final class CtagsAnalyzer {
         members.add(
             new io.github.ousatov.tools.memgraph.vo.analysis.ctags.MemberDecl(
                 ownerFqn,
+                ownerKindsByFqn.getOrDefault(ownerFqn, Labels.CLASS),
                 memberType,
                 graphKind,
                 key,
@@ -208,11 +214,13 @@ public final class CtagsAnalyzer {
   private static void addTypeDecl(
       List<io.github.ousatov.tools.memgraph.vo.analysis.ctags.TypeDecl> types,
       Map<String, String> typeFqnsByScope,
+      Map<String, String> ownerKindsByFqn,
       CtagsTag tag,
       String graphKind,
       String ownerFqn) {
     String fqn = CtagsNames.childFqn(ownerFqn, tag.name());
     boolean interfaceLike = Params.INTERFACE.equals(graphKind);
+    ownerKindsByFqn.put(fqn, interfaceLike ? Labels.INTERFACE : Labels.CLASS);
     types.add(
         new io.github.ousatov.tools.memgraph.vo.analysis.ctags.TypeDecl(
             graphKind,

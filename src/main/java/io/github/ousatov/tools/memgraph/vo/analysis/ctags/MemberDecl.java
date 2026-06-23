@@ -10,6 +10,7 @@ import io.github.ousatov.tools.memgraph.def.Const;
 @SuppressWarnings(Const.Warnings.TOO_MANY_PARAMETERS)
 public record MemberDecl(
     String ownerFqn,
+    String ownerKind,
     String memberType,
     String graphKind,
     String fqnOrSignature,

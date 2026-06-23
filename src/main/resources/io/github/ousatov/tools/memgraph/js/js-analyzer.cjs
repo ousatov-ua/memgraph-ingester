@@ -68,6 +68,7 @@ const typeFqnByNode = new WeakMap();
 const typeNameByNode = new WeakMap();
 const localTypeScopesByNode = new WeakMap();
 const callableByNode = new WeakMap();
+const ownerKindByFqn = new Map([[moduleFqn, 'Class']]);
 const declarationsByName = new Map();
 const declarationsByOwnerAndName = new Map();
 const staticDeclarationsByOwnerAndName = new Map();
@@ -226,6 +227,7 @@ function visitNestedTypeDeclaration(
 
 function collectClass(node, name, aliases = [], options = {}) {
   const fqn = typeFqnFor(node, name);
+  ownerKindByFqn.set(fqn, 'Class');
   if (!options.skipClassNameLookup) {
     registerUniqueName(classesByName, name, fqn);
     for (const alias of aliases) {
@@ -331,6 +333,7 @@ function collectClass(node, name, aliases = [], options = {}) {
 function collectInterface(node, kind) {
   const name = node.name.text;
   const fqn = typeFqnFor(node, name);
+  ownerKindByFqn.set(fqn, 'Interface');
   write({
     record: 'type',
     kind,
@@ -355,6 +358,7 @@ function collectTypeAlias(node) {
 function collectEnum(node) {
   const name = node.name.text;
   const fqn = typeFqnFor(node, name);
+  ownerKindByFqn.set(fqn, 'Class');
   write({
     record: 'type',
     kind: 'enum',
@@ -449,6 +453,7 @@ function collectReExportAlias(moduleSpecifier, importedName, exportedName, eleme
   write({
     record: 'member',
     ownerFqn: moduleFqn,
+    ownerKind: 'Class',
     memberType: 'method',
     kind: 'reexport',
     key: signature,
@@ -484,6 +489,7 @@ function writeReExportClassAlias(exportedName, element, targetModel) {
     write({
       record: 'member',
       ownerFqn: aliasFqn,
+      ownerKind: 'Class',
       memberType: 'method',
       kind: 'reexport-constructor',
       key: signature,
@@ -696,6 +702,7 @@ function collectFunction(ownerFqn, name, node, kind, options = {}) {
   write({
     record: 'member',
     ownerFqn,
+    ownerKind: ownerKindFor(ownerFqn),
     memberType: 'method',
     kind,
     key: signature,
@@ -744,6 +751,7 @@ function writeFunctionSignature(ownerFqn, name, node, kind, options = {}) {
   write({
     record: 'member',
     ownerFqn,
+    ownerKind: ownerKindFor(ownerFqn),
     memberType: 'method',
     kind,
     key: signature,
@@ -764,6 +772,7 @@ function writeField(ownerFqn, name, dataType, kind, node, isStatic) {
   write({
     record: 'member',
     ownerFqn,
+    ownerKind: ownerKindFor(ownerFqn),
     memberType: 'field',
     kind,
     key: `${ownerFqn}#${name}`,
@@ -819,6 +828,10 @@ function writeTypeMembers(ownerFqn, members) {
       });
     }
   }
+}
+
+function ownerKindFor(ownerFqn) {
+  return ownerKindByFqn.get(ownerFqn) || 'Class';
 }
 
 function writeHeritageRelations(node, childFqn, ownerKind) {
