@@ -23,6 +23,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -280,6 +281,23 @@ public final class GraphWriter {
     return deletedMethodNames;
   }
 
+  public Map<Path, List<String>> deleteStaleDefinitionsForFiles(
+      Map<Path, SourceFileDefinitions> definitionsByFile) {
+    if (definitionsByFile.isEmpty()) {
+      return Map.of();
+    }
+    List<Map<String, Object>> rows =
+        definitionsByFile.entrySet().stream()
+            .map(entry -> staleDefinitionRow(entry.getKey(), entry.getValue()))
+            .toList();
+    Map<String, Object> params =
+        Map.of(Params.ROWS, rows, Params.RETAINED_SOURCE_TOKEN, retainedSourceToken);
+    Map<Path, List<String>> deletedMethodNames = deletedSourceFileMethodNamesByPath(params);
+    cypher.run(Cypher.CYPHER_DELETE_STALE_DEFINITION_RELATIONS_FOR_FILES, params);
+    cypher.run(Cypher.CYPHER_DELETE_STALE_DEFINITIONS_FOR_FILES, params);
+    return deletedMethodNames;
+  }
+
   private void deleteStaleDefinitionsForFile(Map<String, Object> params) {
     cypher.run(Cypher.CYPHER_DELETE_STALE_DEFINITION_RELATIONS_FOR_FILE, params);
     cypher.run(Cypher.CYPHER_DELETE_STALE_DEFINITIONS_FOR_FILE, params);
@@ -294,6 +312,16 @@ public final class GraphWriter {
         Map.entry(Params.METHOD_SIGNATURES, definitions.methodSignatures()),
         Map.entry(Params.FIELD_FQNS, definitions.fieldFqns()),
         Map.entry(Params.RETAINED_SOURCE_TOKEN, retainedSourceToken));
+  }
+
+  private Map<String, Object> staleDefinitionRow(Path file, SourceFileDefinitions definitions) {
+    return Map.ofEntries(
+        Map.entry(Params.PATH, file.toString()),
+        Map.entry(Params.CLASS_FQNS, definitions.classFqns()),
+        Map.entry(Params.INTERFACE_FQNS, definitions.interfaceFqns()),
+        Map.entry(Params.ANNOTATION_FQNS, definitions.annotationFqns()),
+        Map.entry(Params.METHOD_SIGNATURES, definitions.methodSignatures()),
+        Map.entry(Params.FIELD_FQNS, definitions.fieldFqns()));
   }
 
   /** Deletes all graph state owned by a source file that no longer exists. */
@@ -613,6 +641,23 @@ public final class GraphWriter {
 
   private List<String> deletedSourceFileMethodNames(Map<String, Object> params) {
     return readMethodNames(Cypher.CYPHER_DELETED_SOURCE_FILE_METHOD_NAMES, params);
+  }
+
+  private Map<Path, List<String>> deletedSourceFileMethodNamesByPath(Map<String, Object> params) {
+    Map<String, List<String>> raw =
+        cypher.readStringMultimap(
+            Cypher.CYPHER_DELETED_SOURCE_FILE_METHOD_NAMES_BATCH, params, Params.PATH, Params.NAME);
+    Map<Path, List<String>> namesByPath = new LinkedHashMap<>();
+    raw.forEach(
+        (path, names) ->
+            namesByPath.put(
+                Path.of(path),
+                names.stream()
+                    .filter(name -> !name.isBlank())
+                    .filter(name -> !Const.Labels.INIT.equals(name))
+                    .distinct()
+                    .toList()));
+    return namesByPath;
   }
 
   private List<String> deletedMissingFileMethodNames(Map<String, Object> params) {
