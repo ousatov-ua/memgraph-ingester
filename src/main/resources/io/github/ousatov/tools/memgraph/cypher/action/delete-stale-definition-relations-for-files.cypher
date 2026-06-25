@@ -29,7 +29,31 @@ WITH path, node, max(CASE WHEN definedBySourceFile THEN 1 ELSE 0 END) AS sourceD
 OPTIONAL MATCH (retainedFile:File {project: $project})-[:DEFINES]->(node)
 WHERE retainedFile.path <> path
   AND ($retainedSourceToken = '' OR retainedFile.retainedSourceToken = $retainedSourceToken)
-WITH node, sourceDefinitions, count(retainedFile) AS retainedDefinitions
+WITH path,
+    node,
+    sourceDefinitions,
+    retainedFile,
+    any(batchRow IN $rows WHERE batchRow.path = retainedFile.path) AS retainedFileInBatch,
+    any(batchRow IN $rows
+      WHERE batchRow.path = retainedFile.path
+        AND (
+          (node:Class AND node.fqn IN batchRow.classFqns)
+          OR (node:Interface AND node.fqn IN batchRow.interfaceFqns)
+          OR (node:Annotation AND node.fqn IN batchRow.annotationFqns)
+          OR (node:Method AND node.signature IN batchRow.methodSignatures)
+          OR (node:Field AND node.fqn IN batchRow.fieldFqns)
+        )
+    ) AS retainedInBatch
+WITH path,
+    node,
+    sourceDefinitions,
+    count(
+      CASE
+        WHEN retainedFile IS NOT NULL AND (NOT retainedFileInBatch OR retainedInBatch)
+        THEN retainedFile
+        ELSE null
+      END
+    ) AS retainedDefinitions
 WHERE retainedDefinitions = 0
 WITH collect(DISTINCT node) AS staleRelationNodes,
     collect(DISTINCT CASE WHEN sourceDefinitions > 0 THEN node ELSE null END)

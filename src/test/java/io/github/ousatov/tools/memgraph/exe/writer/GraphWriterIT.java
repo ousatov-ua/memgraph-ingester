@@ -2519,6 +2519,177 @@ class GraphWriterIT {
   }
 
   @Test
+  void deleteStaleDefinitionsForFilesClearsRelationsWhenBatchFileStopsRetainingDefinition() {
+    Path removingFile = Path.of("/tmp/test-gw/src/app/removing.ts");
+    Path keepingFile = Path.of("/tmp/test-gw/src/app/keeping.ts");
+    String sharedSig = "js.app.shared.Owner.process()";
+    String staleTargetSig = "js.app.shared.Helper.oldTarget()";
+    session
+        .run(
+            """
+            MERGE (removingFile:File {path: $removingPath, project: $p})
+            SET removingFile.language = 'js'
+            MERGE (keepingFile:File {path: $keepingPath, project: $p})
+            SET keepingFile.language = 'js'
+            MERGE (shared:Method {signature: $sharedSig, project: $p})
+            SET shared.name = 'process',
+                shared.ownerFqn = 'js.app.shared.Owner',
+                shared.ownerDisplayName = 'Owner'
+            MERGE (target:Method {signature: $staleTargetSig, project: $p})
+            SET target.name = 'oldTarget',
+                target.ownerFqn = 'js.app.shared.Helper',
+                target.ownerDisplayName = 'Helper'
+            MERGE (removingFile)-[:DEFINES]->(shared)
+            MERGE (keepingFile)-[:DEFINES]->(shared)
+            MERGE (shared)-[:CALLS]->(target)
+            """,
+            Map.of(
+                "p",
+                PROJECT,
+                "removingPath",
+                removingFile.toString(),
+                "keepingPath",
+                keepingFile.toString(),
+                "sharedSig",
+                sharedSig,
+                "staleTargetSig",
+                staleTargetSig))
+        .consume();
+    SourceFileDefinitions keepingDefinitions =
+        SourceFileDefinitions.of(List.of(), List.of(), List.of(), List.of(sharedSig), List.of());
+
+    writer.deleteStaleDefinitionsForFiles(
+        Map.of(removingFile, SourceFileDefinitions.empty(), keepingFile, keepingDefinitions));
+
+    var row =
+        session
+            .run(
+                """
+                OPTIONAL MATCH (shared:Method {signature: $sharedSig, project: $p})
+                OPTIONAL MATCH (:File {path: $removingPath, project: $p})
+                    -[oldDefinition:DEFINES]->(shared)
+                OPTIONAL MATCH (shared)-[call:CALLS]->
+                    (:Method {signature: $staleTargetSig, project: $p})
+                RETURN count(DISTINCT shared) AS sharedMethods,
+                       count(DISTINCT call) AS staleCalls,
+                       count(DISTINCT oldDefinition) AS oldDefinitions
+                """,
+                Map.of(
+                    "p",
+                    PROJECT,
+                    "removingPath",
+                    removingFile.toString(),
+                    "sharedSig",
+                    sharedSig,
+                    "staleTargetSig",
+                    staleTargetSig))
+            .single();
+
+    assertEquals(1, row.get("sharedMethods").asLong());
+    assertEquals(0, row.get("staleCalls").asLong());
+    assertEquals(0, row.get("oldDefinitions").asLong());
+  }
+
+  @Test
+  void deleteStaleDefinitionsForFilesReturnsDeletedMethodNamesForSameBatchSharedRemovals() {
+    Path firstFile = Path.of("/tmp/test-gw/src/app/first.ts");
+    Path secondFile = Path.of("/tmp/test-gw/src/app/second.ts");
+    Path callerFile = Path.of("/tmp/test-gw/src/app/caller.ts");
+    Path retainedFile = Path.of("/tmp/test-gw/src/app/retained.ts");
+    String removedSig = "js.app.shared.OldProcessor.process()";
+    String callerSig = "js.app.shared.Caller.run()";
+    String retainedSig = "js.app.shared.NewProcessor.process()";
+    session
+        .run(
+            """
+            MERGE (firstFile:File {path: $firstPath, project: $p})
+            SET firstFile.language = 'js'
+            MERGE (secondFile:File {path: $secondPath, project: $p})
+            SET secondFile.language = 'js'
+            MERGE (callerFile:File {path: $callerPath, project: $p})
+            SET callerFile.language = 'js'
+            MERGE (retainedFile:File {path: $retainedPath, project: $p})
+            SET retainedFile.language = 'js'
+            MERGE (removed:Method {signature: $removedSig, project: $p})
+            SET removed.name = 'process',
+                removed.ownerFqn = 'js.app.shared.OldProcessor',
+                removed.ownerDisplayName = 'OldProcessor',
+                removed.startLine = 1
+            MERGE (caller:Method {signature: $callerSig, project: $p})
+            SET caller.name = 'run',
+                caller.ownerFqn = 'js.app.shared.Caller',
+                caller.ownerDisplayName = 'Caller'
+            MERGE (retained:Method {signature: $retainedSig, project: $p})
+            SET retained.name = 'process',
+                retained.ownerFqn = 'js.app.shared.NewProcessor',
+                retained.ownerDisplayName = 'NewProcessor',
+                retained.startLine = 1
+            MERGE (firstFile)-[:DEFINES]->(removed)
+            MERGE (secondFile)-[:DEFINES]->(removed)
+            MERGE (callerFile)-[:DEFINES]->(caller)
+            MERGE (retainedFile)-[:DEFINES]->(retained)
+            """,
+            Map.of(
+                "p",
+                PROJECT,
+                "firstPath",
+                firstFile.toString(),
+                "secondPath",
+                secondFile.toString(),
+                "callerPath",
+                callerFile.toString(),
+                "retainedPath",
+                retainedFile.toString(),
+                "removedSig",
+                removedSig,
+                "callerSig",
+                callerSig,
+                "retainedSig",
+                retainedSig))
+        .consume();
+    writer.upsertPendingCallsByName(List.of(PendingCallWrite.allowNameOnly(callerSig, "process")));
+
+    Map<Path, List<String>> deletedMethodNames =
+        writer.deleteStaleDefinitionsForFiles(
+            Map.of(
+                firstFile,
+                SourceFileDefinitions.empty(),
+                secondFile,
+                SourceFileDefinitions.empty()));
+    deletedMethodNames.values().forEach(writer.stats()::recordDeletedMethodNames);
+    writer.resolvePendingCallsForChangedDefinitions();
+
+    var row =
+        session
+            .run(
+                """
+                MATCH (:Method {signature: $callerSig, project: $p})-[call:CALLS]->
+                    (:Method {signature: $retainedSig, project: $p})
+                OPTIONAL MATCH (pending:PendingCall {project: $p})
+                OPTIONAL MATCH (removed:Method {signature: $removedSig, project: $p})
+                RETURN count(DISTINCT call) AS calls,
+                       count(DISTINCT pending) AS pending,
+                       count(DISTINCT removed) AS removedMethods
+                """,
+                Map.of(
+                    "p",
+                    PROJECT,
+                    "callerSig",
+                    callerSig,
+                    "retainedSig",
+                    retainedSig,
+                    "removedSig",
+                    removedSig))
+            .single();
+
+    assertEquals(List.of("process"), deletedMethodNames.get(firstFile));
+    assertEquals(List.of("process"), deletedMethodNames.get(secondFile));
+    assertEquals(1, row.get("calls").asLong());
+    assertEquals(0, row.get("pending").asLong());
+    assertEquals(0, row.get("removedMethods").asLong());
+  }
+
+  @Test
   void extendsMarksExternalParentAsExternal() {
     writer.upsertFile(TEST_FILE, SourceLanguage.JAVA);
     writer.upsertPackage(PKG, SourceLanguage.JAVA);

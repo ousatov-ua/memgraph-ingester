@@ -35,6 +35,21 @@ WITH path,
 UNWIND candidates AS method
 OPTIONAL MATCH (other:File {project: $project})-[:DEFINES]->(method)
 WHERE other <> sourceFile
-WITH path, method, count(other) AS retainedDefinitions
+WITH path,
+    method,
+    other,
+    any(batchRow IN $rows WHERE batchRow.path = other.path) AS otherInBatch,
+    any(batchRow IN $rows
+      WHERE batchRow.path = other.path
+        AND method.signature IN batchRow.methodSignatures
+    ) AS retainedInBatch
+WITH path,
+    method,
+    count(
+      CASE
+        WHEN other IS NOT NULL AND (NOT otherInBatch OR retainedInBatch) THEN other
+        ELSE null
+      END
+    ) AS retainedDefinitions
 WHERE retainedDefinitions = 0
 RETURN DISTINCT path AS path, method.name AS name
