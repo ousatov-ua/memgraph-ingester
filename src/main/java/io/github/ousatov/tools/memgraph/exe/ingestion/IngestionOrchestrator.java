@@ -1454,9 +1454,15 @@ public final class IngestionOrchestrator {
     for (int attempt = 1; attempt <= FILE_TX_RETRY_ATTEMPTS; attempt++) {
       writer.beginFileTransaction();
       try {
+        Map<Path, List<String>> deletedMethodNamesByPath =
+            deleteStaleDefinitionsForBatch(writer, writes);
         List<PreparedWriteResult> results = new ArrayList<>(writes.size());
         for (PreparedWrite<?> prepared : writes) {
-          PreparedWriteResult result = writePreparedWriteInActiveTransaction(writer, prepared);
+          PreparedWriteResult result =
+              writePreparedWriteInActiveTransaction(
+                  writer,
+                  prepared,
+                  deletedMethodNamesByPath.getOrDefault(prepared.path(), List.of()));
           if (!result.success()) {
             throw new BatchWriteFailure(prepared.path());
           }
@@ -1490,6 +1496,23 @@ public final class IngestionOrchestrator {
         + writePreparedWriteBatch(writer, writes.subList(middle, writes.size()));
   }
 
+  private Map<Path, List<String>> deleteStaleDefinitionsForBatch(
+      GraphWriter writer, List<PreparedWrite<?>> writes) {
+    Map<Path, SourceFileDefinitions> definitionsByFile = new LinkedHashMap<>();
+    for (PreparedWrite<?> prepared : writes) {
+      definitionsByFile.put(prepared.path(), prepared.definitions());
+    }
+    long cleanupStartedNanos = System.nanoTime();
+    try {
+      return writer.deleteStaleDefinitionsForFiles(definitionsByFile);
+    } finally {
+      writer
+          .stats()
+          .recordPhaseNanos(
+              IngestionRunStats.PHASE_CLEANUP, System.nanoTime() - cleanupStartedNanos);
+    }
+  }
+
   private <T> PreparedWriteResult writePreparedWriteInActiveTransaction(
       GraphWriter writer, PreparedWrite<T> prepared) {
     List<String> deletedMethodNames;
@@ -1503,6 +1526,19 @@ public final class IngestionOrchestrator {
           .recordPhaseNanos(
               IngestionRunStats.PHASE_CLEANUP, System.nanoTime() - cleanupStartedNanos);
     }
+    long writeStartedNanos = System.nanoTime();
+    try {
+      boolean success = prepared.adapter().write(writer, prepared.path(), prepared.parsed());
+      return new PreparedWriteResult(success, deletedMethodNames);
+    } finally {
+      writer
+          .stats()
+          .recordPhaseNanos(IngestionRunStats.PHASE_WRITE, System.nanoTime() - writeStartedNanos);
+    }
+  }
+
+  private <T> PreparedWriteResult writePreparedWriteInActiveTransaction(
+      GraphWriter writer, PreparedWrite<T> prepared, List<String> deletedMethodNames) {
     long writeStartedNanos = System.nanoTime();
     try {
       boolean success = prepared.adapter().write(writer, prepared.path(), prepared.parsed());

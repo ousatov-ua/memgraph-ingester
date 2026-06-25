@@ -287,13 +287,22 @@ public final class Const {
     public static final String CYPHER_DELETE_STALE_DEFINITION_RELATIONS_FOR_FILE =
         action("delete-stale-definition-relations-for-file.cypher");
 
+    public static final String CYPHER_DELETE_STALE_DEFINITION_RELATIONS_FOR_FILES =
+        action("delete-stale-definition-relations-for-files.cypher");
+
     /** Clears file-local stale definitions after relationship cleanup. */
     public static final String CYPHER_DELETE_STALE_DEFINITIONS_FOR_FILE =
         action("delete-stale-definitions-for-file.cypher");
 
+    public static final String CYPHER_DELETE_STALE_DEFINITIONS_FOR_FILES =
+        action("delete-stale-definitions-for-files.cypher");
+
     /** Lists method names that would be removed with a deleted source file. */
     public static final String CYPHER_DELETED_SOURCE_FILE_METHOD_NAMES =
         action("deleted-source-file-method-names.cypher");
+
+    public static final String CYPHER_DELETED_SOURCE_FILE_METHOD_NAMES_BATCH =
+        action("deleted-source-file-method-names-batch.cypher");
 
     /** Deletes a removed source file node. */
     public static final String CYPHER_DELETE_FILE = action("delete-file.cypher");

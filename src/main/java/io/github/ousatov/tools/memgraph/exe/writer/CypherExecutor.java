@@ -10,6 +10,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -248,6 +249,49 @@ class CypherExecutor {
     return values;
   }
 
+  /**
+   * Runs a read query and groups a string value column by a string key column, including inside
+   * async write transactions.
+   */
+  Map<String, List<String>> readStringMultimap(
+      String cypher, Map<String, Object> params, String keyColumn, String valueColumn) {
+    Map<String, Object> allParams = paramsWithProject(params);
+    if (currentAsyncTx != null) {
+      flushPendingOps();
+      long startedNanos = System.nanoTime();
+      List<StringPair> rows =
+          await(
+              currentAsyncTx
+                  .runAsync(cypher, allParams)
+                  .thenCompose(
+                      cursor ->
+                          cursor.listAsync(
+                              theRecord ->
+                                  new StringPair(
+                                      theRecord.get(keyColumn).asString(Const.Symbols.EMPTY),
+                                      theRecord.get(valueColumn).asString(Const.Symbols.EMPTY)))));
+      stats.recordCypherStatement(cypher, System.nanoTime() - startedNanos);
+      return stringMultimap(rows);
+    }
+    List<StringPair> rows = new ArrayList<>();
+    executeWithRetry(
+        cypher,
+        () -> {
+          rows.clear();
+          long startedNanos = System.nanoTime();
+          Result result = queryRunner().run(cypher, allParams);
+          while (result.hasNext()) {
+            var theRecord = result.next();
+            rows.add(
+                new StringPair(
+                    theRecord.get(keyColumn).asString(Const.Symbols.EMPTY),
+                    theRecord.get(valueColumn).asString(Const.Symbols.EMPTY)));
+          }
+          stats.recordCypherStatement(cypher, System.nanoTime() - startedNanos);
+        });
+    return stringMultimap(rows);
+  }
+
   static boolean isRetryable(RuntimeException e) {
     String msg =
         e.getMessage() == null ? Const.Symbols.EMPTY : e.getMessage().toLowerCase(Locale.ROOT);
@@ -336,6 +380,18 @@ class CypherExecutor {
     }
     return new RuntimeException(cause);
   }
+
+  private static Map<String, List<String>> stringMultimap(List<StringPair> rows) {
+    Map<String, List<String>> values = new LinkedHashMap<>();
+    for (StringPair row : rows) {
+      if (!row.key().isBlank() && !row.value().isBlank()) {
+        values.computeIfAbsent(row.key(), ignored -> new ArrayList<>()).add(row.value());
+      }
+    }
+    return values;
+  }
+
+  private record StringPair(String key, String value) {}
 
   private static <T> T await(CompletionStage<T> stage) {
     try {

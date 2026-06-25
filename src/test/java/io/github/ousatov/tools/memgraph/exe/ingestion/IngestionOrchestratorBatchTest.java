@@ -2,6 +2,7 @@ package io.github.ousatov.tools.memgraph.exe.ingestion;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
+import io.github.ousatov.tools.memgraph.def.Const.Cypher;
 import io.github.ousatov.tools.memgraph.exe.adapter.LanguageAdapter;
 import io.github.ousatov.tools.memgraph.exe.adapter.SourceLanguage;
 import io.github.ousatov.tools.memgraph.exe.metrics.IngestionRunStats;
@@ -52,6 +53,10 @@ class IngestionOrchestratorBatchTest {
     assertEquals(1, bolt.asyncBeginCalls);
     assertEquals(1, bolt.asyncCommitCalls);
     assertEquals(0, bolt.asyncRollbackCalls);
+    assertEquals(Cypher.CYPHER_DELETED_SOURCE_FILE_METHOD_NAMES_BATCH, bolt.asyncRunCyphers.get(0));
+    assertEquals(
+        Cypher.CYPHER_DELETE_STALE_DEFINITION_RELATIONS_FOR_FILES, bolt.asyncRunCyphers.get(1));
+    assertEquals(Cypher.CYPHER_DELETE_STALE_DEFINITIONS_FOR_FILES, bolt.asyncRunCyphers.get(2));
     assertEquals("2", metricValue(stats, "files.ingested"));
     assertEquals("0", metricValue(stats, "files.failed"));
   }
