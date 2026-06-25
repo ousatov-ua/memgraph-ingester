@@ -2447,6 +2447,78 @@ class GraphWriterIT {
   }
 
   @Test
+  void deleteStaleDefinitionsForFilesPreservesDefinitionMovedWithinSameBatch() {
+    Path changedFile = Path.of("/tmp/test-gw/src/app/changed.ts");
+    Path movedFile = Path.of("/tmp/test-gw/src/app/moved.ts");
+    Path callerFile = Path.of("/tmp/test-gw/src/app/caller.ts");
+    String movedSig = "js.app.shared.Owner.moved()";
+    String callerSig = "js.app.shared.Caller.run()";
+    session
+        .run(
+            """
+            MERGE (changedFile:File {path: $changedPath, project: $p})
+            SET changedFile.language = 'js'
+            MERGE (callerFile:File {path: $callerPath, project: $p})
+            SET callerFile.language = 'js'
+            MERGE (moved:Method {signature: $movedSig, project: $p})
+            SET moved.name = 'moved',
+                moved.ownerFqn = 'js.app.shared.Owner',
+                moved.ownerDisplayName = 'Owner'
+            MERGE (caller:Method {signature: $callerSig, project: $p})
+            SET caller.name = 'run',
+                caller.ownerFqn = 'js.app.shared.Caller',
+                caller.ownerDisplayName = 'Caller'
+            MERGE (changedFile)-[:DEFINES]->(moved)
+            MERGE (callerFile)-[:DEFINES]->(caller)
+            MERGE (caller)-[:CALLS]->(moved)
+            """,
+            Map.of(
+                "p",
+                PROJECT,
+                "changedPath",
+                changedFile.toString(),
+                "callerPath",
+                callerFile.toString(),
+                "movedSig",
+                movedSig,
+                "callerSig",
+                callerSig))
+        .consume();
+    SourceFileDefinitions movedDefinitions =
+        SourceFileDefinitions.of(List.of(), List.of(), List.of(), List.of(movedSig), List.of());
+
+    writer.deleteStaleDefinitionsForFiles(
+        Map.of(changedFile, SourceFileDefinitions.empty(), movedFile, movedDefinitions));
+
+    var row =
+        session
+            .run(
+                """
+                OPTIONAL MATCH (moved:Method {signature: $movedSig, project: $p})
+                OPTIONAL MATCH (:File {path: $changedPath, project: $p})
+                    -[oldDefinition:DEFINES]->(moved)
+                OPTIONAL MATCH (:Method {signature: $callerSig, project: $p})-[call:CALLS]->(moved)
+                RETURN count(DISTINCT moved) AS movedMethods,
+                       count(DISTINCT call) AS callsFromUnchangedFile,
+                       count(DISTINCT oldDefinition) AS oldDefinitions
+                """,
+                Map.of(
+                    "p",
+                    PROJECT,
+                    "changedPath",
+                    changedFile.toString(),
+                    "movedSig",
+                    movedSig,
+                    "callerSig",
+                    callerSig))
+            .single();
+
+    assertEquals(1, row.get("movedMethods").asLong());
+    assertEquals(1, row.get("callsFromUnchangedFile").asLong());
+    assertEquals(0, row.get("oldDefinitions").asLong());
+  }
+
+  @Test
   void extendsMarksExternalParentAsExternal() {
     writer.upsertFile(TEST_FILE, SourceLanguage.JAVA);
     writer.upsertPackage(PKG, SourceLanguage.JAVA);

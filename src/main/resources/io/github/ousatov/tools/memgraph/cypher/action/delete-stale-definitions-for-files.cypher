@@ -34,7 +34,16 @@ FOREACH (defines IN staleDefines | DELETE defines)
 WITH candidates
 UNWIND candidates AS node
 OPTIONAL MATCH (other:File {project: $project})-[:DEFINES]->(node)
-WITH node, count(other) AS remainingDefinitions
+WITH node,
+    count(other)
+    + size(
+      [batchRow IN $rows
+      WHERE (node:Class AND node.fqn IN batchRow.classFqns)
+        OR (node:Interface AND node.fqn IN batchRow.interfaceFqns)
+        OR (node:Annotation AND node.fqn IN batchRow.annotationFqns)
+        OR (node:Method AND node.signature IN batchRow.methodSignatures)
+        OR (node:Field AND node.fqn IN batchRow.fieldFqns)]
+    ) AS remainingDefinitions
 WHERE remainingDefinitions = 0
 WITH collect(DISTINCT node) AS staleDefinitions
 FOREACH (node IN staleDefinitions | DETACH DELETE node)
